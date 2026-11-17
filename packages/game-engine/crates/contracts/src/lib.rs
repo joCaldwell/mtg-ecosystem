@@ -1829,8 +1829,14 @@ impl Definition {
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
                 ActivationCost::Composite { .. } => Capability::CompositeActivationCostV1,
             });
-            if matches!(ability.cost, ActivationCost::TapPayLifeSacrificeSource { .. }) {
-                set.extend([Capability::TapSourceCostV1, Capability::SacrificeSourceCostV1]);
+            if matches!(
+                ability.cost,
+                ActivationCost::TapPayLifeSacrificeSource { .. }
+            ) {
+                set.extend([
+                    Capability::TapSourceCostV1,
+                    Capability::SacrificeSourceCostV1,
+                ]);
             }
             if ability.cost == ActivationCost::SacrificeSource
                 && ability
@@ -2387,7 +2393,9 @@ impl Definition {
         for ability in &self.activated {
             if has_keyword_grant(&ability.program) {
                 if !sacrifice_set::definition(self) {
-                    return Err("unsupported complete sacrifice-source set keyword definition".into());
+                    return Err(
+                        "unsupported complete sacrifice-source set keyword definition".into(),
+                    );
                 }
                 validate_instruction_program(&ability.program)?;
                 continue;
@@ -2944,7 +2952,8 @@ impl Definition {
                         || !self.mana_abilities.is_empty()
                 } else {
                     if c.subtypes.is_empty() {
-                        self.mana_abilities.is_empty() && !typed_land_search::activation_definition(self)
+                        self.mana_abilities.is_empty()
+                            && !typed_land_search::activation_definition(self)
                     } else {
                         !self.mana_abilities.is_empty()
                             || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
@@ -6039,7 +6048,9 @@ mod tests {
             false,
         ));
         definitions.push(temporary_permanent_keyword_tests::grant(true));
-        definitions.push(sacrifice_set_tests::grant(&[KeywordAbility::Indestructible]));
+        definitions.push(sacrifice_set_tests::grant(&[
+            KeywordAbility::Indestructible,
+        ]));
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());

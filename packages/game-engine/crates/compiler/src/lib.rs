@@ -37,8 +37,8 @@ mod spell_cascade_grants;
 use optional_costs::KickedCondition;
 mod conditional_lands;
 mod type_line;
-mod typed_land_search;
 mod typed_fetchland;
+mod typed_land_search;
 pub use catalog::*;
 use normalization::source_lines;
 
@@ -5005,10 +5005,11 @@ fn lower_activation(
         ));
     }
     let cost = match costs {
-        [SourceCost::TapSelf {}, SourceCost::PayLife { amount }, SourceCost::Sacrifice { what }]
-            if kind == CardKind::Land
-                && *what == serde_json::json!({"ref":"this","noun":"land"}) =>
-        {
+        [
+            SourceCost::TapSelf {},
+            SourceCost::PayLife { amount },
+            SourceCost::Sacrifice { what },
+        ] if kind == CardKind::Land && *what == serde_json::json!({"ref":"this","noun":"land"}) => {
             ActivationCost::TapPayLifeSacrificeSource {
                 life: typed_fetchland::life(amount)?,
             }

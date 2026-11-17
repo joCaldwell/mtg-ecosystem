@@ -18,19 +18,30 @@ impl Game {
     // exactly all remaining life is legal. Zero is payable at any life total.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn validate_tap_life_sacrifice_source(
-        &self, player: PlayerId, source: ObjectId, life: &Quantity,
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        life: &Quantity,
     ) -> Result<(), String> {
         let object = self.current(source)?;
-        if object.zone != Zone::Battlefield || object.controller != player
-            || !self.is_live(player) || object.tapped || life.is_negative()
-            || (*life > Quantity::zero() && self.state.rules.players[player.0 as usize].life < *life)
+        if object.zone != Zone::Battlefield
+            || object.controller != player
+            || !self.is_live(player)
+            || object.tapped
+            || life.is_negative()
+            || (*life > Quantity::zero()
+                && self.state.rules.players[player.0 as usize].life < *life)
         {
             return Err("unpayable source tap, life and sacrifice cost".into());
         }
         Ok(())
     }
     fn pay_tap_life_sacrifice_source(
-        &mut self, player: PlayerId, source: ObjectId, life: &Quantity, cause: BatchCause,
+        &mut self,
+        player: PlayerId,
+        source: ObjectId,
+        life: &Quantity,
+        cause: BatchCause,
     ) -> Result<(), String> {
         self.validate_tap_life_sacrifice_source(player, source, life)?;
         let mut children = vec![EventGroup::Occurrence {
@@ -40,11 +51,17 @@ impl Game {
         // life-change occurrence; zero costs deliberately emit no life event.
         if *life > Quantity::zero() {
             children.push(EventGroup::Occurrence {
-                proposed: ProposedEvent::LoseLife { player, amount: life.clone() },
+                proposed: ProposedEvent::LoseLife {
+                    player,
+                    amount: life.clone(),
+                },
             });
         }
         children.push(EventGroup::Occurrence {
-            proposed: ProposedEvent::Sacrifice { object: source, player },
+            proposed: ProposedEvent::Sacrifice {
+                object: source,
+                player,
+            },
         });
         // One ordered batch inside the staged rule step: no SBA/priority or
         // observable partial tap/debit before the complete cost has committed.
@@ -192,9 +209,15 @@ impl Game {
         } else {
             if let ActivationCost::TapPayLifeSacrificeSource { life } = &cost {
                 self.pay_tap_life_sacrifice_source(
-                    player, object, life,
+                    player,
+                    object,
+                    life,
                     BatchCause::AbilityActivation {
-                        stack_id: id, player, source: object, decision_id, ability,
+                        stack_id: id,
+                        player,
+                        source: object,
+                        decision_id,
+                        ability,
                     },
                 )?;
             } else if let ActivationCost::Composite { costs } = &cost {

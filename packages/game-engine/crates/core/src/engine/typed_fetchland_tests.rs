@@ -2,14 +2,21 @@
 //! seeded setups. Synthetic cost/control/fault probes are identified separately.
 //! CR 118.3b, 119.4, 602.2, 113.7a, 701.23b, 701.24a (2026-09-25):
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-use super::*;
 use super::typed_land_search_tests::{observation_work, typed_prepared, validate};
-const DELTA: &str = include_str!("../../../../tests/fixtures/ramos/ef86989d-ce80-4e55-aece-7d11710eeffa.json");
-const HEATH: &str = include_str!("../../../../tests/fixtures/ramos/29737a60-3ebd-40d9-b935-c4f54b90d45d.json");
-const POOL: &str = include_str!("../../../../tests/fixtures/ramos/20283c4a-f1f0-42f0-bc08-6da87474426b.json");
-const CINDER: &str = include_str!("../../../../tests/fixtures/ramos/dfac0258-e148-4d7d-8ded-fc2466d9caa6.json");
+use super::*;
+const DELTA: &str =
+    include_str!("../../../../tests/fixtures/ramos/ef86989d-ce80-4e55-aece-7d11710eeffa.json");
+const HEATH: &str =
+    include_str!("../../../../tests/fixtures/ramos/29737a60-3ebd-40d9-b935-c4f54b90d45d.json");
+const POOL: &str =
+    include_str!("../../../../tests/fixtures/ramos/20283c4a-f1f0-42f0-bc08-6da87474426b.json");
+const CINDER: &str =
+    include_str!("../../../../tests/fixtures/ramos/dfac0258-e148-4d7d-8ded-fc2466d9caa6.json");
 fn lower(raw: &str) -> Definition {
-    match mtg_compiler::compile(include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"), raw) {
+    match mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        raw,
+    ) {
         mtg_compiler::CompileResult::Lowered { definition } => *definition,
         other => panic!("{other:?}"),
     }
@@ -28,7 +35,10 @@ fn reseal(p: &mut Prepared) {
             *counts.entry(row.oracle_id.clone()).or_default() += 1;
         }
         assert_eq!(counts.values().sum::<u32>(), 100);
-        p.match_config.as_mut().unwrap().decks[seat as usize].cards = counts.into_iter().map(|(oracle_id, count)| DeckEntry { oracle_id, count }).collect();
+        p.match_config.as_mut().unwrap().decks[seat as usize].cards = counts
+            .into_iter()
+            .map(|(oracle_id, count)| DeckEntry { oracle_id, count })
+            .collect();
     }
     p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
 }
@@ -36,19 +46,35 @@ fn prepared(raw: &str) -> Prepared {
     let mut p = typed_prepared(raw);
     let mut probe = Game::new(p.clone());
     opening(&mut probe);
-    let replace: Vec<_> = probe.state.rules.libraries[&PlayerId(0)].iter().rev()
-        .filter(|id| probe.definition(**id).unwrap().name == "Forest").take(2).copied().collect();
+    let replace: Vec<_> = probe.state.rules.libraries[&PlayerId(0)]
+        .iter()
+        .rev()
+        .filter(|id| probe.definition(**id).unwrap().name == "Forest")
+        .take(2)
+        .copied()
+        .collect();
     assert_eq!(replace.len(), 2);
     for (id, source) in replace.into_iter().zip([POOL, CINDER]) {
         let d = lower(source);
-        p.config.cards.iter_mut().find(|r| r.id == id).unwrap().oracle_id = d.oracle_id.clone();
+        p.config
+            .cards
+            .iter_mut()
+            .find(|r| r.id == id)
+            .unwrap()
+            .oracle_id = d.oracle_id.clone();
         Arc::make_mut(&mut p.catalog).definitions.push(d);
     }
     reseal(&mut p);
     p
 }
 fn named(g: &Game, name: &str) -> ObjectId {
-    g.state.rules.objects.values().find(|o| g.definition(o.id.card).unwrap().name == name).unwrap().id
+    g.state
+        .rules
+        .objects
+        .values()
+        .find(|o| g.definition(o.id.card).unwrap().name == name)
+        .unwrap()
+        .id
 }
 fn public(g: &mut Game, response: PlayerResponse) {
     let receipt = validate(g, response);
@@ -58,8 +84,11 @@ fn main(g: &mut Game) {
     opening(g);
     for _ in 0..40 {
         let r = request(g);
-        if g.turn().step == TurnStep::PrecombatMain && r.player() == PlayerId(0) { return; }
-        g.respond(r.player(), r.decision_id(), Response::Pass).unwrap();
+        if g.turn().step == TurnStep::PrecombatMain && r.player() == PlayerId(0) {
+            return;
+        }
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
     }
     panic!("bounded main priority");
 }
@@ -79,13 +108,34 @@ fn activate(g: &mut Game, source: ObjectId) -> StackInstance {
     let before = g.state.clone();
     let trace = g.trace.clone();
     let token = observation(g, 0).decision.unwrap().token().clone();
-    let (outcome, continuation) = g.player_session(PlayerId(0)).action_beginnings(token, ActionScope::Object { object: handle.clone() }, 64, Budget::unlimited()).into_parts();
-    let ActionQueryOutcome::Complete { page } = outcome else { panic!("complete action query"); };
+    let (outcome, continuation) = g
+        .player_session(PlayerId(0))
+        .action_beginnings(
+            token,
+            ActionScope::Object {
+                object: handle.clone(),
+            },
+            64,
+            Budget::unlimited(),
+        )
+        .into_parts();
+    let ActionQueryOutcome::Complete { page } = outcome else {
+        panic!("complete action query");
+    };
     assert!(continuation.is_none());
-    assert!(page.beginnings.iter().any(|b| matches!(b.initiation, ActionInitiation::ActivateAbility { ability: 0, .. })));
+    assert!(page.beginnings.iter().any(|b| matches!(
+        b.initiation,
+        ActionInitiation::ActivateAbility { ability: 0, .. }
+    )));
     assert_eq!(g.state, before);
     assert_eq!(g.trace, trace);
-    public(g, PlayerResponse::ActivateAbility { object: handle, ability: 0 });
+    public(
+        g,
+        PlayerResponse::ActivateAbility {
+            object: handle,
+            ability: 0,
+        },
+    );
     // The accepted command still owns the old pre-cost state. A single staged
     // rule step must commit all costs before exposing any priority window.
     assert_eq!(g.zone(source), Some(Zone::Battlefield));
@@ -94,12 +144,23 @@ fn activate(g: &mut Game, source: ObjectId) -> StackInstance {
     let _ = g.advance(Budget::new(1));
     assert_eq!(g.state.rules.players[0].life, life);
     assert!(g.current(source).is_err());
-    assert_eq!(g.zone(g.object_id(source.card).unwrap()), Some(Zone::Graveyard { owner: g.state.rules.cards[&source.card].owner }));
+    assert_eq!(
+        g.zone(g.object_id(source.card).unwrap()),
+        Some(Zone::Graveyard {
+            owner: g.state.rules.cards[&source.card].owner
+        })
+    );
     let invocation = g.state.rules.stack.last().unwrap().clone();
     assert_eq!(invocation.source, source);
     assert_eq!(invocation.source_facts.as_ref().unwrap().object, source);
-    assert_eq!(invocation.source_facts.as_ref().unwrap().zone, Zone::Battlefield);
-    assert!(invocation.source_facts.as_ref().unwrap().tapped, "sacrifice retains post-tap LKI");
+    assert_eq!(
+        invocation.source_facts.as_ref().unwrap().zone,
+        Zone::Battlefield
+    );
+    assert!(
+        invocation.source_facts.as_ref().unwrap().tapped,
+        "sacrifice retains post-tap LKI"
+    );
     assert_eq!(invocation.paid.as_ref(), Some(&invocation.total_cost));
     let _ = request(g);
     invocation
@@ -107,8 +168,11 @@ fn activate(g: &mut Game, source: ObjectId) -> StackInstance {
 fn search(g: &mut Game) -> Request {
     for _ in 0..8 {
         let r = request(g);
-        if matches!(r, Request::SearchLands { .. }) { return r; }
-        g.respond(r.player(), r.decision_id(), Response::Pass).unwrap();
+        if matches!(r, Request::SearchLands { .. }) {
+            return r;
+        }
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
     }
     panic!("bounded search");
 }
@@ -121,50 +185,121 @@ fn typed_fetchland_paid_public_zero_find_and_typed_nonbasic_entry_recover() {
             let invocation = activate(g, source);
             let r = search(g);
             check(g);
-            let Request::SearchLands { candidates, maximum: 1, .. } = &r else { panic!("typed search"); };
+            let Request::SearchLands {
+                candidates,
+                maximum: 1,
+                ..
+            } = &r
+            else {
+                panic!("typed search");
+            };
             let selected = target.map(|name| named(g, name));
-            if let Some(object) = selected { assert!(candidates.contains(&object)); }
+            if let Some(object) = selected {
+                assert!(candidates.contains(&object));
+            }
             // Delta accepts typed Island nonbasics, but excludes Forest/Mountain.
             assert!(candidates.contains(&named(g, "Breeding Pool")));
-            if raw == DELTA { assert!(!candidates.contains(&named(g, "Cinder Glade"))); }
+            if raw == DELTA {
+                assert!(!candidates.contains(&named(g, "Cinder Glade")));
+            }
             for seat in 0..4 {
                 observation_work(g, PlayerId(seat));
                 let own = observation(g, seat);
-                assert!(own.view.objects.iter().all(|o| !matches!(o.zone, Zone::Library { .. })));
-                if seat != 0 { assert!(own.decision.is_none()); }
+                assert!(
+                    own.view
+                        .objects
+                        .iter()
+                        .all(|o| !matches!(o.zone, Zone::Library { .. }))
+                );
+                if seat != 0 {
+                    assert!(own.decision.is_none());
+                }
             }
             let before = g.state.clone();
-            for objects in [vec![source], vec![candidates[0], candidates[0]], vec![ObjectId { card: candidates[0].card, incarnation: candidates[0].incarnation + 1 }]] {
-                assert!(g.respond(PlayerId(0), r.decision_id(), Response::SearchLands { objects }).is_err());
+            for objects in [
+                vec![source],
+                vec![candidates[0], candidates[0]],
+                vec![ObjectId {
+                    card: candidates[0].card,
+                    incarnation: candidates[0].incarnation + 1,
+                }],
+            ] {
+                assert!(
+                    g.respond(
+                        PlayerId(0),
+                        r.decision_id(),
+                        Response::SearchLands { objects }
+                    )
+                    .is_err()
+                );
                 assert_eq!(g.state, before);
             }
-            let PlayerRequest::SearchLands { candidates: visible, .. } = observation(g, 0).decision.unwrap() else { panic!(); };
-            for seat in 1..4 { assert!(g.resolve_search_handle(PlayerId(seat), &visible[0].handle).is_err()); }
-            let handles = selected.into_iter().map(|o| visible.iter().find(|v| g.resolve_search_handle(PlayerId(0), &v.handle).unwrap() == o).unwrap().handle.clone()).collect();
+            let PlayerRequest::SearchLands {
+                candidates: visible,
+                ..
+            } = observation(g, 0).decision.unwrap()
+            else {
+                panic!();
+            };
+            for seat in 1..4 {
+                assert!(
+                    g.resolve_search_handle(PlayerId(seat), &visible[0].handle)
+                        .is_err()
+                );
+            }
+            let handles = selected
+                .into_iter()
+                .map(|o| {
+                    visible
+                        .iter()
+                        .find(|v| g.resolve_search_handle(PlayerId(0), &v.handle).unwrap() == o)
+                        .unwrap()
+                        .handle
+                        .clone()
+                })
+                .collect();
             let shuffle = observation(g, 0).view.players[0].library_shuffles;
             public(g, PlayerResponse::SearchLands { objects: handles });
             let _ = g.advance(Budget::new(1));
             if target.is_some() {
-                let Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. } = &g.state.rules.frame else { panic!("retained activation entry root"); };
+                let Frame::LandEntry {
+                    origin: EntryOrigin::Search { frame },
+                    ..
+                } = &g.state.rules.frame
+                else {
+                    panic!("retained activation entry root");
+                };
                 assert_eq!(frame.spell, invocation);
                 check(g);
             }
             resolve(g, vec![]);
-            assert_eq!(observation(g, 0).view.players[0].library_shuffles, shuffle + 1);
+            assert_eq!(
+                observation(g, 0).view.players[0].library_shuffles,
+                shuffle + 1
+            );
             if let Some(old) = selected {
                 let new = g.object_id(old.card).unwrap();
                 assert_ne!(new, old);
                 assert_eq!(g.zone(new), Some(Zone::Battlefield));
-                assert!(g.current(new).unwrap().tapped, "Cinder counts prior basic lands, not printed type or fetch source");
+                assert!(
+                    g.current(new).unwrap().tapped,
+                    "Cinder counts prior basic lands, not printed type or fetch source"
+                );
             }
             if g.trace.mode == TraceMode::Detailed {
                 let batch = g.trace.records.iter().find_map(|r| match &r.record {
                     EvidenceRecord::Batch { batch } if matches!(batch.cause, BatchCause::AbilityActivation { source: o, .. } if o == source) => Some(batch),
                     _ => None,
                 }).unwrap();
-                assert!(matches!(batch.occurrences[0].proposed, ProposedEvent::Tap { object } if object == source));
-                assert!(matches!(&batch.occurrences[1].proposed, ProposedEvent::LoseLife { player: PlayerId(0), amount } if *amount == 1.into()));
-                assert!(matches!(batch.occurrences[2].proposed, ProposedEvent::Sacrifice { object, player: PlayerId(0) } if object == source));
+                assert!(
+                    matches!(batch.occurrences[0].proposed, ProposedEvent::Tap { object } if object == source)
+                );
+                assert!(
+                    matches!(&batch.occurrences[1].proposed, ProposedEvent::LoseLife { player: PlayerId(0), amount } if *amount == 1.into())
+                );
+                assert!(
+                    matches!(batch.occurrences[2].proposed, ProposedEvent::Sacrifice { object, player: PlayerId(0) } if object == source)
+                );
                 assert_eq!(batch.occurrences.len(), 3);
             }
         });
@@ -178,41 +313,86 @@ fn typed_fetchland_shock_entry_retains_sacrificed_activation_root() {
         let invocation = activate(&mut g, source);
         let _ = search(&mut g);
         let pool = named(&g, "Breeding Pool");
-        let PlayerRequest::SearchLands { candidates, .. } = observation(&g, 0).decision.unwrap() else { panic!(); };
-        let handle = candidates.iter().find(|v| g.resolve_search_handle(PlayerId(0), &v.handle).unwrap() == pool).unwrap().handle.clone();
-        public(&mut g, PlayerResponse::SearchLands { objects: vec![handle] });
+        let PlayerRequest::SearchLands { candidates, .. } = observation(&g, 0).decision.unwrap()
+        else {
+            panic!();
+        };
+        let handle = candidates
+            .iter()
+            .find(|v| g.resolve_search_handle(PlayerId(0), &v.handle).unwrap() == pool)
+            .unwrap()
+            .handle
+            .clone();
+        public(
+            &mut g,
+            PlayerResponse::SearchLands {
+                objects: vec![handle],
+            },
+        );
         assert!(matches!(request(&mut g), Request::OptionalEffect { .. }));
-        let Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. } = &g.state.rules.frame else { panic!(); };
+        let Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        } = &g.state.rules.frame
+        else {
+            panic!();
+        };
         assert_eq!(frame.spell, invocation);
         assert!(g.current(source).is_err());
         check(&g);
         public(&mut g, PlayerResponse::OptionalEffect { perform: pay });
         resolve(&mut g, vec![]);
-        assert_eq!(g.state.rules.players[0].life, Quantity::from(if pay { 37 } else { 39 }));
-        assert_eq!(g.current(g.object_id(pool.card).unwrap()).unwrap().tapped, !pay);
+        assert_eq!(
+            g.state.rules.players[0].life,
+            Quantity::from(if pay { 37 } else { 39 })
+        );
+        assert_eq!(
+            g.current(g.object_id(pool.card).unwrap()).unwrap().tapped,
+            !pay
+        );
         check(&g);
     }
 }
 #[test]
 fn typed_fetchland_synthetic_exact_life_affordability_and_atomic_cost_failure() {
     for (cost, life, payable) in [
-        ("0", "1", true), ("1", "1", true), ("2", "1", false), ("3", "4", true),
-        ("999999999999999999999999999999999999999", "999999999999999999999999999999999999999", true),
+        ("0", "1", true),
+        ("1", "1", true),
+        ("2", "1", false),
+        ("3", "4", true),
+        (
+            "999999999999999999999999999999999999999",
+            "999999999999999999999999999999999999999",
+            true,
+        ),
         ("999999999999999999999999999999999999999", "40", false),
     ] {
         // Explicit synthetic IR quantities on the complete frozen source.
         let mut p = prepared(DELTA);
         p.config.initial.life[0] = life.parse().unwrap();
-        let d = Arc::make_mut(&mut p.catalog).definitions.iter_mut().find(|d| d.name == "Polluted Delta").unwrap();
+        let d = Arc::make_mut(&mut p.catalog)
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Polluted Delta")
+            .unwrap();
         d.source_labels = None;
-        d.activated[0].cost = ActivationCost::TapPayLifeSacrificeSource { life: cost.parse().unwrap() };
+        d.activated[0].cost = ActivationCost::TapPayLifeSacrificeSource {
+            life: cost.parse().unwrap(),
+        };
         reseal(&mut p);
         let mut g = Game::with_trace(p, TraceMode::Detailed);
         let source = play(&mut g, DELTA);
         let r = request(&mut g);
         let before = g.state.clone();
         let trace = g.trace.clone();
-        let result = g.respond(PlayerId(0), r.decision_id(), Response::ActivateAbility { object: source, ability: 0 });
+        let result = g.respond(
+            PlayerId(0),
+            r.decision_id(),
+            Response::ActivateAbility {
+                object: source,
+                ability: 0,
+            },
+        );
         if !payable {
             assert!(result.is_err());
             assert_eq!(g.state, before);
@@ -225,7 +405,19 @@ fn typed_fetchland_synthetic_exact_life_affordability_and_atomic_cost_failure() 
         expected.subtract(&cost.parse().unwrap());
         assert_eq!(g.state.rules.players[0].life, expected);
         assert!(g.current(source).is_err());
-        let events = g.events().iter().filter(|e| matches!(e, Event::Committed { proposed: ProposedEvent::LoseLife { .. }, .. })).count();
+        let events = g
+            .events()
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    Event::Committed {
+                        proposed: ProposedEvent::LoseLife { .. },
+                        ..
+                    }
+                )
+            })
+            .count();
         assert_eq!(events, usize::from(cost != "0"));
         check(&g);
     }
@@ -235,23 +427,63 @@ fn typed_fetchland_synthetic_exact_life_affordability_and_atomic_cost_failure() 
     // wrong controllers, tapped and stale incarnations cannot pay this source.
     let mut probe = g.fork();
     probe.state.rules.players[0].life = (-1).into();
-    assert!(probe.validate_tap_life_sacrifice_source(PlayerId(0), source, &0.into()).is_ok());
-    assert!(probe.validate_tap_life_sacrifice_source(PlayerId(0), source, &1.into()).is_err());
-    assert!(g.validate_tap_life_sacrifice_source(PlayerId(1), source, &1.into()).is_err());
-    probe.state.rules.objects.get_mut(&source.card).unwrap().tapped = true;
-    assert!(probe.validate_tap_life_sacrifice_source(PlayerId(0), source, &0.into()).is_err());
-    let stale = ObjectId { card: source.card, incarnation: source.incarnation + 1 };
-    assert!(g.validate_tap_life_sacrifice_source(PlayerId(0), stale, &1.into()).is_err());
+    assert!(
+        probe
+            .validate_tap_life_sacrifice_source(PlayerId(0), source, &0.into())
+            .is_ok()
+    );
+    assert!(
+        probe
+            .validate_tap_life_sacrifice_source(PlayerId(0), source, &1.into())
+            .is_err()
+    );
+    assert!(
+        g.validate_tap_life_sacrifice_source(PlayerId(1), source, &1.into())
+            .is_err()
+    );
+    probe
+        .state
+        .rules
+        .objects
+        .get_mut(&source.card)
+        .unwrap()
+        .tapped = true;
+    assert!(
+        probe
+            .validate_tap_life_sacrifice_source(PlayerId(0), source, &0.into())
+            .is_err()
+    );
+    let stale = ObjectId {
+        card: source.card,
+        incarnation: source.incarnation + 1,
+    };
+    assert!(
+        g.validate_tap_life_sacrifice_source(PlayerId(0), stale, &1.into())
+            .is_err()
+    );
     // Force failure in the LAST cost occurrence, after tap and life would apply.
     // The real staged executor preserves all pre-step semantics, retaining fault.
-    let exhausted = ObjectId { card: source.card, incarnation: u32::MAX };
+    let exhausted = ObjectId {
+        card: source.card,
+        incarnation: u32::MAX,
+    };
     g.state.rules.objects.get_mut(&source.card).unwrap().id = exhausted;
     g.refresh_visibility().unwrap();
     let r = request(&mut g);
-    g.respond(PlayerId(0), r.decision_id(), Response::ActivateAbility { object: exhausted, ability: 0 }).unwrap();
+    g.respond(
+        PlayerId(0),
+        r.decision_id(),
+        Response::ActivateAbility {
+            object: exhausted,
+            ability: 0,
+        },
+    )
+    .unwrap();
     let before = g.state.clone();
     let trace = g.trace.clone();
-    let Advance::Fault(reason) = g.advance(Budget::new(1)) else { panic!("preserved synthetic payment failure"); };
+    let Advance::Fault(reason) = g.advance(Budget::new(1)) else {
+        panic!("preserved synthetic payment failure");
+    };
     assert!(reason.contains("incarnation"), "{reason}");
     assert_eq!(g.state.rules.players, before.rules.players);
     assert_eq!(g.state.rules.objects, before.rules.objects);
@@ -262,13 +494,33 @@ fn typed_fetchland_synthetic_exact_life_affordability_and_atomic_cost_failure() 
 fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_skips() {
     let mut p = prepared(DELTA);
     let id = lower(DELTA).oracle_id;
-    let source = p.config.cards.iter().find(|r| r.oracle_id == id).unwrap().id;
-    let swap = p.config.cards.iter().find(|r| r.owner == PlayerId(1) && r.oracle_id == FOREST).unwrap().id;
+    let source = p
+        .config
+        .cards
+        .iter()
+        .find(|r| r.oracle_id == id)
+        .unwrap()
+        .id;
+    let swap = p
+        .config
+        .cards
+        .iter()
+        .find(|r| r.owner == PlayerId(1) && r.oracle_id == FOREST)
+        .unwrap()
+        .id;
     // Declared before construction: borrowed battlefield source owned by seat1;
     // swap an ordinary basic to retain legal100 physical ownership for all seats.
     for row in &mut p.config.cards {
-        if row.id == source { row.owner = PlayerId(1); row.controller = PlayerId(0); row.zone = Zone::Battlefield; }
-        if row.id == swap { row.owner = PlayerId(0); row.controller = PlayerId(0); row.zone = Zone::Library { owner: PlayerId(0) }; }
+        if row.id == source {
+            row.owner = PlayerId(1);
+            row.controller = PlayerId(0);
+            row.zone = Zone::Battlefield;
+        }
+        if row.id == swap {
+            row.owner = PlayerId(0);
+            row.controller = PlayerId(0);
+            row.zone = Zone::Library { owner: PlayerId(0) };
+        }
     }
     reseal(&mut p);
     // A borrowed owner's departure before an accepted activation is performed
@@ -277,12 +529,23 @@ fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_s
     main(&mut before_cost);
     let object = before_cost.object_id(source).unwrap();
     let handle = before_cost.handle_for(PlayerId(0), object).unwrap();
-    public(&mut before_cost, PlayerResponse::ActivateAbility { object: handle, ability: 0 });
+    public(
+        &mut before_cost,
+        PlayerResponse::ActivateAbility {
+            object: handle,
+            ability: 0,
+        },
+    );
     before_cost.concede(PlayerId(1)).unwrap();
     let _ = request(&mut before_cost);
     assert_eq!(before_cost.state.rules.players[0].life, 40.into());
     assert!(before_cost.state.rules.stack.is_empty());
-    assert!(!before_cost.events().iter().any(|e| matches!(e, Event::AbilityActivated { .. })));
+    assert!(
+        !before_cost
+            .events()
+            .iter()
+            .any(|e| matches!(e, Event::AbilityActivated { .. }))
+    );
     check(&before_cost);
     for departing in [PlayerId(1), PlayerId(0)] {
         let mut g = Game::with_trace(p.clone(), TraceMode::Detailed);
@@ -295,14 +558,35 @@ fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_s
         g.concede(departing).unwrap();
         let next = request(&mut g);
         if departing == PlayerId(1) {
-            assert!(matches!(next, Request::SearchLands { player: PlayerId(0), .. }));
+            assert!(matches!(
+                next,
+                Request::SearchLands {
+                    player: PlayerId(0),
+                    ..
+                }
+            ));
             assert!(!g.state.rules.objects.contains_key(&source));
-            assert_eq!(spell_cascade_grants::retained_resolving_entry(&g.state.rules.frame), Some(&invocation));
+            assert_eq!(
+                spell_cascade_grants::retained_resolving_entry(&g.state.rules.frame),
+                Some(&invocation)
+            );
             public(&mut g, PlayerResponse::SearchLands { objects: vec![] });
             resolve(&mut g, vec![]);
         } else {
-            assert!(!matches!(next, Request::SearchLands { player: PlayerId(0), .. }));
-            assert!(!g.state.rules.objects.values().any(|o| g.state.rules.cards[&o.id.card].owner == PlayerId(0)));
+            assert!(!matches!(
+                next,
+                Request::SearchLands {
+                    player: PlayerId(0),
+                    ..
+                }
+            ));
+            assert!(
+                !g.state
+                    .rules
+                    .objects
+                    .values()
+                    .any(|o| g.state.rules.cards[&o.id.card].owner == PlayerId(0))
+            );
         }
         check(&g);
     }

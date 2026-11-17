@@ -95,10 +95,10 @@ pub(super) fn activation_definition(d: &Definition) -> bool {
 }
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     let activated = d.activated.iter().any(|a| {
-        has_search(&a.program)
-            || matches!(a.cost, ActivationCost::TapPayLifeSacrificeSource { .. })
+        has_search(&a.program) || matches!(a.cost, ActivationCost::TapPayLifeSacrificeSource { .. })
     });
-    let present = activated || d.spell.as_ref().is_some_and(has_search)
+    let present = activated
+        || d.spell.as_ref().is_some_and(has_search)
         || d.triggered.iter().any(|a| has_search(&a.program));
     if !present {
         return Ok(());
@@ -107,15 +107,21 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     let source = if activated {
         activation_definition(d)
             && d.spell.is_none()
-            && !c.basic && !c.snow && !c.legendary
-            && c.subtypes.is_empty() && c.additional_types.is_empty()
+            && !c.basic
+            && !c.snow
+            && !c.legendary
+            && c.subtypes.is_empty()
+            && c.additional_types.is_empty()
     } else {
         matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
             && d.spell.as_ref().is_some_and(has_search)
             && d.activated.is_empty()
     };
-    if !source || d.x_mana_cost || !d.triggered.is_empty()
-        || !d.mana_abilities.is_empty() || !d.static_abilities.is_empty()
+    if !source
+        || d.x_mana_cost
+        || !d.triggered.is_empty()
+        || !d.mana_abilities.is_empty()
+        || !d.static_abilities.is_empty()
         || !d.keywords.is_empty()
     {
         return Err("typed land search requires a complete ordinary spell or pay-life source-land activation".into());

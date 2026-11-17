@@ -55,11 +55,19 @@ pub(super) fn schema(s: &mut serde_json::Value) {
             }}]}}
         }}
     }});
-    let mut caps = vec![Capability::NormalLayoutV1, Capability::BaseCreatureV1,
-        Capability::CastCreatureV1, Capability::ActivatedAbilityV1,
-        Capability::SacrificeSourceCostV1, Capability::BoardWipesV1,
-        Capability::TemporaryCreatureSetKeywordProgramV1];
-    let exact: Vec<_> = caps.iter().map(|cap| json!({"contains":{"const":cap}})).collect();
+    let mut caps = vec![
+        Capability::NormalLayoutV1,
+        Capability::BaseCreatureV1,
+        Capability::CastCreatureV1,
+        Capability::ActivatedAbilityV1,
+        Capability::SacrificeSourceCostV1,
+        Capability::BoardWipesV1,
+        Capability::TemporaryCreatureSetKeywordProgramV1,
+    ];
+    let exact: Vec<_> = caps
+        .iter()
+        .map(|cap| json!({"contains":{"const":cap}}))
+        .collect();
     let mut primitive_rules = Vec::new();
     // Derive the shared vocabulary so a reviewed common-keyword extension does
     // not need a second activation whitelist or a new per-source capability.
