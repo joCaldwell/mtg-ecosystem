@@ -65,7 +65,6 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
             CommanderContinuation::HandReturn { frame, .. }
-            | CommanderContinuation::HandReturn { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
@@ -104,7 +103,6 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         Frame::Stabilize { resume, .. } => update_frame(resume, fact),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
             CommanderContinuation::HandReturn { frame, .. }
-            | CommanderContinuation::HandReturn { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }

@@ -41,7 +41,6 @@ impl Game {
             }
             Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
                 CommanderContinuation::HandReturn { frame, .. }
-                | CommanderContinuation::HandReturn { frame, .. }
                 | CommanderContinuation::LibrarySelect { frame, .. }
                 | CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }

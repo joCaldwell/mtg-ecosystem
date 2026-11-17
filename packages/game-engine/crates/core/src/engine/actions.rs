@@ -1042,7 +1042,7 @@ impl Game {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
-                self.draw_damage_amount(frame, source_block)
+                self.draw_multiple(frame, source_block)
             }
             Instruction::DrawDamageAmount { source_block } => {
                 self.draw_multiple(frame, source_block)
