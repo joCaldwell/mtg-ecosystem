@@ -8,6 +8,9 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 pub mod catalog;
+mod controller_counted_draw;
+#[cfg(test)]
+mod controller_counted_draw_tests;
 mod controller_library;
 #[cfg(test)]
 mod controller_scry_tests;
@@ -1639,6 +1642,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(count) = controller_counted_draw::coalesce(effects)? {
+                    if abilities.len() != 1
+                        || block != 0
+                        || !program.instructions.is_empty()
+                        || !program.targets.is_empty()
+                        || !program.modes.is_empty()
+                    {
+                        return Err(unsupported(
+                            "counted draw",
+                            "requires complete standalone source",
+                        ));
+                    }
+                    program.instructions.push(Instruction::DrawControllerCards {
+                        count,
+                        source_block: 0,
+                    });
+                    continue;
+                }
                 if let Some((draw, count)) = draw_discard::coalesce(effects)? {
                     if abilities.len() != 1
                         || block != 0
@@ -1776,6 +1797,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .is_some_and(controller_library_order_program)
     {
         library_order::validate_source(&binding, &definition.oracle_id, &canonical_abilities)?;
+    }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(controller_counted_draw_program)
+    {
+        controller_counted_draw::validate_source(
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
     }
     definition.capabilities = definition.requirements();
     definition

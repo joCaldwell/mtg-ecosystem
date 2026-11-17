@@ -22,7 +22,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
     if d.activated.iter().any(|a| has_hand_program(&a.program))
         || d.triggered.iter().any(|a| has_hand_program(&a.program))
     {
-        return Err("hand return requires an ordinary spell".into());
+        return Err("counted controller programs require an ordinary spell".into());
     }
     if !d.spell.as_ref().is_some_and(has_hand_program) {
         return Ok(());
@@ -42,7 +42,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
         || !d.triggered.is_empty()
         || !d.mana_abilities.is_empty()
     {
-        return Err("hand return requires complete ordinary source".into());
+        return Err("counted controller programs require complete ordinary source".into());
     }
     Ok(())
 }
@@ -50,13 +50,17 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
     s["$defs"]["ControllerHandReturnProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"put_hand_on_library"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}],"items":false}}});
     s["$defs"]["HandReturnFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":["draw_controller_cards","put_hand_on_library"]}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}});
-    s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"}]}}));
+    s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/HandReturnFreeProgram"}}}});
-    let family = json!({"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"}]});
+    let family = json!({"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"}]});
     let defs = s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap();
     defs.push(json!({"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}},"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}}));
-    defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1]}}}}}}));
+    defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1]}}}}}}));
     for (program, cap) in [
+        (
+            "ControllerCountedDrawProgram",
+            Capability::ControllerCountedDrawV1,
+        ),
         (
             "ControllerHandReturnProgram",
             Capability::ControllerHandReturnV1,
@@ -106,6 +110,8 @@ mod tests {
                 match variant {
                     0 => {
                         p.instructions.pop();
+                        // A truncated tail is now valid counted IR; two counted instructions remain outside every family.
+                        p.instructions.push(p.instructions[0].clone());
                     }
                     1 => p.instructions.swap(0, 1),
                     2 => p.instructions.push(p.instructions[1].clone()),

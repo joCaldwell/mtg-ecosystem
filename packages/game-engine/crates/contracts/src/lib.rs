@@ -14,6 +14,8 @@ pub fn engine_build_input(path: &str) -> bool {
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+mod controller_counted_draw;
+pub use controller_counted_draw::controller_counted_draw_program;
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
@@ -246,6 +248,7 @@ pub enum Capability {
     ControllerLibraryOrderV1,
     ControllerHandReturnV1,
     ControllerDrawDiscardV1,
+    ControllerCountedDrawV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -3018,6 +3021,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if hand_return::has_hand_program(p)
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
+        && !controller_counted_draw_program(p)
     {
         return Err("unsupported complete controller draw/hand return".into());
     }
@@ -3860,7 +3864,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
-                if controller_draw_discard_program(program) {
+                if controller_counted_draw_program(program) {
+                    Capability::ControllerCountedDrawV1
+                } else if controller_draw_discard_program(program) {
                     Capability::ControllerDrawDiscardV1
                 } else {
                     Capability::ControllerHandReturnV1
@@ -4955,6 +4961,7 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_mill::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
+    controller_counted_draw::extend_schema(&mut schema);
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
     schema
@@ -5121,6 +5128,7 @@ mod tests {
             ControllerLibraryOrderV1,
             ControllerHandReturnV1,
             ControllerDrawDiscardV1,
+            ControllerCountedDrawV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5291,6 +5299,7 @@ mod tests {
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
         definitions.push(draw_discard::witness());
+        definitions.push(controller_counted_draw::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
