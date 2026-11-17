@@ -571,6 +571,7 @@ impl Game {
             self.begin_resolution()?;
         }
         self.revalidate_commander_departure()?;
+        self.revalidate_land_entry_departure()?;
         self.revalidate_actions_departure()?;
         self.revalidate_cascade_departure()?;
         if !self.state.rules.simultaneous_losses {

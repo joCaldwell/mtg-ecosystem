@@ -65,6 +65,9 @@ impl Game {
         )
     }
     fn active_land_search(&self) -> Option<LandSearch<'_>> {
+        if let Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. } = &self.state.rules.frame {
+            return self.land_search_for(frame);
+        }
         let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
             return None;
         };
@@ -79,6 +82,10 @@ impl Game {
         self.land_search_for(frame)
     }
     pub(super) fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
+        if let Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. } = &self.state.rules.frame {
+            if frame.spell.controller != player { return Err("wrong entry search controller".into()); }
+            return self.entry_search_force_tapped(frame);
+        }
         let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
             return Err("no searched land entry".into());
         };
@@ -94,6 +101,33 @@ impl Game {
             .land_search_for(frame)
             .ok_or("not land search instruction")?
             .force_tapped())
+    }
+    pub(super) fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String> {
+        let search = self.land_search_for(frame).ok_or("not an entry search instruction")?;
+        if search.split { return Err("split search is not optional entry producer".into()); }
+        Ok(search.source_block)
+    }
+    pub(super) fn entry_search_force_tapped(&self, frame: &Resolving) -> Result<bool, String> {
+        self.entry_search_block(frame)?;
+        Ok(self.land_search_for(frame).ok_or("missing entry search")?.force_tapped())
+    }
+    pub(super) fn validate_entry_search(&self, frame: &Resolving, objects: &[ObjectId]) -> Result<(), String> {
+        self.entry_search_block(frame)?;
+        let search = self.land_search_for(frame).ok_or("missing entry search")?;
+        let player = frame.spell.controller;
+        if !self.is_live(player) || objects.len() > search.maximum as usize || objects.iter().any(|o| {
+            self.current(*o).is_err()
+                || self.zone(*o) != Some(Zone::Library { owner: player })
+                || !self.definition(o.card).is_ok_and(|d| search.accepts(&d.characteristics))
+        }) { return Err("invalid complete entry search selection".into()); }
+        Ok(())
+    }
+    pub(super) fn resume_entry_search(&mut self, frame: Resolving) -> Result<(), String> {
+        let source_block = self.entry_search_block(&frame)?;
+        let player = frame.spell.controller;
+        let index = self.state.rules.libraries.get(&player).map_or(0, |l| l.len().saturating_sub(1)) as u32;
+        self.state.rules.frame = Frame::ResolutionChoice { frame, choice: ResolutionChoice::Shuffle { player, index, source_block } };
+        Ok(())
     }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         match self
@@ -241,7 +275,7 @@ impl Game {
         Ok(object)
     }
 
-    fn staple_cause(frame: &Resolving, source_block: u32) -> BatchCause {
+    pub(super) fn staple_cause(frame: &Resolving, source_block: u32) -> BatchCause {
         BatchCause::Instruction {
             stack_id: frame.spell.id,
             player: frame.spell.controller,
@@ -506,6 +540,9 @@ impl Game {
                 }
                 // All found cards enter together; response order is not semantic.
                 objects.sort();
+                if !objects.is_empty() && self.begin_land_entry(EntryOrigin::Search { frame: frame.clone() }, objects.clone())? {
+                    return Ok(());
+                }
                 if !objects.is_empty() {
                     self.commit_batch(
                         Self::staple_cause(&frame, source_block),

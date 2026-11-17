@@ -397,7 +397,9 @@ impl Game {
         for entry in &self.state.rules.stack {
             self.validate_mode_binding(entry)?;
         }
-        if let Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } =
+        if let Frame::Resolve { frame }
+        | Frame::ResolutionChoice { frame, .. }
+        | Frame::LandEntry { origin: EntryOrigin::Search { frame }, .. } =
             &self.state.rules.frame
         {
             self.validate_mode_binding(&frame.spell)?;
