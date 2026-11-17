@@ -191,6 +191,8 @@ link-count race caused this incident. Post-cleanup files pass private guards;
 earlier-case causality remains unknown. All five hosts, five units and 15 leases
 closed. Source/build stayed frozen; captures were off. Sealed index:
 `product-private-diagnostics-a745eecc-20261116/receipt-index.json`.
+Its 674-file summary is 675 including seals; correction:
+`product-private-diagnostics-review-20261116/file-count-erratum.json`.
 Full-game qualification remains absent; approvals stay empty.
 
 ## Earlier prerequisites and unique provenance
