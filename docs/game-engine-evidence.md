@@ -199,13 +199,16 @@ scoped lint exceptions and24/61/0 audit: `generated/ramos/m4e-integrated/integra
 
 ### Ramos land and library-choice integration
 
-Source `7e99dc40` combines through main `f1b04e83`:575 distinct Rust/576 executions
-including one export repeat,6,744 Ajv probes,1,004 verified native rows;33/25,IR1.
-Opt2 `2c94c19a` and CLIopt0 `2c9b003a` are independently reproduced. Typed search,
-conditional entry, intrinsic choice, paid source-departure queries, counters/costs,
-Scry/Surveil and cascade-to-Opt recovery pass; all-target/fmt and smoke/replay pass.
-Review repairs, earlier `8185cb2a` matrix(199.79s), failures and exact artifacts:
-`generated/ramos/land-integration/integration.json`. Frozen85-source audit:
-28 lowered/validated,57 Unsupported,zero Invalid;100 cards/37 lands unchanged.
-Consumer files equal tested main. Later Mill and consumer/exact-deck admission
-remain separate; broader runtime/lint/Node/CI gates are omitted.
+Source `7e99dc40`/main `f1b04e83`:575 distinct Rust/576 executions,6,744 probes,
+1,004 rows;33/25. Opt2 `2c94c19a`,CLI `2c9b003a`; earlier199.79-second typed-search
+matrix retains `8185cb2a`. Exact checkpoint: `generated/ramos/land-integration/checkpoint33.json`.
+
+Fresh main `05699cdb` combination `1fe0dfa1`:538 distinct Rust/539 executions,
+7,110 probes,1,012 rows;34/25,IR1. Opt2 `3ddea1aa`,CLI `3e9d1635` are independently
+reproduced. Mill cost/draw fences, conditional entry/intrinsic mana, source-departure
+queries, Surveil, cascade-to-Opt, codecs/Work and cost/history retention pass;
+all-target/fmt and smoke/replay pass. Reviews, fixes, separate earlier matrices,
+failures and exact source/settings/binaries: `generated/ramos/land-integration/integration.json`.
+Frozen85-source audit remains28 lowered/validated,57 Unsupported,zero Invalid;
+100 cards/37 lands unchanged. Consumer files equal tested main; later library
+selection, broader runtime/lint/Node/CI and consumer/exact-deck admission remain separate.

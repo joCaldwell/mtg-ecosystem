@@ -59,7 +59,7 @@ Complete typed multicolor lands, shock/conditional/tapped entry, fetch life/tap/
 sacrifice costs, typed nonbasic searches, mana choices/opponent production and hand
 cycling. Cover Farseek, Nature's Lore, Skyshroud Claim and all triome modes; Forest
 need not mean basic. Preserve reveal, optional quantities and destination entry rules.
-Combined source `7e99dc40` closes typed-search and conditional-entry review findings;
+Combined source `1fe0dfa1` closes typed-search and conditional-entry review findings;
 [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) records focused qualification. Shocks, fetch costs, triome cycling and
 opponent-production sources remain obligations.
 
