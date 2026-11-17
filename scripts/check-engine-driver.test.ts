@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, sourceIdentity, withAdvisoryLock, smokePhases } from "./check-engine-driver.ts";
 
 test("default coverage is bounded and deeper runtime work is explicit", () => {
@@ -20,20 +21,168 @@ test("default coverage is bounded and deeper runtime work is explicit", () => {
   assert.equal(full.filter(phase => phase.args.includes("packages/game-engine/tests/contracts.test.ts")).length, 1);
   assert.equal("preflight" in full.find(phase => phase.label === "node-tests")!, false);
   assert.match(engineCheckPlans.fast.omitted, /Core\/simulator\/server runtime tests/);
-  for (const plan of Object.values(engineCheckPlans)) {
+});
+
+test("routine plans retain live guards and behavior; tooling/full retain every harness suite", () => {
+  const suites = [
+    ["tooling-tests", "node", ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "scripts/retention-workspace.test.ts", "scripts/run-selected-tests.test.ts", "scripts/engine-environment.test.ts"]],
+    ["storage-safety", "python3", ["-B", "scripts/test-engine-storage.py"]],
+    ["retention-safety", "python3", ["-B", "scripts/test-retention-workspace.py"]],
+    ["worktree-safety", "python3", ["-B", "scripts/test-engine-worktrees.py"]],
+    ["structure-tests", "python3", ["-B", "scripts/test-engine-structure.py"]],
+    ["cache-tests", "python3", ["-B", "scripts/test-engine-cache.py"]],
+    ["documentation-tests", "python3", ["-B", "scripts/test-check-docs.py"]],
+  ];
+  for (const [mode, plan] of Object.entries(engineCheckPlans)) {
+    const native = ["fast", "contracts", "full"].includes(mode);
+    const selfTests = ["tooling", "full"].includes(mode);
+    assert.equal(plan.needsCargo, native);
+    assert.equal(plan.phases.filter(phase => phase.label === "cache-preflight").length, native ? 1 : 0);
+    if (native) assert.deepEqual(plan.phases[0], { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"] });
+    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/engine-structure-check.py")).length, 1);
     assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/check-docs.py")).length, 1);
-    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-check-docs.py")).length, 1);
-    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-engine-storage.py")).length, 1);
-    assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/test-retention-workspace.py")).length, 1);
-    assert.ok(plan.phases.some(phase => phase.args.includes("scripts/retention-workspace.test.ts")));
+    assert.deepEqual(plan.phases.filter(phase => suites.some(([label]) => label === phase.label)).map(phase => [phase.label, phase.command, phase.args]), selfTests ? suites : []);
+    if (!selfTests) assert.match(plan.omitted, /Verifier harness self-tests \(run --tooling or --full\)/);
   }
+  const labels = (mode: keyof typeof engineCheckPlans) => engineCheckPlans[mode].phases.map(phase => phase.label);
+  assert.deepEqual(labels("source"), ["structure-guard", "documentation-guard", "archive-parser"]);
+  assert.deepEqual(labels("fast"), ["cache-preflight", "structure-guard", "documentation-guard", "archive-parser", "format", "rust-check", "compiler-tests"]);
+  assert.deepEqual(labels("contracts"), ["cache-preflight", "structure-guard", "documentation-guard", "contract-preflight"]);
+  assert.deepEqual(labels("tooling"), [...suites.map(([label]) => label), "structure-guard", "documentation-guard"]);
+  assert.deepEqual(labels("full"), ["cache-preflight", "format", ...suites.map(([label]) => label), "structure-guard", "documentation-guard", "clippy", "rust-tests", "node-tests"]);
+  assert.deepEqual(engineCheckPlans.source.phases.at(-1), engineCheckPlans.fast.phases.find(phase => phase.label === "archive-parser"));
+  assert.equal(engineCheckPlans.contracts.phases.at(-1)?.preflight, true);
+  assert.equal(engineCheckPlans.source.phases.at(-1)?.preflight, true);
+  const scripts = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
+  assert.equal(scripts["check:engine:tooling"], "sh scripts/engine-env.sh node scripts/check-engine.ts --tooling");
+});
+
+// Run the real CLI/driver/measurement wrapper inside a tiny Git repository.
+// Phase executables record dispatch and reject native setup, admission or locks.
+// This avoids recursive tooling tests while exercising the CLI's execution path.
+function withCheckCli(work: (fixture: {
+  root: string;
+  home: string;
+  run: (args: string[], extraEnv?: NodeJS.ProcessEnv) => {
+    status: number | null; stdout: string; stderr: string; calls: any[]; records: any[];
+  };
+}) => void) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-engine-cli-test-"));
+  const root = path.join(directory, "repo");
+  const home = path.join(directory, "home");
+  const bin = path.join(directory, "bin");
+  const trace = path.join(directory, "calls.jsonl");
+  const python = spawnSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" });
+  assert.equal(python.status, 0, python.stderr);
+  let sequence = 0;
+  try {
+    fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+    fs.mkdirSync(bin);
+    for (const name of ["check-engine.ts", "check-engine-driver.ts", "check-engine-command.py"]) {
+      fs.copyFileSync(fileURLToPath(new URL(name, import.meta.url)), path.join(root, "scripts", name));
+    }
+    fs.writeFileSync(path.join(root, "rust-toolchain.toml"), 'channel = "1.99.0"\n');
+    const proxy = `#!${process.execPath}\n` + String.raw`
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const command = path.basename(process.argv[1]);
+const args = process.argv.slice(2);
+if (command === "python3" && args[0].endsWith("/check-engine-command.py")) {
+  const result = spawnSync(process.env.TEST_REAL_PYTHON, args, { stdio: "inherit" });
+  process.exit(result.status ?? 99);
+}
+fs.appendFileSync(process.env.TEST_TRACE, JSON.stringify({command, args}) + "\n");
+if (["rustc", "cargo", "flock"].includes(command) || args.includes("scripts/engine-cache.py")) process.exit(91);
+if (args.includes(process.env.TEST_MUTATE_PHASE)) fs.writeFileSync("mutated-source", "changed");
+process.exit(args.includes(process.env.TEST_FAIL_PHASE) ? 7 : 0);
+`;
+    for (const name of ["node", "python3", "rustc", "cargo", "flock"]) fs.writeFileSync(path.join(bin, name), proxy, { mode: 0o755 });
+    for (const args of [["init", "--quiet"], ["add", "."], ["-c", "commit.gpgsign=false", "-c", "user.name=Focused test", "-c", "user.email=focused@example.invalid", "commit", "--quiet", "-m", "fixture"]]) {
+      const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+    }
+    work({ root, home, run: (args, extraEnv = {}) => {
+      const report = path.join(directory, `timing-${sequence++}.jsonl`);
+      fs.writeFileSync(trace, "");
+      const result = spawnSync(process.execPath, [path.join(root, "scripts/check-engine.ts"), ...args], {
+        cwd: root, encoding: "utf8", timeout: 10000,
+        env: { ...process.env, HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, MTG_ENGINE_TIMING_FILE: report, TEST_TRACE: trace, TEST_REAL_PYTHON: python.stdout.trim(), ...extraEnv },
+      });
+      assert.ifError(result.error);
+      const jsonLines = (filename: string) => fs.readFileSync(filename, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+      return { ...result, calls: jsonLines(trace), records: fs.existsSync(report) ? jsonLines(report) : [] };
+    } });
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+}
+
+test("tooling CLI dispatches complete self-tests and guards without native setup or lock", () => {
+  withCheckCli(({ home, run }) => {
+    const result = run(["--tooling"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.calls, engineCheckPlans.tooling.phases.map(({ command, args }) => ({ command, args })));
+    assert.deepEqual(result.records.filter(record => record.kind === "command").map(record => record.label), engineCheckPlans.tooling.phases.map(phase => phase.label));
+    assert.equal(result.records.some(record => record.kind === "lock"), false);
+    assert.equal(fs.existsSync(home), false, "no native lock directory should be created");
+    assert.equal(result.records[0].rust, null);
+    assert.equal(result.records.at(-1).unchanged, true);
+    assert.match(result.stderr, /Omitted: Archived-source parser agreement/);
+  });
+});
+
+test("CLI plan/help execute no commands or native setup for any mode", () => {
+  withCheckCli(({ home, run }) => {
+    for (const [mode, plan] of Object.entries(engineCheckPlans)) {
+      const result = run([`--${mode}`, "--plan"]);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), { mode, ...plan });
+      assert.deepEqual(result.calls, []);
+      assert.deepEqual(result.records, []);
+    }
+    const help = run(["--tooling", "--help"]);
+    assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /--tooling/);
+    assert.deepEqual(help.calls, []);
+    assert.deepEqual(help.records, []);
+    assert.equal(fs.existsSync(home), false);
+  });
+});
+
+test("tooling CLI propagates suite/guard failures and rejects changed source", () => {
+  withCheckCli(({ run }) => {
+    for (const name of ["scripts/test-engine-cache.py", "scripts/engine-structure-check.py", "scripts/check-docs.py"]) {
+      const result = run(["--tooling"], { TEST_FAIL_PHASE: name });
+      const failedIndex = engineCheckPlans.tooling.phases.findIndex(phase => phase.args.includes(name));
+      assert.equal(result.status, 7, result.stderr);
+      assert.deepEqual(result.calls, engineCheckPlans.tooling.phases.slice(0, failedIndex + 1).map(({ command, args }) => ({ command, args })));
+      assert.equal(result.records.find(record => record.kind === "phases-complete").failed, engineCheckPlans.tooling.phases[failedIndex].label);
+      assert.equal(result.records.at(-1).unchanged, true);
+    }
+    const changed = run(["--tooling"], { TEST_MUTATE_PHASE: "scripts/check-docs.py" });
+    assert.equal(changed.status, 1, changed.stderr);
+    assert.equal(changed.records.at(-1).unchanged, false);
+    assert.match(changed.stderr, /source changed during execution/);
+  });
+});
+
+test("source CLI runs live guards and the exact archive selector without native setup", () => {
+  withCheckCli(({ home, run }) => {
+    const result = run(["--source"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.calls, engineCheckPlans.source.phases.map(({ command, args }) => ({ command, args })));
+    assert.equal(fs.existsSync(home), false);
+    assert.match(result.stderr, /Omitted: Verifier harness self-tests/);
+    assert.equal(result.records.at(-1).unchanged, true);
+  });
 });
 
 test("mode selection rejects typos and conflicting modes before launching commands", () => {
   assert.deepEqual(parseCheckArguments(["--contracts", "--plan"]), { mode: "contracts", planOnly: true, help: false });
+  assert.deepEqual(parseCheckArguments(["--tooling"]), { mode: "tooling", planOnly: false, help: false });
   assert.throws(() => parseCheckArguments(["--ful"]), /Unknown/);
   assert.throws(() => parseCheckArguments(["--full", "--fast"]), /exactly one/);
   assert.throws(() => parseCheckArguments(["--full", "--full"]), /exactly one/);
+  assert.throws(() => parseCheckArguments(["--tooling", "--source"]), /exactly one/);
 });
 
 test("phase failure stops subsequent work and inherited preflight cannot shrink full coverage", async () => {
@@ -48,7 +197,7 @@ test("phase failure stops subsequent work and inherited preflight cannot shrink 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].env.MTG_ENGINE_CONTRACT_PREFLIGHT, "0");
     assert.equal(calls[0].env.CARGO_INCREMENTAL, "0");
-    assert.deepEqual(result, { code: code ?? 1, completed: [], failed: "format" });
+    assert.deepEqual(result, { code: code ?? 1, completed: [], failed: "cache-preflight" });
   }
   const cohorts: string[] = [];
   const result = await runCheckPhases(engineCheckPlans.contracts.phases, {
