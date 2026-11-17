@@ -38,6 +38,11 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ResolutionChoice {
+    LibrarySelect {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        source_block: u32,
+    },
     Surveil {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -277,11 +282,19 @@ impl Game {
         self.announce_ability(player, decision_id, object, ability)
     }
     pub(super) fn actions_request(&self) -> Result<Option<Request>, String> {
-        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
+        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
             return Ok(None);
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::LibrarySelect { player, looked, .. } if self.is_live(*player) => {
+                Some(Request::LibrarySelect {
+                    decision_id,
+                    player: *player,
+                    candidates: looked.clone(),
+                    remainder: self.selection_destination(frame)?,
+                })
+            }
             ResolutionChoice::Surveil { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::Surveil {
                     decision_id,
@@ -371,6 +384,27 @@ impl Game {
             return Some(result);
         }
         match (&self.state.rules.frame, response) {
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
+                        ResolutionChoice::LibrarySelect {
+                            player: chooser,
+                            looked,
+                            source_block,
+                        },
+                },
+                Response::LibrarySelect { hand, remainder },
+            ) => Some(
+                self.validate_selection_choice(frame, *chooser, looked, *source_block)
+                    .and_then(|_| {
+                        if player != *chooser {
+                            return Err("invalid library chooser".into());
+                        }
+                        self.validate_selection_partition(player, looked, hand, remainder)
+                    }),
+            ),
+
             (
                 Frame::ResolutionChoice {
                     frame,
@@ -508,6 +542,14 @@ impl Game {
                 self.state.rules.frame = Frame::Mana { cast };
             }
             Frame::ResolutionChoice { frame, choice } => {
+                if let ResolutionChoice::LibrarySelect {
+                    player,
+                    looked,
+                    source_block,
+                } = choice
+                {
+                    return self.library_selection_step(frame, player, looked, source_block);
+                }
                 if let ResolutionChoice::Surveil {
                     player,
                     looked,
@@ -544,7 +586,8 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::Surveil { .. }
+                        ResolutionChoice::LibrarySelect { .. }
+                        | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
@@ -574,7 +617,8 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::Surveil { .. }
+                    ResolutionChoice::LibrarySelect { .. }
+                    | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
@@ -677,6 +721,11 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::SelectLibraryCard {
+                amount,
+                source_block,
+                ..
+            } => self.begin_library_selection(frame, amount, source_block),
             Instruction::MillCards {
                 recipient,
                 count,
@@ -1246,6 +1295,16 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::LibrarySelect {
+                        player,
+                        looked,
+                        source_block,
+                    },
+                    Instruction::SelectLibraryCard { .. },
+                ) => self
+                    .validate_selection_choice(frame, *player, looked, *source_block)
+                    .is_ok(),
                 (
                     ResolutionChoice::Surveil {
                         player,

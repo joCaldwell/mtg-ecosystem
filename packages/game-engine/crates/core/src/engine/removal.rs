@@ -34,7 +34,8 @@ impl Game {
                 Self::target_information_frame(resume)
             }
             Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-                CommanderContinuation::BoardReturn { frame, .. }
+                CommanderContinuation::LibrarySelect { frame, .. }
+                | CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }
                 | CommanderContinuation::ResolutionDraw { frame, .. } => Some(frame),
                 CommanderContinuation::StateBased { resume }

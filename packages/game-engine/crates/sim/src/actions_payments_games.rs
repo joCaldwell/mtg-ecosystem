@@ -200,7 +200,9 @@ impl Strategy {
         let v = &o.view;
         let r = o.decision.as_ref().ok_or("missing action decision")?;
         Ok(match r {
-            PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. } => {
+            PlayerRequest::LibrarySelect { .. }
+            | PlayerRequest::Scry { .. }
+            | PlayerRequest::Surveil { .. } => {
                 return Err("scry outside this policy admission".into());
             }
             PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {

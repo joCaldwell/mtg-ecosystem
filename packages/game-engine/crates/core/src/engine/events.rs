@@ -341,7 +341,8 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
 
 fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     match event {
-        ProposedEvent::Mill {
+        ProposedEvent::LibrarySelect { player, looked, .. }
+        | ProposedEvent::Mill {
             player,
             cards: looked,
             ..
@@ -757,7 +758,8 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
-                ProposedEvent::Mill {
+                ProposedEvent::LibrarySelect { player, looked, .. }
+                | ProposedEvent::Mill {
                     player,
                     cards: looked,
                     ..
@@ -1546,6 +1548,9 @@ impl Game {
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
         let actual = match proposed {
+            ProposedEvent::LibrarySelect { .. } => {
+                self.apply_library_selection(proposed, before)?
+            }
             ProposedEvent::Mill {
                 player,
                 count,

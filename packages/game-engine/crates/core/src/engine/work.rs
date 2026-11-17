@@ -167,7 +167,7 @@ struct ObservationWork {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
 enum Task {
-    // Sidecar v25 includes typed Scry/Surveil choice and response-conversion prefixes.
+    // Sidecar v26 includes library-selection choice and conversion prefixes.
     // Projection/request headers remain explicit work, never hidden work
     // performed even when the caller grants no budget.
     Initialize,
@@ -456,7 +456,9 @@ impl Game {
             candidates.push(*id);
         }
         if let Some(
-            PlayerRequest::Scry { candidates, .. } | PlayerRequest::Surveil { candidates, .. },
+            PlayerRequest::LibrarySelect { candidates, .. }
+            | PlayerRequest::Scry { candidates, .. }
+            | PlayerRequest::Surveil { candidates, .. },
         ) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(object) = self
@@ -489,7 +491,11 @@ impl Game {
                 cache.triggers(self).len()
             } else if matches!(
                 b.decision,
-                Some(PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. })
+                Some(
+                    PlayerRequest::LibrarySelect { .. }
+                        | PlayerRequest::Scry { .. }
+                        | PlayerRequest::Surveil { .. }
+                )
             ) {
                 self.library_looked(viewer).map_or(0, |ids| ids.len())
             } else {
@@ -530,7 +536,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 25,
+                    observation_version: 26,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -539,7 +545,8 @@ impl Game {
             }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
                 if let Some(
-                    PlayerRequest::Scry { candidates, .. }
+                    PlayerRequest::LibrarySelect { candidates, .. }
+                    | PlayerRequest::Scry { candidates, .. }
                     | PlayerRequest::Surveil { candidates, .. },
                 ) = request
                 {
@@ -681,6 +688,17 @@ impl Game {
                     let timing_valid = match (&self.state.rules.frame, response) {
                         (
                             Frame::ResolutionChoice {
+                                choice: ResolutionChoice::LibrarySelect { player, looked, .. },
+                                ..
+                            },
+                            PlayerResponse::LibrarySelect { hand, remainder },
+                        ) => {
+                            player == viewer
+                                && hand.len() == 1
+                                && hand.len().checked_add(remainder.len()) == Some(looked.len())
+                        }
+                        (
+                            Frame::ResolutionChoice {
                                 choice: ResolutionChoice::Surveil { player, looked, .. },
                                 ..
                             },
@@ -797,7 +815,11 @@ impl Game {
                     converted.push(object);
                     return Ok(None);
                 }
-                if let PlayerResponse::Scry { top, bottom }
+                if let PlayerResponse::LibrarySelect {
+                    hand: top,
+                    remainder: bottom,
+                }
+                | PlayerResponse::Scry { top, bottom }
                 | PlayerResponse::Surveil {
                     top,
                     graveyard: bottom,
@@ -863,39 +885,46 @@ impl Game {
                     return Ok(None);
                 }
                 if value.is_none() {
-                    *value = Some(if let PlayerResponse::Scry { top, .. } = response {
-                        Response::Scry {
-                            top: converted[..top.len()].to_vec(),
-                            bottom: converted[top.len()..].to_vec(),
-                        }
-                    } else if let PlayerResponse::Surveil { top, .. } = response {
-                        Response::Surveil {
-                            top: converted[..top.len()].to_vec(),
-                            graveyard: converted[top.len()..].to_vec(),
-                        }
-                    } else if matches!(response, PlayerResponse::DamageAllocation { .. }) {
-                        Response::DamageAllocation {
-                            allocations: converted_allocations.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
-                        Response::BottomOpening {
-                            objects: converted.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::Targets { .. }) {
-                        Response::Targets {
-                            objects: converted.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
-                        Response::EntityTargets {
-                            entities: converted_entities.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
-                        Response::OrderTriggers {
-                            order: converted_triggers.clone(),
-                        }
-                    } else {
-                        self.convert_response(*viewer, response).map_err(invalid)?
-                    });
+                    *value = Some(
+                        if let PlayerResponse::LibrarySelect { hand, .. } = response {
+                            Response::LibrarySelect {
+                                hand: converted[..hand.len()].to_vec(),
+                                remainder: converted[hand.len()..].to_vec(),
+                            }
+                        } else if let PlayerResponse::Scry { top, .. } = response {
+                            Response::Scry {
+                                top: converted[..top.len()].to_vec(),
+                                bottom: converted[top.len()..].to_vec(),
+                            }
+                        } else if let PlayerResponse::Surveil { top, .. } = response {
+                            Response::Surveil {
+                                top: converted[..top.len()].to_vec(),
+                                graveyard: converted[top.len()..].to_vec(),
+                            }
+                        } else if matches!(response, PlayerResponse::DamageAllocation { .. }) {
+                            Response::DamageAllocation {
+                                allocations: converted_allocations.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
+                            Response::BottomOpening {
+                                objects: converted.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::Targets { .. }) {
+                            Response::Targets {
+                                objects: converted.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
+                            Response::EntityTargets {
+                                entities: converted_entities.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
+                            Response::OrderTriggers {
+                                order: converted_triggers.clone(),
+                            }
+                        } else {
+                            self.convert_response(*viewer, response).map_err(invalid)?
+                        },
+                    );
                     return Ok(None);
                 }
                 let receipt = self
@@ -924,7 +953,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 25,
+                            observation_version: 26,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -960,7 +989,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 25,
+                    context_version: 26,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -979,7 +1008,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 25,
+            work_version: 26,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -988,7 +1017,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 25
+        if saved.work_version != 26
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -1022,7 +1051,11 @@ impl Game {
 impl Game {
     fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
         Ok(match self.request_header(viewer)? {
-            Some(PlayerRequest::Scry { .. } | PlayerRequest::Surveil { .. }) => self
+            Some(
+                PlayerRequest::LibrarySelect { .. }
+                | PlayerRequest::Scry { .. }
+                | PlayerRequest::Surveil { .. },
+            ) => self
                 .library_looked(viewer)
                 .map_or(0, |ids| ids.len() as u64),
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
@@ -1069,6 +1102,7 @@ impl Game {
                     .ok_or("decision work resource limit")?,
                 Some(
                     PlayerRequest::OrderTriggers { .. }
+                    | PlayerRequest::LibrarySelect { .. }
                     | PlayerRequest::Scry { .. }
                     | PlayerRequest::Surveil { .. }
                     | PlayerRequest::Modes { .. }
@@ -1079,7 +1113,11 @@ impl Game {
             }),
             Query::Check { response, .. } => {
                 let entries = match response {
-                    PlayerResponse::Scry { top, bottom }
+                    PlayerResponse::LibrarySelect {
+                        hand: top,
+                        remainder: bottom,
+                    }
+                    | PlayerResponse::Scry { top, bottom }
                     | PlayerResponse::Surveil {
                         top,
                         graveyard: bottom,
