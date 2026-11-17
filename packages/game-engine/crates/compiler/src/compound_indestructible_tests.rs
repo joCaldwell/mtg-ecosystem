@@ -80,7 +80,7 @@ fn compound_indestructible_rejects_mutated_steps_occurrences_bindings_and_contex
                 14=>{a["kind"]="activated".into(); a["costs"]=json!([{"cost":"tap"}]);},
                 15=>steps[1]["abilities"][0]["keyword"]["extra"]=true.into(),
                 16=>steps[1]["what"]["selectionId"]="".into(),
-                17=>steps[1]["abilities"][0]["keyword"]["keyword"]="reach".into(),
+                17=>steps[1]["abilities"][0]["keyword"]["keyword"]="double strike".into(),
                 18=>a["effects"][0]["steps"][0]["extra"]=true.into(),
                 19=>{let pump=steps[0].clone(); let gain=steps[1].clone(); a["effects"]=json!([{"steps":[pump]},{"steps":[gain]}]);},
                 20=>{let sentence=a["effects"][0].clone(); a["effects"]=json!([{"steps":[]},sentence]);},
