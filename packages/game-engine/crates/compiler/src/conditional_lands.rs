@@ -3,7 +3,43 @@
 use super::*;
 use serde_json::{Value, json};
 
+// Deliberately separate from SourceCost: entry replacement is no casting cost.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "cost", rename_all = "kebab-case", deny_unknown_fields)]
+pub(super) enum EntryLifeCost {
+    PayLife { amount: Value },
+}
+
 pub(super) fn lower(effect: &SourceStaticEffect) -> Result<Option<StaticAbility>, Failure> {
+    if let SourceStaticEffect::EntryChoice {
+        what,
+        who,
+        costs,
+        declined,
+    } = effect
+    {
+        let bad = || unsupported("static.entry", "unsupported complete optional-life land entry");
+        let [EntryLifeCost::PayLife { amount }] = costs.as_slice() else {
+            return Err(bad());
+        };
+        // serde_json's exact native integer range is the SOURCE decoder limit.
+        // Never lower a float (including rounded huge JSON numbers) to Quantity.
+        // IR quantities remain arbitrary precision, independently of this limit.
+        let value = amount["value"].as_u64().ok_or_else(bad)?;
+        if *what != json!({"ref":"this","noun":"land"})
+            || *who != json!({"player":"you"})
+            || *amount != json!({"amount":"fixed","value":value})
+            || *declined != json!({"tapped":true})
+        {
+            return Err(bad());
+        }
+        return Ok(Some(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::EntersTappedUnlessPayLife {
+                amount: value.to_string().parse().map_err(|_| bad())?,
+            },
+        }));
+    }
     let SourceStaticEffect::EntersTapped {
         what,
         condition_kind,
@@ -91,10 +127,15 @@ pub(super) fn bind(
         return Err(bad());
     }
     let references = binding["references"].as_array().ok_or_else(bad)?;
-    for (suffix, expression, target) in [
+    let optional = matches!(effect, SourceStaticEffect::EntryChoice { .. });
+    let mut obligations = vec![
         ("/effect/what", json!({"ref":"this","noun":"land"}), source),
-        ("/effect/condition/who", json!({"player":"you"}), entering),
-    ] {
+        (if optional { "/effect/who" } else { "/effect/condition/who" }, json!({"player":"you"}), entering.clone()),
+    ];
+    if optional {
+        obligations.push(("/effect/costs/0/payer", json!({"player":"you"}), entering));
+    }
+    for (suffix, expression, target) in obligations {
         let matches: Vec<_> = references
             .iter()
             .filter(|r| r["path"] == format!("{path}{suffix}"))
@@ -117,9 +158,11 @@ pub(super) fn validate_binding_closure(
     identity: &str,
 ) -> Result<(), Failure> {
     let mut conditional = false;
+    let mut optional = false;
     for a in abilities {
         if let Ability::Static { effect, .. } = a {
             conditional |= lower(effect)?.is_some();
+            optional |= matches!(effect, SourceStaticEffect::EntryChoice { .. });
         }
     }
     if !conditional {
@@ -131,22 +174,39 @@ pub(super) fn validate_binding_closure(
             "incomplete conditional-entry binding obligation set",
         )
     };
+    // This family has exactly one replacement on the whole pure source. Do
+    // not imply ordering support by accepting another optional/intrinsic block.
+    if optional && abilities.len() != 1 {
+        return Err(bad());
+    }
     let mut expected = Vec::new();
     for (block, a) in abilities.iter().enumerate() {
-        let Ability::Static {
-            effect: SourceStaticEffect::EntersTapped { what, .. },
-            ..
-        } = a
-        else {
+        let Ability::Static { effect, .. } = a else {
             return Err(bad());
+        };
+        let what = match effect {
+            SourceStaticEffect::EntersTapped { what, .. }
+            | SourceStaticEffect::EntryChoice { what, .. } => what,
+            _ => return Err(bad()),
         };
         let path = format!("/faces/0/abilities/{block}/effect");
         expected.push(json!({"path":format!("{path}/what"),"expression":what,"binding":"bound","target":format!("card:{identity}/source#object")}));
-        if let Ability::Static { effect, .. } = a {
-            if lower(effect)?.is_some() {
-                expected.push(json!({"path":format!("{path}/condition/who"),"expression":{"player":"you"},"binding":"bound","target":format!("card:{identity}{path}#entering-controller")}));
+        if lower(effect)?.is_some() {
+            let who = if optional { "who" } else { "condition/who" };
+            expected.push(json!({"path":format!("{path}/{who}"),"expression":{"player":"you"},"binding":"bound","target":format!("card:{identity}{path}#entering-controller")}));
+            if optional {
+                expected.push(json!({"path":format!("{path}/costs/0/payer"),"expression":{"player":"you"},"binding":"bound","target":format!("card:{identity}{path}#entering-controller")}));
             }
         }
+    }
+    // bind() already validates every required node exactly (ignoring only
+    // diagnostic rules). Reject unconsumed/duplicate/foreign nodes as well.
+    if optional
+        && binding["nodes"]
+            .as_array()
+            .is_none_or(|n| n.len() != 2 + 3 * abilities.len())
+    {
+        return Err(bad());
     }
     let references = binding["references"].as_array().ok_or_else(bad)?;
     if references.len() != expected.len()
@@ -178,3 +238,7 @@ pub(super) fn validate_binding_closure(
 #[cfg(test)]
 #[path = "conditional_lands_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "optional_life_lands_tests.rs"]
+mod optional_life_tests;

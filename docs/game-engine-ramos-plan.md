@@ -60,8 +60,9 @@ sacrifice costs, typed nonbasic searches, mana choices/opponent production and h
 cycling. Cover Farseek, Nature's Lore, Skyshroud Claim and all triome modes; Forest
 need not mean basic. Preserve reveal, optional quantities and destination entry rules.
 Combined source `1fe0dfa1` closes typed-search and conditional-entry review findings;
-[evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) records focused qualification. Shocks, fetch costs, triome cycling and
-opponent-production sources remain obligations.
+[evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) records qualification. Five frozen shocks have SOURCE_ONLY_UNQUALIFIED
+contracts/compiler groundwork; entry/payment producers remain blocked. Fetch costs,
+triome cycling and opponent production remain open.
 
 ### M3 Build casting during resolution and basic cascade
 

@@ -216,6 +216,7 @@ pub enum Capability {
     StepBeginningTriggerV1,
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
+    OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
     FlashV1,
     CastArtifactV1,
@@ -926,6 +927,10 @@ pub enum StaticEffect {
     /// CR 109.5/205.4c/614.12: count prior basic lands of the entering controller.
     EntersTappedUnlessControllerBasicLands {
         minimum: Quantity,
+    },
+    /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
+    EntersTappedUnlessPayLife {
+        amount: Quantity,
     },
     ReduceGenericByCreatureCount,
     ReduceSelfGenericCost {
@@ -1862,6 +1867,7 @@ impl Definition {
                     Capability::ControllerCreaturePlusOneCounterReplacementV1
                 }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
+                StaticEffect::EntersTappedUnlessPayLife { .. } => Capability::OptionalLifeLandEntryV1,
                 StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
                     Capability::ConditionalBasicLandEntryV1
                 }
@@ -2691,6 +2697,7 @@ impl Definition {
                 StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && !matches!(
@@ -2802,6 +2809,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::EntersTapped
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
                     return Err("entry replacement requires a permanent".into());
@@ -5724,6 +5732,7 @@ mod tests {
             FlashV1,
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
+            OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
@@ -5902,6 +5911,7 @@ mod tests {
         definitions.push(basic_land_split_tests::split_search());
         definitions.push(typed_land_search_tests::typed_search());
         definitions.push(conditional_lands::tests::land());
+        definitions.push(conditional_lands::tests::optional_land());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
             CounterPlacementModification::Add { amount: 7.into() },

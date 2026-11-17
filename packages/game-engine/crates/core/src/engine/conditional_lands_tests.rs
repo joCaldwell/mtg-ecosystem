@@ -825,3 +825,6 @@ fn conditional_lands_synthetic_dependency_and_wrapper_accounting_probes() {
         Frame::Priority
     ));
 }
+
+#[path = "optional_life_lands_tests.rs"]
+mod optional_life_guard_tests;

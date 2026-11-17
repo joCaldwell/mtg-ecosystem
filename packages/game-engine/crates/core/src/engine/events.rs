@@ -1683,6 +1683,18 @@ impl Game {
         force_tapped: bool,
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
+        // Optional entry requires a prepared, rollback-owned transaction.
+        // This source checkpoint supplies contracts/compiler only: reject all
+        // unprepared battlefield producers BEFORE movement side effects, even
+        // when forced tapping would otherwise short-circuit entry evaluation.
+        // Non-battlefield movement does not participate in entry preparation.
+        if destination == Zone::Battlefield
+            && self.definition(object.card)?.static_abilities.iter().any(|a| {
+                matches!(a.effect, StaticEffect::EntersTappedUnlessPayLife { .. })
+            })
+        {
+            return Err("optional-life entry requires prepared transaction authority".into());
+        }
         let object = &object;
         let destination = &destination;
 

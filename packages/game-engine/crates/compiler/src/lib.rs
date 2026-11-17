@@ -950,6 +950,12 @@ enum SourceStaticEffect {
     Prohibit {
         prohibition: serde_json::Value,
     },
+    EntryChoice {
+        what: serde_json::Value,
+        who: serde_json::Value,
+        costs: Vec<conditional_lands::EntryLifeCost>,
+        declined: serde_json::Value,
+    },
     EntersTapped {
         what: serde_json::Value,
         #[serde(
