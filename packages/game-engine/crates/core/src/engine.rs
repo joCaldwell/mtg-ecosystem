@@ -313,6 +313,7 @@ mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
 mod casting;
+mod library_order;
 mod library_selection;
 mod mana_permanents;
 #[cfg(test)]
@@ -1047,6 +1048,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    LibraryOrder {
+        objects: Vec<ObjectId>,
+    },
     LibrarySelect {
         hand: Vec<ObjectId>,
         remainder: Vec<ObjectId>,
@@ -1171,6 +1175,12 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    LibraryOrder {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+        count: usize,
+    },
     LibrarySelect {
         decision_id: u64,
         player: PlayerId,
@@ -1356,7 +1366,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::LibrarySelect { decision_id, .. }
+            Self::LibraryOrder { decision_id, .. }
+            | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
             Self::AnnounceX { decision_id, .. }
@@ -1391,7 +1402,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::LibrarySelect { player, .. }
+            Self::LibraryOrder { player, .. }
+            | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
             Self::AnnounceX { player, .. }
@@ -1428,6 +1440,12 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    OrderLibraryTop {
+        player: PlayerId,
+        amount: Quantity,
+        looked: Vec<ObjectId>,
+        order: Vec<ObjectId>,
+    },
     LibrarySelect {
         player: PlayerId,
         amount: Quantity,
@@ -1628,6 +1646,11 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    LibraryOrdered {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        order: Vec<ObjectId>,
+    },
     LibrarySelected {
         player: PlayerId,
         hand: Option<MoveOutcome>,
@@ -3199,7 +3222,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 35,
+            snapshot_version: 37,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3241,7 +3264,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 35
+        if s.snapshot_version != 37
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

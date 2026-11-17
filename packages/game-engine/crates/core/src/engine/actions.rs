@@ -38,6 +38,15 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ResolutionChoice {
+    LibraryOrder {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        source_block: u32,
+    },
+    OptionalShuffle {
+        player: PlayerId,
+        source_block: u32,
+    },
     LibrarySelect {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -287,6 +296,14 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::LibraryOrder { player, looked, .. } if self.is_live(*player) => {
+                Some(Request::LibraryOrder {
+                    decision_id,
+                    player: *player,
+                    candidates: looked.clone(),
+                    count: looked.len(),
+                })
+            }
             ResolutionChoice::LibrarySelect { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::LibrarySelect {
                     decision_id,
@@ -317,7 +334,8 @@ impl Game {
                 maximum: *maximum,
                 candidates: self.search_lands(*player),
             }),
-            ResolutionChoice::OptionalEffect { player, .. }
+            ResolutionChoice::OptionalShuffle { player, .. }
+            | ResolutionChoice::OptionalEffect { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. }
                 if self.is_live(*player) =>
             {
@@ -360,7 +378,10 @@ impl Game {
         if let (
             Frame::ResolutionChoice {
                 choice:
-                    ResolutionChoice::OptionalEffect {
+                    ResolutionChoice::OptionalShuffle {
+                        player: chooser, ..
+                    }
+                    | ResolutionChoice::OptionalEffect {
                         player: chooser, ..
                     }
                     | ResolutionChoice::OptionalDraw {
@@ -384,6 +405,26 @@ impl Game {
             return Some(result);
         }
         match (&self.state.rules.frame, response) {
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
+                        ResolutionChoice::LibraryOrder {
+                            player: chooser,
+                            looked,
+                            source_block,
+                        },
+                },
+                Response::LibraryOrder { objects },
+            ) => Some(
+                self.validate_library_order_choice(frame, *chooser, looked, *source_block)
+                    .and_then(|_| {
+                        if player != *chooser {
+                            return Err("invalid ordering chooser".into());
+                        }
+                        self.validate_library_partition(player, looked, objects, &[])
+                    }),
+            ),
             (
                 Frame::ResolutionChoice {
                     frame,
@@ -542,6 +583,22 @@ impl Game {
                 self.state.rules.frame = Frame::Mana { cast };
             }
             Frame::ResolutionChoice { frame, choice } => {
+                if let ResolutionChoice::LibraryOrder {
+                    player,
+                    looked,
+                    source_block,
+                } = choice
+                {
+                    return self.library_order_step(frame, player, looked, source_block);
+                }
+                if let ResolutionChoice::OptionalShuffle {
+                    player,
+                    source_block,
+                } = choice
+                {
+                    return self.optional_shuffle_step(frame, player, source_block);
+                }
+
                 if let ResolutionChoice::LibrarySelect {
                     player,
                     looked,
@@ -586,7 +643,9 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::LibrarySelect { .. }
+                        ResolutionChoice::LibraryOrder { .. }
+                        | ResolutionChoice::OptionalShuffle { .. }
+                        | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::OptionalEffect { .. }
@@ -617,7 +676,9 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::LibrarySelect { .. }
+                    ResolutionChoice::LibraryOrder { .. }
+                    | ResolutionChoice::OptionalShuffle { .. }
+                    | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::OptionalEffect { .. }
@@ -721,6 +782,13 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::OrderLibraryTop {
+                amount,
+                source_block,
+            } => self.begin_library_order(frame, amount, source_block),
+            Instruction::OptionalShuffleLibrary { source_block } => {
+                self.begin_optional_shuffle(frame, source_block)
+            }
             Instruction::SelectLibraryCard {
                 amount,
                 source_block,
@@ -1295,6 +1363,24 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::LibraryOrder {
+                        player,
+                        looked,
+                        source_block,
+                    },
+                    Instruction::OrderLibraryTop { .. },
+                ) => self
+                    .validate_library_order_choice(frame, *player, looked, *source_block)
+                    .is_ok(),
+                (
+                    ResolutionChoice::OptionalShuffle {
+                        player,
+                        source_block,
+                    },
+                    Instruction::OptionalShuffleLibrary { source_block: b },
+                ) => *player == frame.spell.controller && source_block == b,
+
                 (
                     ResolutionChoice::LibrarySelect {
                         player,

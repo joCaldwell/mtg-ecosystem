@@ -25,6 +25,9 @@ pub struct RememberedCard {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OwnKnowledgeAction {
+    LibraryOrdered {
+        top: Vec<RememberedCard>,
+    },
     LibrarySelected {
         bottom: Vec<RememberedCard>,
     },
@@ -178,6 +181,16 @@ impl Game {
         };
         self.remember_library_action(player, action)
     }
+    pub(super) fn remember_library_order(
+        &mut self,
+        player: PlayerId,
+        top: &[ObjectId],
+    ) -> Result<(), String> {
+        let action = OwnKnowledgeAction::LibraryOrdered {
+            top: self.remembered_library_cards(player, top, 0)?,
+        };
+        self.remember_library_action(player, action)
+    }
     pub(super) fn remember_library_selection(
         &mut self,
         player: PlayerId,
@@ -242,7 +255,8 @@ fn known_suffix(
     let mut draws: Vec<&str> = vec![];
     for action in actions {
         match action {
-            OwnKnowledgeAction::LibrarySelected { .. }
+            OwnKnowledgeAction::LibraryOrdered { .. }
+            | OwnKnowledgeAction::LibrarySelected { .. }
             | OwnKnowledgeAction::Scry { .. }
             | OwnKnowledgeAction::Surveil { .. }
             | OwnKnowledgeAction::Milled { .. } => {

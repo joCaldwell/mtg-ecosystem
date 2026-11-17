@@ -118,7 +118,8 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
-            PlayerRequest::LibrarySelect { .. }
+            PlayerRequest::LibraryOrder { .. }
+            | PlayerRequest::LibrarySelect { .. }
             | PlayerRequest::Scry { .. }
             | PlayerRequest::Surveil { .. } => {
                 return Err("scry outside this policy admission".into());
