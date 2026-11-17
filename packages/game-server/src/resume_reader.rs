@@ -185,12 +185,20 @@ impl CommittedReader {
             }
         }
         // An unexpected rollback journal is not part of this WAL reader.
-        if fs::symlink_metadata(self.directory.join("match.sqlite3-journal")).is_ok() {
-            return Err("unexpected database journal".into());
+        match fs::symlink_metadata(self.directory.join("match.sqlite3-journal")) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Err("unexpected or uninspectable database journal".into()),
         }
         Ok(())
     }
     pub(crate) fn read(&self, seat: u8) -> Result<store::CommittedPublications, String> {
+        self.read_snapshot(seat, || {})
+    }
+    fn read_snapshot(
+        &self,
+        seat: u8,
+        after_pins: impl FnOnce(),
+    ) -> Result<store::CommittedPublications, String> {
         self.validate_files()?;
         let tx = self
             .connection
@@ -203,6 +211,7 @@ impl CommittedReader {
         {
             return Err("reader Ready pins changed".into());
         }
+        after_pins();
         let result = store::resume_publications(&tx, seat)?;
         tx.commit().map_err(|_| "reader transaction failed")?;
         self.validate_files()?;
@@ -235,11 +244,18 @@ impl ResumeReader {
             reader: Mutex::new(reader),
         })
     }
+    #[cfg(test)]
+    pub(crate) fn hold_for_test(&self) -> std::sync::MutexGuard<'_, CommittedReader> {
+        self.reader.lock().unwrap()
+    }
     pub(crate) fn revoke(&self) {
         self.active.store(false, Ordering::SeqCst);
     }
+    pub(crate) fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
     fn check(&self) -> Result<(), String> {
-        if !self.active.load(Ordering::SeqCst) {
+        if !self.is_active() {
             return Err("reader revoked".into());
         }
         self.live.check()
@@ -254,5 +270,414 @@ impl ResumeReader {
         let resume = crate::worker::assemble_resume(&self.identity, seat, publications)?;
         self.check()?;
         Ok(resume)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::{
+        protocol::{ExecutionStatus, ResumeState},
+        worker::{ClockControl, Worker, WorkerPhase},
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    };
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    pub(crate) struct Fixture {
+        pub root: PathBuf,
+        pub directory: PathBuf,
+        pub worker: Worker,
+    }
+    impl Fixture {
+        pub(crate) fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "mtg-resume-reader-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let directory = root.join("matches/a1/worker");
+            for path in [&root, &root.join("matches"), &root.join("matches/a1")] {
+                fs::create_dir(path).unwrap();
+                fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let worker = Worker::create(
+                &directory,
+                catalog(),
+                mtg_core::MatchConfig::for_profile(
+                    "commander-foundations-v1",
+                    [3; 32],
+                    mtg_core::PlayerId(0),
+                )
+                .unwrap(),
+                "a1",
+                std::time::Instant::now(),
+            )
+            .unwrap();
+            Self {
+                root,
+                directory,
+                worker,
+            }
+        }
+        pub(crate) fn settle(&mut self) {
+            for _ in 0..1000 {
+                if !matches!(self.worker.host_state().phase, WorkerPhase::Running) {
+                    return;
+                }
+                self.worker.advance(std::time::Instant::now()).unwrap();
+            }
+            panic!("bounded worker settle");
+        }
+        pub(crate) fn reader(&self) -> Arc<ResumeReader> {
+            Arc::new(
+                ResumeReader::open(
+                    &self.directory,
+                    &self.root,
+                    self.worker.identity().clone(),
+                    self.worker.read_descriptor().unwrap(),
+                    Liveness::open(std::process::id()).unwrap(),
+                )
+                .unwrap(),
+            )
+        }
+        fn sql(&self) -> Connection {
+            Connection::open(self.directory.join("match.sqlite3")).unwrap()
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+    fn catalog() -> mtg_contracts::Catalog {
+        mtg_contracts::Catalog::read(include_str!(
+            "../../game-engine/tests/fixtures/expected-match-ir.json"
+        ))
+        .unwrap()
+    }
+    #[test]
+    fn differential_pending_all_seats_and_retained_view_after_lifecycle() {
+        let mut f = Fixture::new();
+        let reader = f.reader();
+        for seat in 0..4 {
+            assert_eq!(reader.read(seat).unwrap(), f.worker.resume(seat).unwrap());
+            assert!(matches!(
+                reader.read(seat).unwrap().state,
+                ResumeState::Pending
+            ));
+        }
+        assert!(reader.read(4).is_err());
+        f.settle();
+        let before: Vec<_> = (0..4).map(|seat| f.worker.resume(seat).unwrap()).collect();
+        f.worker
+            .clock(ClockControl::Pause, std::time::Instant::now())
+            .unwrap();
+        for seat in 0..4 {
+            let actual = reader.read(seat).unwrap();
+            assert_eq!(actual, f.worker.resume(seat).unwrap());
+            assert_eq!(actual.state, before[usize::from(seat)].state);
+            assert_eq!(actual.next.get(), before[usize::from(seat)].next.get() + 1);
+            assert_eq!(actual.lifecycle, Some(ExecutionStatus::ResourcePaused));
+        }
+        reader.revoke();
+        assert!(reader.read(0).is_err());
+    }
+    fn append_lifecycle(sql: &Connection, status: ExecutionStatus) {
+        for seat in 0..4 {
+            let cursor: i64 = sql
+                .query_row(
+                    "SELECT cursor FROM viewer_heads WHERE seat=?1",
+                    [seat],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let cursor = u64::try_from(cursor + 1).unwrap();
+            let page = crate::protocol::StreamPage {
+                protocol_version: 1,
+                entries: vec![crate::protocol::StreamEntry {
+                    cursor: crate::protocol::Counter::new(cursor),
+                    publication: crate::protocol::Publication::Lifecycle {
+                        status: status.clone(),
+                    },
+                }],
+                next: crate::protocol::Counter::new(cursor),
+                has_more: false,
+            };
+            sql.execute(
+                "INSERT INTO outbox VALUES(?1,?2,?3)",
+                rusqlite::params![
+                    seat,
+                    i64::try_from(cursor).unwrap(),
+                    crate::protocol::checked_publication(&page).unwrap()
+                ],
+            )
+            .unwrap();
+            sql.execute(
+                "UPDATE viewer_heads SET cursor=?2 WHERE seat=?1",
+                rusqlite::params![seat, i64::try_from(cursor).unwrap()],
+            )
+            .unwrap();
+        }
+    }
+    #[test]
+    fn fresh_snapshot_never_publishes_uncommitted_transition_or_rollback() {
+        let mut f = Fixture::new();
+        f.settle();
+        let reader = f.reader();
+        let prior = reader.read(0).unwrap();
+        let mut sql = f.sql();
+        let tx = sql.transaction().unwrap();
+        append_lifecycle(&tx, ExecutionStatus::Faulted);
+        assert_eq!(reader.read(0).unwrap(), prior);
+        tx.rollback().unwrap();
+        assert_eq!(reader.read(0).unwrap(), prior);
+        let tx = sql.transaction().unwrap();
+        append_lifecycle(&tx, ExecutionStatus::Finished);
+        // Add the actual typed outcome in the same transaction as the cursor
+        // and lifecycle. Neither it nor a new token may escape before commit.
+        for seat in 0..4 {
+            let cursor: i64 = tx
+                .query_row(
+                    "SELECT cursor FROM viewer_heads WHERE seat=?1",
+                    [seat],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let page = crate::protocol::StreamPage {
+                protocol_version: 1,
+                next: crate::protocol::Counter::new((cursor + 1) as u64),
+                has_more: false,
+                entries: vec![crate::protocol::StreamEntry {
+                    cursor: crate::protocol::Counter::new((cursor + 1) as u64),
+                    publication: crate::protocol::Publication::Outcome {
+                        result: crate::protocol::RulesResult::Draw,
+                    },
+                }],
+            };
+            tx.execute(
+                "INSERT INTO outbox VALUES(?1,?2,?3)",
+                rusqlite::params![
+                    seat,
+                    cursor + 1,
+                    crate::protocol::checked_publication(&page).unwrap()
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "UPDATE viewer_heads SET cursor=?2 WHERE seat=?1",
+                rusqlite::params![seat, cursor + 1],
+            )
+            .unwrap();
+        }
+        for seat in 0..4 {
+            let mut next = f.worker.resume(seat).unwrap();
+            let ResumeState::Available { observation } = &mut next.state else {
+                panic!("committed view");
+            };
+            observation.view.turn.number += 1;
+            let cursor: i64 = tx
+                .query_row(
+                    "SELECT cursor FROM viewer_heads WHERE seat=?1",
+                    [seat],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let page = crate::protocol::StreamPage {
+                protocol_version: 1,
+                next: crate::protocol::Counter::new((cursor + 1) as u64),
+                has_more: false,
+                entries: vec![crate::protocol::StreamEntry {
+                    cursor: crate::protocol::Counter::new((cursor + 1) as u64),
+                    publication: crate::protocol::Publication::ViewReplaced {
+                        observation: observation.clone(),
+                    },
+                }],
+            };
+            tx.execute(
+                "INSERT INTO outbox VALUES(?1,?2,?3)",
+                rusqlite::params![
+                    seat,
+                    cursor + 1,
+                    crate::protocol::checked_publication(&page).unwrap()
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "UPDATE viewer_heads SET cursor=?2 WHERE seat=?1",
+                rusqlite::params![seat, cursor + 1],
+            )
+            .unwrap();
+        }
+        assert_eq!(reader.read(0).unwrap(), prior);
+        // Commit exactly between the production snapshot's pin verification
+        // and its publication queries. Removing that transaction exposes new
+        // rows here and fails this prior-snapshot oracle.
+        let pinned = reader
+            .reader
+            .lock()
+            .unwrap()
+            .read_snapshot(0, || tx.commit().unwrap())
+            .unwrap();
+        assert_eq!(
+            crate::worker::assemble_resume(f.worker.identity(), 0, pinned).unwrap(),
+            prior
+        );
+        let new = reader.read(0).unwrap();
+        assert_eq!(new, f.worker.resume(0).unwrap());
+        let ResumeState::Available {
+            observation: new_view,
+        } = &new.state
+        else {
+            panic!("new view");
+        };
+        let ResumeState::Available {
+            observation: prior_view,
+        } = &prior.state
+        else {
+            panic!("prior view");
+        };
+        assert_eq!(new_view.view.turn.number, prior_view.view.turn.number + 1);
+        assert_eq!(new.next.get(), prior.next.get() + 3);
+        assert_eq!(new.lifecycle, Some(ExecutionStatus::Finished));
+        assert_eq!(new.outcome, Some(crate::protocol::RulesResult::Draw));
+    }
+    #[test]
+    fn generation_and_bootstrap_replacement_reject_in_every_fresh_snapshot() {
+        for key in ["generation", "bootstrap"] {
+            let f = Fixture::new();
+            let reader = f.reader();
+            let sql = f.sql();
+            sql.execute(
+                "UPDATE metadata SET value='replacement' WHERE key=?1",
+                [key],
+            )
+            .unwrap();
+            assert!(reader.read(0).is_err());
+        }
+    }
+    #[test]
+    fn wrong_viewer_unknown_fields_and_oversized_private_publications_reject() {
+        for mutation in 0..3 {
+            let mut f = Fixture::new();
+            f.settle();
+            let reader = f.reader();
+            let sql = f.sql();
+            let (cursor, body): (i64, String) = sql.query_row("SELECT cursor,body FROM outbox WHERE seat=0 AND json_extract(body,'$.entries[0].publication.kind')='view_replaced' ORDER BY cursor DESC LIMIT 1", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+            let mut body: serde_json::Value = serde_json::from_str(&body).unwrap();
+            match mutation {
+                0 => body["entries"][0]["publication"]["observation"]["view"]["viewer"] = 1.into(),
+                1 => body["entries"][0]["publication"]["private_override"] = true.into(),
+                _ => body["oversized"] = "x".repeat(store::MAX_VIEW_BYTES).into(),
+            }
+            sql.execute(
+                "UPDATE outbox SET body=?1 WHERE seat=0 AND cursor=?2",
+                rusqlite::params![body.to_string(), cursor],
+            )
+            .unwrap();
+            assert!(reader.read(0).is_err(), "mutation {mutation}");
+            assert!(f.worker.resume(0).is_err());
+            assert!(reader.read(1).is_ok());
+        }
+    }
+    #[test]
+    fn reader_never_creates_missing_files_or_accepts_replaced_or_nonprivate_files() {
+        for mutation in 0..7 {
+            let f = Fixture::new();
+            let reader = f.reader();
+            let db = f.directory.join("match.sqlite3");
+            let target = f.directory.join(match mutation {
+                0 => "match.sqlite3",
+                1 => "match.sqlite3-wal",
+                2 => "match.sqlite3-shm",
+                _ => "match.sqlite3",
+            });
+            match mutation {
+                0..=2 => fs::remove_file(&target).unwrap(),
+                3 => fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap(),
+                4 => {
+                    fs::rename(&db, f.directory.join("saved-db")).unwrap();
+                    std::os::unix::fs::symlink("saved-db", &db).unwrap();
+                }
+                5 => fs::hard_link(&db, f.directory.join("hardlink-db")).unwrap(),
+                _ => {
+                    fs::rename(&db, f.directory.join("saved-db")).unwrap();
+                    fs::copy(f.directory.join("saved-db"), &db).unwrap();
+                }
+            }
+            assert!(reader.read(0).is_err(), "mutation {mutation}");
+            if mutation <= 2 {
+                assert!(
+                    CommittedReader::open(
+                        &f.directory,
+                        &f.root,
+                        f.worker.read_descriptor().unwrap()
+                    )
+                    .is_err()
+                );
+                assert!(!target.exists(), "read must never recreate missing file");
+            }
+        }
+        let f = Fixture::new();
+        fs::set_permissions(f.root.join("matches"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            CommittedReader::open(&f.directory, &f.root, f.worker.read_descriptor().unwrap())
+                .is_err()
+        );
+    }
+    #[test]
+    fn read_only_connection_cannot_write_or_advance_generation() {
+        let f = Fixture::new();
+        let descriptor = f.worker.read_descriptor().unwrap();
+        let reader = CommittedReader::open(&f.directory, &f.root, descriptor.clone()).unwrap();
+        assert!(
+            reader
+                .connection
+                .execute("UPDATE metadata SET value='999' WHERE key='generation'", [])
+                .is_err()
+        );
+        assert_eq!(f.worker.read_descriptor().unwrap(), descriptor);
+        assert!(uri(&PathBuf::from("/tmp/a?b#c%/match.sqlite3")).contains("a%3Fb%23c%25"));
+    }
+    #[test]
+    fn proc_handle_rechecks_death_including_zombie_and_rejects_wrong_incarnation() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let live = Liveness::open(child.id()).unwrap();
+        live.check().unwrap();
+        let wrong = Liveness {
+            stat: live.stat.try_clone().unwrap(),
+            pid: live.pid,
+            start: "wrong".into(),
+        };
+        assert!(wrong.check().is_err());
+        let stopped = std::process::Command::new("kill")
+            .args(["-STOP", &child.id().to_string()])
+            .status()
+            .unwrap()
+            .success();
+        let paused_live = live.check().is_ok();
+        // Always restore independently before any assertions can panic.
+        let restored = std::process::Command::new("kill")
+            .args(["-CONT", &child.id().to_string()])
+            .status()
+            .unwrap()
+            .success();
+        child.kill().unwrap();
+        let until = std::time::Instant::now() + Duration::from_secs(1);
+        while live.check().is_ok() && std::time::Instant::now() < until {
+            std::thread::yield_now();
+        }
+        let zombie_rejected = live.check().is_err();
+        child.wait().unwrap();
+        assert!(stopped && restored && paused_live && zombie_rejected);
+        assert!(live.check().is_err());
+        assert!(
+            live.check().is_err(),
+            "open descriptor must not cache a live stat"
+        );
     }
 }

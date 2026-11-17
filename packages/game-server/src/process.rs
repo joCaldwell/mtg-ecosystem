@@ -410,16 +410,20 @@ impl WorkerProcess {
         }
         let identity = ready.identity.clone();
         let descriptor = ready.read.clone();
-        let resume_reader = tokio::task::spawn_blocking(move || {
-            crate::resume_reader::ResumeReader::open(
-                &directory,
-                &private_root,
-                identity,
-                descriptor,
-                live,
-            )
-        })
+        let resume_reader = timeout_at(
+            deadline,
+            tokio::task::spawn_blocking(move || {
+                crate::resume_reader::ResumeReader::open(
+                    &directory,
+                    &private_root,
+                    identity,
+                    descriptor,
+                    live,
+                )
+            }),
+        )
         .await
+        .map_err(|_| BridgeError::Isolation)?
         .map_err(|_| BridgeError::Isolation)?
         .map_err(|_| BridgeError::Isolation)?;
         let child = guard.child.take().ok_or(BridgeError::Unavailable)?;
@@ -474,7 +478,9 @@ impl WorkerProcess {
         })
         .map_err(|_| BridgeError::InvalidRequest)?;
         self.next_id = next;
-        if matches!(command, WorkerCommand::Shutdown) { self.revoke_reader(); }
+        if matches!(command, WorkerCommand::Shutdown) {
+            self.revoke_reader();
+        }
         self.usable = false;
         // Cancellation by an outer HTTP/broker task must also stop the unit.
         let mut lease = CallLease {
@@ -676,5 +682,38 @@ mod tests {
             a.bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b"-.".contains(&b))
         );
+    }
+    #[test]
+    fn owner_drop_revokes_reader_even_after_process_cleanup() {
+        let f = crate::resume_reader::tests::Fixture::new();
+        let reader = f.reader();
+        assert!(reader.read(0).is_ok());
+        // Already-cleaned handles take the real Drop path without launching or
+        // controlling any unit. A separately cloned reader must still revoke.
+        let process = WorkerProcess {
+            child: None,
+            input: None,
+            output: None,
+            unit: String::new(),
+            ready: WorkerReady {
+                identity: f.worker.identity().clone(),
+                pid: std::process::id(),
+                limits: ipc::KernelLimits {
+                    cgroup: "/not-a-real-worker".into(),
+                    memory_max: ipc::MEMORY_MAX,
+                    memory_swap_max: 0,
+                    tasks_max: ipc::TASKS_MAX,
+                },
+                status: ExecutionStatus::Running,
+                read: f.worker.read_descriptor().unwrap(),
+            },
+            status: ExecutionStatus::Running,
+            next_id: 1,
+            usable: false,
+            cleaned: true,
+            resume_reader: reader.clone(),
+        };
+        drop(process);
+        assert!(reader.read(0).is_err());
     }
 }
