@@ -6,7 +6,7 @@ import { accountInfo } from "./accounts.ts";
 import { databaseGate } from "./auth-database.ts";
 import { withTransaction } from "./db.ts";
 import { ServiceError } from "./errors.ts";
-import type { GameAdmission, GameCoordinatorOptions, GameDeck, GameIdentity, GameLaunchResult, GamePause, GameRecord, GameStopTarget, NativeGameStatus, NativeGameProxyRequest, NativeGameProxyResponse } from "./game-contracts.ts";
+import type { GameAdmission, GameCoordinatorOptions, GameDiagnosticEvent, GameDeck, GameIdentity, GameLaunchResult, GamePause, GameRecord, GameStopTarget, NativeGameStatus, NativeGameProxyRequest, NativeGameProxyResponse } from "./game-contracts.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const sameIdentity = (a: GameIdentity, b: GameIdentity) => a.catalog_sha256 === b.catalog_sha256 && a.profile === b.profile && a.engine_build_id === b.engine_build_id && a.server_build_id === b.server_build_id;
@@ -44,13 +44,30 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     if (!row) throw new ServiceError("Game not found", 404);
     return JSON.parse(row.record_json);
   };
-  async function call<T>(work: (signal: AbortSignal) => Promise<T>, deadline = timeout): Promise<T> {
+  const diagnostic = (event: GameDiagnosticEvent) => {
+    if (!/^[a-f0-9]{32}$/.test(event.game_id)) return;
+    try { void Promise.resolve(options.diagnostic?.(event)).catch(() => {}); } catch { /* observations cannot affect operations */ }
+  };
+  type Context = Omit<Extract<GameDiagnosticEvent, { source: "coordinator" }>, "source" | "cause">;
+  async function call<T>(work: (signal: AbortSignal) => Promise<T>, deadline = timeout, context?: Context): Promise<T> {
     const controller = new AbortController();
-    let handle: ReturnType<typeof setTimeout> | undefined;
+    let handle: ReturnType<typeof setTimeout> | undefined, expired = false;
+    if (context?.stage === "stop") diagnostic({ source: "coordinator", ...context, cause: "started" });
     try {
-      return await Promise.race([work(controller.signal), new Promise<never>((_, reject) => {
-        handle = setTimeout(() => { controller.abort(); reject(new Error("Native game operation unavailable")); }, deadline);
+      const result = await Promise.race([work(controller.signal), new Promise<never>((_, reject) => {
+        handle = setTimeout(() => {
+          expired = true;
+          // Retain the initiating deadline BEFORE abort-triggered cleanup, even
+          // for adapters that ignore abort and never settle their operation.
+          if (context) diagnostic({ source: "coordinator", ...context, cause: "deadline" });
+          controller.abort(); reject(new Error("Native game operation unavailable"));
+        }, deadline);
       })]);
+      if (context?.stage === "stop") diagnostic({ source: "coordinator", ...context, cause: "succeeded" });
+      return result;
+    } catch (error) {
+      if (context && !expired) diagnostic({ source: "coordinator", ...context, cause: "adapter_failure" });
+      throw error;
     } finally { clearTimeout(handle); }
   }
   async function check(deck: GameDeck): Promise<GameAdmission> {
@@ -90,7 +107,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     // was lost. A supervision fault has no invented rules outcome.
     if (reason !== "completed") { record.state = reason === "human_timeout" || reason === "lifetime_exceeded" ? "interrupted" : "paused"; record.pause = reason; }
     await save(record);
-    await call(signal => native!.stop(structuredClone(record), reason, signal));
+    await call(signal => native!.stop(structuredClone(record), reason, signal), timeout, { game_id: record.id, stage: "stop", phase: "operation" });
     record.consumers_stopped = true;
     await save(record);
     owned.delete(record.id);
@@ -106,7 +123,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     // branch, including already paused/completed/interrupted records.
     if (!record.consumers_stopped) owned.set(record.id, record);
     try {
-      if (!sameIdentity(record.identity, native.identity)) { owned.set(record.id, record); await pause(record, "identity_mismatch"); return record; }
+      if (!sameIdentity(record.identity, native.identity)) { diagnostic({ source: "coordinator", game_id: record.id, stage: "ensure", phase: "operation", cause: "identity_failure" }); owned.set(record.id, record); await pause(record, "identity_mismatch"); return record; }
       if (record.state === "paused" || record.state === "completed" || record.state === "interrupted") {
         if (record.consumers_stopped) return record;
         await pause(record, record.state === "completed" ? "completed" : record.pause!); return record;
@@ -118,9 +135,13 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
       // consumers. A concurrent account deletion must observe this false flag
       // and atomically retain its minimal native stop identity.
       if (!await save(record)) { owned.delete(record.id); return record; }
-      await call(signal => native.ensure(structuredClone(record), signal));
-      const status = await call(signal => native.status(structuredClone(record), signal));
-      if (!statusValid(status) || !sameIdentity(record.identity, status.identity)) { await pause(record, "identity_mismatch"); return record; }
+      await call(signal => native.ensure(structuredClone(record), signal), timeout, { game_id: record.id, stage: "ensure", phase: "operation" });
+      const status = await call(signal => native.status(structuredClone(record), signal), timeout, { game_id: record.id, stage: "status", phase: "operation" });
+      const validStatus = statusValid(status);
+      if (!validStatus || !sameIdentity(record.identity, status.identity)) {
+        diagnostic({ source: "coordinator", game_id: record.id, stage: "status", phase: "operation", cause: validStatus ? "identity_failure" : "status_invalid" });
+        await pause(record, "identity_mismatch"); return record;
+      }
       if (status.outcome) {
         record.outcome = status.outcome.kind === "draw" ? { kind: "draw" } : { kind: "win", winner: status.outcome.winner };
         record.state = "completed"; record.pause = null;
@@ -130,11 +151,11 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
       record.human_waiting_since = status.human_waiting_since;
       if (record.human_waiting_since !== null && now() - record.human_waiting_since >= thinkTime) { await pause(record, "human_timeout"); return record; }
       record.state = "active"; record.pause = null;
-      if (!await save(record)) { await call(signal => native.stop(record, "owner_deleted", signal)); owned.delete(record.id); }
+      if (!await save(record)) { await call(signal => native.stop(record, "owner_deleted", signal), timeout, { game_id: record.id, stage: "stop", phase: "owner_deleted" }); owned.delete(record.id); }
     } catch {
       if (record.state !== "completed" && record.state !== "interrupted") { record.state = "paused"; record.pause = "native_unavailable"; await save(record); }
       // Do not release the consumer lease on failed stop; next sweep retries.
-      try { await call(signal => native.stop(record, record.state === "completed" ? "completed" : "native_unavailable", signal)); record.consumers_stopped = true; await save(record); owned.delete(record.id); } catch { /* retained for supervision retry */ }
+      try { await call(signal => native.stop(record, record.state === "completed" ? "completed" : "native_unavailable", signal), timeout, { game_id: record.id, stage: "stop", phase: "cleanup" }); record.consumers_stopped = true; await save(record); owned.delete(record.id); } catch { /* retained for supervision retry */ }
     }
     return record;
   }
@@ -217,7 +238,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     for (const job of jobs) {
       try {
         const target = JSON.parse(job.target_json) as GameStopTarget;
-        await call(signal => native.stop(target, "owner_deleted", signal));
+        await call(signal => native.stop(target, "owner_deleted", signal), timeout, { game_id: target.id, stage: "stop", phase: "owner_deleted" });
         await sql(() => db.prepare("DELETE FROM game_stop_jobs WHERE id=? AND target_json=?").run(job.id, job.target_json));
         owned.delete(job.id);
       } catch { /* durable minimal handoff survives account/process deletion */ }
@@ -268,7 +289,7 @@ export function createGameCoordinator(db: Database, options: GameCoordinatorOpti
     start() { if (!timer && !closed) { timer = setInterval(() => { void this.tick().catch(() => {}); }, interval); timer.unref(); void this.tick().catch(() => {}); } },
     async close() {
       closed = true; clearInterval(timer); await ticking; await Promise.allSettled(inflight.values());
-      if (native) await Promise.allSettled([...owned.values()].map(record => call(signal => native.stop(record, "shutdown", signal))));
+      if (native) await Promise.allSettled([...owned.values()].map(record => call(signal => native.stop(record, "shutdown", signal), timeout, { game_id: record.id, stage: "stop", phase: "shutdown" })));
       await drainStopJobs();
     },
   };

@@ -119,6 +119,8 @@ Controlled-permanent scalar keywords retain rules `7315ffe2` and schema-only `44
 
 Controller Surveil source `ad6630c8`: 16 focused Rust and 631 probes; IR1/33/25. Exact producers, comments-only bridge and omissions: `generated/controller-surveil/integration.json`.
 
+Fixed Mill source `17e93b8a`:14 Rust/587 probes;34/25,IR1. Exact producers and later-main row bridge: `generated/fixed-mill/integration.json`.
+
 Formatting, all-target, catalog freshness and strict compiler/core/sim production
 lint retain their explicit bridges; contracts/server use proven inherited
 `collapsible_if` exceptions where stated. Fresh-main server schema changed only

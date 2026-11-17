@@ -19,7 +19,9 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod controller_library;
+mod fixed_mill;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
+pub use fixed_mill::fixed_mill_program;
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
@@ -252,6 +254,7 @@ pub enum Capability {
     ControllerDrawV1,
     ControllerScryV1,
     ControllerSurveilV1,
+    FixedMillProgramV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -505,6 +508,13 @@ pub enum Instruction {
         source_block: u32,
     },
     /// CR 701.22: only the invocation controller looks and orders the prefix.
+    MillCards {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recipient: Option<LifeRecipient>,
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        count: Quantity,
+        source_block: u32,
+    },
     /// CR 701.22/701.25: the invocation controller looks and partitions the prefix.
     Surveil {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
@@ -759,7 +769,9 @@ impl Instruction {
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
-            Self::Scry { source_block, .. } | Self::Surveil { source_block, .. } => *source_block,
+            Self::Scry { source_block, .. }
+            | Self::Surveil { source_block, .. }
+            | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1888,6 +1900,7 @@ impl Definition {
         u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
         u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         controller_library::validate_definition(self)?;
+        fixed_mill::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3333,6 +3346,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("cascade requires one complete targetless program".into());
     }
+    if fixed_mill::has_mill(p) && !fixed_mill_program(p) {
+        return Err("unsupported complete fixed mill program".into());
+    }
     // Controller selectors are reserved for complete ordinary keyword families.
     // Shared set decoding must not widen movement, damage, pump or nested routes.
     fn controller_set(p: &SpellProgram) -> bool {
@@ -3878,6 +3894,20 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::MillCards {
+                count, recipient, ..
+            } => {
+                if count.is_negative() {
+                    return Err("negative mill count".into());
+                }
+                match recipient {
+                    None => None,
+                    Some(LifeRecipient::Target { target_slot }) => {
+                        Some((*target_slot, TargetDomain::AnyPlayer))
+                    }
+                    _ => return Err("unsupported mill recipient".into()),
+                }
+            }
             Instruction::DrawCards {
                 count, recipient, ..
             } => {
@@ -4226,6 +4256,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
+            Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
             Instruction::GainLife { .. } => Capability::LifeGainV1,
             Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
@@ -5457,6 +5488,7 @@ pub fn catalog_schema() -> serde_json::Value {
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
+    fixed_mill::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5626,6 +5658,7 @@ mod tests {
             ControllerDrawV1,
             ControllerScryV1,
             ControllerSurveilV1,
+            FixedMillProgramV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5857,6 +5890,7 @@ mod tests {
         definitions.push(temporary_permanent_keyword_tests::grant(true));
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
+        definitions.push(fixed_mill::witness());
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());

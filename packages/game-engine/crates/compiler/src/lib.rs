@@ -15,6 +15,9 @@ mod controller_scry_tests;
 mod controller_surveil_tests;
 pub mod coverage;
 mod diagnostics;
+mod fixed_mill;
+#[cfg(test)]
+mod fixed_mill_tests;
 mod normalization;
 mod optional_costs;
 mod self_reference;
@@ -587,6 +590,10 @@ enum Step {
         amount: serde_json::Value,
     },
     Surveil {
+        amount: serde_json::Value,
+    },
+    Mill {
+        who: serde_json::Value,
         amount: serde_json::Value,
     },
     CreateReplacement {
@@ -1856,9 +1863,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         return Err(unsupported("trigger", "unbound death controller"));
     }
     if definition.spell.as_ref().is_some_and(|p| {
-        p.instructions
-            .iter()
-            .any(|i| matches!(i, Instruction::Scry { .. } | Instruction::Surveil { .. }))
+        p.instructions.iter().any(|i| {
+            matches!(
+                i,
+                Instruction::Scry { .. }
+                    | Instruction::Surveil { .. }
+                    | Instruction::MillCards { .. }
+            )
+        })
     }) {
         controller_library::validate_source_shape(&canonical_abilities)?;
     }
@@ -1873,7 +1885,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         )?;
     }
     if definition.spell.as_ref().is_some_and(|p| {
-        mtg_contracts::controller_scry_program(p) || mtg_contracts::controller_surveil_program(p)
+        mtg_contracts::controller_scry_program(p)
+            || mtg_contracts::controller_surveil_program(p)
+            || mtg_contracts::fixed_mill_program(p)
     }) {
         controller_library::validate_bindings(
             &binding,
@@ -2822,6 +2836,9 @@ fn append_spell_effects(
                 Step::Scry { amount } => controller_library::instruction(amount, source_block)?,
                 Step::Surveil { amount } => {
                     controller_library::surveil_instruction(amount, source_block)?
+                }
+                Step::Mill { who, amount } => {
+                    fixed_mill::instruction(program, slots, who, amount, source_block)?
                 }
                 Step::GainLife { who, amount, .. } => Instruction::GainLife {
                     recipient: life_recipient(

@@ -29,6 +29,8 @@ Complete games, whole-profile usability and integrated product launch remain
 qualification gates. Exact deck admission, private provisioning/recovery and
 three separately owned automated seats are implemented; default browser launch
 stays disabled pending integrated proof. Unsupported automation pauses explicitly.
+Optional private diagnostics emit closed stage/cause codes; callback failures do
+not affect lifecycle decisions.
 The owner-scoped durable record supplies confirmed pauses/results after native
 shutdown. Command controls can become read-only while the last permitted table
 remains visible; command dispositions retain their separate native-status authority.

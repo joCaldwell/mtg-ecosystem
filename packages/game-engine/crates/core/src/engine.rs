@@ -329,6 +329,7 @@ mod intrinsic_mana;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
+mod mill;
 mod scry;
 mod surveil;
 pub use mana_permanents::PermanentManaUndo;
@@ -1484,6 +1485,11 @@ pub enum ProposedEvent {
         player: PlayerId,
         objects: Vec<ObjectId>,
     },
+    Mill {
+        player: PlayerId,
+        count: Quantity,
+        cards: Vec<ObjectId>,
+    },
     Surveil {
         player: PlayerId,
         amount: Quantity,
@@ -1679,6 +1685,10 @@ pub enum EventOutcome {
     SearchLandsRevealed {
         player: PlayerId,
         objects: Vec<ObjectId>,
+    },
+    Milled {
+        player: PlayerId,
+        movements: Vec<MoveOutcome>,
     },
     Surveilled {
         player: PlayerId,
@@ -3172,7 +3182,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 33,
+            snapshot_version: 34,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3214,7 +3224,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 33
+        if s.snapshot_version != 34
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

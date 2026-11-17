@@ -2,10 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { existsSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import { producePresentation } from "@multiverse/game-server-sdk/presentation-producer";
 import { GameClient, parseSeatBootstrap } from "@multiverse/game-server-sdk";
-import type { GameIdentity, GameRecord, GameStopTarget, NativeGameAdapter, NativeGameStatus } from "@mtg-ecosystem/deck-builder/contracts";
+import type { GameIdentity, GameRecord, GameStopTarget, NativeGameAdapter, GameDiagnosticSink } from "@mtg-ecosystem/deck-builder/contracts";
+import { nativeDiagnostics, nativeFailureCause, type NativeDiagnosticCause } from "./native-diagnostics.ts";
+import { nativeStatus } from "./native-status.ts";
 import { createNativeAdmission } from "./native-admission.ts";
 import { privateDirectory, readPrivate, writePrivate } from "./native-private.ts";
 import { startBots, type BotGroup } from "./native-bot-supervisor.ts";
@@ -21,7 +22,7 @@ interface Running {
   stopping: boolean;
   binding: string;
 }
-export interface NativeLifecycleOptions { executable: string; identity: GameIdentity; directory: string; humanOrigin: string }
+export interface NativeLifecycleOptions { executable: string; identity: GameIdentity; directory: string; humanOrigin: string; diagnostic?: GameDiagnosticSink }
 const same = (a: GameIdentity, b: GameIdentity) => ["catalog_sha256", "profile", "engine_build_id", "server_build_id"].every(key => a[key as keyof GameIdentity] === b[key as keyof GameIdentity]);
 const unavailable = () => new Error("Native lifecycle unavailable");
 /** Actual offline registry/native process bridge. Default browser qualification
@@ -32,6 +33,7 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
   const publicOrigin = new URL(options.humanOrigin);
   if (publicOrigin.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(publicOrigin.hostname) || `http://${publicOrigin.hostname}:${publicOrigin.port || "80"}` !== options.humanOrigin) throw new Error("Native human origin must be configured numeric loopback");
   privateDirectory(options.directory);
+  const diagnostic = nativeDiagnostics(options.diagnostic);
   const admission = createNativeAdmission(options.executable, options.identity);
   const running = new Map<string, Running>();
   const stoppingGames = new Set<string>();
@@ -81,109 +83,124 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
       return result;
     },
     async ensure(game, signal) {
-      signal.throwIfAborted();
-      if (!same(game.identity, options.identity) || stoppingGames.has(game.id)) throw unavailable();
-      const directory = root(game); privateDirectory(directory);
-      const epoch = generation(directory);
-      const immutableBinding = JSON.stringify([game.deck, game.identity, options.humanOrigin]);
-      const previous = running.get(game.id);
-      if (previous) { if (previous.binding !== immutableBinding || previous.stopping) throw unavailable(); await previous.ready; signal.throwIfAborted(); return; }
-      if (running.size >= 2) throw unavailable();
-      const commanders = game.deck.cards.filter(c => c.role === "commander");
-      if (commanders.length !== 1 || game.deck.cards.some(c => c.role === "companion") || game.identity.profile !== "commander-foundations-v1") throw unavailable();
-      const child = spawn(options.executable, ["lifecycle", directory], { stdio: ["pipe", "pipe", "ignore"], env: nativeEnvironment() });
-      child.stdin!.on("error", () => {});
-      const joined = new Promise<void>(resolve => { child.once("close", () => resolve()); child.once("error", () => resolve()); });
-      const state: Running = { child, joined, ready: Promise.resolve(), stopping: false, binding: immutableBinding };
-      running.set(game.id, state);
-      child.once("exit", () => { state.stopping = true; void state.bots?.stop(); });
-      const abort = () => { void stopRunning(state); };
-      signal.addEventListener("abort", abort, { once: true });
-      state.ready = (async () => {
-        try {
-          const ready = await new Promise<{ origin: string; session: string }>((resolve, reject) => {
-            let output = "";
-            child.stdout!.on("data", chunk => {
-              output += chunk.toString();
-              if (output.length > 4096) { reject(unavailable()); child.stdin!.end(); return; }
-              if (!output.endsWith("\n")) return;
-              try {
-                const value = JSON.parse(output);
-                if (value.version !== 1 || !/^session-[a-f0-9]{32}$/.test(value.session) || !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.origin)) throw unavailable();
-                resolve(value);
-              } catch { reject(unavailable()); }
+      let cause: NativeDiagnosticCause = "identity_failure", reported = false;
+      try {
+        signal.throwIfAborted();
+        if (!same(game.identity, options.identity)) throw unavailable();
+        cause = "state_unavailable";
+        if (stoppingGames.has(game.id)) throw unavailable();
+        cause = "private_file";
+        const directory = root(game); privateDirectory(directory);
+        const epoch = generation(directory);
+        const immutableBinding = JSON.stringify([game.deck, game.identity, options.humanOrigin]);
+        cause = "state_unavailable";
+        const previous = running.get(game.id);
+        if (previous) { if (previous.binding !== immutableBinding || previous.stopping) throw unavailable(); await previous.ready; signal.throwIfAborted(); return; }
+        if (running.size >= 2) throw unavailable();
+        const commanders = game.deck.cards.filter(c => c.role === "commander");
+        if (commanders.length !== 1 || game.deck.cards.some(c => c.role === "companion") || game.identity.profile !== "commander-foundations-v1") throw unavailable();
+        cause = "startup_failure";
+        const child = spawn(options.executable, ["lifecycle", directory], { stdio: ["pipe", "pipe", "ignore"], env: nativeEnvironment() });
+        child.stdin!.on("error", () => {});
+        const joined = new Promise<void>(resolve => { child.once("close", () => resolve()); child.once("error", () => resolve()); });
+        const state: Running = { child, joined, ready: Promise.resolve(), stopping: false, binding: immutableBinding };
+        running.set(game.id, state);
+        child.once("exit", () => {
+          diagnostic(game.id, "child", state.stopping ? "child_exit_during_stop" : "child_exit");
+          state.stopping = true; void state.bots?.stop();
+        });
+        child.once("error", () => diagnostic(game.id, "child", "child_error"));
+        const abort = () => { void stopRunning(state); };
+        signal.addEventListener("abort", abort, { once: true });
+        state.ready = (async () => {
+          try {
+            const ready = await new Promise<{ origin: string; session: string }>((resolve, reject) => {
+              let output = "";
+              child.stdout!.on("data", chunk => {
+                output += chunk.toString();
+                if (output.length > 4096) { cause = "startup_protocol"; reject(unavailable()); child.stdin!.end(); return; }
+                if (!output.endsWith("\n")) return;
+                try {
+                  const value = JSON.parse(output);
+                  if (value.version !== 1 || !/^session-[a-f0-9]{32}$/.test(value.session) || !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.origin)) throw unavailable();
+                  resolve(value);
+                } catch { cause = "startup_protocol"; reject(unavailable()); }
+              });
+              child.once("exit", () => reject(unavailable())); child.once("error", () => reject(unavailable()));
             });
-            child.once("exit", () => reject(unavailable())); child.once("error", () => reject(unavailable()));
-          });
-          if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
-          state.origin = ready.origin; state.session = ready.session;
-          if (!validate(bootstrap(game), game)) throw unavailable();
-          const human = parseSeatBootstrap(bootstrap(game));
-          const sdk = new GameClient({ baseURL: state.origin, matchId: game.id, capability: human.capability });
-          const manifest = await sdk.manifest({ signal });
-          const produced = await producePresentation(manifest, { match_id: game.id, ...game.identity });
-          if (signal.aborted || state.stopping || generation(directory) !== epoch || !same(game.identity, options.identity)) throw unavailable();
-          state.presentation = { descriptor: produced.descriptor, body: new TextDecoder("utf-8", { fatal: true }).decode(produced.bytes) };
-          state.bots = await startBots(directory, ready.session, game.identity.profile, options.humanOrigin, signal);
-          if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
-        } catch { await stopRunning(state); throw unavailable(); }
-        finally { signal.removeEventListener("abort", abort); }
-      })();
-      child.stdin!.write(JSON.stringify({ version: 1, generation: epoch, id: game.id, ...game.identity, deck_sha256: game.deck.sha256, human_origin: options.humanOrigin, deck: { commander: commanders[0]!.oracle_id, cards: game.deck.cards.map(c => ({ oracle_id: c.oracle_id, count: c.quantity })) } }) + "\n");
-      await state.ready;
-    },
-    async status(game, signal): Promise<NativeGameStatus> {
-      signal.throwIfAborted();
-      const state = running.get(game.id);
-      if (!state || state.stopping || !state.bots) throw unavailable();
-      const seat = parseSeatBootstrap(bootstrap(game));
-      const sdk = new GameClient({ baseURL: state.origin!, matchId: game.id, capability: seat.capability });
-      for (let attempt = 0; attempt < 4; attempt++) {
-        const resume = await sdk.resume({ signal });
-        if (resume.viewer !== 0 || resume.engine_build_id !== game.identity.engine_build_id || resume.server_build_id !== game.identity.server_build_id || resume.catalog_sha256 !== game.identity.catalog_sha256) throw unavailable();
-        const row = JSON.parse(readPrivate(join(root(game), "status.json"))) as { version: number; human_waiting_since: number | null; human_decision_token: string | null };
-        if (row.version !== 1 || (row.human_waiting_since !== null && (!Number.isSafeInteger(row.human_waiting_since) || row.human_waiting_since < 0))) throw unavailable();
-        const token = resume.state.status === "available" ? resume.state.observation.decision?.token ?? null : null;
-        // The timestamp must describe this exact permitted human decision, not
-        // the previous decision observed by a concurrent lifecycle status tick.
-        if (row.human_decision_token === token) return { identity: { ...options.identity }, consumers: state.bots.status(), human_waiting_since: row.human_waiting_since, outcome: resume.outcome ? resume.outcome.outcome === "win" ? { kind: "win", winner: resume.outcome.player as 0 | 1 | 2 | 3 } : { kind: "draw" } : null };
-        await delay(100, undefined, { signal });
+            if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
+            state.origin = ready.origin; state.session = ready.session;
+            cause = "private_file";
+            if (!validate(bootstrap(game), game)) { cause = "identity_failure"; throw unavailable(); }
+            const human = parseSeatBootstrap(bootstrap(game));
+            const sdk = new GameClient({ baseURL: state.origin, matchId: game.id, capability: human.capability });
+            cause = "adapter_failure";
+            const manifest = await sdk.manifest({ signal });
+            cause = "presentation_failure";
+            const produced = await producePresentation(manifest, { match_id: game.id, ...game.identity });
+            if (signal.aborted || state.stopping || generation(directory) !== epoch || !same(game.identity, options.identity)) throw unavailable();
+            state.presentation = { descriptor: produced.descriptor, body: new TextDecoder("utf-8", { fatal: true }).decode(produced.bytes) };
+            cause = "bots_failure";
+            state.bots = await startBots(directory, ready.session, game.identity.profile, options.humanOrigin, signal);
+            if (signal.aborted || state.stopping || generation(directory) !== epoch) throw unavailable();
+          } catch (error) {
+            reported = true;
+            diagnostic(game.id, "ensure", nativeFailureCause(error, signal, cause));
+            diagnostic(game.id, "ensure_cleanup", "cleanup_started");
+            try { await stopRunning(state); diagnostic(game.id, "ensure_cleanup", "cleanup_succeeded"); }
+            catch (cleanupError) { diagnostic(game.id, "ensure_cleanup", "cleanup_failed"); throw cleanupError; }
+            throw unavailable();
+          }
+          finally { signal.removeEventListener("abort", abort); }
+        })();
+        child.stdin!.write(JSON.stringify({ version: 1, generation: epoch, id: game.id, ...game.identity, deck_sha256: game.deck.sha256, human_origin: options.humanOrigin, deck: { commander: commanders[0]!.oracle_id, cards: game.deck.cards.map(c => ({ oracle_id: c.oracle_id, count: c.quantity })) } }) + "\n");
+        await state.ready;
+      } catch (error) {
+        if (!reported) diagnostic(game.id, "ensure", nativeFailureCause(error, signal, cause));
+        throw error;
       }
-      throw unavailable();
+    },
+    async status(game, signal) {
+      return nativeStatus(game, signal, { identity: options.identity, state: running.get(game.id), bootstrap: () => bootstrap(game),
+        readStatus: () => readPrivate(join(root(game), "status.json")), diagnostic });
     },
     async stop(game, reason, signal) {
-      const directory = root(game); privateDirectory(directory);
-      const bindingPath = join(directory, "binding.json");
-      if (existsSync(bindingPath)) {
-        const bound = JSON.parse(readPrivate(bindingPath)) as GameIdentity & { id: string };
-        if (bound.id !== game.id || !same(bound, game.identity)) throw unavailable();
-      }
-      stoppingGames.add(game.id);
-      // Stop can fence an older exact retained binding without loading its rules
-      // or treating the current executable as a recovery-compatible build.
-      // Capture-before-await generations fence late/uncertain ensure, while a
-      // later explicit recovery may own a fresh generation of this same match.
-      if (reason !== "shutdown") {
-        const next = generation(directory) + 1;
-        if (!Number.isSafeInteger(next)) throw unavailable();
-        writePrivate(join(directory, "generation.json"), JSON.stringify(next));
-      }
-      const state = running.get(game.id);
-      if (state) {
-        await stopRunning(state);
-        await state.ready.catch(() => {});
-        await state.bots?.stop();
-      }
-      // The exact persisted native unit and all independent kernel bot leases
-      // must be quiescent even when ensure's response/process ownership was lost.
-      await joinProcess(options.executable, ["lifecycle-join", directory]);
-      for (const seat of [1, 2, 3]) {
-        const lease = join(directory, `bot-${seat}`, "lease");
-        if (existsSync(lease)) { readPrivate(lease); await joinProcess("flock", ["--exclusive", lease, "/usr/bin/true"]); }
-      }
-      running.delete(game.id);
-      stoppingGames.delete(game.id);
-      signal.throwIfAborted();
+      let cause: NativeDiagnosticCause = "private_file";
+      try {
+        const directory = root(game); privateDirectory(directory);
+        const bindingPath = join(directory, "binding.json");
+        if (existsSync(bindingPath)) {
+          const bound = JSON.parse(readPrivate(bindingPath)) as GameIdentity & { id: string };
+          if (bound.id !== game.id || !same(bound, game.identity)) { cause = "identity_failure"; throw unavailable(); }
+        }
+        stoppingGames.add(game.id);
+        // Stop can fence an older exact retained binding without loading its rules
+        // or treating the current executable as a recovery-compatible build.
+        // Capture-before-await generations fence late/uncertain ensure, while a
+        // later explicit recovery may own a fresh generation of this same match.
+        if (reason !== "shutdown") {
+          const next = generation(directory) + 1;
+          if (!Number.isSafeInteger(next)) throw unavailable();
+          writePrivate(join(directory, "generation.json"), JSON.stringify(next));
+        }
+        cause = "adapter_failure";
+        const state = running.get(game.id);
+        if (state) {
+          await stopRunning(state);
+          await state.ready.catch(() => {});
+          await state.bots?.stop();
+        }
+        // The exact persisted native unit and all independent kernel bot leases
+        // must be quiescent even when ensure's response/process ownership was lost.
+        await joinProcess(options.executable, ["lifecycle-join", directory]);
+        for (const seat of [1, 2, 3]) {
+          const lease = join(directory, `bot-${seat}`, "lease");
+          if (existsSync(lease)) { readPrivate(lease); await joinProcess("flock", ["--exclusive", lease, "/usr/bin/true"]); }
+        }
+        running.delete(game.id);
+        stoppingGames.delete(game.id);
+        signal.throwIfAborted();
+      } catch (error) { diagnostic(game.id, "stop", nativeFailureCause(error, signal, cause)); throw error; }
     },
     async proxy(game, request, signal) {
       const state = running.get(game.id);

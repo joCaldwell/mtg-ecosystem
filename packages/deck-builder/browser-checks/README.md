@@ -63,7 +63,7 @@ Scripts with `--baseline` require a separate immutable baseline fixture.
 | Script | Contract |
 | --- | --- |
 | `check-product-shell.mjs` | Home, selected-deck setup, qualified preview/drafts/focus/return, deep links, delayed reads, account isolation and desktop/tablet/phone navigation; no game commands or saved-deck change |
-| `check-product-session.ts --help` | Hosted native sessions: exact journals, Chromium/Firefox recovery; opt-in natural play bounded at 90 minutes/2,000 human commands |
+| `check-product-session.ts --help` | Hosted native sessions: exact journals, Chromium/Firefox recovery; natural play requires a completed visible result within 90 minutes/2,000 human commands; pauses/bounds fail |
 | `check-modern-primitives.mjs` | Native and missing-feature overlay/menu/checkbox paths, safe autofocus, focus return, labelled triggers, text scaling and toast replacement; run with `--browser chromium` and `--browser firefox` |
 | `check-modern-navigation.mjs` | Chromium/Firefox route titles/focus, native document links, pointer/keyboard hover previews, IME Escape, missing public routes and consent; optional `--out DIR` |
 | `check-feature-modernization.mjs` | Native submit validation, IME handlers, keyboard AddBar actions and reversed async deck command completions |
