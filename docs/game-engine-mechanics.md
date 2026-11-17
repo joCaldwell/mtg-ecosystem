@@ -116,7 +116,10 @@ available prefix without changing incarnations, offers the controller a scoped
 boolean shuffle choice, then draws once. Accepted shuffles use the existing
 trusted seeded stream and public shuffle counter, including empty/single-card
 libraries. Decline consumes no random words. No source, target, mana or priority
-authority is created between these instructions.
+authority is created between these instructions. Counted controller draw/hand-return
+programs perform exact sequential draw attempts, then choose and order as many
+requested cards as remain in the whole hand. Zone moves create successors;
+Commander replacements precede the single ordered-return batch.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
