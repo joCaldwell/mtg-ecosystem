@@ -2469,7 +2469,10 @@ impl Game {
                 }
             }
             ProposedEvent::LandPlayed { player } => {
-                if !self.main_phase_action(*player) || self.state.rules.turn.lands_played != 0 {
+                if (!self.main_phase_action(*player)
+                    && !entry.is_some_and(|proof| proof.land_play(*player)))
+                    || self.state.rules.turn.lands_played != 0
+                {
                     return Err("invalid land-play counting event".into());
                 }
                 let previous = self.state.rules.turn.lands_played;

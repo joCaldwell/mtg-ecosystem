@@ -28,6 +28,9 @@ pub(super) struct PreparedEntryAuthority {
     entries: BTreeMap<ObjectId, Option<bool>>,
 }
 impl PreparedEntryAuthority {
+    pub(super) fn land_play(&self, player: PlayerId) -> bool {
+        !self.search && self.player == player
+    }
     pub(super) fn movement(
         &self,
         object: ObjectId,
