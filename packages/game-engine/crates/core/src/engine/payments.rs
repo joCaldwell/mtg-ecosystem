@@ -200,7 +200,10 @@ impl Game {
         }
         let cost = stack.total_cost.clone();
         if let StackKind::Activated { ability, .. } = &stack.kind
-            && matches!(self.definition(stack.source.card)?.activated[*ability as usize].cost, ActivationCost::DiscardSource { .. })
+            && matches!(
+                self.definition(stack.source.card)?.activated[*ability as usize].cost,
+                ActivationCost::DiscardSource { .. }
+            )
             && !self.hand_activation_source_payable(stack.controller, stack.source)
         {
             return Ok(AnnouncementPayment::Unpayable);
@@ -233,13 +236,22 @@ impl Game {
         // containing rule step stages both occurrences atomically. No choice
         // of another hand card, no effect-time discard, no early cost on failure.
         if let StackKind::Activated { ability, .. } = &stack.kind
-            && matches!(self.definition(stack.source.card)?.activated[*ability as usize].cost, ActivationCost::DiscardSource { .. })
+            && matches!(
+                self.definition(stack.source.card)?.activated[*ability as usize].cost,
+                ActivationCost::DiscardSource { .. }
+            )
         {
             self.commit(
-                ProposedEvent::DiscardCard { object: stack.source, player: stack.controller },
+                ProposedEvent::DiscardCard {
+                    object: stack.source,
+                    player: stack.controller,
+                },
                 BatchCause::AbilityActivation {
-                    stack_id: stack.id, player: stack.controller, source: stack.source,
-                    decision_id: self.state.rules.revision, ability: *ability,
+                    stack_id: stack.id,
+                    player: stack.controller,
+                    source: stack.source,
+                    decision_id: self.state.rules.revision,
+                    ability: *ability,
                 },
             )?;
         }

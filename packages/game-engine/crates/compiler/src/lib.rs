@@ -1550,7 +1550,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         for (keyword_index, keyword) in keywords.iter().enumerate() {
                             if keyword.keyword == "cycling" {
                                 labels.activated.push(source_block(block)?);
-                                definition.activated.push(cycling::lower(keyword, source_block(block)?)?);
+                                definition
+                                    .activated
+                                    .push(cycling::lower(keyword, source_block(block)?)?);
                                 continue;
                             }
                             if keyword.keyword == "equip"

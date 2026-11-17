@@ -261,7 +261,9 @@ impl Game {
             .ok_or("unknown activated ability")?;
         if !self.is_live(player)
             || match ability.functioning_zone {
-                FunctioningZone::Battlefield => source.zone != Zone::Battlefield || source.controller != player,
+                FunctioningZone::Battlefield => {
+                    source.zone != Zone::Battlefield || source.controller != player
+                }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
                 FunctioningZone::Stack => true,
             }
