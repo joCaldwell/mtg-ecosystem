@@ -285,7 +285,20 @@ fn draw_discard_paid_whole_hand_and_one_common_prior_batch() {
                 let batches=g.trace.records.iter().filter_map(|r|if let EvidenceRecord::Batch{batch}=&r.record{Some(batch)}else{None}).filter(|b|matches!(&b.group,EventGroup::Simultaneous{occurrences} if occurrences.len()==2&&occurrences.iter().all(|e|matches!(e,ProposedEvent::DiscardCard{..})))).collect::<Vec<_>>();
                 assert_eq!(batches.len(), 1);
                 let b = batches[0];
-                assert_eq!(b.occurrences[0].before, b.occurrences[1].before);
+                for occurrence in &b.occurrences {
+                    for object in &occurrence.before.objects {
+                        assert!(
+                            b.before.objects.contains(object),
+                            "leaf consumed the shared prior object facts"
+                        );
+                    }
+                    for player in &occurrence.before.players {
+                        assert!(
+                            b.before.players.contains(player),
+                            "leaf consumed the shared prior player facts"
+                        );
+                    }
+                }
                 for id in selected {
                     assert!(
                         b.before.objects.iter().any(
