@@ -96,10 +96,9 @@ Source `3ee7fe8d51abd2c6bac9033a39381d14d761b45b` passed 412 distinct Rust/1,753
 
 ### Ramos basic-cascade combined qualification
 
-Source `6c2c295bed4a8575c8b78974d13618a9b9454ab4` combined main `ef8fc6da`:
-498 distinct Rust tests, 1,832 schema probes, 908 rows; paid Aura/cascade/departure
-recovery in three traces. Artifacts and omissions:
-`generated/ramos/m3b-integrated/integration.json`. Formats23/18; no consumer transfer.
+Source `6c2c295bed4a8575c8b78974d13618a9b9454ab4`/main `ef8fc6da`:498 distinct Rust,
+1,832 probes,908 rows;23/18. Paid recovery/failures/producers:
+`generated/ramos/m3b-integrated/integration.json`.
 
 ### Atomic temporary-keyword qualification
 
@@ -166,42 +165,45 @@ The [immutable report index](https://github.com/joCaldwell/mtg-ecosystem/blob/c9
 
 ### Ramos optional-cost and paid-prohibition combined qualification
 
-Source `2b83a4824a8d6561402aaf560cbd4dbba5561389` combined main `33dcbe9d`:
-528 distinct Rust/538 executions, 2,160 schema probes, 925 rows; all-targets/fmt.
-Source-bound kicker and the paid Aura/Kutzil prohibition close the focused M3 exit.
-Review fixes, exact artifacts and bridges: `generated/ramos/m3c-integrated/integration.json`.
-Formats24/19; no consumer or exact-deck qualification.
+Source `2b83a4824a8d6561402aaf560cbd4dbba5561389`/main `33dcbe9d`:528 distinct Rust/538 executions,2,160 probes,
+925 rows;24/19. Paid kicker/prohibition proof:
+`generated/ramos/m3c-integrated/integration.json`.
 
 ### Ramos multiple cascade and live modifier combined qualification
 
-Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30` combined main `2ac47a82`:
-542 distinct Rust,2,748 schema,944 rows;26/21,IR1. `generated/ramos/m4a-integrated/integration.json`
-retains separate runtime/contracts57aeb5f1 and compiler/CLI3813 producers, test-only
-bridges, reviews and failures. The original833-second Apex witness was not repeated.
-[Immutable detail](https://github.com/joCaldwell/mtg-ecosystem/blob/1db8a87170d540e0b955a58757c356fc2ce1add6/docs/game-engine-evidence.md#ramos-multiple-cascade-and-live-modifier-combined-qualification).
+Source `3813db057d66bd8d9ce3de7825a6758a2f82dd30`/main `2ac47a82`:542 Rust,
+2,748 probes,944 rows;26/21. Runtime/contracts `57aeb5f1` remains separate from
+compiler/CLI `3813`; `generated/ramos/m4a-integrated/integration.json` retains bridges
+and the unrepeated833-second Apex witness.
 
 ### Ramos Imoti and fresh-main combined qualification
 
-Source `f6c9d7c76ca0837ec2c93fad5a78fb5c1a272b7f`:582 Rust,3,325 schema,964
-rows;27/22. Exact producers, source bridges and unchanged-native-input a83 merge:
-`generated/ramos/m4c-integrated/integration.json` and the [immutable ledger](https://github.com/joCaldwell/mtg-ecosystem/blob/2173ae3814fb8777e24e376b4ebf48fc7dccc7ea/docs/game-engine-evidence.md#ramos-imoti-and-fresh-main-combined-qualification).
-No consumer acceptance transfers.
+Source `f6c9d7c76ca0837ec2c93fad5a78fb5c1a272b7f`:582 Rust,3,325 probes,964 rows;
+27/22. Exact producers/unchanged-native-input a83 bridge:
+`generated/ramos/m4c-integrated/integration.json`.
 
 ### Ramos first-cast history combined qualification
 
-Rules `836a63a9`/schema `dbc644a5`, combined main `d842ef59`:586 distinct Rust,
-3,531 probes,969 rows;28/22. Opt2 `d89d3290`, CLIopt0 `8d39663f`; proofs, repairs, bridges and failures: `generated/ramos/m4d-integrated/integration.json`
-and [immutable detail](https://github.com/joCaldwell/mtg-ecosystem/blob/009ce1784223eeb5aaf5bd51403623b755f7989a/docs/game-engine-evidence.md#ramos-first-cast-history-combined-qualification).
+Rules `836a63a9`/schema `dbc644a5`,main `d842ef59`:586 Rust,3,531 probes,969 rows;
+28/22. Opt2 `d89d3290`,CLI `8d39663f`; repairs/bridges:
+`generated/ramos/m4d-integrated/integration.json`.
 
 ### Ramos counted-cost combined qualification
 
-Source `802aab64`, combined main `a39dc880`:**665 distinct Rust/684 executions,
-4,696 schema probes,978 rows**;30/23,IR1. Libraries retain `0a050bcc` across two
-test-literal corrections. Opt2 `35b47dac`, CLIopt0 `98bca014` are independently reproduced. Both review defects and ordinary-block integration
-are repaired. All-target/fmt, paid
-cost/cascade/history/search/target/query/recovery, scoped Clippy and smoke/replay pass.
-Clippy exceptions cover byte-proven inherited core enum-size/redundant-result and
-contracts collapsible-if warnings. `generated/ramos/m4e-integrated/integration.json`
-indexes artifacts and failures. Current85-source audit:
-24 lowered/validated,61 Unsupported,zero Invalid; historical M0 stays unchanged.
-Full runtime/release/Node/consumer matrices and exact-deck admission remain open.
+Source `802aab64`/main `a39dc880`:665 distinct Rust/684 executions,4,696 probes,
+978 rows;30/23,IR1. Opt2 `35b47dac`,CLI `98bca014`; library/test-only bridges,
+scoped lint exceptions and24/61/0 audit: `generated/ramos/m4e-integrated/integration.json`.
+[Immutable detail](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-evidence.md#ramos-counted-cost-combined-qualification).
+
+### Ramos land and library-choice integration
+
+Source `7e99dc40` combines through main `f1b04e83`:575 distinct Rust/576 executions
+including one export repeat,6,744 Ajv probes,1,004 verified native rows;33/25,IR1.
+Opt2 `2c94c19a` and CLIopt0 `2c9b003a` are independently reproduced. Typed search,
+conditional entry, intrinsic choice, paid source-departure queries, counters/costs,
+Scry/Surveil and cascade-to-Opt recovery pass; all-target/fmt and smoke/replay pass.
+Review repairs, earlier `8185cb2a` matrix(199.79s), failures and exact artifacts:
+`generated/ramos/land-integration/integration.json`. Frozen85-source audit:
+28 lowered/validated,57 Unsupported,zero Invalid;100 cards/37 lands unchanged.
+Consumer files equal tested main. Later Mill and consumer/exact-deck admission
+remain separate; broader runtime/lint/Node/CI gates are omitted.

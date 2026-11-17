@@ -31,22 +31,21 @@ rules or policies. Keep the standalone deck-builder independent.
 
 ## Qualified checkpoints and limits
 
-- **M0:** frozen against main `bbdba9f5`, planning base `46ef08fa`; all 85 archive
-  records verified. Production audit: 11 lowered/validated, 74 Unsupported, zero
-  Invalid. The baseline retains exact diagnostics; later checkpoints do not rewrite it.
-- **M1:** complete frozen Ramos, Hardened Scales and Corpsejack have paid
-  mechanics/recovery witnesses. Counter removal/mana, color triggers and atomic
-  Add/Multiply ordering are supported; entry/simultaneous/distributed placement
-  producers remain unavailable. [Mechanics](game-engine-mechanics.md) owns details.
-- **M2 partial:** Cultivate/Reach support optional basic search, temporary public
-  reveal, identity-bound battlefield/hand partition, tapped entry and shuffle.
-  The other land/ramp sources below remain obligations.
+- **M0:** main `bbdba9f5`, planning base `46ef08fa`;85 records verified.
+  Historical audit11 lowered/validated,74 Unsupported,zero Invalid and diagnostics
+  remain preserved.
+- **M1:** Ramos/Scales/Corpsejack support cast-color counters, removal/mana/undo
+  and atomic Add/Multiply ordering with recovery. Entry/simultaneous/distributed
+  placement producers remain unavailable.
+- **M2 partial:** Cultivate/Reach retain basic split search. Farseek/Lore/Claim
+  support typed nonbasic search, destination entry and shuffle. Cinder Glade and
+  the separate Prairie Stream witness share conditional entry and intrinsic mana
+  selection with paid, privacy, undo and recovery tests. Other sources remain open.
 - **M3:** source-qualified basic/instant cascade, owned casting, optional kicker
   and paid prohibition have private paid/recovery witnesses.
-- **M4 partial:** Apex/Wanderer independent cascades, live haste, Imoti grants,
-  Nexus/Wild-Magic Sorcerer first-cast history and Ethersworn counted reductions
-  are qualified. [Evidence](game-engine-evidence.md) owns exact producers, source
-  bridges, counts and exclusions; historical acceptance never transfers.
+- **M4 partial:** Apex/Wanderer, Imoti, Nexus/Sorcerer and Ethersworn are
+  source-qualified. [Evidence](game-engine-evidence.md) owns producers, bridges,
+  counts and exclusions; acceptance never transfers.
 
 Coordinator receipts remain in `generated/ramos/*-integrated/integration.json`.
 Source boundaries, failures and the unrepeated 833-second Apex witness remain in receipts and the [immutable prior plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
@@ -60,16 +59,16 @@ Complete typed multicolor lands, shock/conditional/tapped entry, fetch life/tap/
 sacrifice costs, typed nonbasic searches, mana choices/opponent production and hand
 cycling. Cover Farseek, Nature's Lore, Skyshroud Claim and all triome modes; Forest
 need not mean basic. Preserve reveal, optional quantities and destination entry rules.
-Typed-search source `da5ba48d` is unqualified; review findings and native gates remain.
+Combined source `7e99dc40` closes typed-search and conditional-entry review findings;
+[evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) records focused qualification. Shocks, fetch costs, triome cycling and
+opponent-production sources remain obligations.
 
 ### M3 Build casting during resolution and basic cascade
 
-Retain completed casts distinct from copies/failed proposals. Free alternative
-cost leaves additional costs payable and mana value unchanged. Preserve exact
-owner-below-child completion, no premature priority/SBA, current prohibitions,
-second mana-value guard, decline/no-hit, countered originals and legal modal targets.
-Recovery must bind cost selections, payments and private bottom membership.
-The focused exit above does not cover every possible casting source or cost.
+Qualified above: owned free casts, optional additional costs, legal targets/current
+prohibitions, nested completion and private-bottom recovery. Further casting
+sources/costs require complete-source qualification under the shared
+[mechanics](game-engine-mechanics.md).
 
 ### M4 Complete the cascade package and casting history
 
@@ -135,7 +134,6 @@ privacy, retries, reconnect, recovery and four-client completion. Search is sepa
 Primary dependency path is M0→M1→M3→M4; M2 can advance independently. M5–M10 reuse
 those foundations. Call Forth, Selvala, Averna, Omnath, Yidris, Creative Technique
 and Double Major still need complete parser/archive work under that package manual.
-Freeze source through native passes, serialize the shared lock, preserve failed
-results and exact copied artifacts, and reconcile current main only at stable
-boundaries. State executed selectors, overlap, omissions and source identities.
-No coverage percentage substitutes for complete semantics or exact-target admission.
+Follow the [development workflow](game-engine-development.md) for freezing,
+serialized native work, preserved failures/artifacts and stable main integration.
+Exact-target admission requires complete semantics; coverage percentages cannot substitute.
