@@ -6251,6 +6251,7 @@ mod tests {
             assert!(!expanded.capabilities.contains(&DamageTriggerV1));
             definitions.push(expanded);
         }
+        definitions.push(typed_fetchland_tests::definition());
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)
