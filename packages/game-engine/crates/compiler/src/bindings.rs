@@ -114,6 +114,45 @@ impl<'a> Bindings<'a> {
         self.node(path, kind, "event-result", fields);
     }
 
+    /// A card may have independently supported siblings. Compare every field of
+    /// the shared source/face anchors and every node/reference owned by this block.
+    pub(super) fn validate_block(&self, binding: &Value, root: &str) -> Result<(), Failure> {
+        let fail = || unsupported("binding", "incomplete cast trigger binding graph");
+        let prefix = format!("card:{}{root}", self.identity);
+        let local_path = |path: &str| {
+            path == root
+                || path
+                    .strip_prefix(root)
+                    .is_some_and(|tail| tail.starts_with('/'))
+        };
+        let local_id = |id: &str| {
+            id.strip_prefix(&prefix)
+                .is_some_and(|tail| tail.starts_with(['#', '/']))
+        };
+        let mut scoped = binding.clone();
+        let nodes = scoped["nodes"].as_array_mut().ok_or_else(fail)?;
+        nodes.retain(|node| {
+            node["path"]
+                .as_str()
+                .is_some_and(|path| matches!(path, "/source" | "/faces/0") || local_path(path))
+                || node["id"]
+                    .as_str()
+                    .is_some_and(|id| local_id(id) || self.nodes.iter().any(|n| n["id"] == id))
+                || node["scope"].as_str().is_some_and(local_id)
+        });
+        let refs = scoped["references"].as_array_mut().ok_or_else(fail)?;
+        let total = refs.len();
+        if binding["counts"] != json!({"obligations":total,"bound":total,"unresolved":0}) {
+            return Err(fail());
+        }
+        refs.retain(|r| {
+            r["path"].as_str().is_some_and(local_path) || r["target"].as_str().is_some_and(local_id)
+        });
+        let n = refs.len();
+        scoped["counts"] = json!({"obligations":n,"bound":n,"unresolved":0});
+        self.validate(&scoped, "incomplete cast trigger binding graph")
+    }
+
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
         let same_members = |actual: &Value, expected: &[Value]| {
             actual.as_array().is_some_and(|items| {

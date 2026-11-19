@@ -954,6 +954,17 @@ fn synthetic_cast_scry_uses_paid_color_and_trigger_controller() {
             amount: 2.into(),
             source_block: 0,
         }];
+        // The private scenario keeps the lookup ID used by prepared(), but
+        // gives this synthetic definition its own name, printing and source.
+        d.name = "Synthetic White Cast Observer".into();
+        d.source_labels = None;
+        d.provenance.printing_id = "synthetic-white-cast-observer-print".into();
+        let source = serde_json::json!({"oracle_id":d.oracle_id,"id":d.provenance.printing_id,
+            "name":d.name,"oracle_text":"Whenever you cast a white spell, scry 2."});
+        d.provenance.source_json = canonical(&source).unwrap();
+        d.provenance.source_sha256 = sha256(d.provenance.source_json.as_bytes());
+        d.provenance.abilities_json = canonical(&[cast_scry_ability_ast(Color::W, 2)]).unwrap();
+        d.provenance.ast_sha256 = sha256(format!("[{}]", d.provenance.abilities_json).as_bytes());
     });
     edit(&mut p, MINE, |d| d.characteristics.colors = vec![Color::W]);
     for id in 2..=3 {

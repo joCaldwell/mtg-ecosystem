@@ -32,6 +32,35 @@ for(const amount of ['0','1','2','999999999999999999999999999'])for(const order 
  for(const invalid of ['-1','01',2,null,{},''])negative(`${label}:amount:${JSON.stringify(invalid)}`,base,d=>{d.spell.instructions.find(i=>i.op==='scry').amount=invalid});
 }
 for(const amount of ['0','1','17'])for(const sorcery of [false,true])positive(`filtered:${amount}:${sorcery}`,control(amount,0,true,sorcery));
+// A synthetic color-cast trigger exercises schema capability closure independently
+// of the ordinary-spell controls. Source and AST hashes describe this exact block.
+const triggerCatalog = clone(frozen);
+const observer = clone(frozen.definitions.find(d => d.name === 'Grizzly Bears'));
+triggerCatalog.definitions = [observer];
+observer.name = 'Synthetic Cast Scry Observer';
+observer.oracle_id = 'synthetic-cast-scry-schema';
+observer.provenance.printing_id = 'synthetic-cast-scry-schema-print';
+const text = 'Whenever you cast a red spell, scry 5.';
+const source = { ...JSON.parse(observer.provenance.source_json), name:observer.name, id:observer.provenance.printing_id,
+  oracle_id:observer.oracle_id, oracle_text:text };
+const ast = [{ kind:'triggered', trigger:{ trigger:'cast', who:{player:'you'}, what:{colors:['red'],cls:'spell'} },
+  effects:[{steps:[{effect:'scry',amount:{amount:'fixed',value:5}}]}] }];
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+observer.provenance.source_json = JSON.stringify(source);
+observer.provenance.source_sha256 = sha256(observer.provenance.source_json);
+observer.provenance.abilities_json = JSON.stringify(ast);
+observer.provenance.ast_sha256 = sha256(JSON.stringify([ast]));
+delete observer.source_labels;
+const requiredTriggerCaps = ['cast_trigger_v1','triggered_ability_v1','cast_color_predicate_v1','controller_scry_v1'];
+observer.capabilities.push(...requiredTriggerCaps);
+observer.triggered = [{ functioning_zone:'battlefield', condition:{spell_cast:{caster:'controller',spell:{predicate:'spell_color',color:'R'}}},
+  program:{functioning_zone:'stack',timing:'instant',resolution:'instructions',targets:[],
+    instructions:[{op:'scry',amount:'5',source_block:0}]} }];
+positive('cast-scry:complete',triggerCatalog);
+for (const cap of requiredTriggerCaps) {
+  negative('cast-scry:missing:'+cap, triggerCatalog,d=>{d.capabilities=d.capabilities.filter(c=>c!==cap)});
+}
+negative('cast-scry:erased',triggerCatalog,d=>{delete d.triggered;d.capabilities=d.capabilities.filter(c=>!requiredTriggerCaps.includes(c))});
 const ordinary=control(),filtered=control('1',0,true);
 for(const [name,change] of [
  ['double',d=>d.spell.instructions.push(clone(d.spell.instructions[0]))],

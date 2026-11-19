@@ -210,147 +210,64 @@ pub(super) fn validate_bindings(
     Ok(())
 }
 
-// A single fixed lookup can use the cast event's authenticated controller.
+// Match both directions: an edited AST must not erase a printed lookup,
+// and an injected lookup cannot borrow a different printed effect.
 pub(super) fn validate_cast_scry(
     abilities: &[Ability],
     result: &ParseResult,
     binding: &serde_json::Value,
     identity: &str,
+    source: &serde_json::Value,
 ) -> Result<(), Failure> {
-    for (block, ability) in abilities.iter().enumerate() {
-        let Ability::Triggered {
-            trigger,
-            effects,
-            condition,
-            ..
-        } = ability
-        else {
-            continue;
-        };
-        if !effects
-            .iter()
-            .flat_map(|sentence| &sentence.steps)
-            .any(|step| matches!(step, Step::Scry { .. }))
-        {
+    use crate::bindings::Bindings;
+    use serde_json::json;
+    let fail = || {
+        unsupported(
+            "triggered scry",
+            "requires one complete source-bound controller cast lookup",
+        )
+    };
+    for (block, (ability, line)) in abilities.iter().zip(&result.lines).enumerate() {
+        let printed = printed_cast_scry(&line.text);
+        let uses_scry = matches!(ability, Ability::Triggered {effects,..}
+            if effects.iter().flat_map(|sentence| &sentence.steps).any(|step| matches!(step,Step::Scry {..})));
+        if printed.is_none() && !uses_scry {
             continue;
         }
-
-        let fail = || {
-            unsupported(
-                "triggered scry",
-                "requires one source-bound controller cast lookup",
-            )
-        };
-        let SourceTrigger::Cast {
-            who,
-            what,
-            not_from: None,
-        } = trigger.as_ref()
-        else {
-            return Err(fail());
-        };
-        let [
-            Sentence {
-                bindings,
-                condition: None,
-                condition_kind: None,
-                steps,
-            },
-        ] = effects.as_slice()
-        else {
-            return Err(fail());
-        };
-        let [Step::Scry { amount }] = steps.as_slice() else {
-            return Err(fail());
-        };
-        let TypePredicate::SpellColor { color } =
-            lower_type_predicate(what, Some("spell"), true, 0)?
-        else {
-            return Err(fail());
-        };
-        let color = match color {
-            Color::W => "white",
-            Color::U => "blue",
-            Color::B => "black",
-            Color::R => "red",
-            Color::G => "green",
-            Color::C => return Err(fail()),
-        };
-        let count: Count = serde_json::from_value(amount.clone()).map_err(|_| fail())?;
-        let printed = result.lines[block]
-            .text
-            .strip_prefix(&format!("Whenever you cast a {color} spell, scry "))
-            .and_then(|text| text.strip_suffix('.'));
-        if condition.is_some()
-            || !bindings.is_empty()
-            || who.player != "you"
-            || who.selection_id.is_some()
-            || who.of.is_some()
-            || count.amount != "fixed"
-            || !printed.is_some_and(|text| {
-                normalization::matches_fixed_amount(text, i64::from(count.value))
-            })
+        let (color, count) = printed.ok_or_else(fail)?;
+        if !uses_scry
+            || decode::<serde_json::Value>(line.ability.get(), "triggered scry")?
+                != cast_scry_ability_ast(color, count)
         {
             return Err(fail());
         }
-
         let root = format!("/faces/0/abilities/{block}");
-        let scope = format!("card:{identity}{root}#ability");
-        let you = format!("card:{identity}{root}#you");
-        let actor = format!("{root}/trigger/who");
-        let trigger_path = format!("{root}/trigger");
-        let effect_path = format!("{root}/effects/0/steps/0");
-        let in_block = |node: &serde_json::Value| {
-            node["path"].as_str().is_some_and(|path| {
-                path == root
-                    || path
-                        .strip_prefix(&root)
-                        .is_some_and(|tail| tail.starts_with('/'))
-            })
-        };
-        let nodes: Vec<_> = binding["nodes"]
-            .as_array()
-            .ok_or_else(fail)?
-            .iter()
-            .filter(|node| in_block(node))
-            .collect();
-        let references: Vec<_> = binding["references"]
-            .as_array()
-            .ok_or_else(fail)?
-            .iter()
-            .filter(|node| in_block(node))
-            .collect();
-        if nodes.len() != 5
-            || references.len() != 1
-            || binding["identity"] != identity
-            || *references[0]
-                != serde_json::json!({
-                    "path":actor,"expression":{"player":"you"},"binding":"bound","target":you,"rules":["109.5"]
-                })
-            || !nodes.iter().any(|node| {
-                node["id"] == you
-                    && node["path"] == root
-                    && node["node"] == "runtime-player"
-                    && node["scope"] == scope
-                    && node["role"] == "trigger-controller"
-            })
-            || !nodes.iter().any(|node| {
-                node["path"] == trigger_path
-                    && node["scope"] == scope
-                    && node["node"] == "event"
-                    && node["operation"] == "trigger:cast"
-                    && node["inputs"] == serde_json::json!([you])
-            })
-            || !nodes.iter().any(|node| {
-                node["path"] == effect_path
-                    && node["scope"] == scope
-                    && node["node"] == "event"
-                    && node["operation"] == "scry"
-                    && node["inputs"] == serde_json::json!([])
-            })
-        {
-            return Err(fail());
-        }
+        let trigger = format!("{root}/trigger");
+        let effect = format!("{root}/effects/0/steps/0");
+        let mut graph = Bindings::new(identity, source);
+        graph.ability(&root, "triggered", "trigger-controller");
+        let you = graph.id(&root, "you");
+        graph.reference(
+            &format!("{trigger}/who"),
+            &json!({"player":"you"}),
+            &you,
+            "109.5",
+        );
+        graph.event(&root, &trigger, "trigger:cast", &you, false);
+        graph.result(
+            &trigger,
+            "objects",
+            "same-objects",
+            Some(&json!({"cls":"spell"})),
+        );
+        graph.node(
+            &effect,
+            "event",
+            "event",
+            json!({"scope":graph.id(&root,"ability"),
+            "operation":"scry","inputs":[],"availability":"when-performed","rules":["608.2c"]}),
+        );
+        graph.validate_block(binding, &root)?;
     }
     Ok(())
 }
@@ -363,7 +280,136 @@ fn cast_scry_checks_printed_color_count_and_controller_binding() {
     let mut result: ParseResult = decode(record.faces[0].result.get(), "result").unwrap();
     let abilities = read_abilities(result.abilities.get()).unwrap();
     let binding = decode(record.binding.get(), "binding").unwrap();
-    validate_cast_scry(&abilities, &result, &binding, &record.oracle_identity).unwrap();
+    let source = decode(record.source.get(), "source").unwrap();
+    validate_cast_scry(
+        &abilities,
+        &result,
+        &binding,
+        &record.oracle_identity,
+        &source,
+    )
+    .unwrap();
+    // Mutate only the AST of the printed lookup. A different operator cannot
+    // leave the family before its source and binding checks run.
+    let mut raw_abilities: serde_json::Value = decode(result.abilities.get(), "abilities").unwrap();
+    raw_abilities[1]["effects"][0]["steps"][0] = serde_json::json!({
+        "effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}
+    });
+    let substituted = read_abilities(&raw_abilities.to_string()).unwrap();
+    assert!(
+        validate_cast_scry(
+            &substituted,
+            &result,
+            &binding,
+            &record.oracle_identity,
+            &source
+        )
+        .is_err()
+    );
+
+    let root = "/faces/0/abilities/1";
+    for (role, field, value) in [
+        ("ability", "source", "unrelated"),
+        ("runtime-player", "role", "spell-controller"),
+        ("event-result", "identity", "zone-successors"),
+        ("scry", "availability", "when-announced"),
+        ("trigger:cast", "id", "unrelated"),
+    ] {
+        let mut corrupted = binding.clone();
+        let row = corrupted["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|node| {
+                node["path"].as_str().unwrap().starts_with(root)
+                    && (node["node"] == role || node["operation"] == role)
+            })
+            .unwrap();
+        row[field] = serde_json::json!(value);
+        assert!(
+            validate_cast_scry(
+                &abilities,
+                &result,
+                &corrupted,
+                &record.oracle_identity,
+                &source
+            )
+            .is_err(),
+            "{role}"
+        );
+    }
     result.lines[1].text = result.lines[1].text.replace("scry 2", "scry 5");
-    assert!(validate_cast_scry(&abilities, &result, &binding, &record.oracle_identity).is_err());
+    assert!(
+        validate_cast_scry(
+            &abilities,
+            &result,
+            &binding,
+            &record.oracle_identity,
+            &source
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn complete_cast_scry_binds_definition_block_color_amount_and_source() {
+    use serde_json::json;
+    // Isolate one grammatical block in memory and rebase the parser paths.
+    // The surrounding card's other abilities and archived file stay untouched.
+    let fixture =
+        include_str!("../../../tests/fixtures/ramos/3f31c423-d45c-4c3e-b7d4-ca125be0f92c.json");
+    let raw = crate::tests::changed_source(fixture, |r| {
+        let result = &mut r["faces"][0]["result"];
+        let line = result["lines"][1].clone();
+        result["lines"] = json!([line]);
+        result["abilities"] = json!([line["ability"]]);
+        r["source"]["oracle_text"] = line["text"].clone();
+        let graph = &mut r["binding"];
+        for field in ["nodes", "references"] {
+            graph[field].as_array_mut().unwrap().retain(|row| {
+                let path = row["path"].as_str().unwrap();
+                matches!(path, "/source" | "/faces/0") || path.starts_with("/faces/0/abilities/1")
+            });
+            graph[field] = serde_json::from_str(
+                &graph[field]
+                    .to_string()
+                    .replace("/faces/0/abilities/1", "/faces/0/abilities/0"),
+            )
+            .unwrap();
+        }
+        graph["counts"] = json!({"obligations":1,"bound":1,"unresolved":0});
+    });
+    let manifest = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+    let CompileResult::Lowered { definition } = compile(manifest, &raw) else {
+        panic!("isolated color cast block must lower")
+    };
+    for change in ["amount", "color", "source block", "erased", "audit block"] {
+        let mut d = definition.clone();
+        match change {
+            "erased" => d.triggered.clear(),
+            "audit block" => d.source_labels.as_mut().unwrap().triggered[0] = 1,
+            "color" => {
+                d.triggered[0].condition = TriggerCondition::SpellCast {
+                    caster: CasterRelation::Controller,
+                    spell: TypePredicate::SpellColor { color: Color::W },
+                }
+            }
+            _ => {
+                let Instruction::Scry {
+                    amount,
+                    source_block,
+                } = &mut d.triggered[0].program.instructions[0]
+                else {
+                    panic!("scry instruction")
+                };
+                if change == "amount" {
+                    *amount = 1.into();
+                } else {
+                    *source_block = 1;
+                }
+            }
+        }
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err(), "{change}");
+    }
 }
