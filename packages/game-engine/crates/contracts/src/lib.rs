@@ -37,7 +37,9 @@ mod each_player_draw;
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
+mod targeted_game_loss;
 pub use targeted_counted_draw::targeted_counted_draw_program;
+pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
@@ -383,6 +385,7 @@ pub enum Capability {
     TargetPlayerDiscardV1,
     RandomPlayerDiscardV1,
     GroupHandDiscardV1,
+    TargetedGameLossV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -901,6 +904,12 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
+    LoseGameTargetPlayer {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(range(max = 1))]
+        source_block: u32,
+    },
     TargetPlayerSacrificeCreature {
         target_slot: u32,
         source_block: u32,
@@ -1080,7 +1089,8 @@ impl Instruction {
             | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
-            Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
+            Self::LoseGameTargetPlayer { source_block, .. }
+            | Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::DrawEachPlayer { source_block, .. }
             | Self::DrawAnnouncedX { source_block, .. }
@@ -2387,6 +2397,7 @@ impl Definition {
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
+        targeted_game_loss::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -2873,6 +2884,11 @@ impl Definition {
             }
             if paid_counted_draw::ability_matches(ability) {
                 // The complete source is checked by hand_return::validate_definition.
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
+            if artifact_loss_activation(ability) {
+                // The complete artifact and source-bound operands were checked above.
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
@@ -4473,6 +4489,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::LoseGameTargetPlayer { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::AnyPlayer))
+            }
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
             }
@@ -4947,6 +4966,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DiscardPlayerSet { .. } => Capability::GroupHandDiscardV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
+            Instruction::LoseGameTargetPlayer { .. } => Capability::TargetedGameLossV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
             Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
             Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
@@ -6339,6 +6359,7 @@ pub fn catalog_schema() -> serde_json::Value {
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
+    targeted_game_loss::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -6613,6 +6634,7 @@ mod tests {
             TargetPlayerDiscardV1,
             RandomPlayerDiscardV1,
             GroupHandDiscardV1,
+            TargetedGameLossV1,
             CastArtifactV1,
             PermanentManaV1,
             OpponentLandManaV1,
@@ -6915,6 +6937,7 @@ mod tests {
         definitions.push(targeted_discard::random_witness());
         definitions.push(group_discard::witness());
         definitions.push(opponent_life_drain::witness());
+        definitions.push(targeted_game_loss::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
