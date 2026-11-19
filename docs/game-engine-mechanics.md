@@ -244,8 +244,8 @@ LKI source, including equipment departure and simultaneous common-prior facts.
 Noncombat damage retains the source incarnation and frozen invocation controller;
 that controller is distinct from the source's current or last-known controller.
 Old assignment-time keywords cannot fabricate damage-time benefits. Commander
-combat history uses only actual combat damage. Direct life gain/loss is distinct.
-Run SBAs after the complete program: intermediate life loss/gain is not an early loss.
+combat history uses actual combat damage. Opponent drain credits committed
+simultaneous life losses before state-based actions.
 
 Replacement/prevention applies once per effect/member, under affected-recipient
 choices and APNAP ordering. Freeze the consumed prefix; later source departure

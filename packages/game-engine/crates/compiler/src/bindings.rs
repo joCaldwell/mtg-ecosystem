@@ -114,6 +114,20 @@ impl<'a> Bindings<'a> {
         self.node(path, kind, "event-result", fields);
     }
 
+    /// Archive v1 can report a scope gap even when every emitted reference is bound.
+    /// Callers must independently bind the missing operand from the executable source.
+    pub(super) fn with_scope_diagnostic(self, diagnostic: Value) -> Value {
+        let count = self.references.len();
+        json!({
+            "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,
+            "identity":self.identity, "rules":{"edition":RULES_EDITION,
+                "url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
+            "nodes":self.nodes,"references":self.references,"diagnostics":[diagnostic],
+            "counts":{"obligations":count,"bound":count,"unresolved":0},
+            "referencesBound":false,"fullyBound":false,"engineFeatures":[]
+        })
+    }
+
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
         let same_members = |actual: &Value, expected: &[Value]| {
             actual.as_array().is_some_and(|items| {

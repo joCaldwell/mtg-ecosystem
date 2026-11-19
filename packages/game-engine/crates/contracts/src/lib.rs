@@ -34,6 +34,7 @@ mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
 mod each_player_draw;
+mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
 pub use targeted_counted_draw::targeted_counted_draw_program;
@@ -327,6 +328,7 @@ pub enum Capability {
     NoncombatDamageV1,
     LifeGainV1,
     LifeLossV1,
+    OpponentLifeDrainV1,
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
@@ -468,6 +470,15 @@ pub enum WipeAmount {
     Fixed { value: Quantity },
     AnnouncedX,
     CreatureCount,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OpponentDrainAmount {
+    Fixed {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        value: Quantity,
+    },
+    AnnouncedX,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
@@ -997,6 +1008,12 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    /// Each opponent loses the amount, then the controller gains the total life actually lost.
+    DrainOpponents {
+        amount: OpponentDrainAmount,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     LoseLife {
         recipient: LifeRecipient,
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
@@ -1075,7 +1092,9 @@ impl Instruction {
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
-            Self::LoseLife { source_block, .. } => *source_block,
+            Self::DrainOpponents { source_block, .. } | Self::LoseLife { source_block, .. } => {
+                *source_block
+            }
         }
     }
 }
@@ -2361,6 +2380,7 @@ impl Definition {
         targeted_discard::validate_definition(self)?;
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
+        opponent_life_drain::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -2656,6 +2676,9 @@ impl Definition {
                                 ..
                             } | Instruction::DrawEachPlayer {
                                 count: DrawEachCount::AnnouncedX,
+                                ..
+                            } | Instruction::DrainOpponents {
+                                amount: OpponentDrainAmount::AnnouncedX,
                                 ..
                             } | Instruction::DiscardTargetPlayerAtRandom {
                                 count: RandomDiscardCount::AnnouncedX,
@@ -4248,6 +4271,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 target_slot.map(|slot| (slot, TargetDomain::AnyDamageTarget))
             }
             Instruction::EachOpponentSacrifice { .. }
+            | Instruction::DrainOpponents { .. }
             | Instruction::ModifySourcePowerToughness { .. } => None,
             Instruction::DestroyPermanent {
                 target_slot,
@@ -4858,6 +4882,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::GrantKeywordsSet { .. }) {
             set.insert(Capability::BoardWipesV1);
         }
+        if matches!(instruction, Instruction::DrainOpponents { .. }) {
+            set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
+        }
         set.insert(match instruction {
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
@@ -4982,6 +5009,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::ControllerLibraryOrderV1
             }
             Instruction::GainLife { .. } => Capability::LifeGainV1,
+            Instruction::DrainOpponents { .. } => Capability::OpponentLifeDrainV1,
             Instruction::LoseLife { .. } => Capability::LifeLossV1,
         });
     }
@@ -6295,6 +6323,7 @@ pub fn catalog_schema() -> serde_json::Value {
     targeted_discard::extend_schema(&mut schema);
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
+    opponent_life_drain::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -6517,6 +6546,7 @@ mod tests {
             NoncombatDamageV1,
             LifeGainV1,
             LifeLossV1,
+            OpponentLifeDrainV1,
             TriggeredAbilityV1,
             SelfEntersBattlefieldV1,
             OtherCreatureEntersBattlefieldV1,
@@ -6868,6 +6898,7 @@ mod tests {
         definitions.push(targeted_discard::witness());
         definitions.push(targeted_discard::random_witness());
         definitions.push(group_discard::witness());
+        definitions.push(opponent_life_drain::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());

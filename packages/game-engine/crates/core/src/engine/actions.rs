@@ -1026,6 +1026,10 @@ impl Game {
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
+            Instruction::DrainOpponents {
+                amount,
+                source_block,
+            } => self.drain_opponents(frame, amount, source_block),
             Instruction::ChangeLifeAnnouncedX {
                 recipient,
                 gain,
