@@ -147,6 +147,7 @@ fn library_families_reject_optional_cost_and_conditional_draw_union() {
         crate::hand_return::witness(),
         crate::draw_discard::witness(),
         crate::controller_counted_draw::witness(),
+        crate::targeted_counted_draw::witness(),
     ] {
         d.validate().unwrap();
         let identity = "source-bound-test-cost".to_string();

@@ -1044,11 +1044,7 @@ impl Game {
                 };
                 self.draw_one(frame, player, source_block)
             }
-            Instruction::DrawCardsIfAdditionalCost {
-                cost_identity,
-                source_block,
-                ..
-            } => {
+            Instruction::DrawCardsIfAdditionalCost { cost_identity, .. } => {
                 if !self.additional_cost_was_selected(&frame.spell, &cost_identity)? {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });

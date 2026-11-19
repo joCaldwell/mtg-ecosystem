@@ -1,28 +1,25 @@
 # Ramos deck engine implementation plan
 
-Make **Jo's Cascade**, with Ramos, Dragon Engine as commander, executable end to
-end using its unchanged saved list. Deliver complete mechanic families in bounded,
-source-qualified increments. This plan does not admit the exact deck or consumers.
+Make unchanged **Jo's Cascade** executable through complete source-qualified
+mechanic families. Exact-deck and consumer admission remain separate.
 
 ## Target and authority
 
-Owner jcaldwell; deck 11; paper lifecycle; revision 17, edit version 0. The unchanged
-export has **100 cards, 37 lands, 85 definitions**, SHA-256
+Owner jcaldwell; deck11, paper, revision17/edit0: **100 cards,37 lands,85 definitions**, SHA-256
 `f9eb5bc8ea479e036fc24c3fba27383ee2f030191d1a689de80bdb30e2278ee1`.
-Preserve quantities and commander designation. Later app edits require an explicit new target.
+Preserve quantities and commander; later revisions require a new target.
 
 The [export](../packages/game-engine/tests/fixtures/ramos/revision-17.txt),
 [identity manifest](../packages/game-engine/tests/fixtures/ramos/revision-17.manifest.json),
 [frozen sources](../packages/game-engine/tests/fixtures/ramos/provenance.json) and
 [compiler baseline](../packages/game-engine/tests/fixtures/ramos/baseline-46ef08fa.json)
-are authoritative. Archive SHA-256 is
+are authoritative. Archive SHA-256:
 `d705222b280a71cb5a5362f657d530b22402ca51687bac3227c1d6db403d0282`;
 pinned rules SHA-256 is
 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
-The app/frozen Oracle-text comparison remains unverified because OAuth needs
-reauthentication; no new revision was fetched.
+App/frozen-text comparison remains OAuth-blocked.
 
-Use the [development workflow](game-engine-development.md) and complete-source semantics; names identify witnesses, never runtime rules.
+Follow [development](game-engine-development.md); names identify witnesses, never mechanics.
 
 ## Qualified checkpoints and limits
 
@@ -89,5 +86,4 @@ and four-client completion. Search remains separate.
 
 ## Execution and reporting
 
-M0→M1→M3→M4 is the primary dependency path; M2 advances independently.
-Parser/archive gaps follow that package's manual; partial semantics never qualify.
+M0→M1→M3→M4 is primary; M2 is independent. Partial semantics never qualify.

@@ -43,10 +43,12 @@ fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
                 tap: true,
                 mana: Some(cost.clone()),
                 sacrifice: false,
+                remove_source_plus_one_counters: None,
             },
         },
         program: SpellProgram {
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,

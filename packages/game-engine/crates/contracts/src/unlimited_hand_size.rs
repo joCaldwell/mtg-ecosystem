@@ -35,10 +35,15 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         ability.costs.tap
             && ability.costs.mana.is_none()
             && !ability.costs.sacrifice
+            && ability.costs.remove_source_plus_one_counters.is_none()
+            && ability.restriction.is_none()
+            && ability.self_damage.is_none()
             && match &ability.production {
                 ManaProduction::Fixed { symbols } => symbols.as_slice() == [Color::C],
                 ManaProduction::AnyColor => c.kind == CardKind::Artifact,
-                ManaProduction::CommanderColor => false,
+                ManaProduction::CommanderColor
+                | ManaProduction::OpponentLandColors
+                | ManaProduction::Choice { .. } => false,
             }
     });
     if !valid_kind
@@ -233,7 +238,10 @@ fn unlimited_hand_size() {
             tap: true,
             mana: None,
             sacrifice: false,
+            remove_source_plus_one_counters: None,
         },
+        restriction: None,
+        self_damage: None,
         production: ManaProduction::AnyColor,
         source_block: 0,
     };
