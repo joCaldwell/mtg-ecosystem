@@ -44,7 +44,9 @@ fn opponent_nonland_destroy_paid_three_object_batch() {
     ] {
         catalog.definitions.push(compile(MANIFEST, source));
     }
-    catalog.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     catalog.validate().unwrap();
 
     let caster = PlayerId(0);
@@ -70,8 +72,10 @@ fn opponent_nonland_destroy_paid_three_object_batch() {
         caster,
         Zone::Hand { owner: caster },
     );
-    let mana = ["Mountain", "Mountain", "Plains", "Plains", "Plains", "Swamp", "Swamp"]
-        .map(|name| add(name, caster, caster, Zone::Battlefield));
+    let mana = [
+        "Mountain", "Mountain", "Plains", "Plains", "Plains", "Swamp", "Swamp",
+    ]
+    .map(|name| add(name, caster, caster, Zone::Battlefield));
     let dies = add(
         "Doomed Dissenter",
         PlayerId(1),
@@ -117,14 +121,29 @@ fn opponent_nonland_destroy_paid_three_object_batch() {
         Response::FinishMana { undo_mana: false },
     );
     let spend = request(&mut game);
-    let Request::SpendMana { cost, available, .. } = &spend else {
+    let Request::SpendMana {
+        cost, available, ..
+    } = &spend
+    else {
         panic!("expected printed cost");
     };
-    let spending = BTreeMap::from([(Color::R, 2.into()), (Color::W, 3.into()), (Color::B, 2.into())]);
+    let spending = BTreeMap::from([
+        (Color::R, 2.into()),
+        (Color::W, 3.into()),
+        (Color::B, 2.into()),
+    ]);
     assert_eq!(cost.generic, Quantity::zero());
     assert_eq!(
         cost.colored,
-        [Color::R, Color::R, Color::W, Color::W, Color::W, Color::B, Color::B]
+        [
+            Color::R,
+            Color::R,
+            Color::W,
+            Color::W,
+            Color::W,
+            Color::B,
+            Color::B
+        ]
     );
     assert_eq!(available, &spending);
     answer(&mut game, &spend, Response::SpendMana { spending });
@@ -161,12 +180,16 @@ fn opponent_nonland_destroy_paid_three_object_batch() {
     let [dies_result, borrow_result, immune_result] = batch.occurrences.as_slice() else {
         panic!("expected three common-prior destruction attempts");
     };
-    assert!(matches!(&dies_result.actual, EventOutcome::Moved { movement }
-        if movement.previous == dies && movement.destination == Zone::Graveyard { owner: PlayerId(1) }));
+    assert!(
+        matches!(&dies_result.actual, EventOutcome::Moved { movement }
+        if movement.previous == dies && movement.destination == Zone::Graveyard { owner: PlayerId(1) })
+    );
     assert_eq!(borrow_result.before.objects[0].controller, PlayerId(2));
     assert_eq!(borrow_result.before.objects[0].owner, caster);
-    assert!(matches!(&borrow_result.actual, EventOutcome::Moved { movement }
-        if movement.previous == borrowed && movement.destination == Zone::Graveyard { owner: caster }));
+    assert!(
+        matches!(&borrow_result.actual, EventOutcome::Moved { movement }
+        if movement.previous == borrowed && movement.destination == Zone::Graveyard { owner: caster })
+    );
     assert_eq!(
         immune_result.actual,
         EventOutcome::DestructionPrevented { object: immune }
@@ -176,7 +199,10 @@ fn opponent_nonland_destroy_paid_three_object_batch() {
             .keywords
             .contains(&KeywordAbility::Indestructible)
     );
-    for id in mana.into_iter().chain([artifact_land, opposing_land, controlled, immune.card]) {
+    for id in mana
+        .into_iter()
+        .chain([artifact_land, opposing_land, controlled, immune.card])
+    {
         let id = game.object_id(id).unwrap();
         assert_eq!(id.incarnation, 0);
         assert_eq!(game.zone(id), Some(Zone::Battlefield));

@@ -104,9 +104,8 @@ fn recover(game: &Game) {
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 #[test]
 fn void_rend_paid_counter_attempt_and_nonland_destruction() {
-    let raw = include_str!(
-        "../../../../tests/fixtures/ramos/713f16db-95ec-479e-a48c-7a69f7668d7f.json"
-    );
+    let raw =
+        include_str!("../../../../tests/fixtures/ramos/713f16db-95ec-479e-a48c-7a69f7668d7f.json");
     assert_eq!(
         sha256(raw.as_bytes()),
         "096021d12aefd92519068bb66cd3e4d4287fa0178499858e25196685594d3eab"
@@ -183,8 +182,10 @@ fn void_rend_paid_counter_attempt_and_nonland_destruction() {
 
     let target = game.object_id(CardId(4)).unwrap();
     answer(&mut game, Response::Cast { card: CardId(0) });
-    assert!(matches!(settle(&mut game), Request::Targets { candidates, .. }
-        if candidates == [target]));
+    assert!(
+        matches!(settle(&mut game), Request::Targets { candidates, .. }
+        if candidates == [target])
+    );
     answer(
         &mut game,
         Response::Targets {
@@ -198,7 +199,12 @@ fn void_rend_paid_counter_attempt_and_nonland_destruction() {
     answer(
         &mut game,
         Response::SpendMana {
-            spending: [(Color::W, 1.into()), (Color::U, 1.into()), (Color::B, 1.into())].into(),
+            spending: [
+                (Color::W, 1.into()),
+                (Color::U, 1.into()),
+                (Color::B, 1.into()),
+            ]
+            .into(),
         },
     );
     assert_eq!(settle(&mut game).player(), caster);
@@ -214,8 +220,10 @@ fn void_rend_paid_counter_attempt_and_nonland_destruction() {
     answer(&mut game, Response::Pass);
     assert_eq!(settle(&mut game).player(), opponent);
     answer(&mut game, Response::Cast { card: CardId(5) });
-    assert!(matches!(settle(&mut game), Request::StackTargets { candidates, .. }
-        if candidates == [protected]));
+    assert!(
+        matches!(settle(&mut game), Request::StackTargets { candidates, .. }
+        if candidates == [protected])
+    );
     answer(
         &mut game,
         Response::StackTargets {
@@ -239,26 +247,42 @@ fn void_rend_paid_counter_attempt_and_nonland_destruction() {
     settle(&mut game);
     assert_eq!(game.state.rules.stack.len(), 1);
     assert_eq!(game.top().unwrap().id, protected);
-    assert!(game.events().iter().any(|event| matches!(event, Event::Committed {
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::Committed {
         proposed: ProposedEvent::CounterStackObject { countering, .. },
         actual: EventOutcome::CounterPrevented { target },
-    } if *countering == counter && *target == protected)));
-    assert!(game.events().iter().any(|event| matches!(event, Event::SpellCompleted {
+    } if *countering == counter && *target == protected))
+    );
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::SpellCompleted {
         stack_id, resolved: true,
-    } if *stack_id == counter)));
+    } if *stack_id == counter))
+    );
 
     for _ in 0..4 {
         answer(&mut game, Response::Pass);
     }
     settle(&mut game);
     assert!(game.state.rules.stack.is_empty());
-    assert!(game.events().iter().any(|event| matches!(event, Event::Committed {
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::Committed {
         proposed: ProposedEvent::DestroyPermanent { object },
         actual: EventOutcome::Moved { movement },
-    } if *object == target && movement.destination == (Zone::Graveyard { owner: opponent }))));
-    assert!(game.events().iter().any(|event| matches!(event, Event::SpellCompleted {
+    } if *object == target && movement.destination == (Zone::Graveyard { owner: opponent })))
+    );
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::SpellCompleted {
         stack_id, resolved: true,
-    } if *stack_id == protected)));
+    } if *stack_id == protected))
+    );
 }
 
 #[test]

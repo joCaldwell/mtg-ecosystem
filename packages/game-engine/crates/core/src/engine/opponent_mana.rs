@@ -291,8 +291,14 @@ mod tests {
             Event::Committed { actual: EventOutcome::ManaPaidSelected { cost, spending: actual, .. }, .. }
                 if cost.generic == Quantity::from(1) && cost.colored == [Color::G] && *actual == spending
         )));
-        assert!(matches!(pass_to_resolution(&mut game), Request::Priority { .. }));
-        assert_eq!(game.zone(game.object_id(CardId(2)).unwrap()), Some(Zone::Battlefield));
+        assert!(matches!(
+            pass_to_resolution(&mut game),
+            Request::Priority { .. }
+        ));
+        assert_eq!(
+            game.zone(game.object_id(CardId(2)).unwrap()),
+            Some(Zone::Battlefield)
+        );
         assert!(game.state.rules.stack.is_empty());
     }
 

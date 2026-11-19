@@ -78,7 +78,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         return Ok(());
     }
 
-    let fail = || "self-spell protection requires the complete nonland destruction spell".to_owned();
+    let fail =
+        || "self-spell protection requires the complete nonland destruction spell".to_owned();
     let type_line = match d.characteristics.kind {
         CardKind::Instant => "Instant",
         CardKind::Sorcery => "Sorcery",
@@ -154,13 +155,15 @@ pub(super) fn extend_schema(schema: &mut Value) {
         {"pattern":r#""oracle_text"\s*:\s*"[^"]*This spell can't be countered\."#},
         {"pattern":r#""oracle_text"\s*:\s*"[^"]*Destroy target nonland permanent\."#}
     ]}}}}});
-    let cast = |capability, timing| json!({"properties":{
-        "spell":{"properties":{"timing":{"const":timing}}},
-        "capabilities":{"minItems":4,"maxItems":4,"uniqueItems":true,"items":{"enum":[
-            Capability::NormalLayoutV1,Capability::PermanentRemovalV1,
-            Capability::SelfSpellProtectionV1,capability
-        ]}}
-    }});
+    let cast = |capability, timing| {
+        json!({"properties":{
+            "spell":{"properties":{"timing":{"const":timing}}},
+            "capabilities":{"minItems":4,"maxItems":4,"uniqueItems":true,"items":{"enum":[
+                Capability::NormalLayoutV1,Capability::PermanentRemovalV1,
+                Capability::SelfSpellProtectionV1,capability
+            ]}}
+        }})
+    };
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()

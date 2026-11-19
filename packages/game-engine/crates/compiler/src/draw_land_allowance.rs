@@ -13,15 +13,18 @@ pub(super) fn lower(
         let Ability::Spell { effects, .. } = ability else {
             return false;
         };
-        effects.iter().flat_map(|sentence| &sentence.steps).any(|step| {
-            matches!(step, Step::AdditionalLandPlays { .. })
-        })
+        effects
+            .iter()
+            .flat_map(|sentence| &sentence.steps)
+            .any(|step| matches!(step, Step::AdditionalLandPlays { .. }))
     });
     let has_binding = binding["nodes"].as_array().is_some_and(|nodes| {
-        nodes.iter().any(|node| node["operation"] == "additional-land-plays")
+        nodes
+            .iter()
+            .any(|node| node["operation"] == "additional-land-plays")
     });
-    let prints_allowance = source.oracle_text.contains("may play ")
-        && source.oracle_text.contains(" additional land");
+    let prints_allowance =
+        source.oracle_text.contains("may play ") && source.oracle_text.contains(" additional land");
     if !has_step && !has_binding && !prints_allowance {
         return Ok(None);
     }
@@ -31,10 +34,12 @@ pub(super) fn lower(
             "requires complete fixed controller draw and land allowance",
         )
     };
-    let [Ability::Spell {
-        ability_word: None,
-        effects,
-    }] = abilities
+    let [
+        Ability::Spell {
+            ability_word: None,
+            effects,
+        },
+    ] = abilities
     else {
         return Err(fail());
     };
@@ -55,15 +60,23 @@ pub(super) fn lower(
     else {
         return Err(fail());
     };
-    let [Step::Draw {
-        amount: DrawAmount::Fixed { value },
-        optional: false,
-        ..
-    }] = draw.as_slice()
+    let [
+        Step::Draw {
+            amount: DrawAmount::Fixed { value },
+            optional: false,
+            ..
+        },
+    ] = draw.as_slice()
     else {
         return Err(fail());
     };
-    let [Step::AdditionalLandPlays { allowance, duration }] = grant.as_slice() else {
+    let [
+        Step::AdditionalLandPlays {
+            allowance,
+            duration,
+        },
+    ] = grant.as_slice()
+    else {
         return Err(fail());
     };
     let additional = &allowance["additional"]["value"];
@@ -78,12 +91,13 @@ pub(super) fn lower(
     if !bindings.is_empty()
         || !allowance_bindings.is_empty()
         || duration.duration != "this-turn"
-        || raw != json!([{"kind":"spell","effects":[
-            {"steps":[{"effect":"draw","who":you,"amount":{"amount":"fixed","value":value}}]},
-            {"steps":[{"effect":"additional-land-plays",
-                "allowance":{"who":you,"additional":{"amount":"fixed","value":additional}},
-                "duration":{"duration":"this-turn"}}]}
-        ]}])
+        || raw
+            != json!([{"kind":"spell","effects":[
+                {"steps":[{"effect":"draw","who":you,"amount":{"amount":"fixed","value":value}}]},
+                {"steps":[{"effect":"additional-land-plays",
+                    "allowance":{"who":you,"additional":{"amount":"fixed","value":additional}},
+                    "duration":{"duration":"this-turn"}}]}
+            ]}])
         || !printed_counts(&source.oracle_text, &draw, &count)
     {
         return Err(fail());
@@ -131,9 +145,27 @@ fn printed_counts(text: &str, draw: &Quantity, grant: &Quantity) -> bool {
 // stay exact and do not depend on the small printed-word vocabulary.
 fn printed_count(text: &str) -> Option<Quantity> {
     const WORDS: [&str; 21] = [
-        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-        "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
-        "eighteen", "nineteen", "twenty",
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
     ];
     const TENS: [&str; 8] = [
         "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
@@ -147,7 +179,8 @@ fn printed_count(text: &str) -> Option<Quantity> {
         _ => match text.split_once('-') {
             Some((tens, units)) => {
                 (TENS.iter().position(|word| *word == tens)? + 2) * 10
-                    + WORDS[1..10].iter().position(|word| *word == units)? + 1
+                    + WORDS[1..10].iter().position(|word| *word == units)?
+                    + 1
             }
             None => WORDS[1..].iter().position(|word| *word == text)? + 1,
         },

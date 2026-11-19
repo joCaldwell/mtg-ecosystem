@@ -52,11 +52,12 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     if source["type_line"] != "Sorcery"
         || source["oracle_text"] != ORACLE_TEXT
         || source["layout"] != "normal"
-        || abilities != json!([{"kind":"spell","effects":[{"steps":[{
-            "effect":"destroy","what":{"ref":"all","filter":{
-                "nonTypes":["land"],"cls":"permanent","control":"opponent"
-            }}
-        }]}]}])
+        || abilities
+            != json!([{"kind":"spell","effects":[{"steps":[{
+                "effect":"destroy","what":{"ref":"all","filter":{
+                    "nonTypes":["land"],"cls":"permanent","control":"opponent"
+                }}
+            }]}]}])
         || d.characteristics.kind != CardKind::Sorcery
         || d.characteristics.snow
         || !d.characteristics.subtypes.is_empty()

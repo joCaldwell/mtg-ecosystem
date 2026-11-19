@@ -38,8 +38,8 @@ mod library_order;
 pub use hand_return::controller_hand_return_program;
 mod library_selection;
 mod nonland_exile_life;
-mod self_spell_protection;
 mod opponent_nonland_destroy;
+mod self_spell_protection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
 pub use library_order::controller_library_order_program;
@@ -6294,12 +6294,15 @@ mod tests {
         definitions.push(draw_discard::witness());
         definitions.push(controller_counted_draw::witness());
         let mut draw_land_allowance = controller_counted_draw::witness();
-        draw_land_allowance.spell.as_mut().unwrap().instructions.push(
-            Instruction::GrantLandPlaysThisTurn {
+        draw_land_allowance
+            .spell
+            .as_mut()
+            .unwrap()
+            .instructions
+            .push(Instruction::GrantLandPlaysThisTurn {
                 count: "999999999999999999999999".parse().unwrap(),
                 source_block: 0,
-            },
-        );
+            });
         draw_land_allowance.capabilities = draw_land_allowance.requirements();
         definitions.push(draw_land_allowance);
         definitions.push(untap_tests::untap());

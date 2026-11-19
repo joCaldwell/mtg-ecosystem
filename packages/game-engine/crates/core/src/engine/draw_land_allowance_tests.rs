@@ -34,16 +34,24 @@ fn prepared_urban_evolution() -> Prepared {
     assert_eq!(
         program.instructions,
         [
-            Instruction::DrawControllerCards { count: 3.into(), source_block: 0 },
-            Instruction::GrantLandPlaysThisTurn { count: 1.into(), source_block: 0 },
+            Instruction::DrawControllerCards {
+                count: 3.into(),
+                source_block: 0
+            },
+            Instruction::GrantLandPlaysThisTurn {
+                count: 1.into(),
+                source_block: 0
+            },
         ]
     );
 
-    let mut catalog = Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json"))
-        .unwrap();
+    let mut catalog =
+        Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap();
     let oracle_id = definition.oracle_id.clone();
     catalog.definitions.push(*definition);
-    catalog.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     catalog.validate().unwrap();
     let mut config = ScenarioConfig::turns_permanents();
     config.profile = "draw-land-allowance-private-witness".into();
@@ -95,7 +103,9 @@ fn offered_land(game: &Game, viewer: PlayerId, card: CardId) -> bool {
     };
     assert_eq!(observation.observation_version, 30);
     let token = observation.decision.unwrap().token().clone();
-    let land = game.handle_for(viewer, game.object_id(card).unwrap()).unwrap();
+    let land = game
+        .handle_for(viewer, game.object_id(card).unwrap())
+        .unwrap();
     let result = session.action_beginnings(token, ActionScope::Window, 64, Budget::unlimited());
     let ActionQueryOutcome::Complete { page } = result.outcome() else {
         panic!("missing complete action query");
@@ -109,16 +119,21 @@ fn offered_land(game: &Game, viewer: PlayerId, card: CardId) -> bool {
 fn urban_evolution_paid_draw_then_two_land_plays_and_cleanup_replay() {
     let mut game = Game::with_trace(prepared_urban_evolution(), TraceMode::Detailed);
     let turn = game.turn().number;
-    let drawn = game.state.rules.libraries[&ACTIVE].iter().copied().collect::<Vec<_>>();
+    let drawn = game.state.rules.libraries[&ACTIVE]
+        .iter()
+        .copied()
+        .collect::<Vec<_>>();
     announce(&mut game, 1, 0, vec![]);
     assert!(game.state.rules.stack.last().unwrap().paid.is_some());
     resolve(&mut game, 1, |_| {});
     assert!(game.state.rules.libraries[&ACTIVE].is_empty());
     assert_eq!(game.action_hand(ACTIVE).len(), drawn.len());
     let draw_order = game.events().iter().filter_map(|event| match event {
-        Event::Committed { actual: EventOutcome::Moved { movement }, .. }
-            if movement.from == (Zone::Library { owner: ACTIVE })
-                && movement.destination == (Zone::Hand { owner: ACTIVE }) =>
+        Event::Committed {
+            actual: EventOutcome::Moved { movement },
+            ..
+        } if movement.from == (Zone::Library { owner: ACTIVE })
+            && movement.destination == (Zone::Hand { owner: ACTIVE }) =>
         {
             Some(movement.successor.card)
         }
@@ -142,24 +157,41 @@ fn urban_evolution_paid_draw_then_two_land_plays_and_cleanup_replay() {
     let off_turn = request(&mut other_priority, 1);
     assert!(matches!(off_turn, Request::Priority { player: OTHER, .. }));
     assert!(!offered_land(&other_priority, OTHER, OTHER_LAND));
-    assert!(other_priority
-        .respond(OTHER, off_turn.decision_id(), Response::PlayLand { card: OTHER_LAND })
-        .is_err());
+    assert!(
+        other_priority
+            .respond(
+                OTHER,
+                off_turn.decision_id(),
+                Response::PlayLand { card: OTHER_LAND }
+            )
+            .is_err()
+    );
 
     for (index, &card) in drawn[..2].iter().enumerate() {
         assert!(offered_land(&game, ACTIVE, card));
         answer(&mut game, 1, Response::PlayLand { card });
-        assert!(matches!(request(&mut game, 1), Request::Priority { player: ACTIVE, .. }));
-        assert_eq!(game.zone(game.object_id(card).unwrap()), Some(Zone::Battlefield));
+        assert!(matches!(
+            request(&mut game, 1),
+            Request::Priority { player: ACTIVE, .. }
+        ));
+        assert_eq!(
+            game.zone(game.object_id(card).unwrap()),
+            Some(Zone::Battlefield)
+        );
         assert_eq!(game.turn().lands_played, (index + 1) as u32);
     }
     let third = drawn[2];
     assert!(!offered_land(&game, ACTIVE, third));
     let priority = request(&mut game, 1);
     let state = game.state_digest().unwrap();
-    assert!(game
-        .respond(ACTIVE, priority.decision_id(), Response::PlayLand { card: third })
-        .is_err());
+    assert!(
+        game.respond(
+            ACTIVE,
+            priority.decision_id(),
+            Response::PlayLand { card: third }
+        )
+        .is_err()
+    );
     assert_eq!(game.state_digest().unwrap(), state);
     recover(&game);
 

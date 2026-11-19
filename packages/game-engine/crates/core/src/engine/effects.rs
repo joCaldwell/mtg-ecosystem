@@ -393,9 +393,10 @@ impl Game {
             Instruction::GrantLandPlaysThisTurn {
                 count,
                 source_block,
-            } => {
-                (ResolvedEffectKind::AdditionalLandPlays { count }, source_block)
-            }
+            } => (
+                ResolvedEffectKind::AdditionalLandPlays { count },
+                source_block,
+            ),
             Instruction::PreventNextDamage {
                 target_slot,
                 amount,
@@ -1179,7 +1180,10 @@ impl Game {
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == effect.origin.source_block,
                     (
-                        Instruction::GrantLandPlaysThisTurn { count, source_block },
+                        Instruction::GrantLandPlaysThisTurn {
+                            count,
+                            source_block,
+                        },
                         ResolvedEffectKind::AdditionalLandPlays { count: granted },
                     ) => {
                         frame.spell.kind.is_spell()
@@ -1609,7 +1613,10 @@ impl Game {
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == e.origin.source_block && e.target_handles.is_empty(),
                     (
-                        Instruction::GrantLandPlaysThisTurn { count, source_block },
+                        Instruction::GrantLandPlaysThisTurn {
+                            count,
+                            source_block,
+                        },
                         ResolvedEffectKind::AdditionalLandPlays { count: granted },
                     ) => {
                         count == granted
@@ -2056,12 +2063,14 @@ impl Game {
                 origin,
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
-            ResolvedEffectKind::AdditionalLandPlays { count } => VisibleEffect::AdditionalLandPlays {
-                handle,
-                origin,
-                count: count.clone(),
-                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
-            },
+            ResolvedEffectKind::AdditionalLandPlays { count } => {
+                VisibleEffect::AdditionalLandPlays {
+                    handle,
+                    origin,
+                    count: count.clone(),
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
             ResolvedEffectKind::PreventNextDamage { target, remaining } => {
                 VisibleEffect::PreventNextDamage {
                     handle,

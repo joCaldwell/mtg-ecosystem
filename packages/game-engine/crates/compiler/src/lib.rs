@@ -10,7 +10,6 @@ pub mod fixtures {
 mod cast_origin;
 pub mod catalog;
 mod controller_counted_draw;
-mod draw_land_allowance;
 #[cfg(test)]
 mod controller_counted_draw_tests;
 mod controller_library;
@@ -23,6 +22,7 @@ mod diagnostics;
 mod draw_discard;
 #[cfg(test)]
 mod draw_discard_tests;
+mod draw_land_allowance;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
@@ -1937,7 +1937,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     if program.additional_sacrifice.is_some()
                         || !program.optional_additional_costs.is_empty()
                     {
-                        return Err(unsupported("land allowance", "requires ordinary spell costs"));
+                        return Err(unsupported(
+                            "land allowance",
+                            "requires ordinary spell costs",
+                        ));
                     }
                     program.instructions.extend(instructions);
                     continue;
