@@ -231,8 +231,8 @@ pub(super) fn validate_fixed_cast_effects(
         let printed = FixedCastEffect::from_line(&line.text, "~");
         let uses_scry = matches!(ability, Ability::Triggered {effects,..}
             if effects.iter().flat_map(|sentence| &sentence.steps).any(|step| matches!(step,Step::Scry {..})));
-        let uses_damage = matches!(ability, Ability::Triggered {trigger:SourceTrigger::Cast {..}, effects,..}
-            if effects.iter().flat_map(|s| &s.steps).any(|step| matches!(step, Step::Damage {to: DamageDestination::Player {reference}, ..} if reference["player"] == "target-opponent")));
+        let uses_damage = matches!(ability, Ability::Triggered {trigger, effects,..}
+            if matches!(trigger.as_ref(), SourceTrigger::Cast { .. }) && effects.iter().flat_map(|s| &s.steps).any(|step| matches!(step, Step::Damage {to: DamageDestination::Player {reference}, ..} if reference["player"] == "target-opponent")));
         if printed.is_none() && !uses_scry && !uses_damage {
             continue;
         }
