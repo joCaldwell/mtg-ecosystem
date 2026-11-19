@@ -16,6 +16,8 @@ use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
+mod targeted_counted_draw;
+pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
@@ -300,6 +302,7 @@ pub enum Capability {
     PermanentRemovalV1,
     SacrificeV1,
     BoardWipesV1,
+    TargetedCountedDrawV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1743,6 +1746,7 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         controller_library::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
+        targeted_counted_draw::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -3018,6 +3022,9 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if targeted_counted_draw::has_counted_draw(p) && !targeted_counted_draw_program(p) {
+        return Err("unsupported complete targeted counted draw".into());
+    }
     if hand_return::has_hand_program(p)
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
@@ -3567,22 +3574,15 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     _ => return Err("unsupported mill recipient".into()),
                 }
             }
-            Instruction::DrawCards {
-                count, recipient, ..
-            } => {
-                if *count != Quantity::from(1) {
-                    return Err("unsupported draw cardinality".into());
+            Instruction::DrawCards { recipient, .. } => match recipient {
+                Some(LifeRecipient::EachOpponent) => {
+                    return Err("unsupported each-opponent draw".into());
                 }
-                match recipient {
-                    Some(LifeRecipient::EachOpponent) => {
-                        return Err("unsupported each-opponent draw".into());
-                    }
-                    Some(LifeRecipient::Target { target_slot }) => {
-                        Some((*target_slot, TargetDomain::AnyPlayer))
-                    }
-                    _ => None,
+                Some(LifeRecipient::Target { target_slot }) => {
+                    Some((*target_slot, TargetDomain::AnyPlayer))
                 }
-            }
+                _ => None,
+            },
             Instruction::DiscardCards { count, .. } => {
                 if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
                     return Err("unsupported draw/discard cardinality".into());
@@ -3842,6 +3842,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::GraveyardRecursionV1
             }
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
+                Capability::TargetedCountedDrawV1
+            }
             Instruction::DrawCards {
                 recipient: Some(_), ..
             } => Capability::TargetPlayerDrawV1,
@@ -4959,6 +4962,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ]);
     controller_library::extend_schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
+    targeted_counted_draw::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -5182,6 +5186,7 @@ mod tests {
             BasicLandSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
+            TargetedCountedDrawV1,
             CastArtifactV1,
             PermanentManaV1,
             CompositeActivationCostV1,
@@ -5295,6 +5300,7 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(targeted_counted_draw::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());

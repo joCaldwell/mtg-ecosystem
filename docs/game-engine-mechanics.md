@@ -116,7 +116,8 @@ nonnegative controller draws: sequential attempts without clamping, optionally f
 by fixed positive controller life loss (`LifeLossV1`). Legacy one/two-card source IR stays unchanged. Counted draws precede whole-hand returns
 or simultaneous discards. Returns create successors after Commander replacements;
 discard precedes Commander SBAs. Short hands clamp; failed draws never interrupt
-resolution. These families add no source, target, mana or priority authority.
+resolution. `TargetedCountedDrawV1` uses the same progress for one announced player; departure never redirects remaining attempts.
+These families add no source, mana or priority authority.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
