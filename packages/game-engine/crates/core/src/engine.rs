@@ -27,6 +27,7 @@ mod activated_permanent_return_tests;
 mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;
+mod each_player_draw;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
 mod random_discard;
@@ -45,6 +46,7 @@ mod tap_source_untap_tests;
 mod wipes;
 #[cfg(test)]
 mod wipes_tests;
+use each_player_draw::{EachPlayerDrawProgress, PlayerDrawAttempts};
 use removal::TargetFacts;
 #[cfg(test)]
 mod artifact_sacrifice_source_tests;
@@ -938,6 +940,8 @@ struct Resolving {
     random_discard: Option<random_discard::RandomDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     draw_progress: Option<DrawProgress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    each_player_draw: Option<EachPlayerDrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1938,6 +1942,9 @@ enum InstructionOutcome {
         player: PlayerId,
         movement: Option<MoveOutcome>,
         failed: bool,
+    },
+    EachPlayerDrawAttempts {
+        players: Vec<PlayerDrawAttempts>,
     },
     DrawAttempts {
         player: PlayerId,

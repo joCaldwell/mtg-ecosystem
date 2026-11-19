@@ -858,7 +858,7 @@ impl Game {
         if frame.random_discard.is_some() {
             return Err("cannot advance an unfinished random discard".into());
         }
-        if frame.draw_progress.is_some() {
+        if frame.draw_progress.is_some() || frame.each_player_draw.is_some() {
             return Err("cannot advance an unfinished counted draw".into());
         }
         frame.outcomes.push(outcome);
@@ -880,7 +880,9 @@ impl Game {
                 count,
                 source_block,
             } => self.begin_hand_return(frame, count, source_block),
-            Instruction::DrawControllerCards { .. } => self.draw_multiple(frame),
+            Instruction::DrawControllerCards { .. } | Instruction::DrawEachPlayer { .. } => {
+                self.draw_multiple(frame)
+            }
             Instruction::OrderLibraryTop {
                 amount,
                 source_block,
@@ -1232,6 +1234,21 @@ impl Game {
         instruction: &Instruction,
     ) -> Result<Option<(Quantity, u32)>, String> {
         let (amount, source_block) = match instruction {
+            Instruction::DrawEachPlayer {
+                count,
+                source_block,
+            } => {
+                let amount = match count {
+                    DrawEachCount::Fixed { value } => value,
+                    DrawEachCount::AnnouncedX => {
+                        frame.spell.x.as_ref().ok_or("missing announced X")?
+                    }
+                };
+                if amount.is_negative() {
+                    return Err("negative each-player draw amount".into());
+                }
+                (amount.clone(), *source_block)
+            }
             Instruction::DrawControllerCards {
                 count,
                 source_block,
@@ -1300,16 +1317,19 @@ impl Game {
         let (amount, source_block) = self
             .counted_draw_spec(&frame, program, instruction)?
             .ok_or("counted draw source invariant")?;
+        // CR 121.2c: freeze the live APNAP order once, then perform all of
+        // one player's draws before starting the next player's attempts.
+        if matches!(instruction, Instruction::DrawEachPlayer { .. })
+            && frame.each_player_draw.is_none()
+        {
+            frame.each_player_draw = Some(EachPlayerDrawProgress {
+                remaining: self.apnap_players(),
+                completed: vec![],
+            });
+        }
         let player = Self::draw_player_for_instruction(&frame, instruction)?;
         if amount == Quantity::zero() {
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::DrawAttempts {
-                    player,
-                    attempted: Quantity::zero(),
-                    failed: Quantity::zero(),
-                },
-            );
+            return self.finish_player_draws(frame, player, Quantity::zero(), Quantity::zero());
         }
         if frame.draw_progress.is_none() {
             frame.draw_progress = Some(DrawProgress {
@@ -1348,14 +1368,7 @@ impl Game {
         if matches!(outcome, InstructionOutcome::PlayerActionSkipped { player: actor } if actor == player && !self.is_live(player))
         {
             let progress = frame.draw_progress.take().unwrap();
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::DrawAttempts {
-                    player,
-                    attempted: progress.completed,
-                    failed: progress.failed,
-                },
-            );
+            return self.finish_player_draws(frame, player, progress.completed, progress.failed);
         }
         let failed = match outcome {
             InstructionOutcome::Drawn {
@@ -1381,14 +1394,7 @@ impl Game {
         }
         if progress.remaining == Quantity::zero() {
             let progress = frame.draw_progress.take().unwrap();
-            self.finish_instruction(
-                frame,
-                InstructionOutcome::DrawAttempts {
-                    player,
-                    attempted: progress.completed,
-                    failed: progress.failed,
-                },
-            )
+            self.finish_player_draws(frame, player, progress.completed, progress.failed)
         } else {
             self.state.rules.frame = Frame::Resolve { frame };
             Ok(())
@@ -1398,6 +1404,22 @@ impl Game {
     /// counters nor a substituted witness can establish an unrecorded draw.
     fn validate_draw_progress(&self, frame: &Resolving) -> Result<(), String> {
         let program = self.program_for(&frame.spell)?;
+        if let Some(scope) = &frame.each_player_draw {
+            let Some(instruction @ Instruction::DrawEachPlayer { .. }) =
+                program.instructions.get(frame.cursor as usize)
+            else {
+                return Err("each-player draw progress on another instruction".into());
+            };
+            let (amount, _) = self
+                .counted_draw_spec(frame, program, instruction)?
+                .ok_or("missing each-player draw count")?;
+            if scope.remaining.is_empty()
+                || (scope.completed.is_empty() && frame.draw_progress.is_none())
+            {
+                return Err("each-player draw cursor invariant".into());
+            }
+            self.validate_each_player_draws(&scope.completed, &scope.remaining, &amount)?;
+        }
         if let Some(progress) = &frame.draw_progress {
             let instruction = program
                 .instructions
@@ -1421,10 +1443,16 @@ impl Game {
             }
         }
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
-            match (
-                self.counted_draw_spec(frame, program, instruction)?,
-                outcome,
-            ) {
+            let spec = self.counted_draw_spec(frame, program, instruction)?;
+            if matches!(instruction, Instruction::DrawEachPlayer { .. }) {
+                let InstructionOutcome::EachPlayerDrawAttempts { players } = outcome else {
+                    return Err("missing each-player draw outcome".into());
+                };
+                let (amount, _) = spec.ok_or("missing each-player draw count")?;
+                self.validate_each_player_draws(players, &[], &amount)?;
+                continue;
+            }
+            match (spec, outcome) {
                 (
                     Some((amount, _)),
                     InstructionOutcome::DrawAttempts {
@@ -1443,7 +1471,12 @@ impl Game {
                         return Err("counted draw completed outcome invariant".into());
                     }
                 }
-                (Some(_), _) | (None, InstructionOutcome::DrawAttempts { .. }) => {
+                (Some(_), _)
+                | (
+                    None,
+                    InstructionOutcome::DrawAttempts { .. }
+                    | InstructionOutcome::EachPlayerDrawAttempts { .. },
+                ) => {
                     return Err("counted draw outcome on another instruction".into());
                 }
                 _ => (),
