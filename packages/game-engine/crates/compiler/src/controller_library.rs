@@ -245,7 +245,7 @@ pub(super) fn validate_cast_scry(
             who,
             what,
             not_from: None,
-        } = trigger
+        } = trigger.as_ref()
         else {
             return Err(fail());
         };
