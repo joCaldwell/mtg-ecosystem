@@ -82,7 +82,8 @@ mod tests {
     use super::*;
     use crate::tests::changed_source;
 
-    const HEADER: &str = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+    const HEADER: &str =
+        include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
     const SOURCE: &str =
         include_str!("../../../tests/fixtures/ramos/ad09b3c3-c8e7-481c-8c45-e7f234935117.json");
 

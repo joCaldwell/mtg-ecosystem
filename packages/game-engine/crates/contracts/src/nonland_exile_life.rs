@@ -16,7 +16,10 @@ fn contains_pair(program: &SpellProgram) -> bool {
             .instructions
             .iter()
             .any(|i| matches!(i, Instruction::LoseLife { .. }))
-        || program.modes.iter().any(|mode| contains_pair(&mode.program))
+        || program
+            .modes
+            .iter()
+            .any(|mode| contains_pair(&mode.program))
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
@@ -93,14 +96,16 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     // Read the original archive JSON because typed Option fields can erase
     // the difference between an absent qualifier and an explicit null.
     let abilities: Value = strict_read(&d.provenance.abilities_json)?;
-    if abilities != json!([{"kind":"spell","effects":[
-        {"steps":[{"effect":"exile","what":{
-            "ref":"target","filter":{"cls":"permanent","nonTypes":["land"]},
-            "count":{"amount":"fixed","value":1},"selectionId":TARGET_ID
-        }}]},
-        {"steps":[{"effect":"lose-life","who":{"player":"you"},
-                   "amount":{"amount":"fixed","value":amount}}]}
-    ]}]) {
+    if abilities
+        != json!([{"kind":"spell","effects":[
+            {"steps":[{"effect":"exile","what":{
+                "ref":"target","filter":{"cls":"permanent","nonTypes":["land"]},
+                "count":{"amount":"fixed","value":1},"selectionId":TARGET_ID
+            }}]},
+            {"steps":[{"effect":"lose-life","who":{"player":"you"},
+                       "amount":{"amount":"fixed","value":amount}}]}
+        ]}])
+    {
         return Err(fail());
     }
     Ok(())

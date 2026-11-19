@@ -25,9 +25,12 @@ fn decision(g: &mut Game) -> (PlayerId, PlayerRequest) {
 }
 
 fn submit(g: &mut Game, player: PlayerId, request: &PlayerRequest, response: PlayerResponse) {
-    let QueryResult::Complete(QueryValue::Validated(receipt)) =
-        g.check_player_response(player, request.token().clone(), response, Budget::unlimited())
-    else {
+    let QueryResult::Complete(QueryValue::Validated(receipt)) = g.check_player_response(
+        player,
+        request.token().clone(),
+        response,
+        Budget::unlimited(),
+    ) else {
         panic!("public response rejected for {request:?}");
     };
     g.submit(receipt).unwrap();
@@ -65,9 +68,7 @@ fn finish_stack(g: &mut Game, viewer: PlayerId) -> PermittedView {
 fn nonland_exile_life_paid_public_resolution_and_fizzle() {
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
-        include_str!(
-            "../../../../tests/fixtures/ramos/ad09b3c3-c8e7-481c-8c45-e7f234935117.json"
-        ),
+        include_str!("../../../../tests/fixtures/ramos/ad09b3c3-c8e7-481c-8c45-e7f234935117.json"),
     ) else {
         panic!("complete frozen nonland exile spell must lower");
     };
@@ -77,7 +78,9 @@ fn nonland_exile_life_paid_public_resolution_and_fizzle() {
     ))
     .unwrap();
     catalog.definitions.push(*definition);
-    catalog.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     catalog.validate().unwrap();
 
     let caster = PlayerId(0);
@@ -141,7 +144,9 @@ fn nonland_exile_life_paid_public_resolution_and_fizzle() {
         game.check_player_response(
             caster,
             request.token().clone(),
-            PlayerResponse::Targets { objects: vec![land] },
+            PlayerResponse::Targets {
+                objects: vec![land]
+            },
             Budget::unlimited(),
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
@@ -253,12 +258,16 @@ fn nonland_exile_life_paid_public_resolution_and_fizzle() {
         },
     );
     let view = finish_stack(&mut fizzled, opponent);
-    assert!(view.objects.iter().any(|o| {
-        o.oracle_id == BEARS && o.zone == (Zone::Hand { owner: opponent })
-    }));
-    assert!(view.objects.iter().any(|o| {
-        o.oracle_id == exile_spell && o.zone == (Zone::Graveyard { owner: caster })
-    }));
+    assert!(
+        view.objects
+            .iter()
+            .any(|o| { o.oracle_id == BEARS && o.zone == (Zone::Hand { owner: opponent }) })
+    );
+    assert!(
+        view.objects.iter().any(|o| {
+            o.oracle_id == exile_spell && o.zone == (Zone::Graveyard { owner: caster })
+        })
+    );
     assert!(view.players[1].exile.is_empty());
     assert_eq!(view.players[0].life, 40.into());
 }

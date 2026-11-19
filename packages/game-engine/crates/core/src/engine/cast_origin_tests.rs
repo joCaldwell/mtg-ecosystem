@@ -27,7 +27,9 @@ fn prepared() -> Prepared {
     assert_eq!(c.power, Some(2.into()));
     assert_eq!(c.toughness, Some(2.into()));
     assert!(
-        definition.capabilities.contains(&Capability::CastOriginTriggerV1)
+        definition
+            .capabilities
+            .contains(&Capability::CastOriginTriggerV1)
     );
     let mut catalog = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-removal-ir.json"
@@ -35,7 +37,9 @@ fn prepared() -> Prepared {
     .unwrap();
     let vega = definition.oracle_id.clone();
     catalog.definitions.push(*definition);
-    catalog.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     catalog.validate().unwrap();
 
     let mut config = ScenarioConfig::commander_foundation();
@@ -91,9 +95,12 @@ fn pay(game: &mut Game, land: CardId, color: Color) {
     let object = game.object_id(land).unwrap();
     answer(game, Response::ActivateMana { object });
     answer(game, Response::FinishMana { undo_mana: false });
-    answer(game, Response::SpendMana {
-        spending: BTreeMap::from([(color, 1.into())]),
-    });
+    answer(
+        game,
+        Response::SpendMana {
+            spending: BTreeMap::from([(color, 1.into())]),
+        },
+    );
     assert!(matches!(
         request(game),
         Request::Priority { player: CASTER, .. }
@@ -134,7 +141,12 @@ fn cast_origin_paid_commander_draw_and_hand_control_replay() {
     // The same controller casts Unsummon from hand while Vega is still on the
     // battlefield. That cast adds only its own spell, then removes Vega.
     answer(&mut game, Response::Cast { card: CardId(1) });
-    answer(&mut game, Response::Targets { objects: vec![source] });
+    answer(
+        &mut game,
+        Response::Targets {
+            objects: vec![source],
+        },
+    );
     pay(&mut game, CardId(0), Color::U);
     assert_eq!(game.state.rules.stack.len(), 3);
     assert_eq!(game.top().unwrap().cast_from, Zone::Hand { owner: CASTER });

@@ -166,7 +166,11 @@ impl Game {
         self.definition(object.card)
             .is_ok_and(|d| !d.mana_abilities.is_empty())
     }
-    pub(super) fn mana_colors(&self, player: PlayerId, production: &ManaProduction) -> Result<Vec<Color>, String> {
+    pub(super) fn mana_colors(
+        &self,
+        player: PlayerId,
+        production: &ManaProduction,
+    ) -> Result<Vec<Color>, String> {
         Ok(match production {
             ManaProduction::Fixed { symbols } | ManaProduction::Choice { colors: symbols } => {
                 symbols.clone()
@@ -195,7 +199,7 @@ impl Game {
                 })
                 .map(|d| d.characteristics.color_identity.clone())
                 .unwrap_or_default(),
-        }
+        })
     }
     pub(super) fn mana_continuation_charge(&self) -> usize {
         let mut frame = &self.state.rules.frame;
@@ -274,7 +278,7 @@ impl Game {
             } else {
                 charge
             }
-        }))
+        })
     }
 
     pub(super) fn underlying_mana_frame<'a>(&self, frame: &'a Frame) -> &'a Frame {
@@ -671,7 +675,10 @@ impl Game {
         }
         match a.ability.production {
             ManaProduction::Fixed { .. } => self.resolve_mana_ability(a, None),
-            _ if self.mana_colors(a.player, &a.ability.production)?.is_empty() => {
+            _ if self
+                .mana_colors(a.player, &a.ability.production)?
+                .is_empty() =>
+            {
                 self.resolve_mana_ability(a, None)
             }
             _ => {
@@ -1011,7 +1018,9 @@ impl Game {
         } else if let Frame::ManaAbility { activation } = &self.state.rules.frame
             && activation.stage == ManaStage::Color
             && activation.ability.production == ManaProduction::OpponentLandColors
-            && self.opponent_land_mana_colors(activation.player)?.is_empty()
+            && self
+                .opponent_land_mana_colors(activation.player)?
+                .is_empty()
         {
             let activation = *activation.clone();
             self.state.rules.pending = None;

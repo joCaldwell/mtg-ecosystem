@@ -112,9 +112,11 @@ pub(super) fn bind(
                     "description":{"cls":class},"rules":["608.2h"]}),
             ]);
         }
-        nodes.push(json!({"id":format!("{root}{effect}#quantity"),"path":effect,"node":"event-result",
+        nodes.push(
+            json!({"id":format!("{root}{effect}#quantity"),"path":effect,"node":"event-result",
             "event":format!("{root}{effect}#event"),"result":"quantity","cardinality":"one",
-            "availability":"if-produced","identity":"measured-quantity","rules":["608.2h"]}));
+            "availability":"if-produced","identity":"measured-quantity","rules":["608.2h"]}),
+        );
         for path in [
             format!("{trigger}/who"),
             format!("{trigger}/notFrom/owner"),
@@ -124,13 +126,15 @@ pub(super) fn bind(
         }
     }
     let count = references.len();
-    if *binding != json!({
-        "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,"identity":identity,
-        "rules":{"edition":RULES_EDITION,"url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
-        "nodes":nodes,"references":references,"diagnostics":[],
-        "counts":{"obligations":count,"bound":count,"unresolved":0},"referencesBound":true,
-        "engineFeatures":[],"fullyBound":true
-    }) {
+    if *binding
+        != json!({
+            "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,"identity":identity,
+            "rules":{"edition":RULES_EDITION,"url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
+            "nodes":nodes,"references":references,"diagnostics":[],
+            "counts":{"obligations":count,"bound":count,"unresolved":0},"referencesBound":true,
+            "engineFeatures":[],"fullyBound":true
+        })
+    {
         return Err(unsupported_shape());
     }
     Ok(())

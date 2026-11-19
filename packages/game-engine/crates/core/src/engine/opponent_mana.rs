@@ -107,7 +107,9 @@ mod tests {
         catalog
             .definitions
             .extend([lower(ORCHARD), lower(STONE), lower(LORE), ramos]);
-        catalog.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
         catalog.validate().unwrap();
 
         let mut cards: Vec<_> = rows
@@ -324,7 +326,10 @@ mod tests {
         assert!(empty.current(orchard).unwrap().tapped);
         assert!(!empty.events().iter().any(|event| matches!(
             event,
-            Event::Committed { actual: EventOutcome::ManaAdded { .. }, .. }
+            Event::Committed {
+                actual: EventOutcome::ManaAdded { .. },
+                ..
+            }
         )));
 
         rows[3].2 = false;

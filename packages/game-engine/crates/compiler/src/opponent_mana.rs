@@ -34,22 +34,30 @@ pub(super) fn lower(
     if !candidate {
         return Ok(None);
     }
-    let bad = || unsupported("mana.family", "unsupported complete opponent-land mana source");
+    let bad = || {
+        unsupported(
+            "mana.family",
+            "unsupported complete opponent-land mana source",
+        )
+    };
     let [Ability::Activated { effects, .. }] = abilities else {
         return Err(bad());
     };
     let [Sentence { steps, .. }] = effects.as_slice() else {
         return Err(bad());
     };
-    let [Step::AddMana {
-        mana:
-            SourceMana::CouldProduce {
-                amount,
-                what,
-                color_only,
-            },
-        ..
-    }] = steps.as_slice() else {
+    let [
+        Step::AddMana {
+            mana:
+                SourceMana::CouldProduce {
+                    amount,
+                    what,
+                    color_only,
+                },
+            ..
+        },
+    ] = steps.as_slice()
+    else {
         return Err(bad());
     };
     let query = json!({
@@ -60,8 +68,7 @@ pub(super) fn lower(
     if !matches!(
         (card.type_line.as_str(), card.mana_cost.as_str()),
         ("Land", "") | ("Artifact", "{2}")
-    )
-        || card.oracle_text != ORACLE_TEXT
+    ) || card.oracle_text != ORACLE_TEXT
         || !fixed_one(amount)
         || what != &query
         || !*color_only
@@ -72,12 +79,14 @@ pub(super) fn lower(
     // Raw equality closes optional/null fields as well as extra costs, blocks,
     // step effects and restrictions. The caller proves the line mirror.
     let raw: Value = decode(parsed.abilities.get(), "abilities")?;
-    if raw != json!([{
-        "kind":"activated","costs":[{"cost":"tap-self"}],
-        "effects":[{"steps":[{"effect":"add-mana","who":{"player":"you"},"mana":{
-            "mana":"could-produce","amount":{"amount":"fixed","value":1},"what":query,"colorOnly":true
-        }}]}]
-    }]) {
+    if raw
+        != json!([{
+            "kind":"activated","costs":[{"cost":"tap-self"}],
+            "effects":[{"steps":[{"effect":"add-mana","who":{"player":"you"},"mana":{
+                "mana":"could-produce","amount":{"amount":"fixed","value":1},"what":query,"colorOnly":true
+            }}]}]
+        }])
+    {
         return Err(bad());
     }
     bind(binding, identity, card, &query)?;
@@ -96,7 +105,12 @@ pub(super) fn lower(
 }
 
 fn bind(binding: &Value, identity: &str, card: &Source, query: &Value) -> Result<(), Failure> {
-    let bad = || unsupported("binding.mana", "incomplete opponent-land mana binding closure");
+    let bad = || {
+        unsupported(
+            "binding.mana",
+            "incomplete opponent-land mana binding closure",
+        )
+    };
     let root = format!("card:{identity}");
     let source = format!("{root}/source#object");
     let face = format!("{root}/faces/0#face");
@@ -167,9 +181,10 @@ mod tests {
 
     #[test]
     fn opponent_land_mana_frozen_sources_and_closed_binding() {
-        let registry: Vec<AcceptedArchive> =
-            strict_read(include_str!("../../../tests/fixtures/ramos/accepted-archives.json"))
-                .unwrap();
+        let registry: Vec<AcceptedArchive> = strict_read(include_str!(
+            "../../../tests/fixtures/ramos/accepted-archives.json"
+        ))
+        .unwrap();
         let manifest_pin = accepted_manifest(MANIFEST).unwrap();
         let archive = registry
             .iter()
@@ -179,7 +194,11 @@ mod tests {
             (ORCHARD, CardKind::Land, Capability::LandPlayV1),
             (STONE, CardKind::Artifact, Capability::CastArtifactV1),
         ] {
-            assert!(archive.record_sha256.contains(&sha256(raw.trim_end().as_bytes())));
+            assert!(
+                archive
+                    .record_sha256
+                    .contains(&sha256(raw.trim_end().as_bytes()))
+            );
             let result = compile(MANIFEST, raw);
             let CompileResult::Lowered { definition } = result else {
                 panic!("{result:?}");

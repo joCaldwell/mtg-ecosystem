@@ -1386,8 +1386,10 @@ impl Game {
             )
             || (matches!(definition.condition, TriggerCondition::SelfMoved { .. })
                 && (fact.controller != controller || fact.owner != controller))
-            || (matches!(definition.condition, TriggerCondition::SpellCastWithOrigin { .. })
-                && fact.controller != controller)
+            || (matches!(
+                definition.condition,
+                TriggerCondition::SpellCastWithOrigin { .. }
+            ) && fact.controller != controller)
             || handles.len() != 4
         {
             return Err("snapshot trigger source invariant".into());

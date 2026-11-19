@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
-pub mod catalog;
 mod cast_origin;
+pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -1491,7 +1491,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .flatten()
         .chain(opponent_land_mana)
         .collect();
-    labels.mana.extend(mana_abilities.iter().map(|a| a.source_block));
+    labels
+        .mana
+        .extend(mana_abilities.iter().map(|a| a.source_block));
     let mut definition = Definition {
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),

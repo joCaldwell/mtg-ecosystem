@@ -30,9 +30,9 @@ mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;
 #[cfg(test)]
-mod permanent_owner_hand_tests;
-#[cfg(test)]
 mod nonland_exile_life_tests;
+#[cfg(test)]
+mod permanent_owner_hand_tests;
 mod removal;
 #[cfg(test)]
 mod removal_information_tests;
@@ -337,10 +337,10 @@ mod library_order;
 mod library_position_memory;
 mod library_selection;
 mod mana_permanents;
-mod opponent_mana;
 #[cfg(test)]
 mod mana_tests;
 mod mill;
+mod opponent_mana;
 mod scry;
 mod successor_tuck;
 #[cfg(test)]

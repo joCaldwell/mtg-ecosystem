@@ -2782,7 +2782,10 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
-            if matches!(ability.condition, TriggerCondition::SpellCastWithOrigin { .. }) {
+            if matches!(
+                ability.condition,
+                TriggerCondition::SpellCastWithOrigin { .. }
+            ) {
                 cast_origin::validate(ability)?;
             }
             if matches!(ability.condition, TriggerCondition::SelfMoved { .. }) {
