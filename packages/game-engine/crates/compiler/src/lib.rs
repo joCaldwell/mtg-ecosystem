@@ -5544,6 +5544,7 @@ fn lower_activation(
         }
         [SourceCost::Sacrifice { what }] if what["ref"] == "filter" => {
             ActivationCost::SacrificePermanent {
+                count: 1,
                 filter: lower_sacrifice_filter(what)?,
                 mana: None,
             }
@@ -5559,6 +5560,7 @@ fn lower_activation(
             )?
             .mana;
             ActivationCost::SacrificePermanent {
+                count: 1,
                 filter: lower_sacrifice_filter(what)?,
                 mana,
             }
