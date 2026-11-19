@@ -1,4 +1,3 @@
-import { CardPrint } from './CardPrint.tsx';
 import { cardName, type SeatView } from './table-model.ts';
 import styles from './GameSeat.module.css';
 
@@ -13,13 +12,15 @@ export function GameSeat({ seat, hasPriority, selected, onInspect }: {
       <h2>{seat.label}{seat.isViewer && <span> · You</span>}</h2>
       <span className={styles.life}>{seat.life ?? '—'}<small>life</small></span>
     </div>
-    <div className={styles.commanders}>
-      {seat.commandZone.map(commander => <button type="button" key={commander.inspectionId} className={styles.commanderLink}
-        aria-label={`Inspect ${cardName(commander)} for ${seat.label}`} aria-pressed={selected === commander.inspectionId}
-        onClick={event => onInspect(commander.inspectionId, event.currentTarget)}>
-        <CardPrint source={commander.printImage} className={styles.commanderPrint} />{cardName(commander)}
-      </button>)}
+    <div className={styles.seatDetails}>
+      {seat.commandZone.length > 0 && <div className={styles.commanders}>
+        {seat.commandZone.map(commander => <button type="button" key={commander.inspectionId} className={styles.commanderLink}
+          aria-label={`Inspect ${cardName(commander)} for ${seat.label}`} aria-pressed={selected === commander.inspectionId}
+          onClick={event => onInspect(commander.inspectionId, event.currentTarget)}>
+          {cardName(commander)}
+        </button>)}
+      </div>}
+      <p>Hand <b>{seat.handCount ?? '—'}</b><span aria-hidden="true"> · </span>Library <b>{seat.libraryCount ?? '—'}</b></p>
     </div>
-    <p>Hand <b>{seat.handCount ?? '—'}</b><span aria-hidden="true"> · </span>Library <b>{seat.libraryCount ?? '—'}</b></p>
   </article>;
 }

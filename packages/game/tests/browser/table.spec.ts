@@ -103,6 +103,7 @@ test('desktop workspace keeps hand, decision and inspection available together',
   for (const viewport of [{ width: 1280, height: 720 }, { width: 2560, height: 1440 }]) {
     await page.setViewportSize(viewport);
     await page.goto('/');
+    await expect(page.getByRole('region', { name: 'Players' }).locator('img')).toHaveCount(0);
     const hand = page.getByRole('region', { name: 'Your hand', exact: true });
     const choice = page.getByRole('region', { name: 'Opening hand', exact: true });
     const inspector = page.getByRole('complementary', { name: 'Card inspector' });
