@@ -11,8 +11,8 @@ fn contains_reserved_instruction(program: &SpellProgram) -> bool {
         .instructions
         .iter()
         .any(|instruction| match instruction {
-            Instruction::DestroySet { .. } => true,
-            Instruction::MoveSet { set: operand, .. }
+            Instruction::DestroySet { set: operand, .. }
+            | Instruction::MoveSet { set: operand, .. }
             | Instruction::PumpSet { set: operand, .. }
             | Instruction::GrantKeywordsSet { set: operand, .. } => operand == &set,
             Instruction::DamageSet { sets, .. } => sets.contains(&set),
@@ -78,6 +78,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
             p.instructions.as_slice(),
             [Instruction::DestroySet {
                 set: ObjectSet::OpponentNonlandPermanents,
+                regeneration_forbidden: false,
                 source_block: 0,
             }]
         )
@@ -92,7 +93,6 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let free = json!({"$ref":"#/$defs/OpponentNonlandDestroyFreeProgram"});
     schema["$defs"]["OpponentNonlandDestroyFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":{"anyOf":[
-            {"required":["op"],"properties":{"op":{"const":"destroy_set"}}},
             {"required":["set"],"properties":{"set":{"const":set}}},
             {"required":["sets"],"properties":{"sets":{"contains":{"const":set}}}}
         ]}}},
