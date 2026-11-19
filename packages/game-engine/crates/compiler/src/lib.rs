@@ -40,6 +40,7 @@ mod nonland_exile_life;
 mod normalization;
 mod opponent_mana;
 mod opponent_nonland_destroy;
+mod source_dies_nonland_destroy;
 mod optional_costs;
 mod pain_mana;
 mod self_reference;
@@ -1394,6 +1395,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
+    source_dies_nonland_destroy::bind(&source, &result, &binding)?;
     let mut draw_land_allowance =
         draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
     for (ability, raw) in abilities.iter().zip(&original) {
@@ -4983,24 +4985,33 @@ fn lower_trigger(
         instructions: vec![],
         modes: vec![],
     };
-    append_spell_effects(
-        &mut program,
+    if let Some(instruction) = source_dies_nonland_destroy::instruction(
+        &condition,
         effects,
-        block,
-        &mut BTreeMap::new(),
-        if matches!(
-            condition,
-            TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
-        ) {
-            PlayerBinding::EventPlayer
-        } else if matches!(condition, TriggerCondition::DamageDealt { .. }) {
-            PlayerBinding::DamageRecipient
-        } else if condition == TriggerCondition::OpponentCreatureDies {
-            PlayerBinding::DeathController
-        } else {
-            PlayerBinding::Unbound
-        },
-    )?;
+        intervening,
+        source_block(block)?,
+    ) {
+        program.instructions.push(instruction);
+    } else {
+        append_spell_effects(
+            &mut program,
+            effects,
+            block,
+            &mut BTreeMap::new(),
+            if matches!(
+                condition,
+                TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
+            ) {
+                PlayerBinding::EventPlayer
+            } else if matches!(condition, TriggerCondition::DamageDealt { .. }) {
+                PlayerBinding::DamageRecipient
+            } else if condition == TriggerCondition::OpponentCreatureDies {
+                PlayerBinding::DeathController
+            } else {
+                PlayerBinding::Unbound
+            },
+        )?;
+    }
     let intervening_if = match intervening {
         None => None,
         Some(SourceCondition::CardsInHand { who, comparison })

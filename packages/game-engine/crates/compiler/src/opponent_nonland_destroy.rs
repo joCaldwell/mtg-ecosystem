@@ -71,6 +71,7 @@ pub(super) fn lower(source: &Source, binding: &Value) -> Result<Option<SpellProg
         targets: vec![],
         instructions: vec![Instruction::DestroySet {
             set: ObjectSet::OpponentNonlandPermanents,
+            regeneration_forbidden: false,
             source_block: 0,
         }],
         modes: vec![],

@@ -21,7 +21,7 @@ impl Game {
                 let creature = d.characteristics.kind == CardKind::Creature;
                 match set {
                     ObjectSet::Creatures => creature,
-                    ObjectSet::NonlandPermanents => d.characteristics.kind != CardKind::Land,
+                    ObjectSet::NonlandPermanents => !d.characteristics.has_type(CardKind::Land),
                     ObjectSet::OpponentNonlandPermanents => {
                         // CR 109.5, 205.2b, 608.2h, 806.1: use current control
                         // and exclude every permanent with the land type.
@@ -342,9 +342,20 @@ impl Game {
                 action,
                 source_block,
             } => self.move_board_set(frame, set, action, source_block),
-            Instruction::DestroySet { set, source_block } => {
-                self.move_board_set(frame, set, SetMove::Destroy, source_block)
-            }
+            Instruction::DestroySet {
+                set,
+                regeneration_forbidden,
+                source_block,
+            } => match (&set, regeneration_forbidden) {
+                (ObjectSet::OpponentNonlandPermanents, false)
+                | (ObjectSet::NonlandPermanents, true) => {
+                    // CR 701.19c: the prohibition skips regeneration replacement.
+                    // The admitted event kernel has no regeneration replacement,
+                    // so both policies use its same common-prior destroy batch.
+                    self.move_board_set(frame, set, SetMove::Destroy, source_block)
+                }
+                _ => Err("unsupported set destruction or regeneration policy".into()),
+            },
             Instruction::PumpSet {
                 set,
                 power,

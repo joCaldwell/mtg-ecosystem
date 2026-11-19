@@ -43,6 +43,7 @@ pub use hand_return::controller_hand_return_program;
 mod library_selection;
 mod nonland_exile_life;
 mod opponent_nonland_destroy;
+mod source_dies_nonland_destroy;
 mod self_spell_protection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
@@ -627,6 +628,10 @@ pub enum Instruction {
     },
     DestroySet {
         set: ObjectSet,
+        /// CR 701.19c: a prohibition keeps regeneration replacement effects
+        /// from applying to this destruction.
+        #[serde(default, skip_serializing_if = "is_false")]
+        regeneration_forbidden: bool,
         source_block: u32,
     },
     PumpSet {
@@ -2505,6 +2510,7 @@ impl Definition {
         nonland_exile_life::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
+        source_dies_nonland_destroy::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
             if source["oracle_text"].as_str() != Some(labels.text.as_str())
@@ -2977,6 +2983,7 @@ impl Definition {
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::DestroyPermanent { .. }
+                            | Instruction::DestroySet { .. }
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                             | Instruction::PutPlusOneCounters { .. }
@@ -5888,6 +5895,7 @@ pub fn catalog_schema() -> serde_json::Value {
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
+    source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
     cast_origin::extend_schema(&mut schema);
