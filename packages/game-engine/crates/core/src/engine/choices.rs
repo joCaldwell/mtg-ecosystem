@@ -318,7 +318,17 @@ impl Game {
             player: input.player,
             mode,
         })?;
-        self.begin_cast_targets(cast)
+        self.begin_cast_x_or_targets(cast)
+    }
+
+    // CR 601.2b-c: choose the mode and announce X before binding that mode's targets.
+    pub(super) fn begin_cast_x_or_targets(&mut self, cast: Casting) -> Result<(), String> {
+        if self.definition(cast.original_object.card)?.x_mana_cost {
+            self.state.rules.frame = Frame::AnnounceX { cast };
+            Ok(())
+        } else {
+            self.begin_cast_targets(cast)
+        }
     }
 
     pub(super) fn begin_cast_targets(&mut self, cast: Casting) -> Result<(), String> {

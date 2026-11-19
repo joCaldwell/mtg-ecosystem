@@ -2920,9 +2920,7 @@ impl Game {
                             mana_activations: vec![],
                             undo_mana: false,
                         };
-                        if self.definition(card)?.x_mana_cost {
-                            self.state.rules.frame = Frame::AnnounceX { cast };
-                        } else if !self
+                        if !self
                             .definition(card)?
                             .spell
                             .as_ref()
@@ -2932,7 +2930,7 @@ impl Game {
                         {
                             self.state.rules.frame = Frame::Modes { cast };
                         } else {
-                            self.begin_cast_targets(cast)?;
+                            self.begin_cast_x_or_targets(cast)?;
                         }
                         self.state.rules.passes.clear();
                     }

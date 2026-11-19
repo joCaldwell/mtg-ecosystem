@@ -891,6 +891,18 @@ impl Game {
                 count,
                 source_block,
             } => self.execute_mill(frame, recipient, count, source_block),
+            Instruction::MillAnnouncedX {
+                target_slot,
+                source_block,
+            } => {
+                let count = frame.spell.x.clone().ok_or("missing announced X")?;
+                self.execute_mill(
+                    frame,
+                    Some(LifeRecipient::Target { target_slot }),
+                    count,
+                    source_block,
+                )
+            }
             Instruction::Scry {
                 amount,
                 source_block,
@@ -963,6 +975,7 @@ impl Game {
                 self.execute_damage_life_instruction(frame, op)
             }
             op @ (Instruction::DealDamage { .. }
+            | Instruction::DealDamageAnnouncedX { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
             Instruction::SacrificeCreature {
