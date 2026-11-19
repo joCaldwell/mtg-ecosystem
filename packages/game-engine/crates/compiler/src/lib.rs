@@ -38,6 +38,7 @@ mod optional_costs;
 mod pain_mana;
 mod self_reference;
 mod spell_cascade_grants;
+mod successor_tuck;
 use optional_costs::KickedCondition;
 mod conditional_lands;
 mod cycling;
@@ -1368,6 +1369,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
     }
+    successor_tuck::bind(&abilities, &binding, &source, &result)?;
     let control_target = abilities.iter().find_map(|a| match a {
         Ability::Static {
             effect: SourceStaticEffect::Control { what, .. },
@@ -4675,6 +4677,9 @@ fn lower_trigger(
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
     if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {
+        if matches!(what, TriggerObject::This { noun } if noun == "creature") {
+            return successor_tuck::lower(effects, intervening, from, to, source_block(block)?);
+        }
         // This shortcut emits no binding instructions; unconsumed sentence
         // bindings must not disappear when bypassing append_spell_effects.
         if !matches!(what, TriggerObject::This {noun} if noun == "aura")

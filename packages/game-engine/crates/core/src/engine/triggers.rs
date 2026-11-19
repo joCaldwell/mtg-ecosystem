@@ -1,3 +1,4 @@
+use super::successor_tuck::self_graveyard_successor;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -702,6 +703,10 @@ impl Game {
                                 .is_ok_and(|s| s.controller != object.controller)
                     }
                     TriggerCondition::SelfDies => creature && dies && Some(object.id) == subject,
+                    TriggerCondition::SelfMoved { .. } => {
+                        self_graveyard_successor(&witness, object.id, object.controller).is_some()
+                            && creature
+                    }
                     TriggerCondition::SelfAuraToGraveyard => dies && Some(object.id) == subject,
                     TriggerCondition::AnyCreatureDies => creature && dies,
                     TriggerCondition::SelfEntersBattlefield => enters && Some(object.id) == subject,
@@ -1346,6 +1351,8 @@ impl Game {
                         TriggerCondition::SelfSpellCast
                     )
             )
+            || (matches!(definition.condition, TriggerCondition::SelfMoved { .. })
+                && (fact.controller != controller || fact.owner != controller))
             || handles.len() != 4
         {
             return Err("snapshot trigger source invariant".into());
@@ -1569,6 +1576,10 @@ impl Game {
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
                         | TriggerCondition::GroupedDamageDealt { .. } => false,
+                        TriggerCondition::SelfMoved { .. } => {
+                            death_controller.is_none()
+                                && self_graveyard_successor(witness, source, controller).is_some()
+                        }
                         TriggerCondition::SelfDies | TriggerCondition::SelfAuraToGraveyard => {
                             witness.dies() && m.previous == source
                         }
