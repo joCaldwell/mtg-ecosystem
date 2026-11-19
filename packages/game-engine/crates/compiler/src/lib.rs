@@ -45,6 +45,7 @@ mod pain_mana;
 mod self_reference;
 mod self_spell_protection;
 mod spell_cascade_grants;
+mod static_permanent_indestructible;
 mod successor_tuck;
 use optional_costs::KickedCondition;
 mod conditional_lands;
@@ -1376,6 +1377,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 &r.oracle_identity,
                 source_block(block)?,
                 &source,
+            )?;
+            static_permanent_indestructible::bind(
+                effect,
+                &binding,
+                &source,
+                block,
+                &result.lines[block].text,
             )?;
         }
     }
@@ -4023,6 +4031,9 @@ fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<Static
     }
     if let SourceStaticEffect::PlayerRule { rule } = effect {
         return unlimited_hand_size::lower_rule(rule);
+    }
+    if let Some(grant) = static_permanent_indestructible::lower(effect) {
+        return Ok(grant);
     }
     if let SourceStaticEffect::Control { who, what } = effect {
         if who.player != "you" || what.reference != "enchanted" {

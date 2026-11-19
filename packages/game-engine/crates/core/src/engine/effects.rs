@@ -221,7 +221,7 @@ impl Game {
             }
         }
         if self.target_is_creature(object) {
-            for a in self.creature_modifications(object) {
+            for a in self.static_modifications(object) {
                 if let StaticEffect::ModifyCreatures {
                     power, toughness, ..
                 } = a
@@ -2347,9 +2347,11 @@ impl Game {
                         !d.source.keywords[..n].contains(k)
                             && (expected_keywords.contains(k)
                                 || (battlefield && self.prepared.catalog.definitions.iter().any(|definition| {
-                                    // Noncreatures require a complete permanent grant program;
-                                    // arbitrary scalar instructions and life tails prove nothing.
-                                    (creature && (definition.static_abilities.iter().any(|a| matches!(&a.effect,
+                                    // Include only grant shapes validated for the source's type.
+                                    (*k == KeywordAbility::Indestructible
+                                        && definition.static_abilities.iter().any(|a|
+                                            a.effect == StaticEffect::GrantOtherControlledPermanentsIndestructible))
+                                        || (creature && (definition.static_abilities.iter().any(|a| matches!(&a.effect,
                                         StaticEffect::ModifyCreatures { keywords, .. } if keywords.contains(k)))
                                         || definition.spell.as_ref().is_some_and(|program|
                                             program.instructions.iter().any(|instruction| matches!(instruction,
