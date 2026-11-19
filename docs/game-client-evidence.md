@@ -7,11 +7,9 @@ producer/source/schema, not moving HEAD. Metadata-delivery SDK bridge:
 SDK69 extends 66; observation21 builds/schema unchanged; SDK delta differs from
 some historical 898-row source entries.
 
-Ownership extraction from `de785a97` retains its relocation/input bridge and local
-checks under `~/.local/share/mtg-ecosystem/engine-evidence/game-application-boundary-20261116/`.
-The single 5.32-second retained-Native21 API witness covers bootstrap/proxy/retry
-and joined leases only. Rust/SDK source and frozen fixture provenance are unchanged;
-approved identities remain empty and full-game qualification remains blocked.
+Extraction `de785a97` preserved Rust/SDK and frozen fixture provenance. Relocation
+bridge, checks and 5.32-second Native21 bootstrap/proxy/retry/lease witness:
+`~/.local/share/mtg-ecosystem/engine-evidence/game-application-boundary-20261116/`.
 
 ## Producer context and admission qualification
 
@@ -182,18 +180,16 @@ empty journal/no outcome, 205 HTTP200 queries, unknown cause. CLI falsely passed
 `ec298508` requires completed visible outcomes. Proof:
 `product-native21-broker-browser-6a8c942c-20261116/receipt-index.json`.
 
-Consumer `a745eecc`: four Chromium/Firefox prefix/timeout passes; one natural
-failure: 260 accepted, 259 browser-observed consumed/resolved, one unresolved
-browser journal, `paused/native_unavailable`, no outcome; pause UI/disabled commands
-observed. Private closed sequence100 `adapter/status/private_file` precedes
-coordinator failure/cleanup; bootstrap versus status access remains unidentified.
-The reproduced atomic-rename link-count race is not established as incident cause.
-Post-cleanup private guards pass; earlier causality unknown. Five hosts/units,
-15 leases closed; source/build frozen; captures off. Sealed index:
+Consumer `a745eecc`: four Chromium/Firefox prefix/timeout passes. Natural failure
+`paused/native_unavailable`: 260 accepted, 259 browser-consumed/resolved, one
+unresolved journal, visible pause/disabled commands, no outcome. Sequence100
+`adapter/status/private_file` preceded coordinator failure/cleanup. Bootstrap
+versus status access and both incidents' causes remain unknown; reproduced
+atomic-rename link-count race unlinked. Post-cleanup private guards pass; five
+hosts/units and 15 leases closed, source/build frozen, captures off. Sealed index:
 `product-private-diagnostics-a745eecc-20261116/receipt-index.json`.
 674-file summary corrected to 675 including seals:
 `product-private-diagnostics-review-20261116/file-count-erratum.json`.
-No full-game qualification; approvals empty.
 
 Final controlled source `8630b93502aaaca852689b7f4cbb11ebcb238cf7`; evidence root:
 `/home/josh/.local/share/mtg-ecosystem/engine-evidence/product-file-boundary-diagnostics-8630b935-20261116/`.
@@ -212,18 +208,22 @@ not a pre-cleanup measurement. No `private_file` fault/file detail reproduced;
 atomic-rename/deeper cause not established. All three hosts/units and nine bot
 leases closed; zero owned processes/ports/locks. Captures off; no fresh Firefox.
 
-Runtime inputs frozen: `source-drift-bridge.json` separates concurrent checkout/
-policy changes through `902777c3` from unchanged runtime package sources,
-launcher/versions/dependencies, ignored inputs and retained native closure/binaries;
-whole checkout was not unchanged. Product manifest
+Runtime inputs frozen despite checkout/policy changes through `902777c3`:
+`source-drift-bridge.json` binds package sources, launcher, versions, dependencies,
+ignored inputs and retained native closure/binaries. Product manifest
 `52ba4c0cafe0865bcbc22643dcfc995569e9d963412c48490056fbce61deec96`,
 Native21 `ea14d13c`, engine `5d922d68`, server `a0ab6836` unchanged.
 Seal: 638 indexed + 2 sealing = 640 files; approvals EMPTY, no full-game approval.
 
-Long-game completion claim **blocked** after bounded diagnostic rounds; stop the
-retry loop and escalate to Josh. No blind further long games, deadline widening,
-guard relaxation or strategic deck changes. Timeout is inconclusive for full-game
-qualification, not proof of permanent native failure. No rerun.
+After the committed-resume fix, Chromium `ed576b8d` with Native21 `052af6a2`
+(engine `5d922d68`, server `cebbb112`) reached the 90-minute bound with 506
+accepted/consumed/reconciled commands, empty journal, no supervision deadline or
+pause, no win/draw, and three joined bot leases. The match reached turn 56 with
+two opponents remaining. Receipt and input bridge
+`product-committed-resume-ed576b8d.2lp5e_21/summary.json` has SHA-256
+`4fd2d1052ac386b9b20c59578c3d340a8e821c398f1f9ca60047c6247ada5c36`.
+Full-game qualification remains blocked and approvals empty. Require a viable
+terminal trajectory before another full-game witness.
 
 ## Earlier prerequisites and unique provenance
 
