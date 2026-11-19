@@ -49,6 +49,7 @@ test("coqualified native/SDK inputs verify the compiled closure and reject stale
   assert.equal(verifyInputs(inputs).native_source, pins.native_source);
   const directory = mkdtempSync(join(tmpdir(), "product-coqualified-inputs-"));
   const modified = join(directory, "pins.json");
+  writeFileSync(join(directory, "sdk-source-bridge.json"), "{}", { mode: 0o600 });
   for (const [patch, failure] of [
     [{ server_build_id: "c1be893414c34a3869f059a872b053d4c69e77da21e98242ffb654a980372d15" }, "native_build_pin"],
     [{ server_build_id: "0d29823bcbe03b17bd4d6aeab2765c2b7b8ea9d93abb7833e0b96fcfe4c61d82" }, "native_build_pin"],
@@ -58,7 +59,7 @@ test("coqualified native/SDK inputs verify the compiled closure and reject stale
     [{ native_source_verification_sha256: "0".repeat(64) }, "coqualified_native_verification_pin"],
     [{ native_source: "f".repeat(40), sdk_source: "f".repeat(40) }, "coqualified_native_source_binding"],
     [{ sdk_source_bridge_sha256: undefined }, "coqualified_source_proof_required"],
-    [{ sdk_evidence_root: join(pins.sdk_evidence_root, "../product-presentation-sdk-20261115") }, "coqualified_sdk_bridge_pin"],
+    [{ sdk_evidence_root: directory }, "coqualified_sdk_bridge_pin"],
     [{ sdk_verification_sha256: "0".repeat(64) }, "coqualified_sdk_receipt_pin"],
     [{ sdk_source: "b9991c9cd5f709fd0d4d0f8da58f6a063b139699" }, "followup_native_binding"],
   ] as const) {
