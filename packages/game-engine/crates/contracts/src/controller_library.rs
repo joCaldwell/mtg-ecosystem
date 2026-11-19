@@ -379,6 +379,39 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap();
+    let cast_damage = json!({"required":["condition","program"],"properties":{
+        "condition":{"enum":cast_scry_conditions().collect::<Vec<_>>()},
+        "program":{"required":["targets","instructions"],"properties":{
+            "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"opponent_player"}}}},
+            "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"deal_damage"}}}}
+        }}
+    }});
+    let has_damage =
+        json!({"required":["triggered"],"properties":{"triggered":{"contains":cast_damage}}});
+    def.push(json!({"if":has_damage,"then":{"properties":{
+        "capabilities":{"allOf":[{"contains":{"const":Capability::CastTriggerV1}},
+            {"contains":{"const":Capability::TriggeredAbilityV1}},{"contains":{"const":Capability::CastColorPredicateV1}},
+            {"contains":{"const":Capability::NoncombatDamageV1}},{"contains":{"const":Capability::OpponentTargetV1}}]},
+        "triggered":{"items":{"if":cast_damage,"then":{"properties":{
+            "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
+            "program":{"properties":{
+                "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+                "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+                "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},
+                    "chooser":{"const":"controller"},"stage":{"const":"announcement"},"filter":{"type":"null"},
+                    "selection_id":{"pattern":"^line:(0|[1-9][0-9]*):12$"}}}},
+                "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"target_slot":{"const":0},
+                    "amount":{"pattern":"^[1-9][0-9]*$"}}}}
+            }}
+        }}}}
+    }}}));
+    // The executable grammar admits only self damage. A parser-normalized
+    // source label carries that identity without embedding a printing name.
+    def.push(json!({"if":{"required":["source_labels"],"properties":{"source_labels":{
+        "type":"object","required":["blocks"],"properties":{"blocks":{"contains":{
+            "pattern":r"^Whenever you cast a (white|blue|black|red|green) spell, ~ deals [1-9][0-9]* damage to target opponent\.$"
+        }}}
+    }}},"then":has_damage}));
     let cast_scry = json!({
         "required":["program"],
         "properties":{"program":{"not":{"$ref":"#/$defs/ScryFreeProgram"}}}

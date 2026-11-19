@@ -61,6 +61,29 @@ for (const cap of requiredTriggerCaps) {
   negative('cast-scry:missing:'+cap, triggerCatalog,d=>{d.capabilities=d.capabilities.filter(c=>c!==cap)});
 }
 negative('cast-scry:erased',triggerCatalog,d=>{delete d.triggered;d.capabilities=d.capabilities.filter(c=>!requiredTriggerCaps.includes(c))});
+const damageCatalog = clone(triggerCatalog);
+const damageObserver = damageCatalog.definitions[0];
+damageObserver.name = 'Violet Observatory';
+const damageLine = 'Whenever you cast a red spell, ~ deals 5 damage to target opponent.';
+const damageSource = {...source,name:damageObserver.name,oracle_text:damageLine.replace('~',damageObserver.name)};
+const damageAst = clone(ast);
+damageAst[0].effects[0].steps[0] = {effect:'damage',source:{ref:'self'},amount:{amount:'fixed',value:5},
+  to:{to:'player',ref:{player:'target-opponent',selectionId:'line:0:12'}}};
+damageObserver.provenance.source_json=JSON.stringify(damageSource);
+damageObserver.provenance.source_sha256=sha256(damageObserver.provenance.source_json);
+damageObserver.provenance.abilities_json=JSON.stringify(damageAst);
+damageObserver.provenance.ast_sha256=sha256(JSON.stringify([damageAst]));
+damageObserver.capabilities=damageObserver.capabilities.filter(c=>c!=='controller_scry_v1');
+damageObserver.capabilities.push('opponent_target_v1','noncombat_damage_v1');
+const damageProgram=damageObserver.triggered[0].program;
+damageProgram.instructions=[{op:'deal_damage',target_slot:0,amount:'5',source_block:0}];
+damageProgram.targets=[{slot:0,selection_id:'line:0:12',domain:'opponent_player',chooser:'controller',stage:'announcement'}];
+positive('cast-damage:complete',damageCatalog);
+for(const cap of ['cast_trigger_v1','cast_color_predicate_v1','triggered_ability_v1','opponent_target_v1','noncombat_damage_v1']) {
+  negative('cast-damage:missing:'+cap,damageCatalog,d=>{d.capabilities=d.capabilities.filter(c=>c!==cap)});
+}
+negative('cast-damage:wrong-selection',damageCatalog,d=>{d.triggered[0].program.targets[0].selection_id='line:0:11'});
+negative('cast-damage:second-instruction',damageCatalog,d=>{d.triggered[0].program.instructions.push(clone(d.triggered[0].program.instructions[0]))});
 const ordinary=control(),filtered=control('1',0,true);
 for(const [name,change] of [
  ['double',d=>d.spell.instructions.push(clone(d.spell.instructions[0]))],
