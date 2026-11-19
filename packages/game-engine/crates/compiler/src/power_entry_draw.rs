@@ -2,6 +2,7 @@
 //! intervening battlefield predicate bind independently of the draw recipient.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+use crate::bindings::Bindings;
 use serde_json::{Value, json};
 
 fn shape_error() -> Failure {
@@ -57,50 +58,7 @@ fn power_subject(power: &Quantity, entering: bool, other: bool) -> Result<Value,
     Ok(json!({"ref":"filter","filter":filter,"count":{"amount":"fixed","value":1}}))
 }
 
-// Construct the expected diagnostic graph from executable operands, never the reverse.
-struct Bindings<'a> {
-    identity: &'a str,
-    nodes: Vec<Value>,
-    references: Vec<Value>,
-}
-
 impl Bindings<'_> {
-    fn id(&self, path: &str, suffix: &str) -> String {
-        format!("card:{}{path}#{suffix}", self.identity)
-    }
-
-    fn node(&mut self, path: &str, suffix: &str, kind: &str, mut fields: Value) -> String {
-        let id = self.id(path, suffix);
-        fields["id"] = json!(id);
-        fields["path"] = json!(path);
-        fields["node"] = json!(kind);
-        self.nodes.push(fields);
-        id
-    }
-
-    fn reference(&mut self, path: &str, expression: &Value, target: &str, rule: &str) {
-        self.references
-            .push(json!({"path":path,"expression":expression,
-            "binding":"bound","target":target,"rules":[rule]}));
-    }
-
-    fn ability(&mut self, path: &str, kind: &str, role: &str) {
-        let ability = self.node(
-            path,
-            "ability",
-            "ability",
-            json!({
-            "source":self.id("/source","object"),"face":self.id("/faces/0","face"),
-            "abilityKind":kind,"you":self.id(path,"you"),"rules":["113","109.5"]}),
-        );
-        self.node(
-            path,
-            "you",
-            "runtime-player",
-            json!({"scope":ability,"role":role,"rules":["109.5"]}),
-        );
-    }
-
     fn selection(
         &mut self,
         base: &str,
@@ -154,38 +112,6 @@ impl Bindings<'_> {
             fields["description"] = description.clone();
         }
         self.node(path, kind, "event-result", fields);
-    }
-
-    fn validate(&self, binding: &Value) -> Result<(), Failure> {
-        let same_members = |actual: &Value, expected: &[Value]| {
-            actual.as_array().is_some_and(|items| {
-                items.len() == expected.len() && expected.iter().all(|item| items.contains(item))
-            })
-        };
-        // All twelve archive-v1 envelope fields are checked below.
-        if binding.as_object().is_none_or(|fields| fields.len() != 12)
-            || binding["artifactKind"] != "oracle-reference-binding"
-            || binding["schemaVersion"] != 1
-            || binding["executable"] != false
-            || binding["rules"]
-                != json!({"edition":RULES_EDITION,
-                "url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"})
-            || binding["identity"] != self.identity
-            || binding["fullyBound"] != true
-            || binding["referencesBound"] != true
-            || binding["diagnostics"] != json!([])
-            || binding["engineFeatures"] != json!([])
-            || binding["counts"]
-                != json!({"obligations":self.references.len(),"bound":self.references.len(),"unresolved":0})
-            || !same_members(&binding["nodes"], &self.nodes)
-            || !same_members(&binding["references"], &self.references)
-        {
-            return Err(unsupported(
-                "binding",
-                "requires complete power-filtered entry draw bindings",
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -366,27 +292,7 @@ pub(super) fn validate_source(
         return Err(shape_error());
     }
 
-    let mut graph = Bindings {
-        identity: &d.oracle_id,
-        nodes: vec![],
-        references: vec![],
-    };
-    let source_id = graph.node(
-        "/source",
-        "object",
-        "source",
-        json!({"identity":d.oracle_id,"rules":["201.5"]}),
-    );
-    graph.node(
-        "/faces/0",
-        "face",
-        "face",
-        json!({
-            "source": source_id, "sourceFaceIndex": 0, "name": source["name"],
-            "layout": source["layout"], "typeLine": source["type_line"],
-            "manaCost": source["mana_cost"], "rules": ["712"]
-        }),
-    );
+    let mut graph = Bindings::new(&d.oracle_id, source);
     let check = |block: u32, (text, raw): (String, Value)| -> Result<(), Failure> {
         let i = block as usize;
         if labels.blocks[i] != text || decode::<Value>(original[i].get(), "abilities")? != raw {
@@ -400,7 +306,10 @@ pub(super) fn validate_source(
     for (&block, ability) in labels.statics.iter().zip(&d.static_abilities) {
         check(block, static_source(&mut graph, block, ability)?)?;
     }
-    graph.validate(binding)
+    graph.validate(
+        binding,
+        "requires complete power-filtered entry draw bindings",
+    )
 }
 
 #[cfg(test)]

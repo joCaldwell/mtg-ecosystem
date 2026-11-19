@@ -9,6 +9,10 @@ pub mod fixtures {
 }
 mod activated_artifact_draw;
 mod announced_x_draw;
+mod announced_x_effects;
+#[cfg(test)]
+mod announced_x_effects_tests;
+mod bindings;
 pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -1281,6 +1285,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
     let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
         && let [Ability::Spell { .. }] = abilities.as_slice()
     {
@@ -1680,6 +1685,16 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if announced_x_effects {
+                    append_spell_effects(
+                        &mut program,
+                        effects,
+                        block,
+                        &mut slots,
+                        PlayerBinding::AnnouncedX,
+                    )?;
+                    continue;
+                }
                 if effects.iter().flat_map(|s| &s.steps).any(|step| {
                     matches!(
                         step,
@@ -1846,6 +1861,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             .iter()
             .any(|n| n["node"] == "event" && n["operation"] == "discard")
     }) && discard_target.is_none()
+        && !announced_x_effects
         && !definition.spell.as_ref().is_some_and(|p| {
             controller_draw_discard_program(p)
                 || matches!(
@@ -2102,6 +2118,7 @@ fn bind_target(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PlayerBinding {
     Unbound,
+    AnnouncedX,
     DiscardTarget(TargetDomain),
     EventPlayer,
     DamageRecipient,
@@ -2540,6 +2557,13 @@ fn append_spell_effects(
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         for step in &sentence.steps {
+            if player_binding == PlayerBinding::AnnouncedX
+                && let Some(instruction) =
+                    announced_x_effects::instruction(step, program, slots, source_block)?
+            {
+                program.instructions.push(instruction);
+                continue;
+            }
             if player_binding == PlayerBinding::Unbound
                 && matches!(step, Step::LoseLife { who, .. } if who.player == "that-player")
             {
