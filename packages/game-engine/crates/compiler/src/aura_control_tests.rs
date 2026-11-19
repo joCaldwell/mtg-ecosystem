@@ -722,6 +722,7 @@ fn aura_control_supplemental_multitype_mana_sources_use_existing_complete_loweri
         assert_eq!(
             d.mana_abilities,
             vec![ManaAbility {
+                self_damage: None,
                 costs: PermanentActivationCosts {
                     tap: true,
                     mana: None,
