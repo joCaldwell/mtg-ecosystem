@@ -8,10 +8,17 @@ import { fileURLToPath } from "node:url";
 import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, sourceIdentity, withAdvisoryLock, smokePhases } from "./check-engine-driver.ts";
 
 test("default coverage is bounded and deeper runtime work is explicit", () => {
-  assert.equal(parseCheckArguments([]).mode, "fast");
+  const { mode } = parseCheckArguments([]);
+  assert.equal(mode, "quick");
+  const quick = engineCheckPlans[mode];
+  assert.deepEqual(quick.phases.filter(phase => phase.command === "cargo").map(phase => phase.args), [
+    ["fmt", "--all", "--", "--check"],
+    ["check", "--workspace", "--lib", "--locked"],
+  ]);
+  assert.match(quick.omitted, /compilation of binaries \(including mtg-sim and mtg-server\)/);
   const fast = engineCheckPlans.fast.phases;
-  assert.ok(fast.some(phase => phase.label === "compiler-tests"));
-  assert.ok(fast.some(phase => phase.label === "rust-check"));
+  assert.deepEqual(fast.find(phase => phase.label === "compiler-tests")?.args, ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "--lib"]);
+  assert.deepEqual(fast.find(phase => phase.label === "rust-check")?.args, ["check", "--workspace", "--all-targets", "--locked"]);
   assert.ok(fast.some(phase => phase.label === "archive-parser"));
   assert.ok(!fast.some(phase => ["clippy", "rust-tests", "node-tests", "contract-preflight"].includes(phase.label)));
   assert.ok(!fast.some(phase => phase.args.includes("--release")));
@@ -34,7 +41,7 @@ test("routine plans retain live guards and behavior; tooling/full retain every h
     ["documentation-tests", "python3", ["-B", "scripts/test-check-docs.py"]],
   ];
   for (const [mode, plan] of Object.entries(engineCheckPlans)) {
-    const native = ["fast", "contracts", "full"].includes(mode);
+    const native = ["quick", "fast", "contracts", "full"].includes(mode);
     const selfTests = ["tooling", "full"].includes(mode);
     assert.equal(plan.needsCargo, native);
     assert.equal(plan.phases.filter(phase => phase.label === "cache-preflight").length, native ? 1 : 0);
@@ -45,6 +52,7 @@ test("routine plans retain live guards and behavior; tooling/full retain every h
     if (!selfTests) assert.match(plan.omitted, /Verifier harness self-tests \(run --tooling or --full\)/);
   }
   const labels = (mode: keyof typeof engineCheckPlans) => engineCheckPlans[mode].phases.map(phase => phase.label);
+  assert.deepEqual(labels("quick"), ["cache-preflight", "structure-guard", "documentation-guard", "format", "rust-lib-check"]);
   assert.deepEqual(labels("source"), ["structure-guard", "documentation-guard", "archive-parser"]);
   assert.deepEqual(labels("fast"), ["cache-preflight", "structure-guard", "documentation-guard", "archive-parser", "format", "rust-check", "compiler-tests"]);
   assert.deepEqual(labels("contracts"), ["cache-preflight", "structure-guard", "documentation-guard", "contract-preflight"]);
@@ -54,6 +62,8 @@ test("routine plans retain live guards and behavior; tooling/full retain every h
   assert.equal(engineCheckPlans.contracts.phases.at(-1)?.preflight, true);
   assert.equal(engineCheckPlans.source.phases.at(-1)?.preflight, true);
   const scripts = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
+  assert.equal(scripts["check:engine"], "sh scripts/engine-env.sh node scripts/check-engine.ts");
+  assert.equal(scripts["check:engine:fast"], "sh scripts/engine-env.sh node scripts/check-engine.ts --fast");
   assert.equal(scripts["check:engine:tooling"], "sh scripts/engine-env.sh node scripts/check-engine.ts --tooling");
 });
 
@@ -139,8 +149,14 @@ test("CLI plan/help execute no commands or native setup for any mode", () => {
       assert.deepEqual(result.calls, []);
       assert.deepEqual(result.records, []);
     }
+    const implicit = run(["--plan"]);
+    assert.equal(implicit.status, 0, implicit.stderr);
+    assert.deepEqual(JSON.parse(implicit.stdout), { mode: "quick", ...engineCheckPlans.quick });
+    assert.deepEqual(implicit.calls, []);
+    assert.deepEqual(implicit.records, []);
     const help = run(["--tooling", "--help"]);
     assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /Default: --quick/);
     assert.match(help.stdout, /--tooling/);
     assert.deepEqual(help.calls, []);
     assert.deepEqual(help.records, []);
