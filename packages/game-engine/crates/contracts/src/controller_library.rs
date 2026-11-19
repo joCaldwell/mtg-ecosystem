@@ -43,11 +43,38 @@ fn controller_look_program(p: &SpellProgram, surveil: bool) -> bool {
     }
 }
 
+fn cast_scry_conditions() -> impl Iterator<Item = TriggerCondition> {
+    [Color::W, Color::U, Color::B, Color::R, Color::G]
+        .into_iter()
+        .map(|color| TriggerCondition::SpellCast {
+            caster: CasterRelation::Controller,
+            spell: TypePredicate::SpellColor { color },
+        })
+}
+
+fn cast_scry_program(a: &TriggeredAbility) -> bool {
+    a.functioning_zone == FunctioningZone::Battlefield
+        && a.program.timing == SpellTiming::Instant
+        && a.intervening_if.is_none()
+        && a.death_filter.is_none()
+        && cast_scry_conditions().any(|condition| a.condition == condition)
+        && matches!(
+            a.program.instructions.as_slice(),
+            [Instruction::Scry { .. }]
+        )
+        && controller_scry_program(&a.program)
+}
+
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
     if d.activated.iter().any(|a| has_look(&a.program))
-        || d.triggered.iter().any(|a| has_look(&a.program))
+        || d.triggered.iter().any(|a| {
+            has_look(&a.program)
+                && (d.characteristics.kind != CardKind::Creature
+                    || !d.characteristics.additional_types.is_empty()
+                    || !cast_scry_program(a))
+        })
     {
-        return Err("library look requires an ordinary spell source".into());
+        return Err("library look requires an ordinary spell or a supported cast trigger".into());
     }
     if !d.spell.as_ref().is_some_and(has_look) {
         return Ok(());
@@ -121,15 +148,33 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap();
+    let cast_scry = json!({
+        "required":["program"],
+        "properties":{"program":{"not":{"$ref":"#/$defs/ScryFreeProgram"}}}
+    });
+    let has_cast_scry = json!({
+        "required":["triggered"],"properties":{"triggered":{"contains":cast_scry}}
+    });
     def.push(json!({"properties":{
         "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/ScryFreeProgram"}}}},
-        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/ScryFreeProgram"}}}}
+        "triggered":{"items":{"if":cast_scry,"then":{"properties":{
+            "condition":{"enum":cast_scry_conditions().collect::<Vec<_>>()},
+            "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},
+            "death_filter":{"type":"null"},"program":{"allOf":[
+                {"$ref":"#/$defs/ControllerScryProgram"},
+                {"properties":{"timing":{"const":"instant"},"instructions":{"minItems":1,"maxItems":1}}}
+            ]}
+        }}}}
     }}));
+    def.push(json!({"if":has_cast_scry,"then":{"properties":{
+        "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0}}},
+        "capabilities":{"contains":{"const":Capability::ControllerScryV1}}
+    }}}));
     def.push(json!({"if":has_scry,"then":{"properties":{
         "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
         "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
         "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerScryV1}}]}
-    }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}));
+    }},"else":{"if":{"not":has_cast_scry},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}}));
     def.push(json!({"if":has_scry,"then":{"allOf":[
         {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
          "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},

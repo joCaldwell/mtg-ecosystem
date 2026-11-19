@@ -3216,6 +3216,7 @@ impl Definition {
                             | Instruction::DrawControllerCards { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::DrawDamageAmount { .. }
+                            | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }

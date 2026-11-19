@@ -1486,6 +1486,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
     }
+    controller_library::validate_cast_scry(&abilities, &result, &binding, &r.oracle_identity)?;
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
