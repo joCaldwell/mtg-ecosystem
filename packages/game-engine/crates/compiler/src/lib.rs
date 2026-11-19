@@ -743,9 +743,20 @@ enum Step {
         #[serde(default)]
         optional: bool,
     },
-    Discard {
+    Discard(DiscardStep),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+enum DiscardStep {
+    Chosen {
         who: PlayerSelector,
         what: FilterObject,
+    },
+    Random {
+        who: PlayerSelector,
+        what: FilterObject<DrawAmount>,
+        random: bool,
     },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -824,11 +835,11 @@ struct PlayerSelector {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FilterObject {
+struct FilterObject<A = Count> {
     #[serde(rename = "ref")]
     reference: String,
     filter: ObjectFilter,
-    count: Count,
+    count: A,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
@@ -2885,7 +2896,35 @@ fn append_spell_effects(
                     )?,
                     source_block,
                 },
-                Step::Discard { who, what }
+                Step::Discard(DiscardStep::Random {
+                    who,
+                    what,
+                    random: true,
+                }) if let PlayerBinding::DiscardTarget(domain) = player_binding => {
+                    // The whole printed program and reference graph were validated together.
+                    let id = who
+                        .selection_id
+                        .as_deref()
+                        .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
+                    let count = match &what.count {
+                        DrawAmount::Fixed { value } if *value > 0 => RandomDiscardCount::Fixed {
+                            value: i64::from(*value).into(),
+                        },
+                        DrawAmount::X {} => RandomDiscardCount::AnnouncedX,
+                        _ => {
+                            return Err(unsupported(
+                                "discard.count",
+                                "invalid random discard count",
+                            ));
+                        }
+                    };
+                    Instruction::DiscardTargetPlayerAtRandom {
+                        target_slot: bind_target(program, slots, id, domain)?,
+                        count,
+                        source_block,
+                    }
+                }
+                Step::Discard(DiscardStep::Chosen { who, what })
                     if let PlayerBinding::DiscardTarget(domain) = player_binding =>
                 {
                     let id = who
@@ -2898,7 +2937,7 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
-                Step::Discard { who, what }
+                Step::Discard(DiscardStep::Chosen { who, what })
                     if player_binding == PlayerBinding::DamageRecipient
                         && matches!(who.player.as_str(), "that-player" | "you")
                         && who.selection_id.is_none()
@@ -4999,7 +5038,7 @@ fn lower_activation(
                     count: Quantity::from(1),
                     source_block,
                 },
-                Step::Discard { who, what }
+                Step::Discard(DiscardStep::Chosen { who, what })
                     if *who == you
                         && what.reference == "filter"
                         && fixed_one(&what.count)
