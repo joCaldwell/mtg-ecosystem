@@ -305,6 +305,9 @@ impl Game {
                 mut frame,
                 source_block,
             } => {
+                if self.is_successor_tuck(&frame)? {
+                    return self.complete_successor_tuck(frame, to_command);
+                }
                 let outcome = if !present {
                     InstructionOutcome::ObjectNoLongerPresent { target: object }
                 } else {
@@ -553,6 +556,18 @@ impl Game {
                     frame,
                     source_block,
                 } => {
+                    if self.is_successor_tuck(frame)? {
+                        let (expected, _, expected_block) = self.successor_tuck_instruction(frame)?;
+                        if *object != expected
+                            || *source_block != expected_block
+                            || *destination != (Zone::Library { owner })
+                            || current.zone != (Zone::Graveyard { owner })
+                            || frame.spell.controller != owner
+                        {
+                            return Err("snapshot commander successor tuck invariant".into());
+                        }
+                        return self.validate_resolving(frame);
+                    }
                     let program = self.program_for(&frame.spell)?;
                     let (slot, expected_destination, expected_block) =
                         match program.instructions.get(frame.cursor as usize) {

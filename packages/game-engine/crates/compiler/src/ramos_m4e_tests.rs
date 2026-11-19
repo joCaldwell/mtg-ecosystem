@@ -85,12 +85,6 @@ fn ramos_m4e_complete_frozen_source_and_contract_fences() {
         .static_abilities
         .push(multiple.static_abilities[0].clone());
     multiple.validate().unwrap();
-    let enigma =
-        include_str!("../../../tests/fixtures/ramos/6fb84ecd-ab60-4c2c-987d-8a0749db5777.json");
-    assert!(matches!(
-        compile(MANIFEST, enigma),
-        CompileResult::Unsupported { .. }
-    ));
 }
 #[test]
 fn ramos_m4e_rehashed_partial_extra_selector_and_binding_rejections() {

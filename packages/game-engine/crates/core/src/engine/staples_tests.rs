@@ -1173,6 +1173,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::DamageTargetController { .. }
                     | Instruction::AttachEquipment { .. }
                     | Instruction::ReturnAuraFromGraveyard { .. }
+                    | Instruction::MoveTriggeredSuccessor { .. }
                     | Instruction::SearchBasicLandsSplit { .. }
                     | Instruction::SearchTypedLands { .. } => {
                         panic!("attachment outside historical staples proof")

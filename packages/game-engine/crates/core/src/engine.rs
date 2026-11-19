@@ -330,6 +330,10 @@ mod casting_foundation_tests;
 mod hand_return;
 mod intrinsic_mana;
 mod library_order;
+mod library_position_memory;
+mod successor_tuck;
+#[cfg(test)]
+mod successor_tuck_tests;
 mod library_selection;
 mod mana_permanents;
 #[cfg(test)]
@@ -1665,6 +1669,11 @@ pub enum ProposedEvent {
     },
     PutOnTopOwnerLibrary {
         object: ObjectId,
+    },
+    PutInLibraryAtPosition {
+        object: ObjectId,
+        player: PlayerId,
+        position: LibraryPosition,
     },
     Lose {
         player: PlayerId,
@@ -3082,6 +3091,9 @@ impl Game {
                         Instruction::Cascade { source_block, .. } => {
                             return self.begin_cascade(frame, *source_block);
                         }
+                        Instruction::MoveTriggeredSuccessor { .. } => {
+                            return self.resolve_successor_tuck(frame);
+                        }
                         Instruction::ReturnToOwnerHand {
                             target_slot,
                             source_block,
@@ -3272,7 +3284,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 38,
+            snapshot_version: 40,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3314,7 +3326,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 38
+        if s.snapshot_version != 40
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3413,6 +3425,7 @@ impl Game {
         self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;
         self.validate_trigger_state()?;
+        self.validate_library_position_memory()?;
         self.validate_effect_state()?;
         self.validate_choices_state()?;
         self.validate_commander_state()?;

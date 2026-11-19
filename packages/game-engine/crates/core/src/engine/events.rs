@@ -340,6 +340,7 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::Sacrifice { .. }
             | ProposedEvent::DiscardCard { .. }
             | ProposedEvent::PutOnTopOwnerLibrary { .. }
+            | ProposedEvent::PutInLibraryAtPosition { .. }
             | ProposedEvent::SearchLandEntry { .. }
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
@@ -524,6 +525,12 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
         ProposedEvent::PutOnTopOwnerLibrary { object } => {
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
+        }
+        ProposedEvent::PutInLibraryAtPosition { object, player, .. } => {
+            let writes = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
+            let mut reads = writes.clone();
+            reads.insert(FactKey::Life(*player));
+            (reads, writes)
         }
         ProposedEvent::Move {
             object,
@@ -1067,6 +1074,11 @@ impl Game {
                 ProposedEvent::Sacrifice { object, player }
                 | ProposedEvent::DiscardCard { object, player } => {
                     objects.insert(*object);
+                    players.insert(*player);
+                }
+                ProposedEvent::PutInLibraryAtPosition { object, player, .. } => {
+                    objects.insert(*object);
+                    libraries.insert(*player);
                     players.insert(*player);
                 }
                 ProposedEvent::PutOnTopOwnerLibrary { object } => {
@@ -2260,6 +2272,11 @@ impl Game {
                     movement,
                 }
             }
+            ProposedEvent::PutInLibraryAtPosition {
+                object,
+                player,
+                position,
+            } => self.apply_successor_tuck(*object, *player, *position, before)?,
             ProposedEvent::PutOnTopOwnerLibrary { object } => {
                 let owner = self
                     .state
@@ -2692,6 +2709,7 @@ impl Game {
                 destination,
             } => self.apply_move(*object, *destination, None, false, before, entry)?,
         };
+        self.update_library_position_memory(proposed);
         Ok(actual)
     }
 }

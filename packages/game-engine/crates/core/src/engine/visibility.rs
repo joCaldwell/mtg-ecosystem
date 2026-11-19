@@ -178,9 +178,20 @@ pub struct VisibleAttacker {
     pub blocked: bool,
     pub blockers: Vec<ObjectHandle>,
 }
+/// A remembered public tuck. Position is one-based; memory gives no object
+/// handle or authority to inspect or target a card in a hidden library.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KnownLibraryPosition {
+    pub library_owner: PlayerId,
+    pub position: u32,
+    pub oracle_id: String,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -688,6 +699,8 @@ impl ObjectHandles {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(super) public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) own_knowledge: Vec<OwnKnowledgeAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1237,6 +1250,7 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            known_library_positions: self.known_library_positions(viewer)?,
             sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
                 &self.state.rules.frame
             {

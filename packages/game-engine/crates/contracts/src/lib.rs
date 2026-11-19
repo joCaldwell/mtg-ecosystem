@@ -3,6 +3,8 @@ mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
+mod successor_tuck;
+pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
@@ -273,6 +275,7 @@ pub enum Capability {
     ControllerHandReturnV1,
     ControllerDrawDiscardV1,
     ControllerCountedDrawV1,
+    TriggeredSuccessorLibraryTuckV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -756,6 +759,12 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
+    MoveTriggeredSuccessor {
+        expected_zone: TriggerSuccessorZone,
+        destination: TriggerSuccessorZone,
+        position: LibraryPosition,
+        source_block: u32,
+    },
     PutOnTopOwnerLibrary {
         target_slot: u32,
         source_block: u32,
@@ -869,7 +878,8 @@ impl Instruction {
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
             Self::ReturnToOwnerHand { source_block, .. } => *source_block,
-            Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
+            Self::MoveTriggeredSuccessor { source_block, .. }
+            | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::DrawCards { source_block, .. } => *source_block,
@@ -1228,6 +1238,10 @@ pub enum TriggerCondition {
     AnyCreatureDies,
     SelfDies,
     SelfAuraToGraveyard,
+    SelfMoved {
+        from: SourceMoveOrigin,
+        to: TriggerSuccessorZone,
+    },
 }
 /// Candidate-local event-time comparison; no printed-source pronoun binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -1397,6 +1411,7 @@ impl TriggerCondition {
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
             Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
+            Self::SelfMoved { .. } => "self_moved",
         }
     }
 }
@@ -1916,6 +1931,7 @@ impl Definition {
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
                 TriggerCondition::SelfAuraToGraveyard => Capability::AttachmentsV1,
+                TriggerCondition::SelfMoved { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
             });
             if ability.intervening_if.is_some() {
                 set.insert(Capability::InterveningIfV1);
@@ -2255,6 +2271,11 @@ impl Definition {
             || self.activated.iter().any(|a| has_cascade(&a.program))
         {
             return Err("cascade is only a self-cast triggered program".into());
+        }
+        if self.spell.as_ref().is_some_and(successor_tuck::contains_move)
+            || self.activated.iter().any(|a| successor_tuck::contains_move(&a.program))
+        {
+            return Err("successor movement requires its matching self-move trigger".into());
         }
         // Sacrifice programs admit enchantment programs and creature statics.
         // Other programs retain their narrower kind constraints.
@@ -2682,6 +2703,11 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if matches!(ability.condition, TriggerCondition::SelfMoved { .. }) {
+                successor_tuck::validate(c, ability)?;
+                validate_instruction_program(p)?;
+                continue;
+            }
             if ability.condition == TriggerCondition::SelfSpellCast {
                 if ability.functioning_zone != FunctioningZone::Stack
                     || ability.intervening_if.is_some()
@@ -3955,6 +3981,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, domain))
             }
+            Instruction::MoveTriggeredSuccessor { .. } => None,
             Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
@@ -4391,6 +4418,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
+            Instruction::MoveTriggeredSuccessor { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
             Instruction::TargetPlayerSacrificeCreature { .. } => {
                 Capability::TargetPlayerSacrificeCreatureV1
             }
@@ -5687,6 +5715,7 @@ pub fn catalog_schema() -> serde_json::Value {
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
     cycling::schema(&mut schema);
+    successor_tuck::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5862,6 +5891,7 @@ mod tests {
             ControllerHandReturnV1,
             ControllerDrawDiscardV1,
             ControllerCountedDrawV1,
+            TriggeredSuccessorLibraryTuckV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5992,6 +6022,7 @@ mod tests {
             .find(|d| d.name == "Grizzly Bears")
             .unwrap()
             .clone();
+        definitions.push(successor_tuck::witness(counted.clone()));
         counted.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Stack,
             effect: StaticEffect::ReduceSelfGenericCost {
