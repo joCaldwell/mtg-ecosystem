@@ -417,9 +417,12 @@ impl Game {
         let choosing_mode =
             matches!(&self.state.rules.frame, Frame::Modes { cast } if cast.stack_id == entry.id);
         let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
+        // An alternative cast fixes X at zero even while a mode is pending.
+        let x_fixed_by_alternative = entry.alternative_cost.is_some();
+        let x_bound = x_spell && (x_fixed_by_alternative || (!choosing_mode && !announcing_x));
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
-            || entry.x.is_some() != (x_spell && !choosing_mode && !announcing_x)
-            || (announcing_x && !x_spell)
+            || entry.x.is_some() != x_bound
+            || (announcing_x && (!x_spell || x_fixed_by_alternative))
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
                 != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.effective_trigger(entry.source, *ability)?.condition==TriggerCondition::OpponentCreatureDies)
