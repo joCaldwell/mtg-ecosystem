@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { isQualifiedProductSession } from "../web/src/session/qualification.ts";
 
 const repo = fileURLToPath(new URL("../../../", import.meta.url));
 function sources(directory: string): string[] {
@@ -32,6 +33,16 @@ test("legacy browser exports preserve the clean public declaration surface", () 
   }
   const output = execFileSync(process.execPath, ["--input-type=module", "-e", "import assert from 'node:assert/strict'; import { isQualifiedProductSession as a } from '@multiverse/game/session-qualification'; import { isQualifiedProductSession as b } from '@multiverse/game-client/session-qualification'; assert.equal(a,b); assert.equal(a(undefined),false)"], { cwd: join(repo, "packages/game-client"), encoding: "utf8" });
   assert.equal(output, "");
+});
+
+test("product launch admits the exact qualified foundations identity", () => {
+  const { engine_build_id, server_build_id } = JSON.parse(readFileSync(join(repo, "packages/game/sdk-qualification.json"), "utf8"));
+  const identity = { profile: "commander-foundations-v1", catalog_sha256: "ff307bd50c7714f3ad99c1bd558217cd38b0223c1fe48dfd200d2b611abc8b56", engine_build_id, server_build_id };
+  assert.equal(isQualifiedProductSession(identity), true);
+  assert.equal(isQualifiedProductSession(undefined), false);
+  for (const field of Object.keys(identity)) {
+    assert.equal(isQualifiedProductSession({ ...identity, [field]: "different" }), false, field);
+  }
 });
 
 test("both public package names typecheck in an isolated consumer with no SDK or generated files", () => {

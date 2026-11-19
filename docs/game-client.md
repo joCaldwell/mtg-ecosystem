@@ -25,10 +25,10 @@ windows, with window/object scope, bounded pagination, status and explicit stop.
 Pass priority is self-explanatory. Named land/cast, ability/mana and FinishMana
 beginnings require their exact permitted labels/source and scope. Missing meaning
 stays blocked. FinishMana's flag controls reversal only if payment fails.
-Complete games, whole-profile usability and integrated product launch remain
-qualification gates. Exact deck admission, private provisioning/recovery and
-three separately owned automated seats are implemented; default browser launch
-stays disabled pending integrated proof. Unsupported automation pauses explicitly.
+One exact foundations release passed [hosted completion](game-client-evidence.md#hosted-completion).
+Launch also requires deck admission, private provisioning and three owned
+automated seats. Whole-profile usability remains unqualified. Unsupported
+automation pauses explicitly.
 Optional private diagnostics retain closed stage/cause codes and file boundary,
 check and link-count buckets, without paths, contents or raw errors. Callback
 failures never affect lifecycle decisions.

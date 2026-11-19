@@ -235,10 +235,9 @@ lazy SDK loading. The lazy `/play/games/:id` obtains an Actor-authorized human
 seat File held only in component memory. Game/attempt keys, abort and cleanup
 fence late grants; unmount/reload discards that File. Preview remains separately
 lazy and router/session/SDK-runtime free. Phone retains its larger-screen fallback.
-Browser qualification remains false and approved identities empty until actual
-product proof; this ownership extraction qualifies no full game and fixes no
-supervision fault. [Client contracts](../../../docs/game-client.md) own journaling,
-Web Locks and delivery scope; [setup](../README.md) owns native configuration.
+Browser launch requires an exact approved native identity and deck admission.
+[Client contracts](../../../docs/game-client.md) own journaling, Web Locks and
+delivery scope. [Setup](../README.md) owns native configuration.
 
 ## Checking a change
 

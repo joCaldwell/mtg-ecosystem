@@ -5,15 +5,15 @@
     "native_source": "052af6a20931461943d174c961db6c38eb635dd9",
     "protocol_schema_sha256": "b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd",
     "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-    "scope": "Frozen Native21 committed Resume reader. The original engine, three schemas and SDK50 inputs match the retained SDK evidence. Browser/full-game and product-launch qualification remain separate gates; approved identities stay empty.",
+    "scope": "Frozen Native21 committed Resume release build. Three schemas and SDK50 inputs match retained evidence. Hosted Chromium completion approves only the tested foundations identity.",
     "sdk_source": "052af6a20931461943d174c961db6c38eb635dd9",
-    "engine_build_id": "5d922d685619c979173c56e50285b2eea79b506cb24d718195339b2126b47b4d",
-    "server_build_id": "cebbb11281c8f4f71b437ca0b630a27bf4df8637bd4fbcaa1619427560ce1d08",
+    "engine_build_id": "18d04f99c7f81c0c6169e4d060b5c83328ddaab2ba5535f8da74cbe5faf4aaac",
+    "server_build_id": "42b0f10f7082dfb62f7ebd59ac43e34c2ad0cc01d46d3c9361a2bda5fa1c33ae",
     "native_source_manifest_sha256": "788c943819c83d8ebc6afb226ab375395dd1dcac34262e76eed1a9a4456a1feb",
-    "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-committed-resume-20261117",
-    "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-committed-resume-20261117/client-integration",
-    "sdk_source_bridge_sha256": "54239d25fdd6593c4c4ec4dff7832102acd5a3f6e2fd78bce58fc5160d60580c",
-    "native_source_verification_sha256": "03f9f7d635f27a1293ad16548aff24fe07032d84067134a30cc92c680d484048",
+    "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-committed-resume-release-20261118",
+    "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-committed-resume-release-20261118/client-integration",
+    "sdk_source_bridge_sha256": "3485835431b12b19a54706ce072f063661a99bfebb4323dd676a4b71dd1fef12",
+    "native_source_verification_sha256": "35f415ec83a902364d164b921dda4f92c099337e47a7f9ca488d864338c8f487",
     "sdk_build_manifest_sha256": "b3b98e7a6393e04512fb0402f07e1d8dc7e17b80027b1f4b737ee1786fc09caf",
     "sdk_verification_sha256": "3263e62affec1b4aea9fac5756ea546f16b3bd6876522211e45a47724262312a",
     "sdk_generation_sha256": "0051592eaabcdbfe1e74b2cf33aaeb37e16cb4b4086d2631f54bbfdc78c46eab"
@@ -27,7 +27,7 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "4ca1ff43152ab6f5a5e64bb11cd9482d18e11d58e8a623fec590bd18d0ac65e6"
+      "sha256": "4b3e960874e9d31f41e02cd3e4d719cef1fc0cc086f5c208ca8271c658d6bea9"
     },
     {
       "path": "docs/game-engine-current.md",

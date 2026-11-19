@@ -222,8 +222,17 @@ pause, no win/draw, and three joined bot leases. The match reached turn 56 with
 two opponents remaining. Receipt and input bridge
 `product-committed-resume-ed576b8d.2lp5e_21/summary.json` has SHA-256
 `4fd2d1052ac386b9b20c59578c3d340a8e821c398f1f9ca60047c6247ada5c36`.
-Full-game qualification remains blocked and approvals empty. Require a viable
-terminal trajectory before another full-game witness.
+This bound conferred no approval.
+
+## Hosted completion
+
+Chromium `774cad38` finished a foundations game in 38.9 minutes under 240
+Actor requests/minute with zero 429s, 935 consumed/reconciled commands and
+three joined bot leases. The visible owner win matches native ledger outcomes
+for all four seats. The browser did not directly observe the native outcome.
+Only the tested release identity is approved. Evidence:
+`product-shared-budget-completion.potzlXV6/completion-evidence.json`
+SHA-256 `ec06be154b07eef380499fba4319a06fe179694d233436657ae4549d2438f814`.
 
 ## Earlier prerequisites and unique provenance
 
