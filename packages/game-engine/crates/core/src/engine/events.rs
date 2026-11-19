@@ -251,6 +251,7 @@ enum FactKey {
     Libraries,
     AllDamage,
     Effects,
+    PendingTriggers,
 }
 fn independent_footprints(
     footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
@@ -569,10 +570,17 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             (keys.clone(), keys)
         }
         ProposedEvent::ReversePermanentMana { receipt } => {
-            let keys = BTreeSet::from([
+            let mut keys = BTreeSet::from([
                 FactKey::Mana(receipt.player),
                 FactKey::Object(receipt.source.object.card),
             ]);
+            if let Some(damage) = &receipt.damage {
+                keys.extend(damage.life.iter().map(|entry| FactKey::Life(entry.player)));
+                if !damage.shields.is_empty() {
+                    keys.insert(FactKey::Effects);
+                }
+            }
+            keys.insert(FactKey::PendingTriggers);
             (keys.clone(), keys)
         }
         ProposedEvent::ReverseMana { player, source, .. } => {
@@ -802,7 +810,18 @@ impl Game {
         let effects = if effects_event {
             self.state.rules.effects.clone()
         } else {
-            vec![]
+            let reversed_shields = events
+                .iter()
+                .filter_map(|event| match event {
+                    ProposedEvent::ReversePermanentMana { receipt } => receipt.damage.as_deref(),
+                    _ => None,
+                })
+                .flat_map(|damage| damage.shields.iter().map(|shield| shield.effect))
+                .collect::<BTreeSet<_>>();
+            self.state.rules.effects.iter()
+                .filter(|effect| reversed_shields.contains(&effect.id))
+                .cloned()
+                .collect()
         };
         let damage_transaction = if effects_event {
             self.damage_transaction()
@@ -1187,6 +1206,9 @@ impl Game {
                 }
                 ProposedEvent::ReversePermanentMana { receipt } => {
                     players.insert(receipt.player);
+                    if let Some(damage) = &receipt.damage {
+                        players.extend(damage.life.iter().map(|entry| entry.player));
+                    }
                     if let Some(o) = self.state.rules.objects.get(&receipt.source.object.card) {
                         objects.insert(o.id);
                     }

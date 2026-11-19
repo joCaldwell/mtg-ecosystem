@@ -30,6 +30,7 @@ fn add_mana(p: &mut Prepared, id: &str) {
     edit(p, id, |d| {
         d.mana_abilities = vec![ManaAbility {
             restriction: None,
+            self_damage: None,
             costs: PermanentActivationCosts {
                 remove_source_plus_one_counters: None,
                 tap: true,

@@ -59,7 +59,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             match transaction.continuation.as_ref() {
                 DamageContinuation::Instruction { frame } => Some(&frame.spell),
-                DamageContinuation::Combat => None,
+                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
             }
         }
         Frame::Stabilize { resume, .. } => resolving_entry(resume),

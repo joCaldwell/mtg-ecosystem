@@ -1781,11 +1781,16 @@ impl Game {
                     candidates: self.eligible_players(self.program()?.targets[0].domain, viewer),
                 }))
             }
-            Frame::IntrinsicManaChoice { player, source, .. } if *player == viewer => {
+            Frame::ManaSourceChoice {
+                player,
+                source,
+                scope,
+                ..
+            } if *player == viewer => {
                 Ok(Some(PlayerRequest::ManaColor {
                     token,
                     player: viewer,
-                    colors: self.mana_abilities(*source)?,
+                    colors: self.mana_source_colors(*player, *source, *scope)?,
                     mana_ability_source: Some(self.handle_for(viewer, *source)?),
                 }))
             }
@@ -2070,7 +2075,7 @@ impl Game {
                     {
                         Some((self.state.rules.revision, 20))
                     }
-                    Frame::IntrinsicManaChoice { player, .. } if player == viewer => {
+                    Frame::ManaSourceChoice { player, .. } if player == viewer => {
                         Some((self.state.rules.revision, 20))
                     }
                     Frame::ManaAbility { ref activation } if activation.player == viewer => {

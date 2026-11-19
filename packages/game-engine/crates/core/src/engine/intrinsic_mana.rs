@@ -3,27 +3,6 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 impl Game {
-    pub(super) fn intrinsic_choice_charge(&self) -> usize {
-        let Frame::IntrinsicManaChoice { player, source, .. } = &self.state.rules.frame else {
-            return 0;
-        };
-        // Charge only the new wrapper. Existing traversals charge the retained
-        // owner/grants/history/cost lock once, independently of this metadata.
-        #[derive(Serialize)]
-        struct Wrapper<'a> {
-            stage: &'static str,
-            player: &'a PlayerId,
-            source: &'a ObjectId,
-            resume: (),
-        }
-        stored_history::payload_charge(&Wrapper {
-            stage: "intrinsic_mana_choice",
-            player,
-            source,
-            resume: (),
-        })
-        .saturating_sub(4)
-    }
     pub(super) fn intrinsic_choice_colors(
         &self,
         player: PlayerId,
@@ -82,34 +61,13 @@ impl Game {
             let receipt = self.activate_selected_intrinsic_mana(input, source, *color)?;
             self.resume_mana(resume, vec![receipt])
         } else {
-            self.state.rules.frame = Frame::IntrinsicManaChoice {
+            self.state.rules.frame = Frame::ManaSourceChoice {
                 player: input.player,
                 source,
+                scope: ManaSourceScope::Intrinsic,
                 resume: Box::new(resume),
             };
             Ok(())
         }
-    }
-    pub(super) fn intrinsic_mana_step(
-        &mut self,
-        player: PlayerId,
-        source: ObjectId,
-        resume: Frame,
-    ) -> Result<(), String> {
-        let input = self
-            .state
-            .rules
-            .pending
-            .take()
-            .ok_or("missing intrinsic mana choice input")?;
-        let Response::ManaColor { color } = input.response else {
-            return Err("intrinsic mana frame/input invariant".into());
-        };
-        if input.player != player {
-            return Err("wrong intrinsic chooser".into());
-        }
-        self.validate_intrinsic_choice(player, source, color)?;
-        let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
-        self.resume_mana(resume, vec![receipt])
     }
 }

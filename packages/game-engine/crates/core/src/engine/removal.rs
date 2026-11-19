@@ -33,7 +33,7 @@ impl Game {
             Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
                 match transaction.continuation.as_mut() {
                     DamageContinuation::Instruction { frame } => Some(frame),
-                    DamageContinuation::Combat => None,
+                    DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
                 }
             }
             Frame::Stabilize { resume, .. } | Frame::LegendRule { resume, .. } => {

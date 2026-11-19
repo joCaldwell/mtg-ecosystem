@@ -57,7 +57,10 @@ fn named(g: &Game, name: &str) -> ObjectId {
 // zone: hand=true; otherwise battlefield. A declared private midgame fixture,
 // not a reachable opening/pod admission claim. Every owned deck remains legal100.
 fn midgame(rows: &[(&str, u8, u8, bool)]) -> Prepared {
-    let c = land_catalog();
+    midgame_with_catalog(rows, land_catalog())
+}
+
+fn midgame_with_catalog(rows: &[(&str, u8, u8, bool)], c: Catalog) -> Prepared {
     let mut cards = vec![];
     let mut commanders = vec![];
     for seat in 0..4 {
@@ -156,7 +159,7 @@ fn choose(g: &mut Game, color: Color) {
         panic!("public intrinsic choice")
     };
     let live_source = match &g.state.rules.frame {
-        Frame::IntrinsicManaChoice { .. } => true,
+        Frame::ManaSourceChoice { .. } => true,
         Frame::ManaAbility { activation } => g.current(activation.source).is_ok(),
         _ => panic!("mana chooser frame"),
     };
@@ -262,12 +265,12 @@ fn conditional_lands_intrinsic_both_colors_public_work_restore_priority_cast_nes
                         assert_eq!(g.state.rules.players[0].mana, mana);
                         assert!(matches!(
                             g.state.rules.frame,
-                            Frame::IntrinsicManaChoice { .. }
+                            Frame::ManaSourceChoice { .. }
                         ));
                         check(g);
                         // Independent parameter authority cannot be forged into snapshots.
                         let mut forged = g.fork();
-                        if let Frame::IntrinsicManaChoice { source, .. } =
+                        if let Frame::ManaSourceChoice { source, .. } =
                             &mut forged.state.rules.frame
                         {
                             source.incarnation += 1;
@@ -329,7 +332,7 @@ fn conditional_lands_unpaid_choice_departure_and_paid_intrinsic_retention() {
                     assert!(g.current(source).is_err());
                     assert!(!matches!(
                         g.state.rules.frame,
-                        Frame::IntrinsicManaChoice { .. }
+                        Frame::ManaSourceChoice { .. }
                     ));
                     assert_eq!(
                         g.mana(PlayerId(0), Color::R).unwrap_or_default(),
@@ -338,7 +341,7 @@ fn conditional_lands_unpaid_choice_departure_and_paid_intrinsic_retention() {
                 } else if timing == 0 {
                     assert!(matches!(
                         g.state.rules.frame,
-                        Frame::IntrinsicManaChoice { .. }
+                        Frame::ManaSourceChoice { .. }
                     ));
                     choose(g, Color::G);
                 }
@@ -812,11 +815,11 @@ fn conditional_lands_synthetic_dependency_and_wrapper_accounting_probes() {
     let _ = request(&mut g);
     let source = named(&g, "Cinder Glade");
     activate_public(&mut g, source);
-    let Frame::IntrinsicManaChoice { resume, .. } = &g.state.rules.frame else {
+    let Frame::ManaSourceChoice { resume, .. } = &g.state.rules.frame else {
         panic!()
     };
     assert_eq!(
-        g.intrinsic_choice_charge(),
+        g.mana_continuation_charge(),
         stored_history::payload_charge(&g.state.rules.frame)
             - stored_history::payload_charge(resume)
     );
@@ -831,3 +834,6 @@ mod optional_life_guard_tests;
 
 #[path = "optional_life_entry_tests.rs"]
 mod optional_life_entry_tests;
+
+#[path = "pain_mana_tests.rs"]
+mod pain_mana_tests;

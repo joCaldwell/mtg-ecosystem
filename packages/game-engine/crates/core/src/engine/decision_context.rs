@@ -106,6 +106,9 @@ impl Game {
         };
         let text = match blocks {
             None => labels.text.clone(),
+            Some(_) if kind == DecisionSourceKind::ManaAbility && ability.is_none() => {
+                labels.text.clone()
+            }
             Some(blocks) => labels
                 .blocks
                 .get(*blocks.get(ability? as usize)? as usize)?
@@ -178,10 +181,27 @@ impl Game {
             return self.effect_decision_context(viewer, effect);
         }
 
+        if let Frame::DamageEffects { transaction } = &self.state.rules.frame
+            && let DamageContinuation::Mana { activation, .. } = transaction.continuation.as_ref()
+            && activation.player == viewer
+        {
+            return self
+                .described_source(
+                    viewer,
+                    activation.source,
+                    DecisionSourceKind::ManaAbility,
+                    Some(activation.ability_index()),
+                )
+                .map(|source| DecisionContext {
+                    source: Some(source),
+                    ..Default::default()
+                });
+        }
+
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
-            (Frame::IntrinsicManaChoice { player, source, .. }, _) if *player == viewer => {
+            (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
                     .map(|source| DecisionContext {
@@ -195,7 +215,7 @@ impl Game {
                         viewer,
                         activation.source,
                         DecisionSourceKind::ManaAbility,
-                        Some(0),
+                        Some(activation.ability_index()),
                     )
                     .map(|source| DecisionContext {
                         source: Some(source),

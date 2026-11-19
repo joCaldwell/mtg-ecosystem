@@ -1238,6 +1238,8 @@ mod tests {
             absent: BTreeSet::from([Color::U]),
             sacrificed: true,
             cost_triggers: vec![],
+            branch: None,
+            damage: None,
         };
         game.state.rules.players[1].mana.insert(Color::U, 1.into());
         game.move_object(target, Zone::Graveyard { owner: PlayerId(0) })

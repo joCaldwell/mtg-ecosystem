@@ -110,22 +110,24 @@ pub(super) fn plan(
         {
             continue;
         }
-        let (production, cost) = if let Some(a) = d.mana_abilities.first() {
-            (a.production.clone(), a.costs.mana.clone())
-        } else if d.characteristics.kind == CardKind::Land && d.characteristics.basic {
-            (
+        let (production, cost) = match d.mana_abilities.as_slice() {
+            [ability] if ability.self_damage.is_none() => {
+                (ability.production.clone(), ability.costs.mana.clone())
+            }
+            [] if d.characteristics.kind == CardKind::Land && d.characteristics.basic => (
                 ManaProduction::Fixed {
                     symbols: vec![*d.characteristics.color_identity.first()?],
                 },
                 None,
-            )
-        } else {
-            continue;
+            ),
+            // This planner has no branch or damage-cost model.
+            _ => continue,
         };
         let colors = match &production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
             ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
             ManaProduction::CommanderColor => identity.clone(),
+            ManaProduction::Choice { .. } => continue,
         };
         if colors.is_empty() {
             continue;

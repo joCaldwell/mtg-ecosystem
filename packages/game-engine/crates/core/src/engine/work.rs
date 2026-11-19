@@ -797,7 +797,7 @@ impl Game {
                             | PlayerResponse::SpendMana { .. }
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
-                        (Frame::IntrinsicManaChoice { .. }, PlayerResponse::ManaColor { .. }) => {
+                        (Frame::ManaSourceChoice { .. }, PlayerResponse::ManaColor { .. }) => {
                             true
                         }
                         (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,

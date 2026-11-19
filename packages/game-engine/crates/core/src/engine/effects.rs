@@ -144,6 +144,10 @@ pub(super) struct DamageTransaction {
 pub(super) enum DamageContinuation {
     Combat,
     Instruction { frame: Box<Resolving> },
+    Mana {
+        activation: Box<ManaActivation>,
+        departed: bool,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -634,7 +638,7 @@ impl Game {
             },
         )
     }
-    fn begin_damage(
+    pub(super) fn begin_damage(
         &mut self,
         kind: DamageKind,
         mut entries: Vec<PreparedDamage>,
@@ -958,10 +962,21 @@ impl Game {
             )?;
         } else {
             let tx = self.damage_transaction()?.clone();
+            let first_trigger = self.state.rules.next_trigger_id;
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match *tx.continuation {
                 DamageContinuation::Combat => self.grant_turn_priority()?,
+                DamageContinuation::Mana {
+                    activation,
+                    departed,
+                } => self.finish_mana_damage(
+                    *activation,
+                    tx.applications,
+                    actual,
+                    first_trigger,
+                    departed,
+                )?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
                     *frame,
                     InstructionOutcome::Damage {
@@ -2338,6 +2353,13 @@ impl Game {
                     }
                 }
             }
+            (
+                DamageKind::Noncombat,
+                DamageContinuation::Mana {
+                    activation,
+                    departed,
+                },
+            ) => self.validate_mana_damage(tx, activation, *departed)?,
             (DamageKind::Noncombat, DamageContinuation::Instruction { frame }) => {
                 self.validate_resolving(frame)?;
                 let instruction = self
