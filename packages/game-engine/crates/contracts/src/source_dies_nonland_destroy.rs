@@ -147,6 +147,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
             }]),
         )
     };
+    let keyword_form = |block, keywords| {
+        let required = if block == 1 { vec!["keywords"] } else { vec![] };
+        json!({"required":required,"properties":{
+            "keywords":{"const":keywords},
+            "triggered":{"items":{"properties":{"program":trigger(block)}}}
+        }})
+    };
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()
@@ -158,22 +165,29 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "if":{"anyOf":[
                 {"required":["triggered"],"properties":{"triggered":{"contains":{
                     "required":["program"],"properties":{"program":{"not":free}}
-                }}}}
+                }}}},
+                {"required":["provenance"],"properties":{"provenance":{"properties":{"source_json":{
+                    "allOf":[
+                        {"pattern":r#""oracle_text"\s*:\s*"(Trample\\n)?When [^"]+ dies, destroy all nonland permanents\."#},
+                        {"pattern":r#"They can't be regenerated\.""#}
+                    ]
+                }}}}}
             ]},
-            "then":{"required":["spell","triggered"],"properties":{
+            "then":{"required":["spell","triggered"],"oneOf":[
+                keyword_form(0,json!([])),keyword_form(1,json!([KeywordAbility::Trample]))
+            ],"properties":{
                 "spell":spell,
                 "triggered":{"minItems":1,"maxItems":1,"items":{"properties":{
                     "functioning_zone":{"const":FunctioningZone::Battlefield},
                     "condition":{"const":TriggerCondition::SelfDies},
-                    "death_filter":{"type":"null"},"intervening_if":{"type":"null"},
-                    "program":{"anyOf":[trigger(0),trigger(1)]}
+                    "death_filter":{"type":"null"},"intervening_if":{"type":"null"}
                 }}},
                 "characteristics":{"properties":{
                     "kind":{"const":CardKind::Creature},"additional_types":{"maxItems":0}
                 }},
                 "intrinsic_zone":{"type":"null"},"x_mana_cost":{"const":false},
                 "activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
-                "keywords":{"enum":[[],[KeywordAbility::Trample]]},"static_abilities":{"maxItems":0},
+                "static_abilities":{"maxItems":0},
                 "capabilities":{"allOf":[
                     {"contains":{"const":Capability::BoardWipesV1}},
                     {"contains":{"const":Capability::SelfDiesV1}},

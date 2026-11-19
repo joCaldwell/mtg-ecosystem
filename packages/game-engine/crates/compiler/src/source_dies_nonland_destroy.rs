@@ -8,8 +8,11 @@ fn selection() -> Value {
 }
 
 pub(super) fn bind(source: &Source, result: &ParseResult, binding: &Value) -> Result<(), Failure> {
-    let abilities: Value = decode(result.abilities.get(), "abilities")?;
     let block = death_sweep_source_block(&source.name, &source.oracle_text);
+    if block.is_none() && !result.abilities.get().contains("regenerationForbidden") {
+        return Ok(());
+    }
+    let abilities: Value = decode(result.abilities.get(), "abilities")?;
     let uses_selector = abilities.as_array().into_iter().flatten().any(|ability| {
         ability["kind"] == "triggered"
             && ability
