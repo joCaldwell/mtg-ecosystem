@@ -56,6 +56,7 @@ mod pain_mana;
 mod power_entry_draw;
 mod self_reference;
 mod self_spell_protection;
+mod source_dies_nonland_destroy;
 mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
@@ -1481,6 +1482,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
+    source_dies_nonland_destroy::bind(&source, &result, &binding)?;
     let mut draw_land_allowance =
         draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
     for (ability, raw) in abilities.iter().zip(&original) {
@@ -5267,7 +5269,14 @@ fn lower_trigger(
         instructions: vec![],
         modes: vec![],
     };
-    if let (
+    if let Some(instruction) = source_dies_nonland_destroy::instruction(
+        &condition,
+        effects,
+        intervening,
+        source_block(block)?,
+    ) {
+        program.instructions.push(instruction);
+    } else if let (
         SourceTrigger::Enters { what: subject },
         [
             Sentence {
@@ -5818,6 +5827,24 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixed_opponent_damage_rejects_unbound_target_substitution() {
+        let changed = changed_source(
+            include_str!("../../../tests/fixtures/lightning-bolt.json"),
+            |r| {
+                let result = &mut r["faces"][0]["result"];
+                result["abilities"][0]["effects"][0]["steps"][0]["to"] = serde_json::json!({
+                    "to":"player", "ref":{"player":"target-opponent","selectionId":"line:0:6"}
+                });
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+            },
+        );
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &changed),
+            CompileResult::Unsupported { .. }
+        ));
+    }
+
     #[test]
     fn bounded_token_types_preserve_single_type_bytes() {
         let mut source: SourceToken = serde_json::from_value(serde_json::json!({

@@ -30,14 +30,13 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-Land/search/fetch/cycling and mana families have focused witnesses. Current source
-`ec659db7` compiles **55/85 definitions;30 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+Land/ramp witnesses are retained.
+`93755057` compiles **56/85 definitions;29 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
 
-Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn are qualified above. Next:
-Yidris needs complete AST/binding before grants; Enigma successor tuck and Vega
+Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn are qualified above. Yidris awaits complete AST/binding; Enigma successor tuck and Vega
 cast-origin draw have focused witnesses. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
 values.
 
@@ -56,7 +55,7 @@ search. Urban Evolution has a focused land-permission witness.
 ### M7 Complete protection and board interaction
 
 Anguished Unmaking, Void Rend, Ruinous Ultimatum and Avacyn have focused witnesses.
-Complete Child, Exterminatus, Farewell and Akroma's Will.
+Death-trigger destruction has a paid witness. Complete Exterminatus, Farewell and Akroma's Will.
 
 ### M8 Add spell and permanent copies
 
@@ -77,11 +76,11 @@ atomic sacrifice and Door's player loss.
 
 ### M11 Qualify the exact deck and host it
 
-Qualify every complete target definition, capability/provenance and Commander/pod
-admission. Use public-observation policies and fixed-seed four-player completion/replay
-with Ramos in each seat, repeated Ramos and varied opponents. Distinguish outcomes,
-faults and truncation. Then qualify hosting/SDK privacy, retries, reconnect, recovery
-and four-client completion. Search remains separate.
+Qualify target definitions, provenance, capabilities and Commander/pod admission.
+Run seeded four-seat completion and replay with public policies, rotating and
+repeating Ramos among varied opponents. Report outcomes, faults and truncation.
+Qualify host/SDK privacy, retries, reconnect, recovery and four-client completion.
+Search remains separate.
 
 ## Execution and reporting
 

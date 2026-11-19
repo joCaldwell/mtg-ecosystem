@@ -241,8 +241,9 @@ Validate an entire simultaneous damage group before life/history writes. Capture
 assignment facts separately from current or latest-departure damage-time source
 appearance. Damage-time deathtouch/lifelink and its beneficiary use that current/
 LKI source, including equipment departure and simultaneous common-prior facts.
-Noncombat damage retains the source incarnation and frozen invocation controller;
-that controller is distinct from the source's current or last-known controller.
+Noncombat damage retains the source incarnation and frozen invocation controller,
+independent of current or last-known control. Synthetic fixed damage retains the announced
+opponent through resolution and recovery. Compiler admission awaits source and target binding.
 Old assignment-time keywords cannot fabricate damage-time benefits. Commander
 combat history uses actual combat damage. Opponent drain credits committed
 simultaneous life losses before state-based actions.

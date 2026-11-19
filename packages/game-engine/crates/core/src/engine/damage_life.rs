@@ -459,6 +459,16 @@ impl Game {
                 .entity_targets
                 .get(index)
                 .ok_or("missing damage binding")?,
+            Some(TargetDomain::OpponentPlayer) => {
+                let player = *spell
+                    .player_targets
+                    .get(index)
+                    .ok_or("missing opponent damage binding")?;
+                if player == spell.controller || player.0 >= 4 {
+                    return Err("invalid announced opponent damage binding".into());
+                }
+                TargetEntity::Player { player }
+            }
             Some(TargetDomain::BattlefieldCreature) => TargetEntity::Object {
                 object: *spell
                     .targets

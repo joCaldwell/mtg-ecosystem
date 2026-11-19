@@ -11,8 +11,8 @@ fn contains_reserved_instruction(program: &SpellProgram) -> bool {
         .instructions
         .iter()
         .any(|instruction| match instruction {
-            Instruction::DestroySet { .. } => true,
-            Instruction::MoveSet { set: operand, .. }
+            Instruction::DestroySet { set: operand, .. }
+            | Instruction::MoveSet { set: operand, .. }
             | Instruction::PumpSet { set: operand, .. }
             | Instruction::GrantKeywordsSet { set: operand, .. } => operand == &set,
             Instruction::DamageSet { sets, .. } => sets.contains(&set),
@@ -78,6 +78,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
             p.instructions.as_slice(),
             [Instruction::DestroySet {
                 set: ObjectSet::OpponentNonlandPermanents,
+                regeneration_forbidden: false,
                 source_block: 0,
             }]
         )
@@ -92,7 +93,6 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let free = json!({"$ref":"#/$defs/OpponentNonlandDestroyFreeProgram"});
     schema["$defs"]["OpponentNonlandDestroyFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":{"anyOf":[
-            {"required":["op"],"properties":{"op":{"const":"destroy_set"}}},
             {"required":["set"],"properties":{"set":{"const":set}}},
             {"required":["sets"],"properties":{"sets":{"contains":{"const":set}}}}
         ]}}},
@@ -118,7 +118,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
                     "resolution":{"const":"instructions"},"targets":{"maxItems":0},
                     "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
                     "modes":{"maxItems":0},
-                    "instructions":{"const":[{"op":"destroy_set","set":set,"source_block":0}]}
+                    "instructions":{"minItems":1,"maxItems":1,"items":{
+                        "type":"object","required":["op","set","source_block"],"additionalProperties":false,
+                        "properties":{"op":{"const":"destroy_set"},"set":{"const":set},
+                            "source_block":{"const":0},"regeneration_forbidden":{"const":false}}
+                    }}
                 }},
                 "characteristics":{"properties":{
                     "kind":{"const":"sorcery"},"additional_types":{"maxItems":0},

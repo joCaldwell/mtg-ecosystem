@@ -232,4 +232,5 @@ Mana/removal `936bc6bd`:53/32/0,42/30,IR1. Fifteen focused functions and produce
 boundaries: `generated/ramos/mana-successor-dev/integration.json`.
 Shared lowering `4a896793`:54/31/0,43/30,IR1, `generated/ramos/shared-lowering/integration.json`.
 Reviewed union `ec659db7`:55/30/0,45/30,IR1, `generated/ramos/pr55-main93/audit/results.json`.
+Death sweep `93755057`:56/29/0, `generated/ramos/destruction-main94/`.
 Deck/consumer admission remains open.
