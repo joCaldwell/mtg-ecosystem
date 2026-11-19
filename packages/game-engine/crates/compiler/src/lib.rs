@@ -40,6 +40,7 @@ mod opponent_mana;
 mod optional_costs;
 mod pain_mana;
 mod self_reference;
+mod self_spell_protection;
 mod spell_cascade_grants;
 mod successor_tuck;
 use optional_costs::KickedCondition;
@@ -2100,6 +2101,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     definition
         .validate()
         .map_err(|e| unsupported("definition", e))?;
+    self_spell_protection::validate_binding(&definition, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
     {

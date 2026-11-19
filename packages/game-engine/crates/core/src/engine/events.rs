@@ -2198,9 +2198,6 @@ impl Game {
                 {
                     return Err("invalid countered stack object".into());
                 }
-                if self.cant_counter(*target) {
-                    return Ok(EventOutcome::CounterPrevented { target: *target });
-                }
                 let index = self
                     .state
                     .rules
@@ -2208,19 +2205,23 @@ impl Game {
                     .iter()
                     .position(|entry| entry.id == *target)
                     .ok_or("missing counter target")?;
-                let entry = self.state.rules.stack[index].clone();
+                let entry = &self.state.rules.stack[index];
+                if self.spell_cannot_be_countered(entry)? {
+                    return Ok(EventOutcome::CounterPrevented { target: *target });
+                }
                 let spell = entry.kind.is_spell();
+                let source = entry.source;
                 let movement = if spell {
                     let owner = self
                         .state
                         .rules
                         .cards
-                        .get(&entry.source.card)
+                        .get(&source.card)
                         .ok_or("missing countered spell physical card")?
                         .owner;
                     let EventOutcome::Moved { movement } =
                         self.apply_occurrence(&ProposedEvent::Move {
-                            object: entry.source,
+                            object: source,
                             destination: Zone::Graveyard { owner },
                         })?
                     else {
@@ -2233,7 +2234,7 @@ impl Game {
                 self.state.rules.stack.remove(index);
                 EventOutcome::StackObjectCountered {
                     target: *target,
-                    source: entry.source,
+                    source,
                     spell,
                     movement,
                 }
