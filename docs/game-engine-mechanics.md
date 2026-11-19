@@ -210,6 +210,7 @@ this rules state without adding a public object field.
 | --- | --- |
 | Ordinary tap (`TapPermanentV1`) | One unqualified creature target, instant/sorcery tap, optionally followed by one mandatory controller draw-one |
 | Artifact tap activation (`ActivatedTapPermanentV1`) | Battlefield artifact, finite mana plus tap-source cost, one tap instruction, artifact/creature/land target union; no sacrifice/modes/triggers/extra effects |
+| Cast-entry land untap (`UntapControllerLandsV1`) | Standalone paid creature entry. Simultaneously untap the trigger controller’s currently tapped lands, including multitype lands. |
 | Ordinary untap (`UntapPermanentV1`) | One ordinary nonmodal instant/sorcery, one unqualified permanent target and instruction; no additional costs/qualifiers/extra instructions |
 | Tap-source creature untap (`TapSourceUntapCreatureV1`) | Battlefield creature, pure tap-source cost, instant-timed stack, one mandatory creature-filter target at slot zero and one untap instruction |
 | Tap-source destruction | Separately validated creature activation and tapped-creature target; preserve cost/readiness and ordinary destruction guards |
@@ -218,9 +219,7 @@ this rules state without adding a public object field.
 Already tapped/untapped is a legal target; produce no false second status event.
 Tap/untap does not itself remove combat membership. Self-targeting tap/untap
 abilities still pay tap first. Paid activations survive source departure.
-Complete Pressure Point, Icy Manipulator, Burst of Energy, Seeker of Skybreak,
-Royal Assassin, Temporal Adept and Unsummon source fixtures witness these shapes;
-they do not authorize broader combinations. See compiler tests for exact fencing.
+Compiler tests fence each complete source shape.
 
 <a id="combat-damage-and-state-based-actions"></a>
 

@@ -1,5 +1,5 @@
 //! CR 400.7c, 603.4 and 608.3a. Bind the entered object, trigger controller
-//! and historical cast independently of the effect's draw recipient.
+//! and historical cast independently of the effect’s resolution operands.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::bindings::Bindings;
@@ -14,7 +14,7 @@ pub(super) fn validate_binding(
         return Ok(());
     }
     // Definition validation has proved the exact printed source, raw AST,
-    // single trigger and draw. Prove that the archive graph binds those roles.
+    // single trigger and effect. Prove that the archive graph binds those roles.
     let optional = matches!(
         d.triggered[0].program.instructions.as_slice(),
         [Instruction::OptionalDrawCards { .. }]
@@ -42,16 +42,30 @@ pub(super) fn validate_binding(
         &["608.2k", "400.7j", "608.2h"],
     );
     graph.reference(&format!("{condition}/by"), &you, &actor, "109.5");
-    let draw = format!("{base}/effects/0/steps/0");
-    graph.reference(&format!("{draw}/who"), &you, &actor, "109.5");
-    graph.event(base, &draw, "draw", &actor, optional);
-    graph.result(
-        &draw,
-        "objects",
-        "new-objects",
-        Some(&json!({"cls":"card"})),
-    );
-    graph.result(&draw, "quantity", "measured-quantity", None);
+    let step = format!("{base}/effects/0/steps/0");
+    if matches!(
+        d.triggered[0].program.instructions.as_slice(),
+        [Instruction::UntapControllerLands { .. }]
+    ) {
+        let path = format!("{step}/what");
+        let what = json!({"ref":"all","filter":{"types":["land"],"control":"you"}});
+        let scope = graph.id(base, "ability");
+        let selection = graph.node(&path,"query","selection",json!({"scope":scope,"expression":what,
+            "cardinality":"many","timing":"resolution","selection":"evaluate-reference","rules":["608.2h"]}));
+        graph.reference(&format!("{path}/filter/control"), &you, &actor, "109.5");
+        graph.reference(&path, &what, &selection, "608.2h");
+        graph.event(base, &step, "untap", &selection, false);
+    } else {
+        graph.reference(&format!("{step}/who"), &you, &actor, "109.5");
+        graph.event(base, &step, "draw", &actor, optional);
+        graph.result(
+            &step,
+            "objects",
+            "new-objects",
+            Some(&json!({"cls":"card"})),
+        );
+        graph.result(&step, "quantity", "measured-quantity", None);
+    }
     graph.validate_with_features(binding, &[json!({
         "feature":"event-history","path":condition,
         "message":"This condition asks about earlier events or how this object was cast; the engine keeps that record.",
@@ -108,4 +122,47 @@ fn synthetic_cast_entry_requires_the_same_object_controller_and_history() {
             "{mutation}"
         );
     }
+}
+
+#[test]
+#[cfg(test)]
+fn land_untap_requires_the_resolution_set_and_its_trigger_controller() {
+    let record = include_str!("../../../tests/fixtures/synthetic-cast-land-untap.json");
+    let manifest = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+    let CompileResult::Lowered { definition } = compile(manifest, record) else {
+        panic!("original land entry must lower")
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::UntapControllerLandsV1)
+    );
+    for (key, value) in [("timing", "stack-announcement"), ("cardinality", "one")] {
+        let changed = crate::tests::changed_source(record, |r| {
+            let node = r["binding"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|n| n["node"] == "selection")
+                .unwrap();
+            node[key] = json!(value);
+        });
+        assert!(!matches!(
+            compile(manifest, &changed),
+            CompileResult::Lowered { .. }
+        ));
+    }
+    let changed = crate::tests::changed_source(record, |r| {
+        let control = r["binding"]["references"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|r| r["path"].as_str().unwrap().ends_with("/filter/control"))
+            .unwrap();
+        control["target"] = json!("card:synthetic-cast-land-untap/source#object");
+    });
+    assert!(!matches!(
+        compile(manifest, &changed),
+        CompileResult::Lowered { .. }
+    ));
 }

@@ -116,3 +116,58 @@ fn synthetic_cast_entry_gates_draw_on_the_paid_predecessor() {
     assert_eq!(game.state.rules.next_trigger_id, trigger_count);
     assert!(game.state.rules.pending_triggers.is_empty());
 }
+
+#[test]
+fn paid_entry_untaps_only_the_trigger_controllers_current_tapped_lands() {
+    let source = include_str!("../../../../tests/fixtures/synthetic-cast-land-untap.json");
+    let prepared = prepared_with_sources(
+        &[
+            ("Tidelock Surveyor", 0, 0, true),
+            ("Forest", 1, 0, false),
+            ("Forest", 0, 0, false),
+            ("Forest", 0, 0, false),
+            ("Forest", 0, 1, false),
+        ],
+        &[source],
+    );
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    announce(&mut game, 1, 0, vec![]);
+    for _ in 0..4 {
+        answer(&mut game, 1, Response::Pass);
+    }
+    assert!(matches!(request(&mut game, 1), Request::Priority { .. }));
+    let trigger = game.top().unwrap().id;
+    recover(&game);
+    let controlled = [object(&game, 1), object(&game, 2)];
+    assert!(
+        controlled
+            .iter()
+            .all(|id| game.current(*id).unwrap().tapped)
+    );
+    let opposed = object(&game, 4);
+    game.commit(ProposedEvent::Tap { object: opposed }, BatchCause::Fixture)
+        .unwrap();
+    for _ in 0..4 {
+        answer(&mut game, 1, Response::Pass);
+    }
+    assert!(matches!(request(&mut game, 1), Request::Priority { .. }));
+    let batches = game.trace().records.iter().filter_map(|r| match &r.record {
+        EvidenceRecord::Batch {batch} if matches!(batch.cause,BatchCause::Instruction {stack_id,source_block:0,..} if stack_id==trigger) => Some(batch),
+        _ => None
+    }).collect::<Vec<_>>();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(
+        batches[0].group,
+        EventGroup::Simultaneous {
+            occurrences: controlled
+                .map(|object| ProposedEvent::Untap { object })
+                .to_vec()
+        }
+    );
+    assert!(
+        controlled
+            .iter()
+            .all(|id| !game.current(*id).unwrap().tapped)
+    );
+    assert!(game.current(opposed).unwrap().tapped);
+}

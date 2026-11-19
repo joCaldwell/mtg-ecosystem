@@ -980,7 +980,8 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
-            i @ (Instruction::MoveSet { .. }
+            i @ (Instruction::UntapControllerLands { .. }
+            | Instruction::MoveSet { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }

@@ -5282,6 +5282,25 @@ fn lower_trigger(
         source_block(block)?,
     ) {
         program.instructions.push(instruction);
+    } else if condition == TriggerCondition::SelfEntersBattlefield
+        && matches!(intervening, Some(SourceCondition::WasCast { .. }))
+        && let [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ] = effects
+        && bindings.is_empty()
+        && let [Step::Untap { what }] = steps.as_slice()
+        && *what == serde_json::json!({"ref":"all","filter":{"types":["land"],"control":"you"}})
+    {
+        program
+            .instructions
+            .push(Instruction::UntapControllerLands {
+                source_block: source_block(block)?,
+            });
     } else if let (
         SourceTrigger::Enters { what: subject },
         [

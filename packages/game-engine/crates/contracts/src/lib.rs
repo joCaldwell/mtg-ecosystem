@@ -263,6 +263,7 @@ pub enum Capability {
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
     CastEntryConditionV1,
+    UntapControllerLandsV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
@@ -956,6 +957,9 @@ pub enum Instruction {
         gain: bool,
         source_block: u32,
     },
+    UntapControllerLands {
+        source_block: u32,
+    },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
     /// one card, including when their library is empty.
     OptionalDrawCards {
@@ -1090,6 +1094,7 @@ impl Instruction {
             | Self::MillAnnouncedX { source_block, .. }
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
+            Self::UntapControllerLands { source_block } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardPlayerSet { source_block, .. }
@@ -3294,6 +3299,7 @@ impl Definition {
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
+                            | Instruction::UntapControllerLands { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::DiscardCards { .. }
@@ -4220,6 +4226,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::DrawEachPlayer { .. }
+            | Instruction::UntapControllerLands { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::DrawDamageAmount { .. } => None,
             Instruction::DamageSet {
@@ -5013,6 +5020,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
+            Instruction::UntapControllerLands { .. } => Capability::UntapControllerLandsV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
@@ -6652,6 +6660,7 @@ mod tests {
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
             CastEntryConditionV1,
+            UntapControllerLandsV1,
             CastTriggerV1,
             CastOriginTriggerV1,
             CastColorPredicateV1,
@@ -6830,6 +6839,23 @@ mod tests {
         cast_entry.triggered[0].program.instructions =
             vec![Instruction::OptionalDrawCards { source_block: 0 }];
         cast_entry.capabilities = cast_entry.requirements();
+        let mut land_entry = cast_entry.clone();
+        let land: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-cast-land-untap.json"
+        ))
+        .unwrap();
+        land_entry.name = land["source"]["name"].as_str().unwrap().into();
+        land_entry.oracle_id = land["oracleIdentity"].as_str().unwrap().into();
+        land_entry.provenance.source_json = canonical(&land["source"]).unwrap();
+        land_entry.provenance.abilities_json =
+            canonical(&land["faces"][0]["result"]["abilities"]).unwrap();
+        land_entry.provenance.source_sha256 = sha256(land_entry.provenance.source_json.as_bytes());
+        land_entry.provenance.ast_sha256 =
+            sha256(format!("[{}]", land_entry.provenance.abilities_json).as_bytes());
+        land_entry.triggered[0].program.instructions =
+            vec![Instruction::UntapControllerLands { source_block: 0 }];
+        land_entry.capabilities = land_entry.requirements();
+        definitions.push(land_entry);
         definitions.push(cast_entry);
         definitions.push(color_cast);
         definitions.push(origin_draw);
