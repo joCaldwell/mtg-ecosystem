@@ -96,7 +96,54 @@ def audit(binary, output, manifest):
     assert all(r["status"] != "catalog_error" for r in rows), "inspect preserved unexpected CLI errors"
 
 
+def compare(before, after, manifest_path):
+    raw = manifest_path.read_bytes()
+    ids = [card["oracle_id"] for card in json.loads(raw)["cards"]]
+    if len(set(ids)) != len(ids) or not ids:
+        raise ValueError("invalid manifest inventory")
+
+    def index(report):
+        if report["format_version"] != 1 or report["target_manifest_sha256"] != sha(raw):
+            raise ValueError("report format or target manifest mismatch")
+        if not re.fullmatch(r"[0-9a-f]{40}", report["source_commit"]):
+            raise ValueError("expected full producer commit")
+        rows = {}
+        for row in report["records"]:
+            key, status = row["oracle_id"], row["status"]
+            if key in rows or status not in ("unsupported", "invalid", "catalog_error", "lowered_validated"):
+                raise ValueError(f"duplicate ID or unknown status for {key}")
+            if type(row["exit_code"]) is not int or (row["exit_code"] == 0) != (status == "lowered_validated"):
+                raise ValueError(f"inconsistent exit code for {key}")
+            detail = {"status": status}
+            if status in ("unsupported", "invalid"):
+                for field in ("path", "reason"):
+                    if not isinstance(row[field], str):
+                        raise ValueError(f"invalid diagnostic for {key}")
+                    detail[field] = row[field]
+            rows[key] = detail
+        if rows.keys() != set(ids):
+            raise ValueError("incomplete or unexpected report inventory")
+        return rows
+
+    left, right = index(before), index(after)
+    return {"scope": "compiler results only", "before_commit": before["source_commit"],
+            "after_commit": after["source_commit"], "target_manifest_sha256": sha(raw),
+            "record_count": len(ids),
+            "changes": [{"oracle_id": key, "before": left[key], "after": right[key]}
+                        for key in sorted(ids) if left[key] != right[key]]}
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--compare"]:
+        if len(sys.argv) not in (4, 5):
+            raise SystemExit("usage: audit.py --compare BEFORE AFTER [TARGET_MANIFEST]")
+        manifest = pathlib.Path(sys.argv[4]) if len(sys.argv) == 5 else HERE / "revision-17.manifest.json"
+        try:
+            result = compare(read(pathlib.Path(sys.argv[2])), read(pathlib.Path(sys.argv[3])), manifest)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise SystemExit(f"cannot compare reports: {exc}")
+        print(json.dumps(result, indent=2))
+        sys.exit(0)
     target = verify()
     if sys.argv[1:] == ["--verify"]:
         print(json.dumps({"verified_definitions": len(target["cards"]), "cards": target["deck"]["quantity_count"], "lands": target["deck"]["frozen_source_land_count"]}))
