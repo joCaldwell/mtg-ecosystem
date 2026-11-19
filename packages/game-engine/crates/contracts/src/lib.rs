@@ -319,6 +319,7 @@ pub enum Capability {
     LifelinkV1,
     DeathtouchV1,
     IndestructibleV1,
+    StaticPermanentIndestructibleGrantV1,
     TemporaryIndestructibleSpellV1,
     TemporaryFlyingSpellV1,
     TemporaryDeathtouchSpellV1,
@@ -1040,6 +1041,10 @@ pub enum StaticEffect {
     /// CR 101.2/113.6: the source spell on the stack can't be countered.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     CantBeCountered,
+    /// CR 109.5/611.3/613.1f/702.12: the current controller's other
+    /// battlefield permanents have indestructible while this source is present.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    GrantOtherControlledPermanentsIndestructible,
     ModifyCreatures {
         scope: CreatureScope,
         power: Quantity,
@@ -2060,6 +2065,10 @@ impl Definition {
                 }
                 StaticEffect::ReduceGenericByCreatureCount => Capability::BoardWipesV1,
                 StaticEffect::CantBeCountered => self_spell_protection::capability(self),
+                StaticEffect::GrantOtherControlledPermanentsIndestructible => {
+                    set.insert(Capability::IndestructibleV1);
+                    Capability::StaticPermanentIndestructibleGrantV1
+                }
                 StaticEffect::DoubleDamageToPermanentOrPlayer => {
                     Capability::StaticDamageReplacementV1
                 }
@@ -2950,6 +2959,7 @@ impl Definition {
                 StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
+                    | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) && a.effect != StaticEffect::EntersTapped
@@ -2989,6 +2999,17 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if a.effect == StaticEffect::GrantOtherControlledPermanentsIndestructible {
+                if c.kind != CardKind::Creature
+                    || self.static_abilities.len() != 1
+                    || !self.activated.is_empty()
+                    || !self.mana_abilities.is_empty()
+                    || !self.triggered.is_empty()
+                {
+                    return Err("indestructible grant requires an ordinary creature source".into());
+                }
+                continue;
+            }
             if let StaticEffect::ReduceSelfGenericCost { per_object, count } = &a.effect {
                 if *per_object <= Quantity::zero()
                     || count.kind != CardKind::Artifact
@@ -4822,9 +4843,16 @@ pub fn catalog_schema() -> serde_json::Value {
             }));
     }
 
-    // CR 702.12/702.6: only the separately bounded Equipment grant is admitted.
+    // CR 702.12/702.6: preserve the bounded Equipment modifier and the
+    // separate battlefield grant to other controlled permanents.
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
+    let permanent_grant_effect = serde_json::json!({
+        "const": StaticEffect::GrantOtherControlledPermanentsIndestructible
+    });
+    let permanent_grant = serde_json::json!({"required":["static_abilities"],"properties":{
+        "static_abilities":{"contains":{"required":["effect"],"properties":{"effect":permanent_grant_effect}}}
+    }});
     let temporary_keyword = |keyword: &str| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords"},"keywords":{"contains":{"const":keyword}}}}}}}}});
     let temporary_set_keyword = |keyword: KeywordAbility| {
         let program = serde_json::json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords_set"},"keywords":{"contains":{"const":keyword}}}}}}});
@@ -4840,6 +4868,10 @@ pub fn catalog_schema() -> serde_json::Value {
             "if":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}},
             "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
         }));
+    schema["$defs"]["StaticAbility"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["effect"],"properties":{"effect":permanent_grant_effect}},
+        "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
+    }));
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -4850,7 +4882,13 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":permanent_grant,"then":{"properties":{
+                "characteristics":{"properties":{"kind":{"const":"creature"}}},
+                "static_abilities":{"maxItems":1},"activated":{"maxItems":0},
+                "mana_abilities":{"maxItems":0},"triggered":{"maxItems":0},
+                "capabilities":{"contains":{"const":Capability::StaticPermanentIndestructibleGrantV1}}
+            }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::StaticPermanentIndestructibleGrantV1}}}}}}),
             serde_json::json!({"if":intrinsic,"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment","land"]}}}}}}),
             serde_json::json!({"if":grant,"then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"const":["Equipment"]}}}}}}),
             serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"not":{"const":"creature"}}}}}},"then":{"properties":{"keywords":{"items":{"enum":["flash","indestructible"]}}}}}),
@@ -6051,6 +6089,7 @@ mod tests {
             LifelinkV1,
             DeathtouchV1,
             IndestructibleV1,
+            StaticPermanentIndestructibleGrantV1,
             TemporaryIndestructibleSpellV1,
             TemporaryFlyingSpellV1,
             TemporaryDeathtouchSpellV1,
@@ -6148,6 +6187,14 @@ mod tests {
             .find(|d| d.name == "Grizzly Bears")
             .unwrap()
             .clone();
+        let mut permanent_grant = counted.clone();
+        permanent_grant.source_labels = None;
+        permanent_grant.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::GrantOtherControlledPermanentsIndestructible,
+        }];
+        permanent_grant.capabilities = permanent_grant.requirements();
+        definitions.push(permanent_grant);
         definitions.push(successor_tuck::witness(counted.clone()));
         let mut origin_draw = counted.clone();
         origin_draw.source_labels = None;

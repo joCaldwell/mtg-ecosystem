@@ -4031,6 +4031,8 @@ mod tests {
 
 #[cfg(test)]
 mod indestructible_tests;
+#[cfg(test)]
+mod static_permanent_indestructible_tests;
 
 #[cfg(test)]
 mod equipped_indestructible_tests;
