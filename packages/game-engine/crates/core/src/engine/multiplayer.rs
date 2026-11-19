@@ -241,6 +241,7 @@ impl Game {
             frame: Resolving {
                 random_discard: None,
                 draw_progress: None,
+                each_player_draw: None,
                 set_damage: None,
                 target_facts: self.capture_target_facts(&stack, &legal_targets)?,
                 condition_check,

@@ -1152,3 +1152,6 @@ mod activated_artifact_draw_tests;
 mod random_discard_tests;
 #[path = "targeted_discard_tests.rs"]
 mod targeted_discard_tests;
+
+#[path = "each_player_draw_tests.rs"]
+mod each_player_draw_tests;
