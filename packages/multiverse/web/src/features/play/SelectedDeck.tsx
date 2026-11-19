@@ -15,7 +15,7 @@ export function SelectedDeck({ deckId }: { deckId: number }) {
   const commanders = state.cards.filter(card => card.role === "commander" && !card.maybe);
   const identity = state.deck.color_identity;
   return <>
-    <DeckArt cards={commanders} identity={identity} variant="feature">
+    <DeckArt cards={commanders} identity={identity} variant="feature" priority="high">
       <div className={styles.deckCaption}>
         <div className={styles.deckName}>
           <h2>{state.deck.name}</h2>

@@ -88,6 +88,7 @@ test('failed print loads leave the permitted card readable and inspectable', asy
 });
 
 test('inspection build makes no API requests and persists no session data', async ({ page }) => {
+  await page.addInitScript(() => { Reflect.deleteProperty(URL, 'canParse'); });
   const requests: Request[] = [];
   page.on('request', request => requests.push(request));
   await page.goto('/');

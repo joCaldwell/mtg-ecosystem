@@ -1,9 +1,13 @@
 import { useState } from 'react';
 
 function printSource(value: string | undefined): string | undefined {
-  if (!value || !URL.canParse(value)) return;
-  const url = new URL(value);
-  if (url.origin === 'https://cards.scryfall.io' && !url.username && !url.password && /^\/normal\/(front|back)\//.test(url.pathname)) return value;
+  if (!value) return;
+  try {
+    const url = new URL(value);
+    if (url.origin === 'https://cards.scryfall.io' && !url.username && !url.password && /^\/normal\/(front|back)\//.test(url.pathname)) return value;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Display a supplied printing without substituting a lookup or cropping its credit. */
