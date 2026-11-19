@@ -1145,6 +1145,8 @@ mod power_entry_draw_tests;
 mod announced_x_draw_tests;
 #[path = "announced_x_effects_tests.rs"]
 mod announced_x_effects_tests;
+#[path = "opponent_life_drain_tests.rs"]
+mod opponent_life_drain_tests;
 #[path = "targeted_counted_draw_tests.rs"]
 mod targeted_counted_draw_tests;
 
@@ -1165,6 +1167,8 @@ mod temporary_double_strike_tests;
 
 #[path = "activated_artifact_draw_tests.rs"]
 mod activated_artifact_draw_tests;
+#[path = "group_discard_tests.rs"]
+mod group_discard_tests;
 #[path = "random_discard_tests.rs"]
 mod random_discard_tests;
 #[path = "targeted_discard_tests.rs"]
@@ -1172,3 +1176,6 @@ mod targeted_discard_tests;
 
 #[path = "creature_entry_return_tests.rs"]
 mod creature_entry_return_tests;
+
+#[path = "each_player_draw_tests.rs"]
+mod each_player_draw_tests;

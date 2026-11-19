@@ -29,6 +29,8 @@ mod activated_permanent_return_tests;
 mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;
+mod each_player_draw;
+mod group_discard;
 #[cfg(test)]
 mod nonland_exile_life_tests;
 #[cfg(test)]
@@ -51,6 +53,7 @@ mod tap_source_untap_tests;
 mod wipes;
 #[cfg(test)]
 mod wipes_tests;
+use each_player_draw::{EachPlayerDrawProgress, PlayerDrawAttempts};
 use removal::TargetFacts;
 #[cfg(test)]
 mod artifact_sacrifice_source_tests;
@@ -970,9 +973,13 @@ struct DrawProgress {
 #[serde(deny_unknown_fields)]
 struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    group_discard: Option<group_discard::GroupDiscardProgress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     random_discard: Option<random_discard::RandomDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     draw_progress: Option<DrawProgress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    each_player_draw: Option<EachPlayerDrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2044,6 +2051,9 @@ enum InstructionOutcome {
         player: PlayerId,
         movement: Option<MoveOutcome>,
         failed: bool,
+    },
+    EachPlayerDrawAttempts {
+        players: Vec<PlayerDrawAttempts>,
     },
     DrawAttempts {
         player: PlayerId,
@@ -3320,7 +3330,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 45,
+            snapshot_version: 46,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3362,7 +3372,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 45
+        if s.snapshot_version != 46
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

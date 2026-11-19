@@ -1132,8 +1132,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             .sum()
     }
     // A new instruction can move/recur producers or repeatedly create tokens.
-    // Keep the complete reviewed vocabulary explicit: future operators require
-    // auditing this lifetime proof rather than disappearing through a wildcard.
+    // This is a frozen allowlist. An unreviewed operator fails if it enters
+    // the historical catalog, regardless of what other catalogs can compile.
     for d in &c.definitions {
         assert!(
             d.triggered
@@ -1149,51 +1149,6 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
-                    // The frozen staples catalog predates optional draws and
-                    // event-player sacrifice and untapping. Untap can reuse
-                    // producers; keep it outside this frozen lifetime proof.
-                    Instruction::Cascade { .. }
-                    | Instruction::GrantKeywords { .. }
-                    | Instruction::GrantKeywordsSet { .. }
-                    | Instruction::OptionalDrawCards { .. }
-                    | Instruction::DiscardTargetPlayer { .. }
-                    | Instruction::DiscardTargetPlayerAtRandom { .. }
-                    | Instruction::ReturnEntryTargetCreature { .. }
-                    | Instruction::DrawControllerCards { .. }
-                    | Instruction::PutHandOnLibrary { .. }
-                    | Instruction::DrawAnnouncedX { .. }
-                    | Instruction::ChangeLifeAnnouncedX { .. }
-                    | Instruction::DealDamageAnnouncedX { .. }
-                    | Instruction::MillAnnouncedX { .. }
-                    | Instruction::DrawDamageAmount { .. }
-                    | Instruction::DealDamageToController { .. }
-                    | Instruction::SacrificeCreature { .. }
-                    | Instruction::MoveSet { .. }
-                    | Instruction::PumpSet { .. }
-                    | Instruction::DamageSet { .. }
-                    | Instruction::GainLifeDestroyed { .. }
-                    | Instruction::ExileDamagedThisTurn { .. }
-                    | Instruction::EachPlayerSacrifice { .. }
-                    | Instruction::LoseLifeDeathController { .. }
-                    | Instruction::SacrificeDamage { .. }
-                    | Instruction::EachOpponentSacrifice { .. }
-                    | Instruction::ModifySourcePowerToughness { .. }
-                    | Instruction::DestroyPermanent { .. }
-                    | Instruction::ExilePermanent { .. }
-                    | Instruction::UntapPermanent { .. }
-                    | Instruction::TapPermanent { .. }
-                    | Instruction::ChangeLifeFromTarget { .. }
-                    | Instruction::CreateTokensFor { .. }
-                    | Instruction::DamageTargetController { .. }
-                    | Instruction::AttachEquipment { .. }
-                    | Instruction::ReturnAuraFromGraveyard { .. }
-                    | Instruction::GrantLandPlaysThisTurn { .. }
-                    | Instruction::DestroySet { .. }
-                    | Instruction::MoveTriggeredSuccessor { .. }
-                    | Instruction::SearchBasicLandsSplit { .. }
-                    | Instruction::SearchTypedLands { .. } => {
-                        panic!("attachment outside historical staples proof")
-                    }
                     Instruction::CreateCreatureTokens { .. }
                     | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                     | Instruction::PutPlusOneCounters { .. }
@@ -1220,6 +1175,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::Surveil { .. }
                     | Instruction::Scry { .. }
                     | Instruction::SearchBasicLands { .. } => {}
+                    _ => panic!("instruction outside historical staples proof: {i:?}"),
                 }
             }
         }

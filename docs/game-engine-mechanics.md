@@ -116,10 +116,10 @@ optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
 opponent hand-size reductions draw at their controller's end step. Paid draws
 survive source sacrifice. Counted
 draws precede hand returns or simultaneous discards. Commander replacements
-precede return successors; discard precedes Commander SBAs. Targets choose
-private discards, clamped to hand size;
-failed draws continue. Targeted draws share progress. Random discard samples the
-target's hand without replacement using the seeded stream. Departure never redirects.
+precede return successors. Targeted and group discards clamp to hand size.
+Group choices stay private until one simultaneous discard before Commander SBAs.
+Each-player draws finish each seat in turn order, including failed attempts.
+Seeded random discard samples without replacement. Departure never redirects attempts.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
@@ -242,11 +242,11 @@ assignment facts separately from current or latest-departure damage-time source
 appearance. Damage-time deathtouch/lifelink and its beneficiary use that current/
 LKI source, including equipment departure and simultaneous common-prior facts.
 Noncombat damage retains the source incarnation and frozen invocation controller,
-independent of current or last-known control. Fixed opponent damage uses the
-announced opponent through resolution and recovery.
+independent of current or last-known control. Synthetic fixed damage retains the announced
+opponent through resolution and recovery. Compiler admission awaits source and target binding.
 Old assignment-time keywords cannot fabricate damage-time benefits. Commander
-combat history uses only actual combat damage. Direct life gain/loss is distinct.
-Run SBAs after the complete program: intermediate life loss/gain is not an early loss.
+combat history uses actual combat damage. Opponent drain credits committed
+simultaneous life losses before state-based actions.
 
 Replacement/prevention applies once per effect/member, under affected-recipient
 choices and APNAP ordering. Freeze the consumed prefix; later source departure
