@@ -230,6 +230,7 @@ pub enum Capability {
     RandomBottomV1,
     CastTriggerV1,
     CastOriginTriggerV1,
+    CastColorPredicateV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     DisjointPainManaV1,
@@ -1389,6 +1390,7 @@ pub enum TriggerCondition {
     },
     SpellCast {
         caster: CasterRelation,
+        #[schemars(schema_with = "cast_spell_predicate_schema")]
         spell: TypePredicate,
     },
     SpellCastWithOrigin {
@@ -1520,10 +1522,12 @@ impl<'de> Deserialize<'de> for CastOriginZone {
     }
 }
 /// Source ObjectFilter fields are conjunctive; explicit anyOf retains OR.
-/// Only full card-type membership is supported, never execution-kind equality.
+/// Type membership includes additional types. Spell color uses frozen characteristics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TypePredicate {
+    #[schemars(skip)]
+    SpellColor { color: Color },
     // An empty struct also enforces serde unknown-field rejection here.
     Any {},
     Type {
@@ -1541,10 +1545,18 @@ pub enum TypePredicate {
         terms: Vec<TypePredicate>,
     },
 }
+fn cast_spell_predicate_schema(generator: &mut SchemaGenerator) -> Schema {
+    json_schema!({"oneOf":[generator.subschema_for::<TypePredicate>(), {
+        "type":"object", "required":["predicate","color"], "additionalProperties":false,
+        "properties":{"predicate":{"const":"spell_color"}, "color":{"enum":["W","U","B","R","G"]}}
+    }]})
+}
+
 impl TypePredicate {
     pub fn matches(&self, c: &Characteristics) -> bool {
         match self {
             Self::Any {} => true,
+            Self::SpellColor { color } => c.colors.contains(color),
             Self::Type { kind } => c.has_type(*kind),
             Self::NotType { kind } => !c.has_type(*kind),
             Self::All { terms } => terms.iter().all(|t| t.matches(c)),
@@ -1558,6 +1570,7 @@ impl TypePredicate {
             }
             *remaining -= 1;
             match p {
+                TypePredicate::SpellColor { .. } => false,
                 TypePredicate::All { terms } | TypePredicate::AnyOf { terms } => {
                     !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining))
                 }
@@ -2125,6 +2138,10 @@ impl Definition {
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SelfSpellCast => Capability::CascadeV1,
+                TriggerCondition::SpellCast { spell: TypePredicate::SpellColor { .. }, .. } => {
+                    set.insert(Capability::CastColorPredicateV1);
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
                 TriggerCondition::SpellCastWithOrigin { .. } => {
                     set.insert(Capability::CastOriginTriggerV1);
@@ -2962,7 +2979,11 @@ impl Definition {
                 }
             }
             if let TriggerCondition::SpellCast { spell, .. } = &ability.condition {
-                spell.validate()?;
+                match spell {
+                    TypePredicate::SpellColor { color: Color::C } => return Err("invalid spell color".into()),
+                    TypePredicate::SpellColor { .. } => (),
+                    _ => spell.validate()?,
+                }
             }
             if let Some(f) = &ability.death_filter
                 && (ability.condition != TriggerCondition::AnyCreatureDies
@@ -6096,6 +6117,16 @@ pub fn catalog_schema() -> serde_json::Value {
     opponent_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
+    let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
+        "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
+            "spell":{"properties":{"predicate":{"const":"spell_color"}}}
+        }}}
+    }}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["triggered"],"properties":{"triggered":{"contains":color_trigger}}},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::CastColorPredicateV1}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastColorPredicateV1}}}}}
+    }));
     cast_origin::extend_schema(&mut schema);
     activated_artifact_draw::extend_schema(&mut schema);
     unlimited_hand_size::extend_schema(&mut schema);
@@ -6363,6 +6394,7 @@ mod tests {
             SourceStatusConditionV1,
             CastTriggerV1,
             CastOriginTriggerV1,
+            CastColorPredicateV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             DisjointPainManaV1,

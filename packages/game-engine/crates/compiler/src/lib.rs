@@ -395,6 +395,7 @@ fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource
                 controller,
                 types: lower_type_predicate(
                     &SourceTypeFilter {
+                        colors: None,
                         cls: None,
                         types: Some(filter.types.clone()),
                         non_types: filter.non_types.clone(),
@@ -419,6 +420,8 @@ fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource
 #[serde(deny_unknown_fields)]
 struct SourceTypeFilter {
     #[serde(default, deserialize_with = "present_ast_field")]
+    colors: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "present_ast_field")]
     cls: Option<String>,
     #[serde(default, deserialize_with = "present_ast_field")]
     types: Option<Vec<String>>,
@@ -440,6 +443,22 @@ fn lower_type_predicate(
         || (f.cls.is_some() && f.cls.as_deref() != class)
     {
         return Err(unsupported("trigger.what", "unsupported spell class/depth"));
+    }
+    if let Some(colors) = &f.colors {
+        if !root || class != Some("spell") || colors.len() != 1 || f.types.is_some()
+            || f.non_types.is_some() || f.all_of.is_some() || f.any_of.is_some()
+        {
+            return Err(unsupported("trigger.what.colors", "expected one standalone spell color"));
+        }
+        let color = match colors[0].as_str() {
+            "white" => Color::W,
+            "blue" => Color::U,
+            "black" => Color::B,
+            "red" => Color::R,
+            "green" => Color::G,
+            _ => return Err(unsupported("trigger.what.colors", "unknown spell color")),
+        };
+        return Ok(TypePredicate::SpellColor { color });
     }
     let kind = |s: &str| match s {
         "creature" => Ok(CardKind::Creature),
@@ -536,6 +555,7 @@ fn lower_attack_subject(what: &SourceAttacker) -> Result<AttackSubject, Failure>
                 controller,
                 types: lower_type_predicate(
                     &SourceTypeFilter {
+                        colors: None,
                         cls: None,
                         types: filter.types.clone(),
                         non_types: filter.non_types.clone(),
@@ -10450,3 +10470,18 @@ mod set_activation_binding;
 
 #[cfg(test)]
 mod temporary_double_strike_tests;
+
+#[cfg(test)]
+#[test]
+fn synthetic_cast_color_uses_spell_characteristics() {
+    let filter: SourceTypeFilter = serde_json::from_str(r#"{"cls":"spell","colors":["blue"]}"#).unwrap();
+    let predicate = lower_type_predicate(&filter, Some("spell"), true, 0).unwrap();
+    let mut spell: Characteristics = serde_json::from_value(serde_json::json!({
+        "kind":"instant", "subtypes":[], "basic":false, "legendary":false,
+        "mana_cost":{"generic":"0","colored":[]}, "colors":["R"], "color_identity":["R","U"],
+        "power":null, "toughness":null
+    })).unwrap();
+    assert!(!predicate.matches(&spell));
+    spell.colors.push(Color::U);
+    assert!(predicate.matches(&spell));
+}
