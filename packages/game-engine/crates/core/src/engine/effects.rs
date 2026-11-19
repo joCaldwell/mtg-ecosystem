@@ -2495,7 +2495,7 @@ impl Game {
                             amount,
                             source_block,
                         } => (
-                            *target_slot,
+                            Some(*target_slot),
                             amount,
                             *source_block,
                             frame
@@ -2510,11 +2510,22 @@ impl Game {
                             amount,
                             source_block,
                         } => (
-                            *target_slot,
+                            Some(*target_slot),
                             amount,
                             *source_block,
                             TargetEntity::Player {
                                 player: self.removal_target_controller(frame, *target_slot)?,
+                            },
+                        ),
+                        Instruction::DealDamageToController {
+                            amount,
+                            source_block,
+                        } => (
+                            None,
+                            amount,
+                            *source_block,
+                            TargetEntity::Player {
+                                player: frame.spell.controller,
                             },
                         ),
                         _ => return Err("damage continuation not damage instruction".into()),
@@ -2531,7 +2542,9 @@ impl Game {
                         || tx.cause != expected
                         || d.original_amount != *amount
                         || recipient != d.recipient.entity()
-                        || frame.legal_targets.get(target_slot as usize) != Some(&true)
+                        || target_slot.is_some_and(|slot| {
+                            frame.legal_targets.get(slot as usize) != Some(&true)
+                        })
                         || d.controller != frame.spell.controller
                         || !self.prepared_damage_source_matches(d, self.source_facts(&frame.spell)?)
                     {

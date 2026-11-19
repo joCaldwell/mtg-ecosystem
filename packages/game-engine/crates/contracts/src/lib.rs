@@ -55,6 +55,7 @@ use std::{collections::BTreeSet, fmt, str::FromStr};
 
 mod archives;
 mod optional_costs;
+mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
 mod hand_size_adjustments;
@@ -228,6 +229,7 @@ pub enum Capability {
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     DisjointPainManaV1,
+    SourceTapTriggerV1,
     ControllerCreaturePlusOneCounterReplacementV1,
     AttackTriggerV1,
     DamageTriggerV1,
@@ -854,6 +856,12 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    /// Untargeted noncombat damage from the source to the trigger's controller.
+    DealDamageToController {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
     GainLife {
         recipient: LifeRecipient,
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
@@ -926,7 +934,8 @@ impl Instruction {
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterStackObject { source_block, .. } => *source_block,
-            Self::DealDamage { source_block, .. } => *source_block,
+            Self::DealDamage { source_block, .. }
+            | Self::DealDamageToController { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
             Self::LoseLife { source_block, .. } => *source_block,
         }
@@ -1335,6 +1344,8 @@ pub enum TriggerCondition {
     },
     OpponentCreatureDies,
     SelfEntersBattlefield,
+    /// The exact source incarnation actually changes from untapped to tapped.
+    SelfBecomesTapped,
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
     /// The disjoint union of this creature and all other creatures dying.
@@ -2071,6 +2082,7 @@ impl Definition {
                 TriggerCondition::DamageDealt { .. } => Capability::SourceDamageTriggerV2,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
+                TriggerCondition::SelfBecomesTapped => Capability::SourceTapTriggerV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
@@ -2545,6 +2557,7 @@ impl Definition {
         nonland_exile_life::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
+        source_tap_damage::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
             if source["oracle_text"].as_str() != Some(labels.text.as_str())
@@ -2812,15 +2825,17 @@ impl Definition {
             validate_instruction_program(p)?;
         }
         if !self.triggered.is_empty()
-            && !matches!(
-                c.kind,
-                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
-            )
-            && !(matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
-                && self
+            && !match c.kind {
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment => true,
+                CardKind::Instant | CardKind::Sorcery => self
                     .triggered
                     .iter()
-                    .all(|a| a.condition == TriggerCondition::SelfSpellCast))
+                    .all(|a| a.condition == TriggerCondition::SelfSpellCast),
+                CardKind::Land => self
+                    .triggered
+                    .iter()
+                    .all(|a| a.condition == TriggerCondition::SelfBecomesTapped),
+            }
         {
             return Err(
                 "trigger programs require a supported permanent or exact stack self-cast source"
@@ -2893,6 +2908,11 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if ability.condition == TriggerCondition::SelfBecomesTapped {
+                // The complete source and trigger shape was checked above.
+                validate_instruction_program(p)?;
+                continue;
+            }
             if matches!(
                 ability.condition,
                 TriggerCondition::SpellCastWithOrigin { .. }
@@ -4245,6 +4265,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, TargetDomain::AnyDamageTarget))
             }
+            Instruction::DealDamageToController { amount, .. } => {
+                if *amount <= Quantity::zero() {
+                    return Err("damage quantity must be positive".into());
+                }
+                None
+            }
             Instruction::GainLife {
                 recipient, amount, ..
             }
@@ -4674,7 +4700,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
-            Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
+            Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
+                Capability::NoncombatDamageV1
+            }
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
@@ -5953,6 +5981,7 @@ pub fn catalog_schema() -> serde_json::Value {
     opponent_mana::extend_schema(&mut schema);
     distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
+    source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
@@ -6231,6 +6260,7 @@ mod tests {
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             DisjointPainManaV1,
+            SourceTapTriggerV1,
             ControllerCreaturePlusOneCounterReplacementV1,
             AttackTriggerV1,
             DamageTriggerV1,
@@ -6497,6 +6527,7 @@ mod tests {
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());
         definitions.push(pain_mana::witness());
+        definitions.push(source_tap_damage::witness());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
             CounterPlacementModification::Add { amount: 7.into() },

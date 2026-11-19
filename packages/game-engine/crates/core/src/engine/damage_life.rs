@@ -491,6 +491,21 @@ impl Game {
                     true,
                 )
             }
+            Instruction::DealDamageToController {
+                amount,
+                source_block,
+            } => {
+                // CR 109.5/113.7a: use the trigger's frozen controller and
+                // the land's current or last-known source facts.
+                let controller = frame.spell.controller;
+                let damage = NoncombatDamageOccurrence {
+                    source: self.source_facts(&frame.spell)?,
+                    controller,
+                    recipient: DamageRecipient::Player { player: controller },
+                    amount,
+                };
+                return self.prepare_noncombat_damage(frame, damage, source_block);
+            }
             Instruction::GainLife {
                 recipient,
                 amount,
