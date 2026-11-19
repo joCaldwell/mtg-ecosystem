@@ -549,6 +549,116 @@ fn d2cb_synthetic_hand_empty_composes_with_step_trigger_and_keeps_old_shape() {
     );
 }
 #[test]
+fn power_entry_draw_self_entry_rechecks_derived_power_for_trigger_controller() {
+    const CROW: &str = "000d5588-5a4c-434e-988d-396632ade42c";
+    const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
+    const ANTHEM: &str = "e3886fe8-9b76-4613-8891-4ec74657c087";
+    let controller = PlayerId(0);
+    let mut p = prepared(
+        &[
+            (ARENA, 0, 0, Zone::Hand { owner: controller }),
+            (CROW, 1, 0, Zone::Battlefield),
+            (BEARS, 0, 1, Zone::Battlefield),
+            (ANTHEM, 2, 0, Zone::Battlefield),
+            (SWAMP, 0, 0, Zone::Battlefield),
+            (SWAMP, 0, 0, Zone::Battlefield),
+            (SWAMP, 0, 0, Zone::Battlefield),
+        ],
+        TurnStep::PrecombatMain,
+    );
+    // Use Arena's castable body for a synthetic two-trigger enchantment.
+    edit(&mut p, ARENA, |d| {
+        d.source_labels = None;
+        let mut self_entry = d.triggered[0].clone();
+        self_entry.program.instructions.truncate(1); // Draw one.
+        self_entry.condition = TriggerCondition::SelfEntersBattlefield;
+        self_entry.intervening_if = Some(InterveningCondition::ControllerHasCreatureWithPower {
+            minimum_power: 2.into(),
+        });
+        let mut creature_entry = self_entry.clone();
+        creature_entry.condition = TriggerCondition::ControlledCreatureEntersWithPower {
+            minimum_power: 2.into(),
+            other: false,
+        };
+        creature_entry.intervening_if = None;
+        d.triggered = vec![self_entry, creature_entry];
+        d.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::Controller,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![KeywordAbility::Trample],
+                restrictions: vec![],
+            },
+        }];
+    });
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    answer(&mut g, Response::Cast { card: CardId(0) });
+    for id in 4..=6 {
+        let object = g.object_id(CardId(id)).unwrap();
+        answer(&mut g, Response::ActivateMana { object });
+    }
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    g.complete_test_mana();
+    resolve(&mut g);
+    let [trigger] = g.state.rules.stack.as_slice() else {
+        panic!("expected one self-entry trigger")
+    };
+    let matched = InterveningCheck::ControllerHasCreatureWithPower {
+        controller,
+        minimum_power: 2.into(),
+        qualifying: Some(QualifyingCreature {
+            object: g.object_id(CardId(1)).unwrap(),
+            power: 2.into(),
+        }),
+    };
+    assert!(matches!(&trigger.kind, StackKind::Triggered {
+        ability: 0, witness: TriggerEventWitness::Moved { movement, .. }, match_condition: Some(check), ..
+    } if movement.successor == trigger.source && check == &matched));
+    recover(&g);
+    let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+    forged["state"]["stack"][0]["kind"]["match_condition"]["qualifying"]["object"]["incarnation"] =
+        99.into();
+    forged["state_sha256"] = digest(&forged["state"]).unwrap().into();
+    assert!(Game::restore(g.prepared.as_ref().clone(), &forged.to_string()).is_err());
+
+    let library = g.state.rules.libraries[&controller].len();
+    let mut unchanged = g.fork();
+    resolve(&mut unchanged);
+    assert_eq!(
+        unchanged.state.rules.libraries[&controller].len(),
+        library - 1
+    );
+
+    // The anthem leaves. The opponent still controls a 2/2 owned by the caster.
+    g.concede(PlayerId(2)).unwrap();
+    placed(&mut g);
+    recover(&g);
+    for _ in 0..3 {
+        answer(&mut g, Response::Pass);
+    }
+    pass_until(
+        &mut g,
+        |g| matches!(&g.state.rules.frame, Frame::Resolve { frame } if frame.condition_check.is_some()),
+    );
+    let Frame::Resolve { frame } = &g.state.rules.frame else {
+        unreachable!()
+    };
+    assert_eq!(
+        frame.condition_check,
+        Some(InterveningCheck::ControllerHasCreatureWithPower {
+            controller,
+            minimum_power: 2.into(),
+            qualifying: None,
+        })
+    );
+    recover(&g);
+    let _ = settle(&mut g);
+    assert!(g.state.rules.stack.is_empty());
+    assert_eq!(g.state.rules.libraries[&controller].len(), library);
+}
+#[test]
 fn d2cb_forged_actor_status_and_lki_evidence_rejected_all_traces() {
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
         let mut g = Game::with_trace(
