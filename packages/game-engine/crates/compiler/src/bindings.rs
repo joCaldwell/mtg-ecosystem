@@ -1,0 +1,113 @@
+use super::*;
+use serde_json::{Value, json};
+
+// Construct the expected diagnostic graph from executable operands, never the reverse.
+pub(super) struct Bindings<'a> {
+    identity: &'a str,
+    nodes: Vec<Value>,
+    references: Vec<Value>,
+}
+
+impl<'a> Bindings<'a> {
+    pub(super) fn new(identity: &'a str, source: &Value) -> Self {
+        let mut graph = Self {
+            identity,
+            nodes: vec![],
+            references: vec![],
+        };
+        let object = graph.node(
+            "/source",
+            "object",
+            "source",
+            json!({"identity":identity,"rules":["201.5"]}),
+        );
+        graph.node("/faces/0", "face", "face", json!({"source":object,"sourceFaceIndex":0,"name":source["name"],
+            "layout":source["layout"],"typeLine":source["type_line"],"manaCost":source["mana_cost"],"rules":["712"]}));
+        graph
+    }
+
+    pub(super) fn id(&self, path: &str, suffix: &str) -> String {
+        format!("card:{}{path}#{suffix}", self.identity)
+    }
+
+    pub(super) fn node(
+        &mut self,
+        path: &str,
+        suffix: &str,
+        kind: &str,
+        mut fields: Value,
+    ) -> String {
+        let id = self.id(path, suffix);
+        fields["id"] = json!(id);
+        fields["path"] = json!(path);
+        fields["node"] = json!(kind);
+        self.nodes.push(fields);
+        id
+    }
+
+    pub(super) fn reference(&mut self, path: &str, expression: &Value, target: &str, rule: &str) {
+        self.references
+            .push(json!({"path":path,"expression":expression,
+            "binding":"bound","target":target,"rules":[rule]}));
+    }
+
+    pub(super) fn target(
+        &mut self,
+        scope: &str,
+        path: &str,
+        expression: &Value,
+        selection: &str,
+    ) -> String {
+        let id = format!("{scope}/targets/{}", selection.replace(':', "%3A"));
+        self.nodes.push(json!({"id":id,"path":path,"node":"selection","scope":scope,"expression":expression,
+            "cardinality":"one","timing":"stack-announcement","selection":"target","rules":["601.2c"]}));
+        self.reference(path, expression, &id, "601.2c");
+        id
+    }
+
+    pub(super) fn ability(&mut self, path: &str, kind: &str, role: &str) {
+        let ability = self.node(
+            path,
+            "ability",
+            "ability",
+            json!({
+            "source":self.id("/source","object"),"face":self.id("/faces/0","face"),
+            "abilityKind":kind,"you":self.id(path,"you"),"rules":["113","109.5"]}),
+        );
+        self.node(
+            path,
+            "you",
+            "runtime-player",
+            json!({"scope":ability,"role":role,"rules":["109.5"]}),
+        );
+    }
+
+    pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        let same_members = |actual: &Value, expected: &[Value]| {
+            actual.as_array().is_some_and(|items| {
+                items.len() == expected.len() && expected.iter().all(|item| items.contains(item))
+            })
+        };
+        // All twelve archive-v1 envelope fields are checked below.
+        if binding.as_object().is_none_or(|fields| fields.len() != 12)
+            || binding["artifactKind"] != "oracle-reference-binding"
+            || binding["schemaVersion"] != 1
+            || binding["executable"] != false
+            || binding["rules"]
+                != json!({"edition":RULES_EDITION,
+                "url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"})
+            || binding["identity"] != self.identity
+            || binding["fullyBound"] != true
+            || binding["referencesBound"] != true
+            || binding["diagnostics"] != json!([])
+            || binding["engineFeatures"] != json!([])
+            || binding["counts"]
+                != json!({"obligations":self.references.len(),"bound":self.references.len(),"unresolved":0})
+            || !same_members(&binding["nodes"], &self.nodes)
+            || !same_members(&binding["references"], &self.references)
+        {
+            return Err(unsupported("binding", message));
+        }
+        Ok(())
+    }
+}

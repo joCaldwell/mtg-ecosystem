@@ -410,6 +410,50 @@ impl Game {
         }
         Ok(())
     }
+    // Use the same announced target and amount when preparing or restoring damage.
+    pub(super) fn directed_damage_operands<'a>(
+        &self,
+        spell: &'a StackInstance,
+        instruction: &'a Instruction,
+    ) -> Result<(u32, &'a Quantity, u32, TargetEntity), String> {
+        let (slot, amount, block) = match instruction {
+            Instruction::DealDamage {
+                target_slot,
+                amount,
+                source_block,
+            } => (*target_slot, amount, *source_block),
+            Instruction::DealDamageAnnouncedX {
+                target_slot,
+                source_block,
+            } => (
+                *target_slot,
+                spell.x.as_ref().ok_or("missing announced X")?,
+                *source_block,
+            ),
+            _ => return Err("expected directed damage instruction".into()),
+        };
+        let index = slot as usize;
+        let target = match self
+            .program_for(spell)?
+            .targets
+            .get(index)
+            .map(|spec| spec.domain)
+        {
+            Some(TargetDomain::AnyDamageTarget) => *spell
+                .entity_targets
+                .get(index)
+                .ok_or("missing damage binding")?,
+            Some(TargetDomain::BattlefieldCreature) => TargetEntity::Object {
+                object: *spell
+                    .targets
+                    .get(index)
+                    .ok_or("missing creature damage binding")?,
+            },
+            _ => return Err("unsupported directed damage target domain".into()),
+        };
+        Ok((slot, amount, block, target))
+    }
+
     // CR 608.2b-c/704.4: execute the ordered program without an intervening
     // SBA check. A self-targeted Soul Feast may reach zero then recover before
     // the next priority checkpoint; an all-target-illegal spell never starts.
@@ -438,21 +482,11 @@ impl Game {
         }
         let gain = matches!(instruction, Instruction::GainLife { .. });
         let (block, proposed, damage) = match instruction {
-            Instruction::DealDamage {
-                target_slot,
-                amount,
-                source_block,
-            } => {
-                let target = *frame
-                    .spell
-                    .entity_targets
-                    .get(target_slot as usize)
-                    .ok_or("missing damage binding")?;
-                if !frame
-                    .legal_targets
-                    .get(target_slot as usize)
-                    .copied()
-                    .unwrap_or(false)
+            Instruction::DealDamage { .. } | Instruction::DealDamageAnnouncedX { .. } => {
+                let (target_slot, amount, source_block, target) =
+                    self.directed_damage_operands(&frame.spell, &instruction)?;
+                if *amount == Quantity::zero()
+                    || frame.legal_targets.get(target_slot as usize) != Some(&true)
                     || !self.entity_legal(target)
                 {
                     return self
@@ -469,7 +503,7 @@ impl Game {
                             source: self.source_facts(&frame.spell)?,
                             controller: frame.spell.controller,
                             recipient,
-                            amount,
+                            amount: amount.clone(),
                         }),
                     },
                     true,

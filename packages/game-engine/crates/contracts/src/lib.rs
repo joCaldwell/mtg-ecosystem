@@ -317,6 +317,7 @@ pub enum Capability {
     SacrificeV1,
     BoardWipesV1,
     AnnouncedXDrawV1,
+    AnnouncedXEffectsV1,
     TargetedCountedDrawV1,
     TargetPlayerDiscardV1,
 }
@@ -753,6 +754,18 @@ pub enum Instruction {
         recipient: LifeRecipient,
         source_block: u32,
     },
+    DealDamageAnnouncedX {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
+    MillAnnouncedX {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     ChangeLifeAnnouncedX {
         #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
         #[schemars(with = "LifeRecipient")]
@@ -854,6 +867,8 @@ impl Instruction {
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::DrawAnnouncedX { source_block, .. }
+            | Self::DealDamageAnnouncedX { source_block, .. }
+            | Self::MillAnnouncedX { source_block, .. }
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
@@ -2063,15 +2078,16 @@ impl Definition {
         }
         if self.x_mana_cost
             != self.spell.as_ref().is_some_and(|p| {
-                p.instructions.iter().any(|i| {
-                    matches!(
-                        i,
-                        Instruction::DamageSet {
-                            amount: WipeAmount::AnnouncedX,
-                            ..
-                        } | Instruction::DrawAnnouncedX { .. }
-                    )
-                })
+                announced_x_draw::has_x_instruction(p)
+                    || p.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            Instruction::DamageSet {
+                                amount: WipeAmount::AnnouncedX,
+                                ..
+                            }
+                        )
+                    })
             })
         {
             return Err("unbound mana X".into());
@@ -3640,6 +3656,18 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, TargetDomain::AnyDamageTarget))
             }
+            Instruction::DealDamageAnnouncedX { target_slot, .. } => {
+                let domain = p.targets.get(*target_slot as usize).map(|t| t.domain);
+                match domain {
+                    Some(
+                        d @ (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature),
+                    ) => Some((*target_slot, d)),
+                    _ => return Err("unbound announced X damage target".into()),
+                }
+            }
+            Instruction::MillAnnouncedX { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::AnyPlayer))
+            }
             Instruction::GainLife {
                 recipient, amount, ..
             }
@@ -3904,7 +3932,20 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::AnyPlayer => Capability::AnyPlayerTargetV1,
         });
     }
+    if matches!(
+        program.instructions.as_slice(),
+        [Instruction::ChangeLifeAnnouncedX {
+            recipient: LifeRecipient::Target { target_slot: 0 },
+            gain: true,
+            source_block: 0
+        }]
+    ) {
+        set.insert(Capability::AnnouncedXEffectsV1);
+    }
     for instruction in &program.instructions {
+        if matches!(instruction, Instruction::DealDamageAnnouncedX { .. }) {
+            set.insert(Capability::NoncombatDamageV1);
+        }
         if instruction.uses_event_player() {
             set.insert(Capability::EventPlayerRecipientV1);
         }
@@ -3973,6 +4014,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::GraveyardRecursionV1
             }
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
+                Capability::AnnouncedXEffectsV1
+            }
             Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
@@ -5343,6 +5387,7 @@ mod tests {
             SacrificeV1,
             BoardWipesV1,
             AnnouncedXDrawV1,
+            AnnouncedXEffectsV1,
             FlashV1,
             EntersTappedV1,
             StepBeginningTriggerV1,
@@ -5453,6 +5498,7 @@ mod tests {
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
         definitions.push(announced_x_draw::witness());
+        definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());

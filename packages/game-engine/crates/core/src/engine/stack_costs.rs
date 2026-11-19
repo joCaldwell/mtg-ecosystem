@@ -272,11 +272,12 @@ impl Game {
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         self.validate_damage_bindings(entry)?;
         let x_spell = self.definition(entry.source.card)?.x_mana_cost && entry.kind.is_spell();
-        let announcing =
-            matches!(&self.state.rules.frame,Frame::AnnounceX {cast} if cast.stack_id==entry.id);
+        let choosing_mode =
+            matches!(&self.state.rules.frame, Frame::Modes { cast } if cast.stack_id == entry.id);
+        let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
-            || (entry.x.is_some() != x_spell && !announcing)
-            || (announcing && (!x_spell || entry.x.is_some()))
+            || entry.x.is_some() != (x_spell && !choosing_mode && !announcing_x)
+            || (announcing_x && !x_spell)
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
                 != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.definition(entry.source.card)?.triggered[*ability as usize].condition==TriggerCondition::OpponentCreatureDies)
