@@ -241,6 +241,7 @@ impl Game {
         let legal_targets = self.announced_target_legality(&stack);
         self.state.rules.frame = Frame::Resolve {
             frame: Resolving {
+                group_discard: None,
                 random_discard: None,
                 draw_progress: None,
                 each_player_draw: None,
@@ -579,6 +580,7 @@ impl Game {
         }
         self.revalidate_commander_departure()?;
         self.revalidate_land_entry_departure()?;
+        self.remove_group_discard_recipient(player);
         self.revalidate_actions_departure()?;
         self.revalidate_cascade_departure()?;
         if !self.state.rules.simultaneous_losses {

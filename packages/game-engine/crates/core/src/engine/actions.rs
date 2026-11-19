@@ -253,6 +253,18 @@ impl Game {
                 count,
                 *source_block,
             )),
+            Instruction::DiscardPlayerSet {
+                count,
+                source_block,
+                ..
+            } => {
+                let player = frame
+                    .group_discard
+                    .as_ref()
+                    .and_then(|group| group.remaining.first())
+                    .ok_or("missing group discard chooser")?;
+                Ok((*player, count, *source_block))
+            }
             Instruction::DiscardTargetPlayer {
                 target_slot,
                 count,
@@ -643,12 +655,9 @@ impl Game {
                 },
                 Response::ResolveDiscard { objects },
             ) => Some((|| {
-                let hand = self.action_hand(player);
                 if *chooser != player
                     || !self.is_live(player)
-                    || objects.len() != std::cmp::min(*count, hand.len())
-                    || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
-                    || objects.iter().any(|o| !hand.contains(o))
+                    || !self.valid_discard_selection(player, *count, objects)
                 {
                     return Err("invalid resolution discard choice".into());
                 }
@@ -679,7 +688,7 @@ impl Game {
                     .player_targets = players;
                 self.state.rules.frame = self.announcement_mana_frame(cast)?;
             }
-            Frame::ResolutionChoice { frame, choice } => {
+            Frame::ResolutionChoice { mut frame, choice } => {
                 if let ResolutionChoice::HandReturn {
                     player,
                     source_block,
@@ -824,6 +833,11 @@ impl Game {
                         }
                     }
                     Response::ResolveDiscard { objects } => {
+                        if let Some(group) = &mut frame.group_discard {
+                            group.select(request.player(), objects)?;
+                            self.state.rules.frame = Frame::Resolve { frame };
+                            return Ok(());
+                        }
                         self.discard_batch(cause, request.player(), objects)?
                     }
                     _ => return Err("resolution response invariant".into()),
@@ -833,6 +847,17 @@ impl Game {
             _ => return Err("action frame invariant".into()),
         }
         Ok(())
+    }
+    pub(super) fn valid_discard_selection(
+        &self,
+        player: PlayerId,
+        count: usize,
+        objects: &[ObjectId],
+    ) -> bool {
+        let hand = self.action_hand(player);
+        objects.len() == count.min(hand.len())
+            && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
+            && objects.iter().all(|o| hand.contains(o))
     }
     pub(super) fn discard_batch(
         &mut self,
@@ -886,6 +911,9 @@ impl Game {
         mut frame: Resolving,
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
+        if frame.group_discard.is_some() {
+            return Err("cannot advance an unfinished group discard".into());
+        }
         if frame.random_discard.is_some() {
             return Err("cannot advance an unfinished random discard".into());
         }
@@ -1157,6 +1185,11 @@ impl Game {
                 };
                 Ok(())
             }
+            Instruction::DiscardPlayerSet {
+                scope,
+                count,
+                source_block,
+            } => self.group_discard_step(frame, scope, count, source_block),
             Instruction::DiscardTargetPlayerAtRandom { .. } => self.random_discard_step(frame),
             op @ (Instruction::DiscardCards { .. } | Instruction::DiscardTargetPlayer { .. }) => {
                 let (player, count, source_block) = self.discard_spec(&frame, &op)?;
@@ -1625,6 +1658,7 @@ impl Game {
         self.validate_set_damage_facts(frame)?;
         self.validate_draw_progress(frame)?;
         self.validate_random_discard_progress(frame)?;
+        self.validate_group_discard_progress(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
