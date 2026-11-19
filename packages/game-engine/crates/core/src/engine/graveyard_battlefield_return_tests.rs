@@ -1,6 +1,7 @@
 //! CR 400.7, 603.3/6a, 608.2b/c and 704.4.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+use serde_json::{Value, json};
 
 fn setup() -> Prepared {
     let mut rows = vec![
@@ -9,55 +10,81 @@ fn setup() -> Prepared {
         ("Grizzly Bears", 1, 1, false),
     ];
     lands(&mut rows, "Plains", 0, 5);
-    let mut prepared =
-        if let Some(path) = std::env::var_os("MTG_GRAVEYARD_BATTLEFIELD_RETURN_ARCHIVE_PROBE") {
-            let probe = std::fs::read_to_string(path).expect("read frozen archive probe");
-            let row = probe
-                .lines()
-                .find(|line| {
-                    mtg_contracts::sha256(line.as_bytes())
-                        == "e88c54cbd14928a7bad58ee3a85fc66042674eddb1e36ccfd35a5f3e68cbcce6"
-                })
-                .expect("complete Emerge from the Cocoon row 38542");
-            rows[0].0 = "Emerge from the Cocoon";
-            prepared_with_sources(&rows, &[row])
-        } else {
-            let mut prepared = prepared(&rows);
-            let catalog = Arc::make_mut(&mut prepared.catalog);
-            let spell = catalog
-                .definitions
-                .iter_mut()
-                .find(|d| d.name == "Raise Dead")
-                .unwrap();
-            spell.name = "Synthetic graveyard creature return".into();
-            spell.oracle_id = "synthetic-graveyard-battlefield-return".into();
-            spell.source_labels = None;
-            spell.characteristics.mana_cost = ManaCost {
-                generic: 4.into(),
-                colored: vec![Color::W],
-            };
-            spell.characteristics.colors = vec![Color::W];
-            spell.characteristics.color_identity = vec![Color::W];
-            spell.spell.as_mut().unwrap().instructions = vec![
-                Instruction::ReturnOwnGraveyardCreatureToBattlefield {
-                    target_slot: 0,
-                    source_block: 0,
-                },
-                Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 3.into(),
-                    source_block: 0,
-                },
-            ];
-            spell.capabilities = spell.requirements();
-            prepared.config.cards[0].oracle_id = spell.oracle_id.clone();
-            catalog
-                .definitions
-                .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-            catalog.validate().unwrap();
-            prepared.catalog_digest = digest(catalog).unwrap();
-            prepared
+    let mut prepared = if let Some(path) =
+        std::env::var_os("MTG_GRAVEYARD_BATTLEFIELD_RETURN_ARCHIVE_PROBE")
+    {
+        let probe = std::fs::read_to_string(path).expect("read frozen archive probe");
+        let row = probe
+            .lines()
+            .find(|line| {
+                mtg_contracts::sha256(line.as_bytes())
+                    == "e88c54cbd14928a7bad58ee3a85fc66042674eddb1e36ccfd35a5f3e68cbcce6"
+            })
+            .expect("complete Emerge from the Cocoon row 38542");
+        rows[0].0 = "Emerge from the Cocoon";
+        prepared_with_sources(&rows, &[row])
+    } else {
+        let mut prepared = prepared(&rows);
+        let catalog = Arc::make_mut(&mut prepared.catalog);
+        let spell = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Raise Dead")
+            .unwrap();
+        spell.name = "Synthetic graveyard creature return".into();
+        spell.oracle_id = "synthetic-graveyard-battlefield-return".into();
+        spell.source_labels = None;
+        spell.characteristics.mana_cost = ManaCost {
+            generic: 4.into(),
+            colored: vec![Color::W],
         };
+        spell.characteristics.colors = vec![Color::W];
+        spell.characteristics.color_identity = vec![Color::W];
+        let mut source: Value = serde_json::from_str(&spell.provenance.source_json).unwrap();
+        source["name"] = json!(spell.name);
+        source["oracle_id"] = json!(spell.oracle_id);
+        source["mana_cost"] = json!("{4}{W}");
+        source["oracle_text"] = json!(
+            "Return target creature card from your graveyard to the battlefield. You gain 3 life."
+        );
+        let target = json!({
+            "ref": "target",
+            "filter": {"types": ["creature"], "cls": "card",
+                       "zone": {"zone": "graveyard", "owner": "your"}},
+            "count": {"amount": "fixed", "value": 1},
+            "selectionId": "line:0:1"
+        });
+        let abilities = json!([{"kind": "spell", "effects": [
+            {"steps": [{"effect": "move-zone", "what": target,
+                        "to": {"zone": "battlefield"}}]},
+            {"steps": [{"effect": "gain-life", "who": {"player": "you"},
+                        "amount": {"amount": "fixed", "value": 3}}]}
+        ]}]);
+        spell.provenance.source_json = source.to_string();
+        spell.provenance.source_sha256 =
+            mtg_contracts::sha256(spell.provenance.source_json.as_bytes());
+        spell.provenance.abilities_json = abilities.to_string();
+        spell.provenance.ast_sha256 = mtg_contracts::sha256(format!("[{abilities}]").as_bytes());
+        spell.spell.as_mut().unwrap().instructions = vec![
+            Instruction::ReturnOwnGraveyardCreatureToBattlefield {
+                target_slot: 0,
+                source_block: 0,
+            },
+            Instruction::GainLife {
+                recipient: LifeRecipient::Controller,
+                amount: 3.into(),
+                source_block: 0,
+            },
+        ];
+        spell.capabilities = spell.requirements();
+        prepared.config.cards[0].oracle_id = spell.oracle_id.clone();
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog.validate().unwrap();
+        prepared.catalog_digest = digest(catalog).unwrap();
+        prepared
+    };
     for card in &mut prepared.config.cards[1..=2] {
         card.zone = Zone::Graveyard { owner: card.owner };
     }
