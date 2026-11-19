@@ -29,7 +29,7 @@ impl Game {
     pub(super) fn invocation_sacrifice<'a>(
         &'a self,
         entry: &StackInstance,
-    ) -> Option<(&'a SacrificeFilter, usize)> {
+    ) -> Option<(&'a SacrificeFilter, u32)> {
         match entry.kind {
             StackKind::Spell => self
                 .program_for(entry)
@@ -44,9 +44,7 @@ impl Game {
                 .get(ability as usize)?
                 .cost
             {
-                ActivationCost::SacrificePermanent { filter, count, .. } => {
-                    Some((filter, usize::from(*count)))
-                }
+                ActivationCost::SacrificePermanent { filter, count, .. } => Some((filter, *count)),
                 _ => None,
             },
             _ => None,
@@ -64,7 +62,13 @@ impl Game {
             .invocation_sacrifice(stack)
             .ok_or("missing sacrifice cost")?;
         let mut eligible = self.sacrifice_candidates(stack.controller, filter);
-        if prefix.len() >= count
+        // Never allocate from a declared count. Only the actual permanents
+        // bound selection work, including on narrower hosts.
+        let Ok(count) = usize::try_from(count) else {
+            return Ok(vec![]);
+        };
+        if count > eligible.len()
+            || prefix.len() >= count
             || !prefix.windows(2).all(|w| w[0] < w[1])
             || !prefix.iter().all(|id| eligible.binary_search(id).is_ok())
         {
@@ -84,7 +88,7 @@ impl Game {
     ) -> Result<(), String> {
         if let Some((filter, count)) = self.invocation_sacrifice(stack) {
             let eligible = self.sacrifice_candidates(stack.controller, filter);
-            if cast.sacrifices.len() != count
+            if u32::try_from(cast.sacrifices.len()) != Ok(count)
                 || !cast.sacrifices.windows(2).all(|w| w[0] < w[1])
                 || !cast
                     .sacrifices
@@ -243,7 +247,7 @@ impl Game {
                 };
                 cast.sacrifices.push(object);
                 let (_, count) = self.invocation_sacrifice(&stack).ok_or("missing cost")?;
-                if cast.sacrifices.len() < count {
+                if u32::try_from(cast.sacrifices.len()) != Ok(count) {
                     self.state.rules.frame = Frame::SacrificeCost { cast };
                     return Ok(());
                 }
@@ -514,7 +518,7 @@ impl Game {
             } else {
                 0
             };
-            if e.sacrificed_set.len() != expected
+            if u32::try_from(e.sacrificed_set.len()) != Ok(expected)
                 || count > 1 && e.sacrificed.is_some()
                 || !e.sacrificed_set.windows(2).all(|w| w[0] < w[1])
             {

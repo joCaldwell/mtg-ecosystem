@@ -492,6 +492,13 @@ fn fixed_artifact_sacrifice_private_payment_and_departure() {
                 .capabilities
                 .contains(&Capability::FixedArtifactSacrificeCostV1)
         );
+        // A count can exceed the temporary battlefield and even the original
+        // byte width. Definition validity is independent of current payability.
+        let mut large = source.activated[0].clone();
+        if let ActivationCost::SacrificePermanent { count, .. } = &mut large.cost {
+            *count = u32::MAX;
+        }
+        source.activated.push(large);
         setup.config.cards[0].oracle_id = source.oracle_id.clone();
         catalog.definitions.push(source);
         catalog
@@ -502,6 +509,17 @@ fn fixed_artifact_sacrifice_private_payment_and_departure() {
         setup.profile_digest = digest(&setup.config).unwrap();
         let mut g = Game::with_trace(setup, TraceMode::Detailed);
         let [origin, first, second, third, land] = [0, 1, 2, 3, 4].map(|id| object(&g, id));
+        let priority = request(&mut g, 1);
+        reject(
+            &mut g,
+            payer,
+            priority.decision_id(),
+            Response::ActivateAbility {
+                object: origin,
+                ability: 1,
+            },
+        );
+
         answer(
             &mut g,
             1,

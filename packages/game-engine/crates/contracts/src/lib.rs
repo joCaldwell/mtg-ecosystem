@@ -1325,10 +1325,10 @@ pub struct SpellProgram {
 pub struct SpellMode {
     pub program: SpellProgram,
 }
-fn single_sacrifice() -> u8 {
+fn single_sacrifice() -> u32 {
     1
 }
-fn single_sacrifice_count(n: &u8) -> bool {
+fn single_sacrifice_count(n: &u32) -> bool {
     *n == 1
 }
 
@@ -1345,7 +1345,7 @@ pub enum ActivationCost {
             skip_serializing_if = "single_sacrifice_count"
         )]
         #[schemars(range(min = 1))]
-        count: u8,
+        count: u32,
         filter: SacrificeFilter,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana: Option<ManaCost>,
