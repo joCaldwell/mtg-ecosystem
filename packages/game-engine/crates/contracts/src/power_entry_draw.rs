@@ -125,7 +125,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         json!({"type":"object","required":["controlled_creature_enters_with_power"]});
     let intervening_power =
         json!({"type":"object","required":["controller_has_creature_with_power"]});
-    let has = |key, predicate: &Value| json!({"required":[key],"properties":{(key):predicate}});
+    let has = |key: &str, predicate: &Value| json!({"required":[key],"properties":{(key):predicate}});
     let single = |item: &Value| json!({"minItems":1,"maxItems":1,"items":item});
     let capabilities = |additional: &[Capability]| {
         let allowed = &[
