@@ -60,7 +60,6 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
     Ok(())
 }
 
-
 pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
     let op = json!({"required":["op"],"properties":{"op":{"const":"target_player_discard_cards"}}});

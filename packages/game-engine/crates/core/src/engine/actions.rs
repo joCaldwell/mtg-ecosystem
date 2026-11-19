@@ -1080,11 +1080,22 @@ impl Game {
                 let player = self.resolution_player(&frame, recipient.as_ref())?;
                 self.begin_discard(frame, player, count, source_block)
             }
-            Instruction::TargetPlayerDiscardCards { target_slot, count, source_block } => {
+            Instruction::TargetPlayerDiscardCards {
+                target_slot,
+                count,
+                source_block,
+            } => {
                 let slot = target_slot as usize;
-                let player = *frame.spell.player_targets.get(slot).ok_or("missing discard target")?;
+                let player = *frame
+                    .spell
+                    .player_targets
+                    .get(slot)
+                    .ok_or("missing discard target")?;
                 if frame.legal_targets.get(slot) != Some(&true) {
-                    return self.finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+                    return self.finish_instruction(
+                        frame,
+                        InstructionOutcome::PlayerActionSkipped { player },
+                    );
                 }
                 self.begin_discard(frame, player, count, source_block)
             }
@@ -1106,10 +1117,8 @@ impl Game {
             return Err("negative discard count".into());
         }
         if !self.is_live(player) {
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::PlayerActionSkipped { player },
-            );
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let actual_count = self.bounded_hand_count(player, &count);
         if actual_count == 0 {
@@ -1689,8 +1698,16 @@ impl Game {
                         count,
                         source_block,
                     },
-                    instruction @ (Instruction::DiscardCards { count: expected, source_block: expected_block, .. }
-                        | Instruction::TargetPlayerDiscardCards { count: expected, source_block: expected_block, .. }),
+                    instruction @ (Instruction::DiscardCards {
+                        count: expected,
+                        source_block: expected_block,
+                        ..
+                    }
+                    | Instruction::TargetPlayerDiscardCards {
+                        count: expected,
+                        source_block: expected_block,
+                        ..
+                    }),
                 ) => {
                     let bound = match instruction {
                         Instruction::DiscardCards { recipient, .. } => self
@@ -1703,7 +1720,8 @@ impl Game {
                         }
                         _ => unreachable!(),
                     };
-                    bound && *count > 0
+                    bound
+                        && *count > 0
                         && (!self.is_live(*player)
                             || *count == self.bounded_hand_count(*player, expected))
                         && Quantity::from(*count as i64) <= *expected

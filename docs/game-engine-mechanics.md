@@ -170,6 +170,7 @@ Failed payment removes the proposal and can reverse its recorded mana activation
 or draw one or two followed by a mandatory discard.
 Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
 wait for the complete invocation. Additional costs never change mana value.
+Targeted discard uses the announced player's hand.
 
 Object target slots share domain/filter because the request supplies one common
 candidate set; unequal per-slot filters reject. Entity/player/opponent/stack

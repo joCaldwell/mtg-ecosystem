@@ -388,8 +388,11 @@ fn synthetic_target_player_discard_uses_announced_hand() {
             ("Island", seat, seat, true),
         ]);
         let catalog = Arc::make_mut(&mut p.catalog);
-        let d = catalog.definitions.iter_mut()
-            .find(|d| d.oracle_id == p.config.cards[0].oracle_id).unwrap();
+        let d = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.oracle_id == p.config.cards[0].oracle_id)
+            .unwrap();
         d.spell.as_mut().unwrap().instructions = vec![Instruction::TargetPlayerDiscardCards {
             target_slot: 0,
             count: 3.into(),
@@ -405,20 +408,38 @@ fn synthetic_target_player_discard_uses_announced_hand() {
             let target_hand = g.action_hand(target);
             loop {
                 let r = request(g, q);
-                if let Request::ResolveDiscard { player, count, candidates, .. } = &r {
+                if let Request::ResolveDiscard {
+                    player,
+                    count,
+                    candidates,
+                    ..
+                } = &r
+                {
                     assert_eq!(*player, target);
                     assert_eq!(*count, 2);
                     assert_eq!(candidates, &target_hand);
                     recover(g);
-                    assert!(g.respond(*player, r.decision_id(), Response::ResolveDiscard {
-                        objects: candidates[..1].to_vec(),
-                    }).is_err());
+                    assert!(
+                        g.respond(
+                            *player,
+                            r.decision_id(),
+                            Response::ResolveDiscard {
+                                objects: candidates[..1].to_vec(),
+                            }
+                        )
+                        .is_err()
+                    );
                     if depart {
                         g.concede(target).unwrap();
                     } else {
-                        g.respond(*player, r.decision_id(), Response::ResolveDiscard {
-                            objects: candidates.clone(),
-                        }).unwrap();
+                        g.respond(
+                            *player,
+                            r.decision_id(),
+                            Response::ResolveDiscard {
+                                objects: candidates.clone(),
+                            },
+                        )
+                        .unwrap();
                     }
                     break;
                 }

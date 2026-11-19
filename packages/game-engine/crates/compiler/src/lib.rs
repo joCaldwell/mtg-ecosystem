@@ -49,6 +49,7 @@ mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
+mod target_player_discard;
 use optional_costs::KickedCondition;
 mod conditional_lands;
 mod cycling;
@@ -1399,12 +1400,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
     cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
-    for (line, ability) in result.lines.iter().zip(&original) {
+    for (block, (line, ability)) in result.lines.iter().zip(&original).enumerate() {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
         let b: serde_json::Value = decode(ability.get(), "abilities")?;
         if a != b || line.text.is_empty() {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
+        target_player_discard::validate_bindings(&b, &binding, &r.oracle_identity, block)?;
     }
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -2007,7 +2009,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     continue;
                 }
-                if let Some((draw, count)) = draw_discard::coalesce(effects)? {
+                if target_player_discard::operation(effects).is_none()
+                    && let Some((draw, count)) = draw_discard::coalesce(effects)?
+                {
                     if abilities.len() != 1
                         || program.additional_sacrifice.is_some()
                         || !program.optional_additional_costs.is_empty()
@@ -2385,6 +2389,29 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
+    if let Some((selection_id, count)) = target_player_discard::operation(effects) {
+        if player_binding != PlayerBinding::Unbound
+            || program.additional_sacrifice.is_some()
+            || !program.optional_additional_costs.is_empty()
+            || !program.instructions.is_empty()
+            || !program.modes.is_empty()
+            || !program.targets.is_empty()
+        {
+            return Err(unsupported(
+                "effects.discard",
+                "requires a complete ordinary program",
+            ));
+        }
+        let target_slot = bind_target(program, slots, selection_id, TargetDomain::AnyPlayer)?;
+        program
+            .instructions
+            .push(Instruction::TargetPlayerDiscardCards {
+                target_slot,
+                count: i64::from(count).into(),
+                source_block: source_block(block)?,
+            });
+        return Ok(());
+    }
     if let Some((draw, count)) = hand_return::coalesce(effects)? {
         if block != 0
             || !program.instructions.is_empty()
