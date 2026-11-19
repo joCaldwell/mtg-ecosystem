@@ -572,7 +572,11 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
+        ProposedEvent::LandPlayed { .. } => (
+            BTreeSet::from([FactKey::Turn, FactKey::Effects]),
+            BTreeSet::from([FactKey::Turn]),
+        ),
+        ProposedEvent::TurnTransition { .. } => {
             let keys = BTreeSet::from([FactKey::Turn]);
             (keys.clone(), keys)
         }
@@ -829,7 +833,13 @@ impl Game {
                 .rules
                 .effects
                 .iter()
-                .filter(|effect| reversed_shields.contains(&effect.id))
+                .filter(|effect| {
+                    reversed_shields.contains(&effect.id)
+                        || events.iter().any(|event| {
+                            matches!(event, ProposedEvent::LandPlayed { player }
+                                if effect.additional_land_plays(*player, self.state.rules.turn.number).is_some())
+                        })
+                })
                 .cloned()
                 .collect()
         };
@@ -2529,7 +2539,7 @@ impl Game {
             ProposedEvent::LandPlayed { player } => {
                 if (!self.main_phase_action(*player)
                     && !entry.is_some_and(|proof| proof.land_play(*player)))
-                    || self.state.rules.turn.lands_played != 0
+                    || !self.has_land_play_allowance(*player)
                 {
                     return Err("invalid land-play counting event".into());
                 }

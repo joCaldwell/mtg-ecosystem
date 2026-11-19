@@ -284,6 +284,7 @@ pub enum Capability {
     ControllerHandReturnV1,
     ControllerDrawDiscardV1,
     ControllerCountedDrawV1,
+    ControllerDrawLandAllowanceV1,
     TriggeredSuccessorLibraryTuckV1,
     ControllerDiscardV1,
     OpponentTargetV1,
@@ -559,6 +560,11 @@ pub enum Instruction {
         source_block: u32,
     },
     DrawControllerCards {
+        count: Quantity,
+        source_block: u32,
+    },
+    GrantLandPlaysThisTurn {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         count: Quantity,
         source_block: u32,
     },
@@ -849,6 +855,7 @@ impl Instruction {
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
             Self::DrawControllerCards { source_block, .. }
+            | Self::GrantLandPlaysThisTurn { source_block, .. }
             | Self::PutHandOnLibrary { source_block, .. } => *source_block,
             Self::OrderLibraryTop { source_block, .. }
             | Self::OptionalShuffleLibrary { source_block }
@@ -3592,8 +3599,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
         && !controller_counted_draw_program(p)
+        && !hand_return::controller_draw_land_allowance_program(p)
     {
-        return Err("unsupported complete controller draw/hand return".into());
+        return Err("unsupported complete counted controller draw program".into());
     }
     if library_order::has_order(p) && !controller_library_order_program(p) {
         return Err("unsupported complete controller library ordering program".into());
@@ -4151,6 +4159,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 None
             }
             Instruction::DrawControllerCards { .. }
+            | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PutHandOnLibrary { .. }
             | Instruction::OrderLibraryTop { .. }
             | Instruction::OptionalShuffleLibrary { .. }
@@ -4515,10 +4524,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                     Capability::ControllerCountedDrawV1
                 } else if controller_draw_discard_program(program) {
                     Capability::ControllerDrawDiscardV1
+                } else if hand_return::controller_draw_land_allowance_program(program) {
+                    Capability::ControllerDrawLandAllowanceV1
                 } else {
                     Capability::ControllerHandReturnV1
                 }
             }
+            Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
@@ -5979,6 +5991,7 @@ mod tests {
             ControllerHandReturnV1,
             ControllerDrawDiscardV1,
             ControllerCountedDrawV1,
+            ControllerDrawLandAllowanceV1,
             TriggeredSuccessorLibraryTuckV1,
             ControllerDiscardV1,
             OpponentTargetV1,
@@ -6258,6 +6271,15 @@ mod tests {
         definitions.push(hand_return::witness());
         definitions.push(draw_discard::witness());
         definitions.push(controller_counted_draw::witness());
+        let mut draw_land_allowance = controller_counted_draw::witness();
+        draw_land_allowance.spell.as_mut().unwrap().instructions.push(
+            Instruction::GrantLandPlaysThisTurn {
+                count: "999999999999999999999999".parse().unwrap(),
+                source_block: 0,
+            },
+        );
+        draw_land_allowance.capabilities = draw_land_allowance.requirements();
+        definitions.push(draw_land_allowance);
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());

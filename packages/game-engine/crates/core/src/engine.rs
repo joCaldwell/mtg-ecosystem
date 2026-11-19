@@ -3306,7 +3306,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 40,
+            snapshot_version: 41,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3348,7 +3348,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 40
+        if s.snapshot_version != 41
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3386,11 +3386,12 @@ impl Game {
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
         let s = &self.state;
+        // Cleanup can remove land allowances before the next turn resets usage.
+        // Replay proves the land count at the boundaries where it was incremented.
         if s.rules.players.len() != 4
             || s.knowledge.visibility.len() != 4
             || s.rules.turn_owner.0 >= 4
             || s.rules.turn.number == 0
-            || s.rules.turn.lands_played > 1
             || s.rules.active.is_some_and(|p| !self.is_live(p))
             || s.rules
                 .cast_history
