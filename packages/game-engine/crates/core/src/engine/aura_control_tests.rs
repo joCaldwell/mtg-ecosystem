@@ -1126,6 +1126,9 @@ mod draw_discard_tests;
 #[path = "controller_counted_draw_tests.rs"]
 mod controller_counted_draw_tests;
 
+#[path = "targeted_counted_draw_tests.rs"]
+mod targeted_counted_draw_tests;
+
 #[cfg(test)]
 #[path = "temporary_reach_tests.rs"]
 mod temporary_reach_tests;

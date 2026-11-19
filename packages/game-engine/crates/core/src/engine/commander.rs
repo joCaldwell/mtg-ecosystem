@@ -607,7 +607,11 @@ impl Game {
                                 count,
                                 source_block: b,
                                 ..
-                            }) => *count == Quantity::from(1) && b == source_block,
+                            }) => {
+                                b == source_block
+                                    && (*count == Quantity::from(1)
+                                        || frame.draw_progress.is_some())
+                            }
                             Some(Instruction::OptionalDrawCards { source_block: b }) => {
                                 b == source_block
                             }

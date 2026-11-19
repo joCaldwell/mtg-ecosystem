@@ -35,6 +35,7 @@ mod library_selection;
 mod library_selection_tests;
 mod normalization;
 mod self_reference;
+mod targeted_counted_draw;
 mod type_line;
 pub use catalog::*;
 use normalization::source_lines;
@@ -1642,6 +1643,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if abilities.len() == 1
+                    && targeted_counted_draw::lower(effects, &mut program, &mut slots)?
+                {
+                    continue;
+                }
                 if let Some((count, life_loss)) = controller_counted_draw::coalesce(effects)? {
                     if abilities.len() != 1
                         || block != 0
@@ -1811,6 +1817,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .is_some_and(controller_counted_draw_program)
     {
         controller_counted_draw::validate_source(
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
+    }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(targeted_counted_draw_program)
+    {
+        targeted_counted_draw::validate_source(
             &binding,
             &definition.oracle_id,
             &canonical_abilities,

@@ -817,7 +817,7 @@ impl Game {
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
         if frame.draw_progress.is_some() {
-            return Err("cannot advance an unfinished damage-quantity draw".into());
+            return Err("cannot advance an unfinished counted draw".into());
         }
         frame.outcomes.push(outcome);
         frame.cursor = frame
@@ -838,9 +838,7 @@ impl Game {
                 count,
                 source_block,
             } => self.begin_hand_return(frame, count, source_block),
-            Instruction::DrawControllerCards { source_block, .. } => {
-                self.draw_multiple(frame, source_block)
-            }
+            Instruction::DrawControllerCards { .. } => self.draw_multiple(frame),
             Instruction::OrderLibraryTop {
                 amount,
                 source_block,
@@ -975,7 +973,7 @@ impl Game {
                 source_block,
             } => {
                 if count != Quantity::from(1) {
-                    return Err("unsupported draw count".into());
+                    return self.draw_multiple(frame);
                 }
                 let player = match recipient {
                     Some(LifeRecipient::EachOpponent) => {
@@ -1007,9 +1005,7 @@ impl Game {
                 };
                 self.draw_one(frame, player, source_block)
             }
-            Instruction::DrawDamageAmount { source_block } => {
-                self.draw_multiple(frame, source_block)
-            }
+            Instruction::DrawDamageAmount { .. } => self.draw_multiple(frame),
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1149,21 +1145,44 @@ impl Game {
             )
         }
     }
+    fn counted_draw_spec(
+        &self,
+        frame: &Resolving,
+        program: &SpellProgram,
+        instruction: &Instruction,
+    ) -> Result<Option<(Quantity, u32)>, String> {
+        let (amount, source_block) = match instruction {
+            Instruction::DrawControllerCards {
+                count,
+                source_block,
+            } => {
+                if count.is_negative() {
+                    return Err("negative counted draw amount".into());
+                }
+                (count.clone(), *source_block)
+            }
+            Instruction::DrawDamageAmount { source_block } => {
+                (self.damage_draw_amount(frame)?, *source_block)
+            }
+            Instruction::DrawCards {
+                count,
+                source_block,
+                ..
+            } if *count != Quantity::from(1) => {
+                if !targeted_counted_draw_program(program) {
+                    return Err("unsupported draw count".into());
+                }
+                if frame.legal_targets.first() != Some(&true) {
+                    return Err("missing legal counted draw target".into());
+                }
+                (count.clone(), *source_block)
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some((amount, source_block)))
+    }
     /// CR 120.4b/603.2c: "that many" is the positive final member of this
     /// invocation's actual damage witness, never printed power or life changes.
-    fn draw_instruction_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
-        match self
-            .program_for(&frame.spell)?
-            .instructions
-            .get(frame.cursor as usize)
-        {
-            Some(Instruction::DrawControllerCards { count, .. }) if !count.is_negative() => {
-                Ok(count.clone())
-            }
-            Some(Instruction::DrawDamageAmount { .. }) => self.damage_draw_amount(frame),
-            _ => Err("counted draw source invariant".into()),
-        }
-    }
     pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
         match &frame.spell.kind {
             StackKind::Triggered {
@@ -1177,10 +1196,18 @@ impl Game {
     // attempts. No SBA, card-count clamp or machine-integer conversion interrupts
     // the exact instruction. Commander replacement consumes just its attempt.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    fn draw_multiple(&mut self, mut frame: Resolving, source_block: u32) -> Result<(), String> {
+    fn draw_multiple(&mut self, mut frame: Resolving) -> Result<(), String> {
         self.validate_draw_progress(&frame)?;
-        if self.draw_instruction_amount(&frame)? == Quantity::zero() {
-            let player = frame.spell.controller;
+        let program = self.program_for(&frame.spell)?;
+        let instruction = program
+            .instructions
+            .get(frame.cursor as usize)
+            .ok_or("missing counted draw instruction")?;
+        let (amount, source_block) = self
+            .counted_draw_spec(&frame, program, instruction)?
+            .ok_or("counted draw source invariant")?;
+        let player = Self::draw_player_for_instruction(&frame, instruction)?;
+        if amount == Quantity::zero() {
             return self.finish_instruction(
                 frame,
                 InstructionOutcome::DrawAttempts {
@@ -1195,11 +1222,10 @@ impl Game {
                 cursor: frame.cursor,
                 source_block,
                 completed: Quantity::zero(),
-                remaining: self.draw_instruction_amount(&frame)?,
+                remaining: amount,
                 failed: Quantity::zero(),
             });
         }
-        let player = frame.spell.controller;
         self.draw_one(frame, player, source_block)
     }
     /// Finish one ordinary draw attempt. The same owned continuation is used
@@ -1210,20 +1236,21 @@ impl Game {
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
         if frame.draw_progress.is_none() {
-            if matches!(
-                self.program_for(&frame.spell)?
-                    .instructions
-                    .get(frame.cursor as usize),
-                Some(
-                    Instruction::DrawDamageAmount { .. } | Instruction::DrawControllerCards { .. }
-                )
-            ) {
-                return Err("missing damage-quantity draw progress".into());
+            let program = self.program_for(&frame.spell)?;
+            let instruction = program
+                .instructions
+                .get(frame.cursor as usize)
+                .ok_or("missing draw instruction")?;
+            if self
+                .counted_draw_spec(&frame, program, instruction)?
+                .is_some()
+            {
+                return Err("missing counted draw progress".into());
             }
             return self.finish_instruction(frame, outcome);
         }
         self.validate_draw_progress(&frame)?;
-        let player = frame.spell.controller;
+        let player = self.resolution_draw_player(&frame)?;
         if matches!(outcome, InstructionOutcome::PlayerActionSkipped { player: actor } if actor == player && !self.is_live(player))
         {
             let progress = frame.draw_progress.take().unwrap();
@@ -1250,7 +1277,7 @@ impl Game {
             {
                 failed
             }
-            _ => return Err("invalid damage-quantity draw attempt outcome".into()),
+            _ => return Err("invalid counted draw attempt outcome".into()),
         };
         let progress = frame.draw_progress.as_mut().unwrap();
         progress.completed.add(&Quantity::from(1));
@@ -1278,56 +1305,52 @@ impl Game {
     fn validate_draw_progress(&self, frame: &Resolving) -> Result<(), String> {
         let program = self.program_for(&frame.spell)?;
         if let Some(progress) = &frame.draw_progress {
-            let Some(
-                Instruction::DrawDamageAmount { source_block }
-                | Instruction::DrawControllerCards { source_block, .. },
-            ) = program.instructions.get(frame.cursor as usize)
-            else {
-                return Err("damage-quantity draw progress on another instruction".into());
-            };
+            let instruction = program
+                .instructions
+                .get(frame.cursor as usize)
+                .ok_or("missing counted draw instruction")?;
+            let (amount, source_block) = self
+                .counted_draw_spec(frame, program, instruction)?
+                .ok_or("counted draw progress on another instruction")?;
+            Self::draw_player_for_instruction(frame, instruction)?;
             let mut total = progress.completed.clone();
             total.add(&progress.remaining);
             if progress.cursor != frame.cursor
-                || progress.source_block != *source_block
+                || progress.source_block != source_block
                 || progress.completed.is_negative()
                 || progress.remaining <= Quantity::zero()
                 || progress.failed.is_negative()
                 || progress.failed > progress.completed
-                || total != self.draw_instruction_amount(frame)?
+                || total != amount
             {
-                return Err("damage-quantity draw progress invariant".into());
+                return Err("counted draw progress invariant".into());
             }
         }
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
-            match (instruction, outcome) {
+            match (
+                self.counted_draw_spec(frame, program, instruction)?,
+                outcome,
+            ) {
                 (
-                    Instruction::DrawDamageAmount { .. } | Instruction::DrawControllerCards { .. },
+                    Some((amount, _)),
                     InstructionOutcome::DrawAttempts {
                         player,
                         attempted,
                         failed,
                     },
                 ) => {
-                    let amount = match instruction {
-                        Instruction::DrawControllerCards { count, .. } => count.clone(),
-                        _ => self.damage_draw_amount(frame)?,
-                    };
-                    if *player != frame.spell.controller
+                    if *player != Self::draw_player_for_instruction(frame, instruction)?
                         || attempted.is_negative()
                         || *attempted > amount
                         || failed.is_negative()
                         || failed > attempted
                         || (*attempted != amount && self.is_live(*player))
                     {
-                        return Err("damage-quantity draw completed outcome invariant".into());
+                        return Err("counted draw completed outcome invariant".into());
                     }
                 }
-                (
-                    Instruction::DrawDamageAmount { .. } | Instruction::DrawControllerCards { .. },
-                    _,
-                )
-                | (_, InstructionOutcome::DrawAttempts { .. }) => {
-                    return Err("damage-quantity draw outcome on another instruction".into());
+                (Some(_), _) | (None, InstructionOutcome::DrawAttempts { .. }) => {
+                    return Err("counted draw outcome on another instruction".into());
                 }
                 _ => (),
             }
