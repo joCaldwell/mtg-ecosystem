@@ -173,6 +173,16 @@ mod tests {
                 source_block: 1
             }]
         );
+        for mutation in 0..4 {
+            let mut unrelated = definition.clone();
+            match mutation {
+                0 => unrelated.oracle_id.push_str("-other"),
+                1 => unrelated.provenance.printing_id.push_str("-other"),
+                2 => unrelated.source_labels.as_mut().unwrap().triggered = vec![0],
+                _ => unrelated.source_labels.as_mut().unwrap().blocks.swap(0, 1),
+            }
+            assert!(unrelated.validate().is_err(), "audit mutation {mutation}");
+        }
         let mut stripped = definition.clone();
         stripped.name = "Renamed source".into();
         stripped.triggered.clear();

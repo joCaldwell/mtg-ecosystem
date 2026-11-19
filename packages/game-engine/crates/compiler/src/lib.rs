@@ -3313,32 +3313,6 @@ fn append_spell_effects(
                     duration,
                 } => lower_prevention(program, slots, prevention, duration, source_block)?,
                 Step::Damage {
-                    optional: None,
-                    source,
-                    amount,
-                    to: DamageDestination::Player { reference },
-                } if reference.get("player").and_then(|value| value.as_str())
-                    == Some("target-opponent")
-                    && (matches!(source, DamageSource::SelfReference {})
-                        || matches!(source, DamageSource::This { noun } if noun == "creature" || noun == "enchantment")) =>
-                {
-                    let selector: PlayerSelector = serde_json::from_value(reference.clone())
-                        .map_err(|_| unsupported("damage", "invalid opponent selector"))?;
-                    if selector.of.is_some() {
-                        return Err(unsupported("damage", "unexpected opponent reference"));
-                    }
-                    Instruction::DealDamage {
-                        target_slot: bind_target(
-                            program,
-                            slots,
-                            selector.selection_id.as_deref().unwrap_or(""),
-                            TargetDomain::OpponentPlayer,
-                        )?,
-                        amount: fixed_positive_value(amount)?,
-                        source_block,
-                    }
-                }
-                Step::Damage {
                     source,
                     amount,
                     to,
@@ -5826,6 +5800,24 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixed_opponent_damage_rejects_unbound_target_substitution() {
+        let changed = changed_source(
+            include_str!("../../../tests/fixtures/lightning-bolt.json"),
+            |r| {
+                let result = &mut r["faces"][0]["result"];
+                result["abilities"][0]["effects"][0]["steps"][0]["to"] = serde_json::json!({
+                    "to":"player", "ref":{"player":"target-opponent","selectionId":"line:0:6"}
+                });
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+            },
+        );
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &changed),
+            CompileResult::Unsupported { .. }
+        ));
+    }
+
     #[test]
     fn bounded_token_types_preserve_single_type_bytes() {
         let mut source: SourceToken = serde_json::from_value(serde_json::json!({

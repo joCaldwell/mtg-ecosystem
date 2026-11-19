@@ -10,12 +10,13 @@ pub fn death_sweep_source_block(name: &str, text: &str) -> Option<u32> {
     let (block, trigger) = text
         .strip_prefix("Trample\n")
         .map_or((0, text), |line| (1, line));
-    let (condition, effect) = trigger.rsplit_once(", ")?;
-    let (action, restriction) = effect.split_once(". ")?;
-    (condition.strip_prefix("When ")?.strip_suffix(" dies")? == name
-        && action.strip_prefix("destroy all ")? == "nonland permanents"
-        && restriction.strip_prefix("They can't be ")? == "regenerated.")
-        .then_some(block)
+    (trigger == death_sweep_line(name)).then_some(block)
+}
+
+fn death_sweep_line(subject: &str) -> String {
+    let action = "destroy all nonland permanents";
+    let restriction = "They can't be regenerated.";
+    format!("When {subject} dies, {action}. {restriction}")
 }
 
 pub fn death_sweep_abilities(block: u32) -> Value {
@@ -75,7 +76,20 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     };
     let spell = d.spell.as_ref().ok_or(INVALID_FAMILY)?;
     let abilities: Value = strict_read(&d.provenance.abilities_json)?;
+    if d.source_labels.as_ref().is_some_and(|labels| {
+        labels.blocks.len() != block as usize + 1
+            || death_sweep_source_block("~", &labels.blocks.join("\n")) != Some(block)
+            || labels.triggered != [block]
+            || !labels.activated.is_empty()
+            || !labels.statics.is_empty()
+            || !labels.mana.is_empty()
+            || !labels.spell_modes.is_empty()
+    }) {
+        return Err(INVALID_FAMILY.into());
+    }
     if source["layout"] != "normal"
+        || source["oracle_id"] != d.oracle_id
+        || source["id"] != d.provenance.printing_id
         || source["name"] != d.name
         || abilities != death_sweep_abilities(block)
         || d.characteristics.kind != CardKind::Creature
@@ -151,8 +165,18 @@ pub(super) fn extend_schema(schema: &mut Value) {
     };
     let keyword_form = |block, keywords| {
         let required = if block == 1 { vec!["keywords"] } else { vec![] };
+        let mut blocks = Vec::new();
+        if block == 1 {
+            blocks.push("Trample".to_owned());
+        }
+        blocks.push(death_sweep_line("~"));
         json!({"required":required,"properties":{
             "keywords":{"const":keywords},
+            "source_labels":{"properties":{
+                "blocks":{"const":blocks},
+                "triggered":{"const":[block]},"activated":{"maxItems":0},"statics":{"maxItems":0},
+                "mana":{"maxItems":0},"spell_modes":{"maxItems":0}
+            }},
             "triggered":{"items":{"properties":{"program":trigger(block)}}}
         }})
     };

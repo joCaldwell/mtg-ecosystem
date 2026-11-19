@@ -242,8 +242,8 @@ assignment facts separately from current or latest-departure damage-time source
 appearance. Damage-time deathtouch/lifelink and its beneficiary use that current/
 LKI source, including equipment departure and simultaneous common-prior facts.
 Noncombat damage retains the source incarnation and frozen invocation controller,
-independent of current or last-known control. Fixed opponent damage uses the
-announced opponent through resolution and recovery.
+independent of current or last-known control. Synthetic fixed damage retains the announced
+opponent through resolution and recovery. Compiler admission awaits source and target binding.
 Old assignment-time keywords cannot fabricate damage-time benefits. Commander
 combat history uses only actual combat damage. Direct life gain/loss is distinct.
 Run SBAs after the complete program: intermediate life loss/gain is not an early loss.
