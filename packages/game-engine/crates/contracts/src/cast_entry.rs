@@ -57,6 +57,7 @@ pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
     };
     let abilities: Value = strict_read(&d.provenance.abilities_json)?;
     if !gated
+        || source["id"] != d.provenance.printing_id
         || source["name"] != d.name
         || source["oracle_id"] != d.oracle_id
         || text != format!("When {} enters, if you cast it, {action}", d.name)

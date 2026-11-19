@@ -6828,6 +6828,7 @@ mod tests {
             "../../../tests/fixtures/synthetic-cast-entry.json"
         ))
         .unwrap();
+        cast_entry.provenance.printing_id = synthetic["source"]["id"].as_str().unwrap().into();
         cast_entry.name = synthetic["source"]["name"].as_str().unwrap().into();
         cast_entry.oracle_id = synthetic["oracleIdentity"].as_str().unwrap().into();
         cast_entry.provenance.source_json = canonical(&synthetic["source"]).unwrap();
@@ -6844,6 +6845,7 @@ mod tests {
             "../../../tests/fixtures/synthetic-cast-land-untap.json"
         ))
         .unwrap();
+        land_entry.provenance.printing_id = land["source"]["id"].as_str().unwrap().into();
         land_entry.name = land["source"]["name"].as_str().unwrap().into();
         land_entry.oracle_id = land["oracleIdentity"].as_str().unwrap().into();
         land_entry.provenance.source_json = canonical(&land["source"]).unwrap();

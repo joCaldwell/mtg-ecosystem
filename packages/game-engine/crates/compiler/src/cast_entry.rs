@@ -137,6 +137,19 @@ fn land_untap_requires_the_resolution_set_and_its_trigger_controller() {
             .capabilities
             .contains(&Capability::UntapControllerLandsV1)
     );
+    let mut forged_print = definition.clone();
+    forged_print.provenance.printing_id.push_str("-other");
+    assert!(forged_print.validate().is_err());
+    for change_block in [false, true] {
+        let mut forged_labels = definition.clone();
+        let labels = forged_labels.source_labels.as_mut().unwrap();
+        if change_block {
+            labels.blocks[0].push_str(" altered");
+        } else {
+            labels.triggered.clear();
+        }
+        assert!(forged_labels.validate().is_err());
+    }
     for (key, value) in [("timing", "stack-announcement"), ("cardinality", "one")] {
         let changed = crate::tests::changed_source(record, |r| {
             let node = r["binding"]["nodes"]
