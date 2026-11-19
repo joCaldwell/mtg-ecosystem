@@ -194,7 +194,13 @@ pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
     loop {
         frame = match frame {
             Frame::ManaAbility { activation } => &activation.resume,
-            Frame::IntrinsicManaChoice { resume, .. }
+            Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
+                match transaction.continuation.as_ref() {
+                    DamageContinuation::Mana { activation, .. } => &activation.resume,
+                    _ => return frame,
+                }
+            }
+            Frame::ManaSourceChoice { resume, .. }
             | Frame::Stabilize { resume, .. }
             | Frame::LegendRule { resume, .. } => resume,
             Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
@@ -220,7 +226,7 @@ pub(super) fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> 
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             match transaction.continuation.as_ref() {
                 DamageContinuation::Instruction { frame } => Some(&frame.spell),
-                DamageContinuation::Combat => None,
+                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
             }
         }
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
