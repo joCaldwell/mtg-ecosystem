@@ -50,7 +50,7 @@ mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 mod self_spell_protection;
 pub use controller_library::{
-    cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
+    FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
     matches_fixed_amount, printed_cast_scry,
 };
 pub use fixed_mill::fixed_mill_program;

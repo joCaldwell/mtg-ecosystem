@@ -90,19 +90,27 @@ pub fn printed_cast_scry(line: &str) -> Option<(Color, u32)> {
         .strip_prefix("Whenever you cast a ")?
         .strip_suffix('.')?
         .split_once(" spell, scry ")?;
-    let color = match color {
+    let color = printed_color(color)?;
+    let n = printed_count(count)?;
+    Some((color, n))
+}
+
+fn printed_color(color: &str) -> Option<Color> {
+    Some(match color {
         "white" => Color::W,
         "blue" => Color::U,
         "black" => Color::B,
         "red" => Color::R,
         "green" => Color::G,
         _ => return None,
-    };
-    let n = match count.parse::<u32>() {
+    })
+}
+
+fn printed_count(count: &str) -> Option<u32> {
+    Some(match count.parse::<u32>() {
         Ok(n) if matches_fixed_amount(count, i64::from(n)) => n,
         _ => (1..100).find(|n| matches_fixed_amount(count, i64::from(*n)))?,
-    };
-    Some((color, n))
+    })
 }
 
 pub fn cast_scry_ability_ast(color: Color, count: u32) -> serde_json::Value {
@@ -119,21 +127,89 @@ pub fn cast_scry_ability_ast(color: Color, count: u32) -> serde_json::Value {
         "amount":{"amount":"fixed","value":count}}]}]})
 }
 
-// Source provenance and executable IR must each account for every cast-scry
+/// Operands of one complete fixed controller-color cast effect.
+#[derive(Clone, Copy)]
+pub enum FixedCastEffect {
+    Scry(Color, u32),
+    OpponentDamage(Color, u32),
+}
+
+impl FixedCastEffect {
+    pub fn from_line(line: &str, name: &str) -> Option<Self> {
+        if let Some((color, n)) = printed_cast_scry(line) {
+            return Some(Self::Scry(color, n));
+        }
+        let (color, effect) = line
+            .strip_prefix("Whenever you cast a ")?
+            .split_once(" spell, ")?;
+        let (actor, count) = effect
+            .strip_suffix(" damage to target opponent.")?
+            .rsplit_once(" deals ")?;
+        if actor != name && name.split_once(',').is_none_or(|(short, _)| short != actor) {
+            return None;
+        }
+        // A canonical positive decimal is one parser token. This fixes the
+        // target position independently of the supplied selector or graph.
+        let n = count.parse::<u32>().ok()?;
+        (n > 0 && n.to_string() == count).then_some(Self::OpponentDamage(printed_color(color)?, n))
+    }
+
+    pub fn ability(self, block: usize) -> serde_json::Value {
+        let (color, n) = match self {
+            Self::Scry(color, n) | Self::OpponentDamage(color, n) => (color, n),
+        };
+        let mut ability = cast_scry_ability_ast(color, n);
+        if matches!(self, Self::OpponentDamage(..)) {
+            ability["effects"][0]["steps"][0] = serde_json::json!({
+                "effect":"damage","source":{"ref":"self"},"amount":{"amount":"fixed","value":n},
+                "to":{"to":"player","ref":{"player":"target-opponent","selectionId":format!("line:{block}:12")}}});
+        }
+        ability
+    }
+}
+
+// Source provenance and executable IR must each account for every fixed cast
 // block. The source list also fixes its ordinal among printed triggered abilities.
-fn validate_cast_scry_source(d: &Definition) -> Result<(), String> {
-    let count = d.triggered.iter().filter(|a| has_look(&a.program)).count();
+fn validate_fixed_cast_source(d: &Definition) -> Result<(), String> {
+    let count = d
+        .triggered
+        .iter()
+        .filter(|a| {
+            has_look(&a.program)
+                || (matches!(
+                    a.condition,
+                    TriggerCondition::SpellCast {
+                        spell: TypePredicate::SpellColor { .. },
+                        ..
+                    }
+                ) && a
+                    .program
+                    .targets
+                    .iter()
+                    .any(|t| t.domain == TargetDomain::OpponentPlayer)
+                    && a.program
+                        .instructions
+                        .iter()
+                        .any(|i| matches!(i, Instruction::DealDamage { .. })))
+        })
+        .count();
     let raw = &d.provenance.source_json;
-    if count == 0 && !raw.contains(" spell, scry ") && !raw.contains(r"\u") {
+    if count == 0
+        && !raw.contains(" spell, scry ")
+        && !raw.contains(" damage to target opponent.")
+        && !raw.contains(r"\u")
+    {
         return Ok(());
     }
-    let fail = || "cast scry requires its printed color, amount and trigger block".to_owned();
+    let fail = || "fixed cast effect requires its printed operands and trigger block".to_owned();
     let source: serde_json::Value = strict_read(raw)?;
     let text = source["oracle_text"].as_str().unwrap_or("");
     let printed: Vec<_> = text
         .lines()
         .enumerate()
-        .filter_map(|(index, line)| printed_cast_scry(line).map(|operands| (index, line, operands)))
+        .filter_map(|(index, line)| {
+            FixedCastEffect::from_line(line, &d.name).map(|operands| (index, line, operands))
+        })
         .collect();
     if printed.len() != count {
         return Err(fail());
@@ -149,8 +225,8 @@ fn validate_cast_scry_source(d: &Definition) -> Result<(), String> {
     {
         return Err(fail());
     }
-    for (block, line, (color, n)) in printed {
-        if abilities[block] != cast_scry_ability_ast(color, n) {
+    for (block, line, operand) in printed {
+        if abilities[block] != operand.ability(block) {
             return Err(fail());
         }
         let index = abilities[..block]
@@ -159,16 +235,36 @@ fn validate_cast_scry_source(d: &Definition) -> Result<(), String> {
             .count();
         let a = d.triggered.get(index).ok_or_else(fail)?;
         let block = u32::try_from(block).map_err(|_| fail())?;
+        let (color, matches_effect, label) = match operand {
+            FixedCastEffect::Scry(color, n) => (
+                color,
+                matches!(a.program.instructions.as_slice(),
+                [Instruction::Scry {amount,source_block}] if *amount == Quantity::from(i64::from(n)) && *source_block == block),
+                line.to_owned(),
+            ),
+            FixedCastEffect::OpponentDamage(color, n) => {
+                let (head, effect) = line.split_once(" spell, ").ok_or_else(fail)?;
+                let (_, rest) = effect.rsplit_once(" deals ").ok_or_else(fail)?;
+                (
+                    color,
+                    matches!(a.program.instructions.as_slice(), [Instruction::DealDamage {amount,source_block,target_slot:0}]
+                    if *amount == Quantity::from(i64::from(n)) && *source_block == block)
+                        && matches!(a.program.targets.as_slice(), [target] if target.slot == 0 && target.domain == TargetDomain::OpponentPlayer && target.selection_id == format!("line:{block}:12"))
+                        && a.intervening_if.is_none()
+                        && a.death_filter.is_none(),
+                    format!("{head} spell, ~ deals {rest}"),
+                )
+            }
+        };
         if a.condition
             != (TriggerCondition::SpellCast {
                 caster: CasterRelation::Controller,
                 spell: TypePredicate::SpellColor { color },
             })
-            || !matches!(a.program.instructions.as_slice(),[Instruction::Scry {amount,source_block}]
-                if *amount == Quantity::from(i64::from(n)) && *source_block == block)
+            || !matches_effect
             || d.source_labels.as_ref().is_some_and(|l| {
                 l.triggered.get(index) != Some(&block)
-                    || l.blocks.get(block as usize).map(String::as_str) != Some(line)
+                    || l.blocks.get(block as usize).map(String::as_str) != Some(label.as_str())
             })
         {
             return Err(fail());
@@ -200,7 +296,7 @@ fn cast_scry_program(a: &TriggeredAbility) -> bool {
 }
 
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
-    validate_cast_scry_source(d)?;
+    validate_fixed_cast_source(d)?;
     if d.activated.iter().any(|a| has_look(&a.program))
         || d.triggered.iter().any(|a| {
             has_look(&a.program)

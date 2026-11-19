@@ -1486,7 +1486,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
     }
-    controller_library::validate_cast_scry(
+    controller_library::validate_fixed_cast_effects(
         &abilities,
         &result,
         &binding,

@@ -212,7 +212,7 @@ pub(super) fn validate_bindings(
 
 // Match both directions: an edited AST must not erase a printed lookup,
 // and an injected lookup cannot borrow a different printed effect.
-pub(super) fn validate_cast_scry(
+pub(super) fn validate_fixed_cast_effects(
     abilities: &[Ability],
     result: &ParseResult,
     binding: &serde_json::Value,
@@ -223,21 +223,25 @@ pub(super) fn validate_cast_scry(
     use serde_json::json;
     let fail = || {
         unsupported(
-            "triggered scry",
-            "requires one complete source-bound controller cast lookup",
+            "cast effect",
+            "requires a complete source-bound controller cast effect",
         )
     };
     for (block, (ability, line)) in abilities.iter().zip(&result.lines).enumerate() {
-        let printed = printed_cast_scry(&line.text);
+        let printed = FixedCastEffect::from_line(&line.text, "~");
         let uses_scry = matches!(ability, Ability::Triggered {effects,..}
             if effects.iter().flat_map(|sentence| &sentence.steps).any(|step| matches!(step,Step::Scry {..})));
-        if printed.is_none() && !uses_scry {
+        let uses_damage = matches!(ability, Ability::Triggered {trigger:SourceTrigger::Cast {..}, effects,..}
+            if effects.iter().flat_map(|s| &s.steps).any(|step| matches!(step, Step::Damage {to: DamageDestination::Player {reference}, ..} if reference["player"] == "target-opponent")));
+        if printed.is_none() && !uses_scry && !uses_damage {
             continue;
         }
-        let (color, count) = printed.ok_or_else(fail)?;
-        if !uses_scry
-            || decode::<serde_json::Value>(line.ability.get(), "triggered scry")?
-                != cast_scry_ability_ast(color, count)
+        let operand = printed.ok_or_else(fail)?;
+        let expected = operand.ability(block);
+        if !match operand {
+            FixedCastEffect::Scry(..) => uses_scry,
+            FixedCastEffect::OpponentDamage(..) => uses_damage,
+        } || decode::<serde_json::Value>(line.ability.get(), "triggered scry")? != expected
         {
             return Err(fail());
         }
@@ -260,12 +264,33 @@ pub(super) fn validate_cast_scry(
             "same-objects",
             Some(&json!({"cls":"spell"})),
         );
+        let (operation, inputs) = match operand {
+            FixedCastEffect::Scry(..) => ("scry", vec![]),
+            FixedCastEffect::OpponentDamage(..) => {
+                let step = &expected["effects"][0]["steps"][0];
+                let object = graph.id("/source", "object");
+                graph.reference(
+                    &format!("{effect}/source"),
+                    &step["source"],
+                    &object,
+                    "201.5",
+                );
+                let target = graph.target(
+                    &graph.id(&root, "ability"),
+                    &format!("{effect}/to/ref"),
+                    &step["to"]["ref"],
+                    &format!("line:{block}:12"),
+                );
+                graph.result(&effect, "quantity", "measured-quantity", None);
+                ("damage", vec![object, target])
+            }
+        };
         graph.node(
             &effect,
             "event",
             "event",
             json!({"scope":graph.id(&root,"ability"),
-            "operation":"scry","inputs":[],"availability":"when-performed","rules":["608.2c"]}),
+            "operation":operation,"inputs":inputs,"availability":"when-performed","rules":["608.2c"]}),
         );
         graph.validate_block(binding, &root)?;
     }
@@ -281,7 +306,7 @@ fn cast_scry_checks_printed_color_count_and_controller_binding() {
     let abilities = read_abilities(result.abilities.get()).unwrap();
     let binding = decode(record.binding.get(), "binding").unwrap();
     let source = decode(record.source.get(), "source").unwrap();
-    validate_cast_scry(
+    validate_fixed_cast_effects(
         &abilities,
         &result,
         &binding,
@@ -297,7 +322,7 @@ fn cast_scry_checks_printed_color_count_and_controller_binding() {
     });
     let substituted = read_abilities(&raw_abilities.to_string()).unwrap();
     assert!(
-        validate_cast_scry(
+        validate_fixed_cast_effects(
             &substituted,
             &result,
             &binding,
@@ -327,7 +352,7 @@ fn cast_scry_checks_printed_color_count_and_controller_binding() {
             .unwrap();
         row[field] = serde_json::json!(value);
         assert!(
-            validate_cast_scry(
+            validate_fixed_cast_effects(
                 &abilities,
                 &result,
                 &corrupted,
@@ -340,7 +365,7 @@ fn cast_scry_checks_printed_color_count_and_controller_binding() {
     }
     result.lines[1].text = result.lines[1].text.replace("scry 2", "scry 5");
     assert!(
-        validate_cast_scry(
+        validate_fixed_cast_effects(
             &abilities,
             &result,
             &binding,
@@ -411,5 +436,124 @@ fn complete_cast_scry_binds_definition_block_color_amount_and_source() {
         }
         d.capabilities = d.requirements();
         assert!(d.validate().is_err(), "{change}");
+    }
+}
+
+#[test]
+fn fixed_cast_opponent_damage_proves_actor_selection_event_and_omission() {
+    use serde_json::json;
+    let fixture =
+        include_str!("../../../tests/fixtures/ramos/3f31c423-d45c-4c3e-b7d4-ca125be0f92c.json");
+    let manifest = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+    let raw = crate::tests::changed_source(fixture, |r| {
+        let name = "Violet Observatory";
+        let line = "Whenever you cast a black spell, ~ deals 5 damage to target opponent.";
+        r["source"]["name"] = json!(name);
+        r["source"]["oracle_text"] = json!(line.replace('~', name));
+        let result = &mut r["faces"][0]["result"];
+        result["name"] = json!(name);
+        let mut ast = result["abilities"][2].clone();
+        ast["trigger"]["what"]["colors"] = json!(["black"]);
+        ast["effects"][0]["steps"][0]["amount"]["value"] = json!(5);
+        ast["effects"][0]["steps"][0]["to"]["ref"]["selectionId"] = json!("line:0:12");
+        result["lines"] = json!([{"ok":true,"text":line,"ability":ast}]);
+        result["abilities"] = json!([ast]);
+        let graph = &mut r["binding"];
+        for field in ["nodes", "references"] {
+            graph[field].as_array_mut().unwrap().retain_mut(|row| {
+                let path = row["path"].as_str().unwrap();
+                if path == "/faces/0" {
+                    row["name"] = json!(name);
+                    return true;
+                }
+                path == "/source" || path.starts_with("/faces/0/abilities/2")
+            });
+            graph[field] = serde_json::from_str(
+                &graph[field]
+                    .to_string()
+                    .replace("/abilities/2", "/abilities/0")
+                    .replace("line:2:12", "line:0:12")
+                    .replace("line%3A2%3A12", "line%3A0%3A12"),
+            )
+            .unwrap();
+        }
+        graph["counts"] = json!({"obligations":3,"bound":3,"unresolved":0});
+    });
+    let parsed = compile(manifest, &raw);
+    let CompileResult::Lowered { definition } = parsed else {
+        panic!("synthetic cast damage must lower: {parsed:?}")
+    };
+    for change in ["omission", "amount", "selection", "condition"] {
+        let mut d = definition.clone();
+        match change {
+            "omission" => d.triggered.clear(),
+            "amount" => {
+                let Instruction::DealDamage { amount, .. } =
+                    &mut d.triggered[0].program.instructions[0]
+                else {
+                    panic!()
+                };
+                *amount = 1.into();
+            }
+            "selection" => d.triggered[0].program.targets[0].selection_id = "line:1:12".into(),
+            _ => d.triggered[0].condition = TriggerCondition::SelfDies,
+        }
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err(), "{change}");
+    }
+    for change in [
+        "actor",
+        "origin",
+        "scope",
+        "selection",
+        "timing",
+        "inputs",
+        "result",
+        "operator",
+        "count",
+    ] {
+        let corrupted = crate::tests::changed_source(&raw, |r| {
+            if matches!(change, "operator" | "count") {
+                let result = &mut r["faces"][0]["result"];
+                let step = &mut result["abilities"][0]["effects"][0]["steps"][0];
+                if change == "count" {
+                    step["amount"]["value"] = json!(6)
+                } else {
+                    *step = json!({"effect":"scry","amount":{"amount":"fixed","value":5}})
+                }
+                result["lines"][0]["ability"] = result["abilities"][0].clone();
+                return;
+            }
+            let (field, kind, key, value) = match change {
+                "actor" => ("references", "/trigger/who", "target", json!("other")),
+                "origin" => ("references", "/steps/0/source", "target", json!("other")),
+                "scope" => ("nodes", "selection", "scope", json!("other")),
+                "selection" => (
+                    "nodes",
+                    "selection",
+                    "expression",
+                    json!({"player":"target-player","selectionId":"line:0:12"}),
+                ),
+                "timing" => ("nodes", "selection", "timing", json!("resolution")),
+                "inputs" => ("nodes", "damage", "inputs", json!([])),
+                _ => ("nodes", "quantity", "identity", json!("same-objects")),
+            };
+            let row = r["binding"][field]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|r| {
+                    r["node"] == kind
+                        || r["operation"] == kind
+                        || r["result"] == kind
+                        || r["path"].as_str().unwrap().ends_with(kind)
+                })
+                .unwrap();
+            row[key] = value;
+        });
+        assert!(
+            !matches!(compile(manifest, &corrupted), CompileResult::Lowered { .. }),
+            "{change}"
+        );
     }
 }
