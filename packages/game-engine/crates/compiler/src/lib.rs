@@ -1989,7 +1989,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 instructions: vec![],
                 modes: vec![],
             };
-            optional_costs::declare(&abilities, &binding, &definition.oracle_id, &mut program)?;
+            optional_costs::declare(
+                &abilities,
+                &result,
+                &binding,
+                &definition.oracle_id,
+                &mut program,
+            )?;
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
                 if let Ability::Keywords { keywords, .. } = ability {

@@ -51,6 +51,7 @@ fn bound_reference(
 
 pub(super) fn declare(
     abilities: &[Ability],
+    result: &ParseResult,
     binding: &serde_json::Value,
     oracle: &str,
     program: &mut SpellProgram,
@@ -92,12 +93,19 @@ pub(super) fn declare(
                     "requires complete fixed mana symbols",
                 ));
             }
-            let mana = mana_cost(
-                &symbols
-                    .iter()
-                    .map(|s| format!("{{{s}}}"))
-                    .collect::<String>(),
-            )?;
+            let printed_cost = symbols
+                .iter()
+                .map(|s| format!("{{{s}}}"))
+                .collect::<String>();
+            if normalization::literal_spelling(&result.lines[block].text)
+                != format!("Kicker {printed_cost}")
+            {
+                return Err(unsupported(
+                    "keyword.kicker.cost",
+                    "mana symbols disagree with the complete source block",
+                ));
+            }
+            let mana = mana_cost(&printed_cost)?;
             let path = format!("/faces/0/abilities/{block}/keywords/{index}");
             let identity = format!("card:{oracle}{path}#keyword");
             let nodes = binding["nodes"]

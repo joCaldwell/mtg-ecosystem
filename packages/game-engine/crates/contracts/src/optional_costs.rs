@@ -76,6 +76,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     Ok(())
 }
 pub(super) fn schema(schema: &mut serde_json::Value) {
+    // Schema constrains the identity syntax. Definition validation checks the
+    // relationship between the enclosing source, its declaration, and the draw.
     use serde_json::json;
     let conditional =
         json!({"required":["op"],"properties":{"op":{"const":"draw_cards_if_additional_cost"}}});

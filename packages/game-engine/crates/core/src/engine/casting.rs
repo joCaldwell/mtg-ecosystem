@@ -196,9 +196,6 @@ impl Game {
         {
             return Ok(Frame::AdditionalCosts { cast });
         }
-        if definition.x_mana_cost && stack.x.is_none() {
-            return Ok(Frame::AnnounceX { cast });
-        }
         if !definition
             .spell
             .as_ref()
@@ -208,6 +205,9 @@ impl Game {
             && stack.mode.is_none()
         {
             return Ok(Frame::Modes { cast });
+        }
+        if definition.x_mana_cost && stack.x.is_none() {
+            return Ok(Frame::AnnounceX { cast });
         }
         Ok(
             match self.program()?.targets.first().map(|target| target.domain) {

@@ -127,7 +127,7 @@ fn ramos_m3c_contract_missing_cost_identity_link_capability_and_other_contexts_r
 }
 #[test]
 fn ramos_m3c_complete_source_near_misses_cannot_discard_cost_or_condition() {
-    for case in 0..16 {
+    for case in 0..17 {
         let raw = tests::changed_source(BLOW, |r| {
             let abilities = &mut r["faces"][0]["result"]["abilities"];
             match case {
@@ -196,6 +196,10 @@ fn ramos_m3c_complete_source_near_misses_cannot_discard_cost_or_condition() {
                     r["faces"][0]["result"]["abilities"][1]["effects"][1]["conditionKind"] =
                         serde_json::Value::Null
                 }
+                16 => {
+                    abilities[0]["keywords"][0]["cost"][0]["symbols"] =
+                        serde_json::json!(["1", "U"])
+                }
                 _ => unreachable!(),
             }
             let result = &mut r["faces"][0]["result"];
@@ -237,7 +241,23 @@ fn ramos_m3c_nonempty_source_line_with_empty_effects_rejects() {
 #[test]
 fn ramos_m3c_fixed_mana_and_draw_quantities_are_parameters() {
     let raw = tests::changed_source(BLOW, |r| {
+        r["source"]["oracle_text"] = r["source"]["oracle_text"]
+            .as_str()
+            .unwrap()
+            .replace("{2}{U}", "{17}{U}{U}")
+            .replace("two cards", "nineteen cards")
+            .into();
         let result = &mut r["faces"][0]["result"];
+        result["lines"][0]["text"] = result["lines"][0]["text"]
+            .as_str()
+            .unwrap()
+            .replace("{2}{U}", "{17}{U}{U}")
+            .into();
+        result["lines"][1]["text"] = result["lines"][1]["text"]
+            .as_str()
+            .unwrap()
+            .replace("two cards", "nineteen cards")
+            .into();
         result["abilities"][0]["keywords"][0]["cost"][0]["symbols"] =
             serde_json::json!(["17", "U", "U"]);
         result["abilities"][1]["effects"][1]["steps"][0]["amount"]["value"] = 19.into();
@@ -245,7 +265,7 @@ fn ramos_m3c_fixed_mana_and_draw_quantities_are_parameters() {
             result["lines"][i]["ability"] = result["abilities"][i].clone();
         }
     });
-    // Synthetic AST operand control, not an additional admitted source.
+    // Synthetic source and AST parameter control.
     let d = lower(&raw);
     assert_eq!(
         d.spell.as_ref().unwrap().optional_additional_costs[0]
