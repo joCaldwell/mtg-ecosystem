@@ -164,6 +164,14 @@ pub(super) fn extend_schema(schema: &mut Value) {
             ]}}
         }})
     };
+    let targets = json!({"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
+        "slot":{"const":0},"selection_id":{"const":TARGET_ID},
+        "domain":{"const":"battlefield_permanent"},
+        "filter":{"type":"object","properties":{
+            "types":{"const":[]},"non_types":{"const":["land"]},"non_colors":{"const":[]},
+            "opponent":{"const":false},"tapped":{"const":false}
+        }}
+    }}});
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()
@@ -185,14 +193,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
                         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
                         "modes":{"maxItems":0},
-                        "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
-                            "slot":{"const":0},"selection_id":{"const":TARGET_ID},
-                            "domain":{"const":"battlefield_permanent"},
-                            "filter":{"type":"object","properties":{
-                                "types":{"const":[]},"non_types":{"const":["land"]},"non_colors":{"const":[]},
-                                "opponent":{"const":false},"tapped":{"const":false}
-                            }}
-                        }}},
+                        "targets":targets,
                         "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
                             "op":{"const":"destroy_permanent"},"target_slot":{"const":0},
                             "optional":{"const":false},"regeneration_forbidden":{"const":false},
