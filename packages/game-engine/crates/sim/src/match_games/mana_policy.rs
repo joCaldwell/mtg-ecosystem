@@ -127,7 +127,7 @@ pub(super) fn plan(
             ManaProduction::Fixed { symbols } => symbols.clone(),
             ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
             ManaProduction::CommanderColor => identity.clone(),
-            ManaProduction::Choice { .. } => continue,
+            ManaProduction::Choice { .. } | ManaProduction::OpponentLandColors => continue,
         };
         if colors.is_empty() {
             continue;

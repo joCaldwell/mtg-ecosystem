@@ -34,6 +34,7 @@ mod library_selection;
 #[cfg(test)]
 mod library_selection_tests;
 mod normalization;
+mod opponent_mana;
 mod optional_costs;
 mod pain_mana;
 mod self_reference;
@@ -1153,6 +1154,12 @@ enum SourceMana {
         amount: Count,
         whose: PlayerSelector,
     },
+    CouldProduce {
+        amount: Count,
+        what: serde_json::Value,
+        #[serde(rename = "colorOnly")]
+        color_only: bool,
+    },
 }
 fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     let mut cost = ManaCost {
@@ -1366,6 +1373,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let opponent_land_mana =
+        opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
@@ -1471,10 +1480,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
         ..SourceLabels::default()
     };
-    let mana_abilities = disjoint_mana.map(Vec::from).unwrap_or_default();
-    labels
-        .mana
-        .extend(mana_abilities.iter().map(|a| a.source_block));
+    let mana_abilities: Vec<_> = disjoint_mana
+        .into_iter()
+        .flatten()
+        .chain(opponent_land_mana)
+        .collect();
+    labels.mana.extend(mana_abilities.iter().map(|a| a.source_block));
     let mut definition = Definition {
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
@@ -1547,7 +1558,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            // A whole-source lowering has already consumed both mana blocks.
+            // A whole-source mana lowering has already consumed every block.
             let remaining_abilities = if definition.mana_abilities.is_empty() {
                 abilities.as_slice()
             } else {

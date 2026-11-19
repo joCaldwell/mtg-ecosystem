@@ -1340,6 +1340,7 @@ impl Strategy<'_> {
                             .iter()
                             .map(|a| match &a.production {
                                 mtg_contracts::ManaProduction::Fixed { symbols } => symbols.len(),
+                                mtg_contracts::ManaProduction::OpponentLandColors => 0,
                                 _ => 1,
                             })
                             .max()

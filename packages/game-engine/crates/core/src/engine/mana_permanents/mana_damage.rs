@@ -66,7 +66,7 @@ impl Game {
             || !a.receipts.is_empty()
             || definition.mana_abilities.get(branch.index as usize) != Some(&a.ability)
             || !self
-                .mana_colors(a.player, &a.ability.production)
+                .mana_colors(a.player, &a.ability.production)?
                 .contains(&branch.color)
             || a.ability.self_damage.as_ref() != Some(&damage.original_amount)
             || tx.cause != a.cause()

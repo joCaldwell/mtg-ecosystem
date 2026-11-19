@@ -333,6 +333,7 @@ mod library_order;
 mod library_position_memory;
 mod library_selection;
 mod mana_permanents;
+mod opponent_mana;
 #[cfg(test)]
 mod mana_tests;
 mod mill;
@@ -2425,11 +2426,11 @@ impl Game {
         let o = self.current(object)?;
         let d = self.definition(object.card)?;
         if o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
-            return Ok(d
-                .mana_abilities
-                .iter()
-                .flat_map(|ability| self.mana_colors(o.controller, &ability.production))
-                .collect());
+            let mut colors = Vec::new();
+            for ability in &d.mana_abilities {
+                colors.extend(self.mana_colors(o.controller, &ability.production)?);
+            }
+            return Ok(colors);
         }
         if o.zone != Zone::Battlefield || d.intrinsic_zone != Some(FunctioningZone::Battlefield) {
             return Ok(vec![]);

@@ -166,12 +166,13 @@ impl Game {
         self.definition(object.card)
             .is_ok_and(|d| !d.mana_abilities.is_empty())
     }
-    pub(super) fn mana_colors(&self, player: PlayerId, production: &ManaProduction) -> Vec<Color> {
-        match production {
+    pub(super) fn mana_colors(&self, player: PlayerId, production: &ManaProduction) -> Result<Vec<Color>, String> {
+        Ok(match production {
             ManaProduction::Fixed { symbols } | ManaProduction::Choice { colors: symbols } => {
                 symbols.clone()
             }
             ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+            ManaProduction::OpponentLandColors => return self.opponent_land_mana_colors(player),
             ManaProduction::CommanderColor => self
                 .prepared
                 .config
@@ -273,7 +274,7 @@ impl Game {
             } else {
                 charge
             }
-        })
+        }))
     }
 
     pub(super) fn underlying_mana_frame<'a>(&self, frame: &'a Frame) -> &'a Frame {
@@ -523,7 +524,7 @@ impl Game {
             ManaStage::Color => Request::ManaColor {
                 decision_id: self.state.rules.revision,
                 player: a.player,
-                colors: self.mana_colors(a.player, &a.ability.production),
+                colors: self.mana_colors(a.player, &a.ability.production)?,
             },
         })
     }
@@ -550,7 +551,7 @@ impl Game {
                 .map(|_| ()),
             (ManaStage::Color, Response::ManaColor { color })
                 if self
-                    .mana_colors(player, &a.ability.production)
+                    .mana_colors(player, &a.ability.production)?
                     .contains(color) =>
             {
                 Ok(())
@@ -670,7 +671,7 @@ impl Game {
         }
         match a.ability.production {
             ManaProduction::Fixed { .. } => self.resolve_mana_ability(a, None),
-            _ if self.mana_colors(a.player, &a.ability.production).is_empty() => {
+            _ if self.mana_colors(a.player, &a.ability.production)?.is_empty() => {
                 self.resolve_mana_ability(a, None)
             }
             _ => {
@@ -1007,6 +1008,14 @@ impl Game {
                 self.state.rules.frame = *a.resume;
             }
             self.state.rules.pending = None;
+        } else if let Frame::ManaAbility { activation } = &self.state.rules.frame
+            && activation.stage == ManaStage::Color
+            && activation.ability.production == ManaProduction::OpponentLandColors
+            && self.opponent_land_mana_colors(activation.player)?.is_empty()
+        {
+            let activation = *activation.clone();
+            self.state.rules.pending = None;
+            return self.resolve_mana_ability(activation, None);
         }
         Ok(())
     }
@@ -1037,6 +1046,9 @@ impl Game {
                 || !self.mana_resume_player(&a.resume, a.player)
                 || (a.stage == ManaStage::Color) != a.paid.is_some()
                 || a.receipts.iter().any(|r| r.player != a.player)
+                || (a.stage == ManaStage::Color
+                    && a.ability.production == ManaProduction::OpponentLandColors
+                    && self.opponent_land_mana_colors(a.player)?.is_empty())
             {
                 return Err("nested mana snapshot invariant".into());
             }
