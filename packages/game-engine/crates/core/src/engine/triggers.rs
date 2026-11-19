@@ -1074,12 +1074,12 @@ impl Game {
         }
         Ok(())
     }
-    fn apnap_players(&self) -> Vec<PlayerId> {
+    pub(super) fn apnap_seats(&self) -> impl Iterator<Item = PlayerId> {
         let anchor = self.state.rules.turn_owner.0;
-        (0..4)
-            .map(|offset| PlayerId((anchor + offset) % 4))
-            .filter(|p| self.is_live(*p))
-            .collect()
+        (0..4).map(move |offset| PlayerId((anchor + offset) % 4))
+    }
+    pub(super) fn apnap_players(&self) -> Vec<PlayerId> {
+        self.apnap_seats().filter(|p| self.is_live(*p)).collect()
     }
     pub(super) fn begin_trigger_placement(
         &mut self,

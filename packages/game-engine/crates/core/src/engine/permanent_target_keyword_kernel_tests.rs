@@ -138,6 +138,8 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
         cursor: 0,
         target_facts: vec![None],
         outcomes: vec![],
+        group_discard: None,
+        each_player_draw: None,
         random_discard: None,
         draw_progress: None,
         set_damage: None,

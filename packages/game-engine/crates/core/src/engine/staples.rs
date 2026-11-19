@@ -183,6 +183,11 @@ impl Game {
         instruction: &Instruction,
     ) -> Result<PlayerId, String> {
         match instruction {
+            Instruction::DrawEachPlayer { .. } => frame
+                .each_player_draw
+                .as_ref()
+                .and_then(|scope| scope.remaining.first().copied())
+                .ok_or_else(|| "missing current each-player draw seat".into()),
             Instruction::DrawCards {
                 recipient: Some(LifeRecipient::Target { target_slot }),
                 ..

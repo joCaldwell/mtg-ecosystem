@@ -31,9 +31,11 @@ mod draw_discard;
 #[cfg(test)]
 mod draw_discard_tests;
 mod draw_land_allowance;
+mod each_player_draw;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod group_discard;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
@@ -1486,7 +1488,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
+    let group_discard = group_discard::lower(&result, &shape, &binding, types.kind)?;
     let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
         && let [Ability::Spell { .. }] = abilities.as_slice()
     {
@@ -1960,6 +1964,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         labels.triggered.push(source_block(block)?);
                         let ability = if let Some(ability) = source_tap_trigger.take() {
                             ability
+                        } else if let Some(discard) = &group_discard {
+                            group_discard::entry_trigger(discard.clone())
                         } else if flash_end_step_draw {
                             unlimited_hand_size::lower_end_step_draw(
                                 trigger,
@@ -2050,6 +2056,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(count) = &each_player_draw {
+                    program.instructions.push(Instruction::DrawEachPlayer {
+                        count: count.clone(),
+                        source_block: 0,
+                    });
+                    continue;
+                }
                 if let Some(instructions) = draw_land_allowance.take() {
                     if program.additional_sacrifice.is_some()
                         || !program.optional_additional_costs.is_empty()
@@ -2060,6 +2073,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ));
                     }
                     program.instructions.extend(instructions);
+                    continue;
+                }
+                if let Some(discard) = &group_discard {
+                    program.instructions.push(discard.clone());
                     continue;
                 }
                 if announced_x_effects {
@@ -2265,7 +2282,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         nodes
             .iter()
             .any(|n| n["node"] == "event" && n["operation"] == "discard")
-    }) && discard_target.is_none()
+    }) && group_discard.is_none()
+        && discard_target.is_none()
         && !announced_x_effects
         && !definition.spell.as_ref().is_some_and(|p| {
             controller_draw_discard_program(p)

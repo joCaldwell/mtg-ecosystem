@@ -122,8 +122,8 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     let wipe = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
         "required":["op","amount"],"properties":{"op":{"const":"damage_set"},"amount":{"const":{"amount":"announced_x"}}}
     }}}}}});
-    let random_discard_x = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
-        "required":["op","count"],"properties":{"op":{"const":"discard_target_player_at_random"},"count":{"const":{"amount":"announced_x"}}}
+    let counted_x = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
+        "required":["op","count"],"properties":{"op":{"enum":["discard_target_player_at_random","draw_each_player"]},"count":{"const":{"amount":"announced_x"}}}
     }}}}}});
-    defs.push(json!({"if":{"anyOf":[has,wipe,random_discard_x]},"then":{"required":["x_mana_cost"],"properties":{"x_mana_cost":{"const":true}}},"else":{"properties":{"x_mana_cost":{"const":false}}}}));
+    defs.push(json!({"if":{"anyOf":[has,wipe,counted_x]},"then":{"required":["x_mana_cost"],"properties":{"x_mana_cost":{"const":true}}},"else":{"properties":{"x_mana_cost":{"const":false}}}}));
 }

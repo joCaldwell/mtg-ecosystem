@@ -116,10 +116,10 @@ optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
 opponent hand-size reductions draw at their controller's end step. Paid draws
 survive source sacrifice. Counted
 draws precede hand returns or simultaneous discards. Commander replacements
-precede return successors; discard precedes Commander SBAs. Targets choose
-private discards, clamped to hand size;
-failed draws continue. Targeted draws share progress. Random discard samples the
-target's hand without replacement using the seeded stream. Departure never redirects.
+precede return successors. Targeted and group discards clamp to hand size.
+Group choices stay private until one simultaneous discard before Commander SBAs.
+Each-player draws finish each seat in turn order, including failed attempts.
+Seeded random discard samples without replacement. Departure never redirects attempts.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
