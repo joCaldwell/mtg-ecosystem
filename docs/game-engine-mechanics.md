@@ -570,7 +570,7 @@ hosting/search or consumer admission; Card IR remains schema 1.
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
 controllers, actors, incarnations and witnesses. Power-filtered entries use
-derived post-event power. Intervening conditions recheck at resolution. Source
+derived post-event power. Intervening conditions recheck at resolution. Cast-gated entries retain the paid stack predecessor, caster and battlefield successor. Source
 status uses current incarnation or departure-refreshed LKI in live continuations.
 Cast triggers collect after
 successful payment; declared attacks use the real declaration batch. Ordinary

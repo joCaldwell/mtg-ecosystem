@@ -46,9 +46,19 @@ impl<'a> Bindings<'a> {
     }
 
     pub(super) fn reference(&mut self, path: &str, expression: &Value, target: &str, rule: &str) {
+        self.reference_rules(path, expression, target, &[rule]);
+    }
+
+    pub(super) fn reference_rules(
+        &mut self,
+        path: &str,
+        expression: &Value,
+        target: &str,
+        rules: &[&str],
+    ) {
         self.references
             .push(json!({"path":path,"expression":expression,
-            "binding":"bound","target":target,"rules":[rule]}));
+            "binding":"bound","target":target,"rules":rules}));
     }
 
     pub(super) fn target(
@@ -129,6 +139,15 @@ impl<'a> Bindings<'a> {
     }
 
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        self.validate_with_features(binding, &[], message)
+    }
+
+    pub(super) fn validate_with_features(
+        &self,
+        binding: &Value,
+        features: &[Value],
+        message: &str,
+    ) -> Result<(), Failure> {
         let same_members = |actual: &Value, expected: &[Value]| {
             actual.as_array().is_some_and(|items| {
                 items.len() == expected.len() && expected.iter().all(|item| items.contains(item))
@@ -143,10 +162,10 @@ impl<'a> Bindings<'a> {
                 != json!({"edition":RULES_EDITION,
                 "url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"})
             || binding["identity"] != self.identity
-            || binding["fullyBound"] != true
+            || binding["fullyBound"] != features.is_empty()
             || binding["referencesBound"] != true
             || binding["diagnostics"] != json!([])
-            || binding["engineFeatures"] != json!([])
+            || !same_members(&binding["engineFeatures"], features)
             || binding["counts"]
                 != json!({"obligations":self.references.len(),"bound":self.references.len(),"unresolved":0})
             || !same_members(&binding["nodes"], &self.nodes)

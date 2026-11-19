@@ -13,6 +13,7 @@ mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
 mod bindings;
+mod cast_entry;
 mod cast_origin;
 pub mod catalog;
 mod controller_counted_draw;
@@ -275,6 +276,10 @@ struct ModeOption {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "condition", rename_all = "kebab-case")]
 enum SourceCondition {
+    WasCast {
+        what: serde_json::Value,
+        by: PlayerSelector,
+    },
     Control {
         who: SourceControlPlayer,
         what: TriggerObject,
@@ -2387,6 +2392,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .validate()
         .map_err(|e| unsupported("definition", e))?;
     self_spell_protection::validate_binding(&definition, &binding)?;
+    cast_entry::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     if let Some(spell) = &definition.spell
@@ -5323,6 +5329,15 @@ fn lower_trigger(
     }
     let intervening_if = match intervening {
         None => None,
+        Some(SourceCondition::WasCast { what, by })
+            if condition == TriggerCondition::SelfEntersBattlefield
+                && *what == serde_json::json!({"ref":"it"})
+                && by.player == "you"
+                && by.of.is_none()
+                && by.selection_id.is_none() =>
+        {
+            Some(InterveningCondition::SourceCastByController)
+        }
         Some(SourceCondition::Control {
             who,
             what: TriggerObject::Filter { filter, count },

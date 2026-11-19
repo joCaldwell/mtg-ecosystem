@@ -8,6 +8,7 @@ mod opponent_mana;
 pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
+mod cast_entry;
 mod cast_origin;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -261,6 +262,7 @@ pub enum Capability {
     GroupedCreatureDamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
+    CastEntryConditionV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
@@ -1739,6 +1741,7 @@ impl TriggerCondition {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCondition {
     ControllerHandEmpty,
+    SourceCastByController,
     SourceStatus { status: TapStatus },
     ControllerHasCreatureWithPower { minimum_power: Quantity },
 }
@@ -2288,6 +2291,9 @@ impl Definition {
                 TriggerCondition::SelfMoved { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
             };
             set.insert(trigger_capability);
+            if ability.intervening_if == Some(InterveningCondition::SourceCastByController) {
+                set.insert(Capability::CastEntryConditionV1);
+            }
             if ability.intervening_if.is_some() {
                 set.insert(Capability::InterveningIfV1);
             }
@@ -2371,6 +2377,7 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        cast_entry::validate_source(self)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
         conditional_lands::validate_definition(self)?;
@@ -3134,6 +3141,14 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if ability.intervening_if == Some(InterveningCondition::SourceCastByController)
+                && (ability.condition != TriggerCondition::SelfEntersBattlefield
+                    || c.kind != CardKind::Creature)
+            {
+                return Err(
+                    "cast-entry condition requires the entering creature's own trigger".into(),
+                );
+            }
             if ability.condition == TriggerCondition::SelfBecomesTapped {
                 // The complete source and trigger shape was checked above.
                 validate_instruction_program(p)?;
@@ -3244,6 +3259,7 @@ impl Definition {
                         && matches!(
                             ability.intervening_if,
                             Some(InterveningCondition::ControllerHasCreatureWithPower { .. })
+                                | Some(InterveningCondition::SourceCastByController)
                         )))
                 || (matches!(
                     ability.intervening_if,
@@ -6350,6 +6366,7 @@ pub fn catalog_schema() -> serde_json::Value {
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
+    cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
             "spell":{"properties":{"predicate":{"const":"spell_color"}}}
@@ -6634,6 +6651,7 @@ mod tests {
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
+            CastEntryConditionV1,
             CastTriggerV1,
             CastOriginTriggerV1,
             CastColorPredicateV1,
@@ -6794,6 +6812,25 @@ mod tests {
             spell: TypePredicate::SpellColor { color: Color::U },
         };
         color_cast.capabilities = color_cast.requirements();
+        let mut cast_entry = color_cast.clone();
+        cast_entry.triggered[0].condition = TriggerCondition::SelfEntersBattlefield;
+        cast_entry.triggered[0].intervening_if = Some(InterveningCondition::SourceCastByController);
+        let synthetic: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-cast-entry.json"
+        ))
+        .unwrap();
+        cast_entry.name = synthetic["source"]["name"].as_str().unwrap().into();
+        cast_entry.oracle_id = synthetic["oracleIdentity"].as_str().unwrap().into();
+        cast_entry.provenance.source_json = canonical(&synthetic["source"]).unwrap();
+        cast_entry.provenance.abilities_json =
+            canonical(&synthetic["faces"][0]["result"]["abilities"]).unwrap();
+        cast_entry.provenance.source_sha256 = sha256(cast_entry.provenance.source_json.as_bytes());
+        cast_entry.provenance.ast_sha256 =
+            sha256(format!("[{}]", cast_entry.provenance.abilities_json).as_bytes());
+        cast_entry.triggered[0].program.instructions =
+            vec![Instruction::OptionalDrawCards { source_block: 0 }];
+        cast_entry.capabilities = cast_entry.requirements();
+        definitions.push(cast_entry);
         definitions.push(color_cast);
         definitions.push(origin_draw);
         counted.static_abilities = vec![StaticAbility {

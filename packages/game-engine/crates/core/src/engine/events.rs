@@ -1482,7 +1482,7 @@ impl Game {
         let mut occurrences = vec![];
         self.apply_group(
             &group,
-            batch_id,
+            (batch_id, &cause),
             &mut vec![],
             &mut occurrences,
             Some(&before),
@@ -1505,7 +1505,7 @@ impl Game {
     fn apply_group(
         &mut self,
         group: &EventGroup,
-        batch: u64,
+        (batch, cause): (u64, &BatchCause),
         path: &mut Vec<u32>,
         out: &mut Vec<OccurrenceResult>,
         prepared: Option<&PreEventFacts>,
@@ -1524,13 +1524,13 @@ impl Game {
                     self.reconcile_controllers()?;
                 }
                 if let Some(before) = trigger_before {
-                    self.collect_triggers(&before, &out[offset..])?;
+                    self.collect_triggers(cause, &before, &out[offset..])?;
                 }
             }
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_group(child, batch, path, out, None, entry)?;
+                    self.apply_group(child, (batch, cause), path, out, None, entry)?;
                     path.pop();
                 }
             }
@@ -1585,7 +1585,7 @@ impl Game {
                 if occurrences.iter().any(changes_control_inputs) {
                     self.reconcile_controllers()?;
                 }
-                self.collect_triggers(&common, &out[offset..])?;
+                self.collect_triggers(cause, &common, &out[offset..])?;
             }
         }
         Ok(())

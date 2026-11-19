@@ -1177,5 +1177,7 @@ mod targeted_discard_tests;
 #[path = "creature_entry_return_tests.rs"]
 mod creature_entry_return_tests;
 
+#[path = "cast_entry_tests.rs"]
+mod cast_entry_tests;
 #[path = "each_player_draw_tests.rs"]
 mod each_player_draw_tests;
