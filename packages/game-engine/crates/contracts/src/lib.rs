@@ -6180,33 +6180,6 @@ mod tests {
             .find(|d| d.name == "Grizzly Bears")
             .unwrap()
             .clone();
-        let mut distinct_colors = counted.clone();
-        distinct_colors.source_labels = None;
-        distinct_colors.characteristics.toughness = Some(Quantity::zero());
-        distinct_colors.keywords = vec![KeywordAbility::Vigilance];
-        let scope = PermanentColorScope::Controller;
-        distinct_colors.static_abilities = vec![StaticAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::ModifySourceByDistinctPermanentColors {
-                scope,
-                power_per_color: 2.into(),
-                toughness_per_color: 3.into(),
-            },
-        }];
-        distinct_colors.mana_abilities = vec![ManaAbility {
-            self_damage: None,
-            restriction: None,
-            costs: PermanentActivationCosts {
-                remove_source_plus_one_counters: None,
-                tap: true,
-                mana: None,
-                sacrifice: false,
-            },
-            production: ManaProduction::EachPermanentColor { scope },
-            source_block: 2,
-        }];
-        distinct_colors.capabilities = distinct_colors.requirements();
-        definitions.push(distinct_colors);
         definitions.push(successor_tuck::witness(counted.clone()));
         let mut origin_draw = counted.clone();
         origin_draw.source_labels = None;
@@ -6238,6 +6211,33 @@ mod tests {
         }];
         origin_draw.capabilities = origin_draw.requirements();
         definitions.push(origin_draw);
+        let mut distinct_colors = counted.clone();
+        distinct_colors.source_labels = None;
+        distinct_colors.characteristics.toughness = Some(Quantity::zero());
+        distinct_colors.keywords = vec![KeywordAbility::Vigilance];
+        let scope = PermanentColorScope::Controller;
+        distinct_colors.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifySourceByDistinctPermanentColors {
+                scope,
+                power_per_color: 2.into(),
+                toughness_per_color: 3.into(),
+            },
+        }];
+        distinct_colors.mana_abilities = vec![ManaAbility {
+            self_damage: None,
+            restriction: None,
+            costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
+                tap: true,
+                mana: None,
+                sacrifice: false,
+            },
+            production: ManaProduction::EachPermanentColor { scope },
+            source_block: 2,
+        }];
+        distinct_colors.capabilities = distinct_colors.requirements();
+        definitions.push(distinct_colors);
         counted.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Stack,
             effect: StaticEffect::ReduceSelfGenericCost {
