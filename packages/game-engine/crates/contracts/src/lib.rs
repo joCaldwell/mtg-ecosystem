@@ -3,6 +3,7 @@ mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
+mod distinct_permanent_colors;
 mod opponent_mana;
 pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
@@ -255,6 +256,7 @@ pub enum Capability {
     CastArtifactV1,
     PermanentManaV1,
     OpponentLandManaV1,
+    DistinctPermanentColorsV1,
     CompositeActivationCostV1,
     CastEnchantmentV1,
     AuraControlV1,
@@ -1089,6 +1091,11 @@ pub enum StaticEffect {
         keywords: Vec<KeywordAbility>,
         restrictions: Vec<CreatureRestriction>,
     },
+    ModifySourceByDistinctPermanentColors {
+        scope: PermanentColorScope,
+        power_per_color: Quantity,
+        toughness_per_color: Quantity,
+    },
     ControllerCreatureAnthem {
         power: Quantity,
         toughness: Quantity,
@@ -1112,6 +1119,13 @@ pub struct BattlefieldCount {
 pub enum CountController {
     Any,
     Caster,
+}
+/// CR 109.5/110.1: battlefield permanents controlled by the static source's
+/// current controller or by the player who activated the mana ability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PermanentColorScope {
+    Controller,
 }
 impl StaticEffect {
     /// Preserve the canonical legacy IR while sharing one arithmetic path.
@@ -1244,6 +1258,10 @@ pub enum ManaProduction {
     CommanderColor,
     /// Add one mana of a color an opponent's land could produce.
     OpponentLandColors,
+    /// Add one mana of every distinct color in the selected battlefield set.
+    EachPermanentColor {
+        scope: PermanentColorScope,
+    },
     /// Add one mana of the selected color.
     Choice {
         colors: Vec<Color>,
@@ -1930,6 +1948,11 @@ impl Definition {
         if opponent_land_mana_family(self) {
             set.insert(Capability::OpponentLandManaV1);
         }
+        if self.mana_abilities.iter().any(|ability| {
+            matches!(ability.production, ManaProduction::EachPermanentColor { .. })
+        }) {
+            set.insert(Capability::DistinctPermanentColorsV1);
+        }
         if disjoint_pain_mana_family(self) {
             set.extend([
                 Capability::DisjointPainManaV1,
@@ -2119,6 +2142,9 @@ impl Definition {
                     Capability::ControlledCreatureDamageReplacementV1
                 }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
+                StaticEffect::ModifySourceByDistinctPermanentColors { .. } => {
+                    Capability::DistinctPermanentColorsV1
+                }
                 StaticEffect::ModifyCreatures {
                     scope: CreatureScope::AttackingController,
                     ..
@@ -2137,6 +2163,7 @@ impl Definition {
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
         conditional_lands::validate_definition(self)?;
+        let has_distinct_permanent_colors = distinct_permanent_colors::validate_definition(self)?;
         // Every occurrence retains its own u32 ability index, including repeated
         // keywords in one source block (CR 702.85c). No per-card instance cap.
         u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
@@ -3014,6 +3041,7 @@ impl Definition {
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
+                    | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
             ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && a.effect != StaticEffect::UnlimitedControllerHandSize
@@ -3210,7 +3238,9 @@ impl Definition {
             CardKind::Creature => {
                 if c.basic
                     || c.power.is_none()
-                    || c.toughness.as_ref().is_none_or(|n| n <= &Quantity::zero())
+                    || c.toughness.as_ref().is_none_or(|n| {
+                        n <= &Quantity::zero() && !has_distinct_permanent_colors
+                    })
                     || self.intrinsic_zone.is_some()
                 {
                     return Err("unsupported creature characteristics".into());
@@ -5918,6 +5948,7 @@ pub fn catalog_schema() -> serde_json::Value {
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     opponent_mana::extend_schema(&mut schema);
+    distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
@@ -6177,6 +6208,7 @@ mod tests {
             CastArtifactV1,
             PermanentManaV1,
             OpponentLandManaV1,
+            DistinctPermanentColorsV1,
             CompositeActivationCostV1,
             AttachmentsV1,
             PermanentRemovalV1,
@@ -6261,6 +6293,33 @@ mod tests {
         }];
         permanent_grant.capabilities = permanent_grant.requirements();
         definitions.push(permanent_grant);
+        let mut distinct_colors = counted.clone();
+        distinct_colors.source_labels = None;
+        distinct_colors.characteristics.toughness = Some(Quantity::zero());
+        distinct_colors.keywords = vec![KeywordAbility::Vigilance];
+        let scope = PermanentColorScope::Controller;
+        distinct_colors.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifySourceByDistinctPermanentColors {
+                scope,
+                power_per_color: 2.into(),
+                toughness_per_color: 3.into(),
+            },
+        }];
+        distinct_colors.mana_abilities = vec![ManaAbility {
+            self_damage: None,
+            restriction: None,
+            costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
+                tap: true,
+                mana: None,
+                sacrifice: false,
+            },
+            production: ManaProduction::EachPermanentColor { scope },
+            source_block: 2,
+        }];
+        distinct_colors.capabilities = distinct_colors.requirements();
+        definitions.push(distinct_colors);
         definitions.push(successor_tuck::witness(counted.clone()));
         let mut origin_draw = counted.clone();
         origin_draw.source_labels = None;

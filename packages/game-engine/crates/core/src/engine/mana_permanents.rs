@@ -177,6 +177,9 @@ impl Game {
             }
             ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
             ManaProduction::OpponentLandColors => return self.opponent_land_mana_colors(player),
+            ManaProduction::EachPermanentColor { scope } => {
+                self.permanent_colors(*scope, player)?.into_iter().collect()
+            }
             ManaProduction::CommanderColor => self
                 .prepared
                 .config
@@ -674,7 +677,9 @@ impl Game {
             return self.resolve_mana_ability(a, Some(branch.color));
         }
         match a.ability.production {
-            ManaProduction::Fixed { .. } => self.resolve_mana_ability(a, None),
+            ManaProduction::Fixed { .. } | ManaProduction::EachPermanentColor { .. } => {
+                self.resolve_mana_ability(a, None)
+            }
             _ if self
                 .mana_colors(a.player, &a.ability.production)?
                 .is_empty() =>
@@ -745,6 +750,11 @@ impl Game {
     ) -> Result<(), String> {
         let symbols = match &a.ability.production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
+            ManaProduction::EachPermanentColor { .. } => {
+                // CR 605.3b/608.2h: resolve once, after the activation costs
+                // commit. The whole output is fixed before any mana is added.
+                self.mana_colors(a.player, &a.ability.production)?
+            }
             _ => color.into_iter().collect(),
         };
         let cause = a.cause();

@@ -20,6 +20,7 @@ mod controller_scry_tests;
 mod controller_surveil_tests;
 pub mod coverage;
 mod diagnostics;
+mod distinct_permanent_colors;
 mod draw_discard;
 #[cfg(test)]
 mod draw_discard_tests;
@@ -1178,6 +1179,9 @@ enum SourceMana {
         #[serde(rename = "colorOnly")]
         color_only: bool,
     },
+    EachColorAmong {
+        among: serde_json::Value,
+    },
 }
 fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     let mut cost = ManaCost {
@@ -1400,6 +1404,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+    let (color_stats, color_mana) =
+        distinct_permanent_colors::lower(&abilities, &result, &binding, &source)?
+            .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let mut draw_land_allowance =
@@ -1514,6 +1521,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .into_iter()
         .flatten()
         .chain(opponent_land_mana)
+        .chain(color_mana)
         .collect();
     labels
         .mana
@@ -1593,10 +1601,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            // A whole-source mana lowering has already consumed every block.
-            let remaining_abilities = if definition.mana_abilities.is_empty() {
+            let remaining_abilities = if let Some(stats) = color_stats {
+                // The complete family consumed the static and activated blocks.
+                labels.statics.push(1);
+                definition.static_abilities.push(stats);
+                &abilities[..1]
+            } else if definition.mana_abilities.is_empty() {
                 abilities.as_slice()
             } else {
+                // The other whole-source mana families consumed every block.
                 &[]
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {

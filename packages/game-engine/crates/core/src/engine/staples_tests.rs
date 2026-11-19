@@ -1269,6 +1269,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::ReduceGenericByCreatureCount
                     | StaticEffect::CantBeCountered
+                    | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
                     | StaticEffect::ModifyCreatures { .. } => {
                         panic!("grants outside historical staples proof")
                     }

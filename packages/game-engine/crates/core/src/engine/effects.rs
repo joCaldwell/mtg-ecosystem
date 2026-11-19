@@ -182,11 +182,45 @@ impl DamageRecipient {
     }
 }
 impl Game {
+    fn characteristics_before_power_toughness(
+        &self,
+        object: ObjectId,
+    ) -> Result<&Characteristics, String> {
+        // The admitted layers leave color unchanged. Read the same earlier
+        // characteristics as full derivation, including instantiated tokens.
+        Ok(&self.definition(object.card)?.characteristics)
+    }
+
+    pub(super) fn permanent_colors(
+        &self,
+        scope: PermanentColorScope,
+        controller: PlayerId,
+    ) -> Result<BTreeSet<Color>, String> {
+        // CR 105.1–2/110.1: multicolored permanents contribute each color.
+        // Neither color identity nor the mana a permanent can produce is a color.
+        let mut colors = BTreeSet::new();
+        for permanent in self.state.rules.objects.values().filter(|object| {
+            object.zone == Zone::Battlefield
+                && match scope {
+                    PermanentColorScope::Controller => object.controller == controller,
+                }
+        }) {
+            colors.extend(
+                self.characteristics_before_power_toughness(permanent.id)?
+                    .colors
+                    .iter()
+                    .copied()
+                    .filter(|color| *color != Color::C),
+            );
+        }
+        Ok(colors)
+    }
+
     pub(super) fn derived_characteristics(
         &self,
         object: ObjectId,
     ) -> Result<Characteristics, String> {
-        let mut c = self.definition(object.card)?.characteristics.clone();
+        let mut c = self.characteristics_before_power_toughness(object)?.clone();
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
             if let Some(p) = c.power.as_mut() {
@@ -202,6 +236,27 @@ impl Game {
             && let Ok(o) = self.current(object)
             && o.zone == Zone::Battlefield
         {
+            for ability in &self.definition(object.card)?.static_abilities {
+                if let StaticEffect::ModifySourceByDistinctPermanentColors {
+                    scope,
+                    power_per_color,
+                    toughness_per_color,
+                } = &ability.effect
+                {
+                    let colors = self.permanent_colors(*scope, o.controller)?;
+                    let count = Quantity::from(colors.len() as i64);
+                    for (stat, per_color) in [
+                        (&mut c.power, power_per_color),
+                        (&mut c.toughness, toughness_per_color),
+                    ] {
+                        let mut bonus = per_color.clone();
+                        bonus.multiply(&count);
+                        stat.as_mut()
+                            .ok_or("missing source power or toughness")?
+                            .add(&bonus);
+                    }
+                }
+            }
             for source in self
                 .state
                 .rules
