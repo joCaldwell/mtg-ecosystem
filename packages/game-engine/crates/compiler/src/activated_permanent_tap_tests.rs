@@ -85,6 +85,7 @@ fn complete_icy_manipulator_preserves_paid_tap_and_union_target() {
         a.cost,
         ActivationCost::Composite {
             costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
                 mana: Some(ManaCost {
                     generic: 1.into(),
                     colored: vec![]

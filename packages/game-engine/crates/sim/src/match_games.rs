@@ -118,6 +118,10 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
+            PlayerRequest::CounterPlacementEffect { .. } => {
+                return Err("counter placement replacement choices outside this policy".into());
+            }
+
             PlayerRequest::HandReturn { .. }
             | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
@@ -126,6 +130,9 @@ impl Strategy<'_> {
                 return Err("scry outside this policy admission".into());
             }
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
+            PlayerRequest::AdditionalCosts { .. } => {
+                return Err("optional casting costs outside this completion policy".into());
+            }
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self
                     .top_program(v)
@@ -140,6 +147,14 @@ impl Strategy<'_> {
                     .or_else(|| colors.first().copied())
                     .ok_or("empty mana colors")?,
             },
+            PlayerRequest::SearchLandBattlefield { candidates, .. } => {
+                PlayerResponse::SearchLandBattlefield {
+                    object: candidates
+                        .first()
+                        .cloned()
+                        .ok_or("empty revealed land partition")?,
+                }
+            }
             PlayerRequest::SearchLands {
                 maximum,
                 candidates,
@@ -1423,6 +1438,7 @@ mod admission_and_host_tests {
             current: Some(ObjectHandle("own-permanent".into())),
         };
         let entry = |name: &str| mtg_core::VisibleStackEntry {
+            selected_additional_costs: None,
             x: None,
             mana_value: None,
             mode: None,
@@ -1430,7 +1446,7 @@ mod admission_and_host_tests {
                 handle: mtg_core::StackHandle(name.into()),
                 source: target.clone(),
                 oracle_id: id(name),
-                ability: 0,
+                ability: mtg_core::VisibleTriggerAbility::Intrinsic { index: 0 },
             }),
             entity_targets: vec![],
             handle: Some(mtg_core::StackHandle(name.into())),

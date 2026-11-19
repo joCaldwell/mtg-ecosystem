@@ -1,4 +1,18 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+mod conditional_lands;
+mod cycling;
+pub use cycling::hand_discard_draw_activation;
+mod counted_costs;
+mod distinct_permanent_colors;
+mod opponent_mana;
+pub use opponent_mana::opponent_land_mana_family;
+mod pain_mana;
+pub use pain_mana::disjoint_pain_mana_family;
+mod cast_origin;
+mod successor_tuck;
+pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
+mod typed_land_search;
+pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
 /// evidence still carries those files with their own hashes; matches/snapshots
 /// separately bind the exact catalog digest. Used by both the core build and
@@ -31,6 +45,9 @@ pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
 mod library_selection;
+mod nonland_exile_life;
+mod opponent_nonland_destroy;
+mod self_spell_protection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
 pub use library_order::controller_library_order_program;
@@ -40,6 +57,9 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
 mod archives;
+mod optional_costs;
+mod source_tap_damage;
+mod static_controller;
 pub use archives::*;
 mod creature_entry_return;
 mod flash_end_step_draw;
@@ -72,6 +92,9 @@ impl Quantity {
     }
     pub fn add(&mut self, other: &Self) {
         self.0 += &other.0;
+    }
+    pub fn multiply(&mut self, other: &Self) {
+        self.0 *= &other.0;
     }
     pub fn subtract(&mut self, other: &Self) {
         self.0 -= &other.0;
@@ -201,7 +224,21 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    CountedSelfGenericCostReductionV1,
+    OptionalAdditionalManaCostV1,
+    ResolutionCastV1,
+    CascadeV1,
+    StaticSpellCascadeGrantV1,
+    CastHistoryV1,
+    RandomBottomV1,
     CastTriggerV1,
+    CastOriginTriggerV1,
+    CastColorPredicateV1,
+    CastSpellColorCountersV1,
+    CounterRemovalManaV1,
+    DisjointPainManaV1,
+    SourceTapTriggerV1,
+    ControllerCreaturePlusOneCounterReplacementV1,
     AttackTriggerV1,
     DamageTriggerV1,
     SourceDamageTriggerV2,
@@ -222,9 +259,14 @@ pub enum Capability {
     SourceStatusConditionV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
+    ConditionalBasicLandEntryV1,
+    OptionalLifeLandEntryV1,
+    TypedNonbasicIntrinsicManaV1,
     FlashV1,
     CastArtifactV1,
     PermanentManaV1,
+    OpponentLandManaV1,
+    DistinctPermanentColorsV1,
     CompositeActivationCostV1,
     CastEnchantmentV1,
     AuraControlV1,
@@ -266,6 +308,8 @@ pub enum Capability {
     ControllerHandReturnV1,
     ControllerDrawDiscardV1,
     ControllerCountedDrawV1,
+    ControllerDrawLandAllowanceV1,
+    TriggeredSuccessorLibraryTuckV1,
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
@@ -273,7 +317,10 @@ pub enum Capability {
     StackAbilityTargetV1,
     CounterStackObjectV1,
     TapSourceCostV1,
+    PayLifeCostV1,
     ManaActivationCostV1,
+    HandActivationV1,
+    DiscardSourceCostV1,
     AnyDamageTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
@@ -296,6 +343,7 @@ pub enum Capability {
     LifelinkV1,
     DeathtouchV1,
     IndestructibleV1,
+    StaticPermanentIndestructibleGrantV1,
     TemporaryIndestructibleSpellV1,
     TemporaryFlyingSpellV1,
     TemporaryDeathtouchSpellV1,
@@ -309,16 +357,20 @@ pub enum Capability {
     DoubleStrikeV1,
     MenaceV1,
     CreatureTokensV1,
+    MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
     BasicLandSearchV1,
+    BasicLandSplitSearchV1,
+    TypedLandSearchV1,
     CreatureAnthemV1,
     TargetPlayerDrawV1,
     AttachmentsV1,
     PermanentRemovalV1,
     SacrificeV1,
     BoardWipesV1,
+    SelfSpellProtectionV1,
     AnnouncedXDrawV1,
     EachPlayerDrawV1,
     AnnouncedXEffectsV1,
@@ -329,6 +381,7 @@ pub enum Capability {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FunctioningZone {
+    Hand,
     Battlefield,
     Stack,
 }
@@ -393,6 +446,7 @@ pub enum ObjectSet {
     ControllerPermanents,
     Creatures,
     NonlandPermanents,
+    OpponentNonlandPermanents,
     Enchantments,
     AttackingCreatures,
     OpponentCreatures,
@@ -507,6 +561,8 @@ impl<'de> Deserialize<'de> for ActionRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreatureToken {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_types: Vec<CardKind>,
     pub colors: Vec<Color>,
     pub subtypes: Vec<String>,
     pub power: Quantity,
@@ -514,8 +570,34 @@ pub struct CreatureToken {
     pub keywords: Vec<KeywordAbility>,
 }
 impl CreatureToken {
+    pub fn characteristics(&self) -> Characteristics {
+        Characteristics {
+            kind: CardKind::Creature,
+            additional_types: self.additional_types.clone(),
+            subtypes: self.subtypes.clone(),
+            basic: false,
+            legendary: false,
+            snow: false,
+            mana_cost: ManaCost {
+                generic: Quantity::zero(),
+                colored: vec![],
+            },
+            colors: self.colors.clone(),
+            color_identity: self.colors.clone(),
+            power: Some(self.power.clone()),
+            toughness: Some(self.toughness.clone()),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
-        if self.keywords.contains(&KeywordAbility::Flash)
+        if !matches!(
+            self.additional_types.as_slice(),
+            [] | [CardKind::Artifact] | [CardKind::Enchantment]
+        ) || (!self.additional_types.is_empty()
+            && self.subtypes.iter().any(|s| {
+                unsupported_rules_subtype(s) || matches!(s.as_str(), "Aura" | "Equipment")
+            }))
+            || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
             || self.colors.iter().collect::<BTreeSet<_>>().len() != self.colors.len()
@@ -554,7 +636,17 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    /// CR 702.85a: threshold comes from the originating spell, never paid cost.
+    Cascade {
+        threshold: CascadeThreshold,
+        source_block: u32,
+    },
     DrawControllerCards {
+        count: Quantity,
+        source_block: u32,
+    },
+    GrantLandPlaysThisTurn {
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         count: Quantity,
         source_block: u32,
     },
@@ -576,6 +668,7 @@ pub enum Instruction {
         remainder: LibraryRemainder,
         source_block: u32,
     },
+    /// CR 701.22: only the invocation controller looks and orders the prefix.
     MillCards {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recipient: Option<LifeRecipient>,
@@ -597,6 +690,10 @@ pub enum Instruction {
     MoveSet {
         set: ObjectSet,
         action: SetMove,
+        source_block: u32,
+    },
+    DestroySet {
+        set: ObjectSet,
         source_block: u32,
     },
     PumpSet {
@@ -697,6 +794,14 @@ pub enum Instruction {
         optional: bool,
         source_block: u32,
     },
+    /// Own-library optional zero-to-two basics, reveal, one tapped/remaining hand, shuffle.
+    SearchBasicLandsSplit {
+        source_block: u32,
+    },
+    SearchTypedLands {
+        search: TypedLandSearch,
+        source_block: u32,
+    },
     SearchBasicLands {
         maximum: u32,
         source_block: u32,
@@ -704,6 +809,9 @@ pub enum Instruction {
     CreateCreatureTokens {
         count: u32,
         token: CreatureToken,
+        source_block: u32,
+    },
+    PutSourcePlusOneCountersForCastColors {
         source_block: u32,
     },
     PutPlusOneCounters {
@@ -757,6 +865,12 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
+    MoveTriggeredSuccessor {
+        expected_zone: TriggerSuccessorZone,
+        destination: TriggerSuccessorZone,
+        position: LibraryPosition,
+        source_block: u32,
+    },
     PutOnTopOwnerLibrary {
         target_slot: u32,
         source_block: u32,
@@ -768,6 +882,13 @@ pub enum Instruction {
     /// One creature chosen by the frozen damage recipient (CR 701.21a).
     SacrificeCreature {
         recipient: ActionRecipient,
+        source_block: u32,
+    },
+    /// CR 702.33d/e, 121.2: declared kicker gates a fixed quantity of
+    /// ordinary sequential controller draws, without a resolution-time option.
+    DrawCardsIfAdditionalCost {
+        cost_identity: String,
+        count: Quantity,
         source_block: u32,
     },
     DrawCards {
@@ -848,6 +969,12 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    /// Untargeted noncombat damage from the source to the trigger's controller.
+    DealDamageToController {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
     GainLife {
         recipient: LifeRecipient,
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
@@ -865,7 +992,13 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
+            Self::Cascade { source_block, .. }
+            | Self::SearchBasicLandsSplit { source_block, .. }
+            | Self::SearchTypedLands { source_block, .. }
+            | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
+            | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
             Self::DrawControllerCards { source_block, .. }
+            | Self::GrantLandPlaysThisTurn { source_block, .. }
             | Self::PutHandOnLibrary { source_block, .. } => *source_block,
             Self::OrderLibraryTop { source_block, .. }
             | Self::OptionalShuffleLibrary { source_block }
@@ -874,6 +1007,7 @@ impl Instruction {
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
+            Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
@@ -905,7 +1039,8 @@ impl Instruction {
             Self::PreventNextDamage { source_block, .. } => *source_block,
             Self::ReturnEntryTargetCreature { source_block, .. }
             | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
-            Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
+            Self::MoveTriggeredSuccessor { source_block, .. }
+            | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::DrawEachPlayer { source_block, .. }
@@ -920,7 +1055,8 @@ impl Instruction {
             | Self::DiscardTargetPlayerAtRandom { source_block, .. }
             | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterStackObject { source_block, .. } => *source_block,
-            Self::DealDamage { source_block, .. } => *source_block,
+            Self::DealDamage { source_block, .. }
+            | Self::DealDamageToController { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
             Self::LoseLife { source_block, .. } => *source_block,
         }
@@ -974,6 +1110,46 @@ pub struct DeathFilter {
 pub enum Duration {
     UntilEndOfTurn,
 }
+/// CR 614.1a/614.5: positive placement quantities only; removal is a cost.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CounterPlacementModification {
+    Add { amount: Quantity },
+    Multiply { factor: Quantity },
+}
+impl CounterPlacementModification {
+    pub fn validate(&self) -> Result<(), String> {
+        let value = match self {
+            Self::Add { amount } => amount,
+            Self::Multiply { factor } => factor,
+        };
+        if *value <= Quantity::zero() {
+            return Err("counter placement parameter must be positive".into());
+        }
+        Ok(())
+    }
+    pub fn apply(&self, value: &Quantity) -> Quantity {
+        let mut result = value.clone();
+        match self {
+            Self::Add { amount } => result.add(amount),
+            Self::Multiply { factor } => result.multiply(factor),
+        }
+        result
+    }
+}
+/// Disjoint predicates on a completed spell; history is global to its caster.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "eligibility", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SpellCascadeEligibility {
+    ManaValueAtLeast { minimum: Quantity },
+    FirstCastEachTurn {},
+    FirstCastFromExileEachTurn {},
+}
+impl SpellCascadeEligibility {
+    pub fn requires_history(&self) -> bool {
+        !matches!(self, Self::ManaValueAtLeast { .. })
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandSizeScope {
@@ -984,6 +1160,14 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
+    /// grants one independent cascade to this controller's qualifying cast.
+    /// The program is exactly canonical_cascade_program, never arbitrary code.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    GrantSpellCascade {
+        eligibility: SpellCascadeEligibility,
+        program: SpellProgram,
+    },
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
     /// its enchanted permanent; this is not a frozen invocation recipient.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1010,8 +1194,26 @@ pub enum StaticEffect {
         amount: Quantity,
     },
     EntersTapped,
+    /// CR 109.5/205.4c/614.12: count prior basic lands of the entering controller.
+    EntersTappedUnlessControllerBasicLands {
+        minimum: Quantity,
+    },
+    /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
+    EntersTappedUnlessPayLife {
+        amount: Quantity,
+    },
     ReduceGenericByCreatureCount,
+    ReduceSelfGenericCost {
+        per_object: Quantity,
+        count: BattlefieldCount,
+    },
+    /// CR 101.2/113.6: the source spell on the stack can't be countered.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     CantBeCountered,
+    /// CR 109.5/611.3/613.1f/702.12: the current controller's other
+    /// battlefield permanents have indestructible while this source is present.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    GrantOtherControlledPermanentsIndestructible,
     ModifyCreatures {
         scope: CreatureScope,
         power: Quantity,
@@ -1019,13 +1221,59 @@ pub enum StaticEffect {
         keywords: Vec<KeywordAbility>,
         restrictions: Vec<CreatureRestriction>,
     },
+    ModifySourceByDistinctPermanentColors {
+        scope: PermanentColorScope,
+        power_per_color: Quantity,
+        toughness_per_color: Quantity,
+    },
     ControllerCreatureAnthem {
         power: Quantity,
         toughness: Quantity,
     },
+    ControllerCreaturePlusOneCounterReplacement {
+        modification: CounterPlacementModification,
+    },
     DoubleDamageToPermanentOrPlayer,
     /// Double damage from creatures controlled by this battlefield source's controller.
     DoubleControllerCreatureDamageToPermanentOrPlayer,
+}
+/// Count current battlefield types and control, never ownership (CR 702.41).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BattlefieldCount {
+    pub kind: CardKind,
+    pub controller: CountController,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CountController {
+    Any,
+    Caster,
+}
+/// CR 109.5/110.1: battlefield permanents controlled by the static source's
+/// current controller or by the player who activated the mana ability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PermanentColorScope {
+    Controller,
+}
+impl StaticEffect {
+    /// Preserve the canonical legacy IR while sharing one arithmetic path.
+    pub fn counted_generic_reduction(&self) -> Option<(Quantity, BattlefieldCount)> {
+        match self {
+            Self::ReduceGenericByCreatureCount => Some((
+                1.into(),
+                BattlefieldCount {
+                    kind: CardKind::Creature,
+                    controller: CountController::Any,
+                },
+            )),
+            Self::ReduceSelfGenericCost { per_object, count } => {
+                Some((per_object.clone(), count.clone()))
+            }
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1065,9 +1313,20 @@ pub enum SpellResolution {
     Instructions,
     Permanent,
 }
+/// CR 702.33a/e: one source-bound optional fixed mana declaration. The
+/// identity names the exact archived keyword; conditions cannot link by position.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptionalAdditionalManaCost {
+    pub identity: String,
+    pub source_block: u32,
+    pub mana: ManaCost,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SpellProgram {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional_additional_costs: Vec<OptionalAdditionalManaCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub additional_sacrifice: Option<SacrificeFilter>,
     pub timing: SpellTiming,
@@ -1086,6 +1345,10 @@ pub struct SpellMode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActivationCost {
+    /// Fixed mana and this exact hand source, committed as one complete cost.
+    DiscardSource {
+        mana: ManaCost,
+    },
     SacrificePermanent {
         filter: SacrificeFilter,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1093,6 +1356,10 @@ pub enum ActivationCost {
     },
     SacrificeSource,
     TapSource,
+    /// One complete nonmana cost; life payment is loss of life, never damage.
+    TapPayLifeSacrificeSource {
+        life: Quantity,
+    },
     Mana {
         cost: ManaCost,
     },
@@ -1104,6 +1371,8 @@ pub enum ActivationCost {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermanentActivationCosts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove_source_plus_one_counters: Option<Quantity>,
     pub tap: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana: Option<ManaCost>,
@@ -1112,16 +1381,38 @@ pub struct PermanentActivationCosts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
-    Fixed { symbols: Vec<Color> },
+    Fixed {
+        symbols: Vec<Color>,
+    },
     AnyColor,
     CommanderColor,
+    /// Add one mana of a color an opponent's land could produce.
+    OpponentLandColors,
+    /// Add one mana of every distinct color in the selected battlefield set.
+    EachPermanentColor {
+        scope: PermanentColorScope,
+    },
+    /// Add one mana of the selected color.
+    Choice {
+        colors: Vec<Color>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ManaAbility {
+    /// Damage dealt by the source to the activating player after producing mana.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_damage: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restriction: Option<ManaActivationRestriction>,
     pub costs: PermanentActivationCosts,
     pub production: ManaProduction,
     pub source_block: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ManaActivationRestriction {
+    OnceEachTurn,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1130,6 +1421,11 @@ pub struct ActivatedAbility {
     pub cost: ActivationCost,
     pub program: SpellProgram,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CascadeThreshold {
+    SourceSpellManaValue,
+}
 /// Mandatory ordinary event patterns. ETB patterns inspect the event's
 /// resulting battlefield, including the entering source itself (CR 603.6a).
 /// Dies inspects the battlefield immediately before the actual graveyard move
@@ -1137,6 +1433,8 @@ pub struct ActivatedAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    /// CR 702.85a: functions on the casting spell itself, on the stack.
+    SelfSpellCast,
     /// One occurrence per damaged player and simultaneous combat-damage event.
     GroupedDamageDealt {
         source: DamageTriggerSource,
@@ -1154,7 +1452,13 @@ pub enum TriggerCondition {
     },
     SpellCast {
         caster: CasterRelation,
+        #[schemars(schema_with = "cast_spell_predicate_schema")]
         spell: TypePredicate,
+    },
+    SpellCastWithOrigin {
+        caster: CasterRelation,
+        spell: TypePredicate,
+        origin: CastOriginPredicate,
     },
     StepBegan {
         step: BeginningStep,
@@ -1162,6 +1466,8 @@ pub enum TriggerCondition {
     },
     OpponentCreatureDies,
     SelfEntersBattlefield,
+    /// The exact source incarnation actually changes from untapped to tapped.
+    SelfBecomesTapped,
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
     /// CR 603.6a/603.10: read the entering creature's derived battlefield power
@@ -1174,6 +1480,10 @@ pub enum TriggerCondition {
     AnyCreatureDies,
     SelfDies,
     SelfAuraToGraveyard,
+    SelfMoved {
+        from: SourceMoveOrigin,
+        to: TriggerSuccessorZone,
+    },
 }
 /// Candidate-local event-time comparison; no printed-source pronoun binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -1260,11 +1570,34 @@ pub enum CasterRelation {
     AnyPlayer,
     Opponent,
 }
+/// CR 601.2a: compare the zone the spell left during announcement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CastOriginPredicate {
+    Outside { zone: CastOriginZone },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CastOriginZone {
+    ControllerHand,
+}
+impl<'de> Deserialize<'de> for CastOriginZone {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "controller_hand" => Ok(Self::ControllerHand),
+            _ => Err(serde::de::Error::custom("unsupported cast origin zone")),
+        }
+    }
+}
 /// Source ObjectFilter fields are conjunctive; explicit anyOf retains OR.
-/// Only full card-type membership is supported, never execution-kind equality.
+/// Type membership includes additional types. Spell color uses frozen characteristics.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TypePredicate {
+    #[schemars(skip)]
+    SpellColor {
+        color: Color,
+    },
     // An empty struct also enforces serde unknown-field rejection here.
     Any {},
     Type {
@@ -1282,10 +1615,18 @@ pub enum TypePredicate {
         terms: Vec<TypePredicate>,
     },
 }
+fn cast_spell_predicate_schema(generator: &mut SchemaGenerator) -> Schema {
+    json_schema!({"oneOf":[generator.subschema_for::<TypePredicate>(), {
+        "type":"object", "required":["predicate","color"], "additionalProperties":false,
+        "properties":{"predicate":{"const":"spell_color"}, "color":{"enum":["W","U","B","R","G"]}}
+    }]})
+}
+
 impl TypePredicate {
     pub fn matches(&self, c: &Characteristics) -> bool {
         match self {
             Self::Any {} => true,
+            Self::SpellColor { color } => c.colors.contains(color),
             Self::Type { kind } => c.has_type(*kind),
             Self::NotType { kind } => !c.has_type(*kind),
             Self::All { terms } => terms.iter().all(|t| t.matches(c)),
@@ -1299,6 +1640,7 @@ impl TypePredicate {
             }
             *remaining -= 1;
             match p {
+                TypePredicate::SpellColor { .. } => false,
                 TypePredicate::All { terms } | TypePredicate::AnyOf { terms } => {
                     !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining))
                 }
@@ -1335,7 +1677,8 @@ impl TriggerCondition {
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
-            Self::SpellCast { .. } => "spell_cast",
+            Self::SelfSpellCast => "self_spell_cast",
+            Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
             Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
@@ -1344,7 +1687,9 @@ impl TriggerCondition {
             }
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
+            Self::SelfBecomesTapped => "self_becomes_tapped",
             Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
+            Self::SelfMoved { .. } => "self_moved",
         }
     }
 }
@@ -1500,8 +1845,11 @@ pub struct Definition {
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
 }
-// Shared static-layer boundary for every attachment family. Keep family
+// Shared live creature-modifier boundary, including attachments. Keep family
 // recognition and Definition validation on the same keyword/restriction rules.
+// CR 611.3a-c: Controller modifiers use live source presence/current control
+// for both supported creature and non-Aura enchantment sources.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 fn static_creature_modification_valid(
     kind: CardKind,
     equipment: bool,
@@ -1540,7 +1888,8 @@ fn static_creature_modification_valid(
                 || !restrictions.is_empty()))
         || (*scope == CreatureScope::Equipped && !equipment)
         || (*scope == CreatureScope::Enchanted && !aura)
-        || (*scope == CreatureScope::Controller && (kind != CardKind::Enchantment || aura))
+        || (*scope == CreatureScope::Controller
+            && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -1656,6 +2005,7 @@ pub fn aura_control_domain(definition: &Definition) -> Option<AuraControlDomain>
         && p.resolution == SpellResolution::Permanent
         && p.functioning_zone == FunctioningZone::Stack
         && p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
         && p.instructions.is_empty()
         && p.modes.is_empty()
         && target.slot == 0
@@ -1669,6 +2019,26 @@ pub fn aura_control_source(definition: &Definition) -> bool {
     aura_control_domain(definition).is_some()
 }
 
+/// The sole narrow cascade program shared by intrinsic and granted instances.
+pub fn canonical_cascade_program(source_block: u32) -> SpellProgram {
+    SpellProgram {
+        optional_additional_costs: vec![],
+        additional_sacrifice: None,
+        timing: SpellTiming::Instant,
+        resolution: SpellResolution::Instructions,
+        functioning_zone: FunctioningZone::Stack,
+        targets: vec![],
+        instructions: vec![Instruction::Cascade {
+            threshold: CascadeThreshold::SourceSpellManaValue,
+            source_block,
+        }],
+        modes: vec![],
+    }
+}
+pub fn is_canonical_cascade_program(program: &SpellProgram) -> bool {
+    matches!(program.instructions.as_slice(), [Instruction::Cascade { source_block, .. }]
+        if *program == canonical_cascade_program(*source_block))
+}
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
@@ -1681,6 +2051,8 @@ impl Definition {
                 set.insert(Capability::LandPlayV1);
                 if self.characteristics.basic {
                     set.insert(Capability::BasicLandManaV1);
+                } else if !self.characteristics.subtypes.is_empty() {
+                    set.insert(Capability::TypedNonbasicIntrinsicManaV1);
                 }
             }
             CardKind::Creature => {
@@ -1728,8 +2100,38 @@ impl Definition {
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
         }
+        if opponent_land_mana_family(self) {
+            set.insert(Capability::OpponentLandManaV1);
+        }
+        if self.mana_abilities.iter().any(|ability| {
+            matches!(
+                ability.production,
+                ManaProduction::EachPermanentColor { .. }
+            )
+        }) {
+            set.insert(Capability::DistinctPermanentColorsV1);
+        }
+        if disjoint_pain_mana_family(self) {
+            set.extend([
+                Capability::DisjointPainManaV1,
+                Capability::NoncombatDamageV1,
+            ]);
+        }
+        if self
+            .mana_abilities
+            .iter()
+            .any(|a| a.costs.remove_source_plus_one_counters.is_some() || a.restriction.is_some())
+        {
+            set.insert(Capability::CounterRemovalManaV1);
+        }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
+            if ability.functioning_zone == FunctioningZone::Hand {
+                set.insert(Capability::HandActivationV1);
+            }
+            if matches!(ability.cost, ActivationCost::DiscardSource { .. }) {
+                set.insert(Capability::ManaActivationCostV1);
+            }
             if activated_artifact_draw_ability(ability) {
                 set.insert(Capability::ActivatedArtifactDrawV1);
             }
@@ -1750,12 +2152,23 @@ impl Definition {
                 set.insert(Capability::TapSourceDestroyV1);
             }
             set.insert(match ability.cost {
+                ActivationCost::DiscardSource { .. } => Capability::DiscardSourceCostV1,
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,
+                ActivationCost::TapPayLifeSacrificeSource { .. } => Capability::PayLifeCostV1,
                 ActivationCost::Mana { .. } => Capability::ManaActivationCostV1,
                 ActivationCost::Composite { .. } => Capability::CompositeActivationCostV1,
             });
+            if matches!(
+                ability.cost,
+                ActivationCost::TapPayLifeSacrificeSource { .. }
+            ) {
+                set.extend([
+                    Capability::TapSourceCostV1,
+                    Capability::SacrificeSourceCostV1,
+                ]);
+            }
             if ability.cost == ActivationCost::SacrificeSource
                 && ability
                     .program
@@ -1793,12 +2206,24 @@ impl Definition {
             ) {
                 set.insert(Capability::FilteredDamageTriggerV1);
             }
-            set.insert(match ability.condition {
+            let trigger_capability = match ability.condition {
                 TriggerCondition::GroupedDamageDealt { .. } => {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
+                TriggerCondition::SelfSpellCast => Capability::CascadeV1,
+                TriggerCondition::SpellCast {
+                    spell: TypePredicate::SpellColor { .. },
+                    ..
+                } => {
+                    set.insert(Capability::CastColorPredicateV1);
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
+                TriggerCondition::SpellCastWithOrigin { .. } => {
+                    set.insert(Capability::CastOriginTriggerV1);
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
                 TriggerCondition::DamageDealt {
                     kind: TriggerDamageKind::Combat,
@@ -1808,6 +2233,7 @@ impl Definition {
                 TriggerCondition::DamageDealt { .. } => Capability::SourceDamageTriggerV2,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
+                TriggerCondition::SelfBecomesTapped => Capability::SourceTapTriggerV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
@@ -1817,7 +2243,9 @@ impl Definition {
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
                 TriggerCondition::SelfAuraToGraveyard => Capability::AttachmentsV1,
-            });
+                TriggerCondition::SelfMoved { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
+            };
+            set.insert(trigger_capability);
             if ability.intervening_if.is_some() {
                 set.insert(Capability::InterveningIfV1);
             }
@@ -1830,40 +2258,51 @@ impl Definition {
             add_program_requirements(&mut set, &ability.program);
         }
         for keyword in &self.keywords {
-            set.insert(match keyword {
-                KeywordAbility::Flash => Capability::FlashV1,
-                KeywordAbility::Defender => Capability::DefenderV1,
-                KeywordAbility::Flying => Capability::FlyingV1,
-                KeywordAbility::Reach => Capability::ReachV1,
-                KeywordAbility::Vigilance => Capability::VigilanceV1,
-                KeywordAbility::Haste => Capability::HasteV1,
-                KeywordAbility::Lifelink => Capability::LifelinkV1,
-                KeywordAbility::Deathtouch => Capability::DeathtouchV1,
-                KeywordAbility::Indestructible => Capability::IndestructibleV1,
-                KeywordAbility::Trample => Capability::TrampleV1,
-                KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
-                KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
-                KeywordAbility::Menace => Capability::MenaceV1,
-                KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
-            });
+            set.insert(intrinsic_keyword_capability(*keyword));
         }
         for a in &self.static_abilities {
+            if let StaticEffect::GrantSpellCascade {
+                eligibility,
+                program,
+            } = &a.effect
+            {
+                add_program_requirements(&mut set, program);
+                if eligibility.requires_history() {
+                    set.insert(Capability::CastHistoryV1);
+                }
+            }
             if matches!(&a.effect, StaticEffect::ModifyCreatures { keywords, .. }
                 if keywords.contains(&KeywordAbility::Indestructible))
             {
                 set.insert(Capability::IndestructibleV1);
             }
-            set.insert(match a.effect {
+            let static_capability = match a.effect {
+                StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
                 StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
+                }
+                StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. } => {
+                    Capability::ControllerCreaturePlusOneCounterReplacementV1
                 }
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
-                StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
-                    Capability::BoardWipesV1
+                StaticEffect::EntersTappedUnlessPayLife { .. } => {
+                    Capability::OptionalLifeLandEntryV1
+                }
+                StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
+                    Capability::ConditionalBasicLandEntryV1
+                }
+                StaticEffect::ReduceSelfGenericCost { .. } => {
+                    Capability::CountedSelfGenericCostReductionV1
+                }
+                StaticEffect::ReduceGenericByCreatureCount => Capability::BoardWipesV1,
+                StaticEffect::CantBeCountered => self_spell_protection::capability(self),
+                StaticEffect::GrantOtherControlledPermanentsIndestructible => {
+                    set.insert(Capability::IndestructibleV1);
+                    Capability::StaticPermanentIndestructibleGrantV1
                 }
                 StaticEffect::DoubleDamageToPermanentOrPlayer => {
                     Capability::StaticDamageReplacementV1
@@ -1872,6 +2311,9 @@ impl Definition {
                     Capability::ControlledCreatureDamageReplacementV1
                 }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
+                StaticEffect::ModifySourceByDistinctPermanentColors { .. } => {
+                    Capability::DistinctPermanentColorsV1
+                }
                 StaticEffect::ModifyCreatures {
                     scope: CreatureScope::AttackingController,
                     ..
@@ -1881,11 +2323,20 @@ impl Definition {
                     ..
                 } => Capability::SacrificeV1,
                 StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
-            });
+            };
+            set.insert(static_capability);
         }
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        optional_costs::validate_definition(self)?;
+        typed_land_search::validate_definition(self)?;
+        conditional_lands::validate_definition(self)?;
+        let has_distinct_permanent_colors = distinct_permanent_colors::validate_definition(self)?;
+        // Every occurrence retains its own u32 ability index, including repeated
+        // keywords in one source block (CR 702.85c). No per-card instance cap.
+        u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
+        u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         controller_library::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
         announced_x_draw::validate_definition(self)?;
@@ -1919,7 +2370,10 @@ impl Definition {
         {
             return Err("set keyword grant requires a complete ordinary spell definition".into());
         }
-        if self.activated.iter().any(|a| has_keyword_grant(&a.program))
+        if self
+            .activated
+            .iter()
+            .any(|a| has_keyword_grant(&a.program) && !sacrifice_set::definition(self))
             || self.triggered.iter().any(|a| has_keyword_grant(&a.program))
             || self.spell.as_ref().is_some_and(|p| {
                 has_keyword_grant(p)
@@ -1929,7 +2383,7 @@ impl Definition {
                     ) || !ordinary_keyword_grant(p))
             })
         {
-            return Err("temporary indestructible requires an ordinary single-target spell".into());
+            return Err("unsupported complete temporary keyword definition".into());
         }
         if self
             .triggered
@@ -2035,6 +2489,35 @@ impl Definition {
         {
             return Err("event-player discard/sacrifice requires a bound damage trigger".into());
         }
+        fn cast_colors(p: &SpellProgram) -> bool {
+            p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::PutSourcePlusOneCountersForCastColors { .. }))
+                || p.modes.iter().any(|m| cast_colors(&m.program))
+        }
+        if self.spell.as_ref().is_some_and(cast_colors)
+            || self.activated.iter().any(|a| cast_colors(&a.program))
+            || self.triggered.iter().any(|a| {
+                cast_colors(&a.program)
+                    && (self.characteristics.kind != CardKind::Creature
+                        || a.condition
+                            != (TriggerCondition::SpellCast {
+                                caster: CasterRelation::Controller,
+                                spell: TypePredicate::Any {},
+                            })
+                        || a.intervening_if.is_some()
+                        || !a.program.targets.is_empty()
+                        || !a.program.modes.is_empty()
+                        || !matches!(
+                            a.program.instructions.as_slice(),
+                            [Instruction::PutSourcePlusOneCountersForCastColors { .. }]
+                        ))
+            })
+        {
+            return Err(
+                "cast-color counters require a standalone bound controller cast trigger".into(),
+            );
+        }
         fn event_player(p: &SpellProgram) -> bool {
             p.instructions.iter().any(Instruction::uses_event_player)
                 || p.modes.iter().any(|m| event_player(&m.program))
@@ -2109,6 +2592,28 @@ impl Definition {
             })
         }) {
             return Err("attachment operations are not spell instructions".into());
+        }
+        fn has_cascade(p: &SpellProgram) -> bool {
+            p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::Cascade { .. }))
+                || p.modes.iter().any(|m| has_cascade(&m.program))
+        }
+        if self.spell.as_ref().is_some_and(has_cascade)
+            || self.activated.iter().any(|a| has_cascade(&a.program))
+        {
+            return Err("cascade is only a self-cast triggered program".into());
+        }
+        if self
+            .spell
+            .as_ref()
+            .is_some_and(successor_tuck::contains_move)
+            || self
+                .activated
+                .iter()
+                .any(|a| successor_tuck::contains_move(&a.program))
+        {
+            return Err("successor movement requires its matching self-move trigger".into());
         }
         // Sacrifice programs admit enchantment programs and creature statics.
         // Other programs retain their narrower kind constraints.
@@ -2215,6 +2720,10 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        nonland_exile_life::validate_definition(self)?;
+        self_spell_protection::validate_definition(self)?;
+        opponent_nonland_destroy::validate_definition(self)?;
+        source_tap_damage::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
             if source["oracle_text"].as_str() != Some(labels.text.as_str())
@@ -2230,14 +2739,29 @@ impl Definition {
                 return Err("invalid source label provenance".into());
             }
         }
-        if self.mana_abilities.len() > 1 {
+        if self
+            .mana_abilities
+            .iter()
+            .any(|ability| ability.production == ManaProduction::OpponentLandColors)
+            && !opponent_land_mana_family(self)
+        {
+            return Err("unsupported complete opponent-land mana family".into());
+        }
+        let has_disjoint_operands = self.mana_abilities.iter().any(|ability| {
+            ability.self_damage.is_some()
+                || matches!(&ability.production, ManaProduction::Choice { .. })
+        });
+        if has_disjoint_operands && !disjoint_pain_mana_family(self) {
+            return Err("unsupported complete disjoint pain-mana family".into());
+        }
+        if !has_disjoint_operands && self.mana_abilities.len() > 1 {
             return Err("finite profile supports one mana ability per source".into());
         }
         for a in &self.mana_abilities {
             if !matches!(
                 c.kind,
                 CardKind::Creature | CardKind::Artifact | CardKind::Land
-            ) || !a.costs.tap
+            ) || (!a.costs.tap && a.costs.remove_source_plus_one_counters.is_none())
                 || matches!(&a.production, ManaProduction::Fixed { symbols } if symbols.is_empty())
             {
                 return Err("unsupported permanent mana ability".into());
@@ -2248,15 +2772,57 @@ impl Definition {
                 return Err("sacrifice mana costs are not admitted".into());
             }
             validate_permanent_costs(&a.costs)?;
+            if a.costs.remove_source_plus_one_counters.is_some() || a.restriction.is_some() {
+                if c.kind != CardKind::Creature
+                    || a.costs.tap
+                    || a.costs.mana.is_some()
+                    || a.costs
+                        .remove_source_plus_one_counters
+                        .as_ref()
+                        .is_none_or(|n| *n <= Quantity::zero())
+                    || a.restriction != Some(ManaActivationRestriction::OnceEachTurn)
+                    || !matches!(&a.production, ManaProduction::Fixed { symbols } if !symbols.is_empty())
+                {
+                    return Err("unsupported counter-removal mana/restriction shape".into());
+                }
+            }
         }
         if !self.activated.is_empty()
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
+            && !typed_land_search::activation_definition(self)
+            && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
         {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if ability.functioning_zone == FunctioningZone::Hand
+                || matches!(ability.cost, ActivationCost::DiscardSource { .. })
+            {
+                if !cycling::definition(self) {
+                    return Err("unsupported complete hand discard-source activation".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
+            if has_keyword_grant(&ability.program) {
+                if !sacrifice_set::definition(self) {
+                    return Err(
+                        "unsupported complete sacrifice-source set keyword definition".into(),
+                    );
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
+            if typed_land_search::activation(ability) {
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
+            if matches!(&ability.cost, ActivationCost::Composite { costs } if costs.remove_source_plus_one_counters.is_some())
+            {
+                return Err("counter removal requires mana ability".into());
+            }
             if paid_counted_draw::ability_matches(ability) {
                 // The complete source is checked by hand_return::validate_definition.
                 validate_instruction_program(&ability.program)?;
@@ -2349,6 +2915,9 @@ impl Definition {
             }
             if let ActivationCost::Composite { costs } = &ability.cost {
                 validate_permanent_costs(costs)?;
+                if costs.remove_source_plus_one_counters.is_some() {
+                    return Err("counter costs require a mana ability".into());
+                }
                 if !costs.sacrifice
                     || !((c.kind == CardKind::Artifact
                         && matches!(ability.program.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1)))
@@ -2428,12 +2997,22 @@ impl Definition {
             validate_instruction_program(p)?;
         }
         if !self.triggered.is_empty()
-            && !matches!(
-                c.kind,
-                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
-            )
+            && !match c.kind {
+                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment => true,
+                CardKind::Instant | CardKind::Sorcery => self
+                    .triggered
+                    .iter()
+                    .all(|a| a.condition == TriggerCondition::SelfSpellCast),
+                CardKind::Land => self
+                    .triggered
+                    .iter()
+                    .all(|a| a.condition == TriggerCondition::SelfBecomesTapped),
+            }
         {
-            return Err("trigger programs require a supported permanent source".into());
+            return Err(
+                "trigger programs require a supported permanent or exact stack self-cast source"
+                    .into(),
+            );
         }
         for ability in &self.triggered {
             if let TriggerCondition::GroupedDamageDealt {
@@ -2490,7 +3069,13 @@ impl Definition {
                 }
             }
             if let TriggerCondition::SpellCast { spell, .. } = &ability.condition {
-                spell.validate()?;
+                match spell {
+                    TypePredicate::SpellColor { color: Color::C } => {
+                        return Err("invalid spell color".into());
+                    }
+                    TypePredicate::SpellColor { .. } => (),
+                    _ => spell.validate()?,
+                }
             }
             if let Some(f) = &ability.death_filter
                 && (ability.condition != TriggerCondition::AnyCreatureDies
@@ -2501,6 +3086,45 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if ability.condition == TriggerCondition::SelfBecomesTapped {
+                // The complete source and trigger shape was checked above.
+                validate_instruction_program(p)?;
+                continue;
+            }
+            if matches!(
+                ability.condition,
+                TriggerCondition::SpellCastWithOrigin { .. }
+            ) {
+                cast_origin::validate(ability)?;
+            }
+            if matches!(ability.condition, TriggerCondition::SelfMoved { .. }) {
+                successor_tuck::validate(c, ability)?;
+                validate_instruction_program(p)?;
+                continue;
+            }
+            if ability.condition == TriggerCondition::SelfSpellCast {
+                if ability.functioning_zone != FunctioningZone::Stack
+                    || ability.intervening_if.is_some()
+                    || ability.death_filter.is_some()
+                    || (p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
+                    || p.timing != SpellTiming::Instant
+                    || p.functioning_zone != FunctioningZone::Stack
+                    || p.resolution != SpellResolution::Instructions
+                    || !p.targets.is_empty()
+                    || !p.modes.is_empty()
+                    || !is_canonical_cascade_program(p)
+                {
+                    return Err("unsupported self-cast cascade shape".into());
+                }
+                validate_instruction_program(p)?;
+                continue;
+            }
+            if p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::Cascade { .. }))
+            {
+                return Err("cascade requires its stack-functioning self-cast trigger".into());
+            }
             if aura {
                 if ability.condition != TriggerCondition::SelfAuraToGraveyard
                     || ability.intervening_if.is_some()
@@ -2559,7 +3183,7 @@ impl Definition {
             }
 
             if ability.functioning_zone != FunctioningZone::Battlefield
-                || p.additional_sacrifice.is_some()
+                || (p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
                 || p.functioning_zone != FunctioningZone::Stack
                 || p.timing != SpellTiming::Instant
                 || p.resolution != SpellResolution::Instructions
@@ -2598,6 +3222,7 @@ impl Definition {
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DestroyPermanent { .. }
                             | Instruction::CreateCreatureTokens { .. }
+                            | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
@@ -2616,19 +3241,29 @@ impl Definition {
             validate_instruction_program(p)?;
         }
         if self.static_abilities.iter().any(|a| {
-            a.effect != StaticEffect::EntersTapped
+            !matches!(
+                a.effect,
+                StaticEffect::GrantSpellCascade { .. }
+                    | StaticEffect::ReduceSelfGenericCost { .. }
+                    | StaticEffect::CantBeCountered
+                    | StaticEffect::GrantOtherControlledPermanentsIndestructible
+                    | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessPayLife { .. }
+                    | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
+            ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && a.effect != StaticEffect::UnlimitedControllerHandSize
                 && !matches!(
                     a.effect,
                     StaticEffect::ReduceMaximumHandSize { .. }
                         | StaticEffect::IncreaseMaximumHandSize { .. }
+                        | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                 )
                 && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
-                        scope: CreatureScope::AttackingController,
+                        scope: CreatureScope::AttackingController | CreatureScope::Controller,
                         ..
                     }
                 )
@@ -2640,7 +3275,9 @@ impl Definition {
             return Err("static damage replacement requires a supported enchantment".into());
         }
         if self.static_abilities.iter().any(|a| {
-            if matches!(
+            if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
+                a.functioning_zone != FunctioningZone::Stack
+            } else if matches!(
                 a.effect,
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered
             ) {
@@ -2653,6 +3290,60 @@ impl Definition {
             return Err("static damage replacement must function on battlefield".into());
         }
         for a in &self.static_abilities {
+            if a.effect == StaticEffect::GrantOtherControlledPermanentsIndestructible {
+                if c.kind != CardKind::Creature
+                    || self.static_abilities.len() != 1
+                    || !self.activated.is_empty()
+                    || !self.mana_abilities.is_empty()
+                    || !self.triggered.is_empty()
+                {
+                    return Err("indestructible grant requires an ordinary creature source".into());
+                }
+                continue;
+            }
+            if let StaticEffect::ReduceSelfGenericCost { per_object, count } = &a.effect {
+                if *per_object <= Quantity::zero()
+                    || count.kind != CardKind::Artifact
+                    || count.controller != CountController::Caster
+                    || self.spell.is_none()
+                    || equipment
+                    || aura
+                {
+                    return Err("unsupported counted self generic cost reduction".into());
+                }
+                continue;
+            }
+            if let StaticEffect::GrantSpellCascade {
+                eligibility,
+                program,
+            } = &a.effect
+            {
+                if matches!(eligibility, SpellCascadeEligibility::ManaValueAtLeast { minimum } if minimum.is_negative())
+                    || !matches!(
+                        c.kind,
+                        CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                    )
+                    || equipment
+                    || aura
+                    || !is_canonical_cascade_program(program)
+                {
+                    return Err("unsupported static spell cascade grant".into());
+                }
+                validate_instruction_program(program)?;
+                continue;
+            }
+            if let StaticEffect::ControllerCreaturePlusOneCounterReplacement { modification } =
+                &a.effect
+            {
+                modification.validate()?;
+                if !matches!(
+                    c.kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                ) {
+                    return Err("counter replacement requires a battlefield permanent".into());
+                }
+                continue;
+            }
             if a.effect == StaticEffect::ControlEnchantedPermanent {
                 // The whole definition was checked by aura_control_source above.
                 continue;
@@ -2680,7 +3371,12 @@ impl Definition {
                 }
                 continue;
             }
-            if a.effect == StaticEffect::EntersTapped {
+            if matches!(
+                a.effect,
+                StaticEffect::EntersTapped
+                    | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessPayLife { .. }
+            ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
                     return Err("entry replacement requires a permanent".into());
                 }
@@ -2728,7 +3424,15 @@ impl Definition {
                         || basic_land_color(&c.subtypes[0]).is_none()
                         || !self.mana_abilities.is_empty()
                 } else {
-                    !c.subtypes.is_empty() || self.mana_abilities.is_empty()
+                    if c.subtypes.is_empty() {
+                        self.mana_abilities.is_empty()
+                            && !typed_land_search::activation_definition(self)
+                    } else {
+                        !self.mana_abilities.is_empty()
+                            || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
+                            || c.subtypes.iter().collect::<BTreeSet<_>>().len() != c.subtypes.len()
+                            || !c.additional_types.is_empty()
+                    }
                 } || c.mana_cost.generic != Quantity::zero()
                     || !c.mana_cost.colored.is_empty()
                     || c.power.is_some()
@@ -2742,7 +3446,9 @@ impl Definition {
             CardKind::Creature => {
                 if c.basic
                     || c.power.is_none()
-                    || c.toughness.as_ref().is_none_or(|n| n <= &Quantity::zero())
+                    || c.toughness
+                        .as_ref()
+                        .is_none_or(|n| n <= &Quantity::zero() && !has_distinct_permanent_colors)
                     || self.intrinsic_zone.is_some()
                 {
                     return Err("unsupported creature characteristics".into());
@@ -2794,7 +3500,7 @@ fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> 
     Ok(())
 }
 fn ordinary_tap_program(p: &SpellProgram) -> bool {
-    p.additional_sacrifice.is_none()
+    (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
@@ -2810,7 +3516,7 @@ fn ordinary_tap_program(p: &SpellProgram) -> bool {
                 && matches!(&p.instructions[1], Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1))))
 }
 fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
-    p.additional_sacrifice.is_none()
+    (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.timing == SpellTiming::Instant
@@ -2845,7 +3551,7 @@ fn activated_permanent_tap_ability(a: &ActivatedAbility) -> bool {
 fn untap_program(p: &SpellProgram, types: &[CardKind]) -> bool {
     p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2876,7 +3582,7 @@ fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
         && p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2906,7 +3612,7 @@ fn activated_spell_counter_ability(a: &ActivatedAbility) -> bool {
         && p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2925,7 +3631,7 @@ fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
         && p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.additional_sacrifice.is_none()
+        && (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
@@ -2990,6 +3696,7 @@ pub fn temporary_creature_keyword_program(
     p: &SpellProgram,
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
@@ -3058,6 +3765,7 @@ pub fn temporary_permanent_keyword_program(
             })
     });
     if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
@@ -3114,6 +3822,7 @@ pub struct TemporarySetKeywordProgram<'a> {
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub fn temporary_set_keyword_program(p: &SpellProgram) -> Option<TemporarySetKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
         || !p.targets.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
@@ -3202,6 +3911,21 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    optional_costs::validate_program(p)?;
+    typed_land_search::validate_program(p)?;
+    if p.instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::Cascade { .. }))
+        && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
+            || !p.targets.is_empty()
+            || !p.modes.is_empty()
+            || p.timing != SpellTiming::Instant
+            || p.resolution != SpellResolution::Instructions
+            || p.functioning_zone != FunctioningZone::Stack
+            || !matches!(p.instructions.as_slice(), [Instruction::Cascade { .. }]))
+    {
+        return Err("cascade requires one complete targetless program".into());
+    }
     if targeted_counted_draw::has_counted_draw(p) && !targeted_counted_draw_program(p) {
         return Err("unsupported complete targeted counted draw".into());
     }
@@ -3209,10 +3933,11 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
         && !controller_counted_draw_program(p)
+        && !hand_return::controller_draw_land_allowance_program(p)
         && !flash_end_step_draw::trigger_program(p)
         && !paid_counted_draw::program_matches(p)
     {
-        return Err("unsupported complete controller draw/hand return".into());
+        return Err("unsupported complete counted controller draw program".into());
     }
     if library_order::has_order(p) && !controller_library_order_program(p) {
         return Err("unsupported complete controller library ordering program".into());
@@ -3266,7 +3991,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("unsupported temporary keyword grant program".into());
     }
     if has_permanent_owner_hand(p)
-        && (p.additional_sacrifice.is_some()
+        && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
             || !p.modes.is_empty()
             || p.functioning_zone != FunctioningZone::Stack
             || p.resolution != SpellResolution::Instructions
@@ -3295,7 +4020,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if p.targets
         .iter()
         .any(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
-        && (p.additional_sacrifice.is_some()
+        && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
             || !p.modes.is_empty()
             || p.functioning_zone != FunctioningZone::Stack
             || p.resolution != SpellResolution::Instructions
@@ -3422,6 +4147,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     for instruction in &p.instructions {
         let binding = match instruction {
             Instruction::MoveSet { .. }
+            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
@@ -3599,6 +4325,20 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
             }
+            Instruction::SearchTypedLands { search, .. } => {
+                search.validate()?;
+                None
+            }
+            Instruction::SearchBasicLandsSplit { .. } => {
+                if p.instructions.len() != 1
+                    || !p.targets.is_empty()
+                    || !p.modes.is_empty()
+                    || p.resolution != SpellResolution::Instructions
+                {
+                    return Err("unsupported basic land split search program".into());
+                }
+                None
+            }
             Instruction::SearchBasicLands { maximum, .. } => {
                 if *maximum == 0 || *maximum > 2 {
                     return Err("unsupported basic land search maximum".into());
@@ -3612,6 +4352,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
+            Instruction::Cascade { .. }
+            | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::PutPlusOneCounters { on, amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("counter amount must be positive".into());
@@ -3668,6 +4410,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, domain))
             }
+            Instruction::MoveTriggeredSuccessor { .. } => None,
             Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
@@ -3711,6 +4454,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, TargetDomain::AnyDamageTarget))
             }
+            Instruction::DealDamageToController { amount, .. } => {
+                if *amount <= Quantity::zero() {
+                    return Err("damage quantity must be positive".into());
+                }
+                None
+            }
             Instruction::DealDamageAnnouncedX { target_slot, .. } => {
                 let domain = p.targets.get(*target_slot as usize).map(|t| t.domain);
                 match domain {
@@ -3751,7 +4500,23 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     }
                 }
             }
+            Instruction::DrawCardsIfAdditionalCost {
+                count,
+                cost_identity,
+                ..
+            } => {
+                if count <= &Quantity::zero()
+                    || !p
+                        .optional_additional_costs
+                        .iter()
+                        .any(|c| c.identity == *cost_identity)
+                {
+                    return Err("unbound optional-cost draw/quantity".into());
+                }
+                None
+            }
             Instruction::DrawControllerCards { .. }
+            | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PutHandOnLibrary { .. }
             | Instruction::OrderLibraryTop { .. }
             | Instruction::OptionalShuffleLibrary { .. }
@@ -3921,6 +4686,25 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .iter()
         .any(|m| has_controller_discard(&m.program))
 }
+// Intrinsic keyword capability closure is shared by Rust and exported schema.
+fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Capability {
+    match keyword {
+        KeywordAbility::Flash => Capability::FlashV1,
+        KeywordAbility::Defender => Capability::DefenderV1,
+        KeywordAbility::Flying => Capability::FlyingV1,
+        KeywordAbility::Reach => Capability::ReachV1,
+        KeywordAbility::Vigilance => Capability::VigilanceV1,
+        KeywordAbility::Haste => Capability::HasteV1,
+        KeywordAbility::Lifelink => Capability::LifelinkV1,
+        KeywordAbility::Deathtouch => Capability::DeathtouchV1,
+        KeywordAbility::Indestructible => Capability::IndestructibleV1,
+        KeywordAbility::Trample => Capability::TrampleV1,
+        KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
+        KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
+        KeywordAbility::Menace => Capability::MenaceV1,
+        KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
+    }
+}
 // One primitive mapping for targeted and set grants, including schema closure.
 fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
@@ -3939,6 +4723,16 @@ fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Cap
     })
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if !program.optional_additional_costs.is_empty() {
+        set.insert(Capability::OptionalAdditionalManaCostV1);
+    }
+    if program
+        .instructions
+        .iter()
+        .any(|i| matches!(i, Instruction::PutSourcePlusOneCountersForCastColors { .. }))
+    {
+        set.insert(Capability::PlusOneCountersV1);
+    }
     if has_permanent_owner_hand(program) {
         // Existing creature-bounce and permanent-target capabilities alone do
         // not authorize this new composition in hosted/search profiles.
@@ -4005,6 +4799,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if instruction.uses_event_player() {
             set.insert(Capability::EventPlayerRecipientV1);
         }
+        if matches!(instruction, Instruction::CreateCreatureTokens { token, .. }
+            | Instruction::CreateTokensFor { token, .. } if !token.additional_types.is_empty())
+        {
+            set.insert(Capability::MultiTypeCreatureTokensV1);
+        }
         if let Instruction::CreateCreatureTokens { token, .. } = instruction
             && token
                 .keywords
@@ -4022,6 +4821,10 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
         }
+        if matches!(instruction, Instruction::Cascade { .. }) {
+            set.insert(Capability::ResolutionCastV1);
+            set.insert(Capability::RandomBottomV1);
+        }
 
         if matches!(
             instruction,
@@ -4036,6 +4839,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.insert(Capability::BoardWipesV1);
         }
         set.insert(match instruction {
+            Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
                 ..
@@ -4046,6 +4850,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             } => Capability::TemporaryCreatureSetKeywordProgramV1,
             Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
             Instruction::MoveSet { .. }
+            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
@@ -4069,6 +4874,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ReturnOwnGraveyardCreatureToHand { .. } => {
                 Capability::GraveyardRecursionV1
             }
+            Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
+            Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
             Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
                 Capability::AnnouncedXEffectsV1
@@ -4086,6 +4893,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 recipient: Some(_), ..
             } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
+            Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
+                Capability::CastSpellColorCountersV1
+            }
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantKeywords { .. } => {
                 if temporary_permanent_keyword_program(program).is_some() {
@@ -4100,10 +4910,16 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ReturnEntryTargetCreature { .. } => Capability::CreatureEntryReturnV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
+            Instruction::MoveTriggeredSuccessor { .. } => {
+                Capability::TriggeredSuccessorLibraryTuckV1
+            }
             Instruction::TargetPlayerSacrificeCreature { .. } => {
                 Capability::TargetPlayerSacrificeCreatureV1
             }
             Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
+            Instruction::DrawCards { .. } | Instruction::DrawCardsIfAdditionalCost { .. } => {
+                Capability::ControllerDrawV1
+            }
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
                 if controller_counted_draw_program(program)
                     || controller_counted_draw::standalone_controller_draw(program).is_some()
@@ -4111,11 +4927,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                     Capability::ControllerCountedDrawV1
                 } else if controller_draw_discard_program(program) {
                     Capability::ControllerDrawDiscardV1
+                } else if hand_return::controller_draw_land_allowance_program(program) {
+                    Capability::ControllerDrawLandAllowanceV1
                 } else {
                     Capability::ControllerHandReturnV1
                 }
             }
-            Instruction::DrawCards { .. } => Capability::ControllerDrawV1,
+            Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
@@ -4132,7 +4950,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
-            Instruction::DealDamage { .. } => Capability::NoncombatDamageV1,
+            Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
+                Capability::NoncombatDamageV1
+            }
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
@@ -4165,6 +4985,26 @@ pub struct Catalog {
     pub definitions: Vec<Definition>,
 }
 impl Catalog {
+    /// Each physical source contributes its native observer/self slots and its
+    /// static grant slots once per cast, never once per recipient permanent.
+    /// Tokens/copies with abilities are outside this physical-source proof.
+    pub fn cast_trigger_fanout_bound(&self, physical_sources: usize) -> Option<usize> {
+        self.definitions
+            .iter()
+            .try_fold(0usize, |max, d| {
+                let grants = d
+                    .static_abilities
+                    .iter()
+                    .filter(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. }))
+                    .count();
+                d.triggered
+                    .len()
+                    .checked_add(grants)
+                    .map(|slots| max.max(slots))
+            })?
+            .checked_mul(physical_sources)
+    }
+
     /// Look up a definition in a validated, canonically ordered catalog.
     ///
     /// `read` and `validate` establish unique, increasing Oracle identities.
@@ -4258,18 +5098,181 @@ pub fn canonical<T: Serialize>(value: &T) -> Result<String, String> {
 pub fn digest<T: Serialize>(value: &T) -> Result<String, String> {
     Ok(sha256(canonical(value)?.as_bytes()))
 }
+fn counter_placement_schema(schema: &mut serde_json::Value) {
+    let effect = serde_json::json!({"type":"object","required":["controller_creature_plus_one_counter_replacement"]});
+    schema["$defs"]["CounterPlacementModification"]["allOf"] = serde_json::json!([{"properties": {
+        "amount":{"pattern":"^[1-9][0-9]*$"}, "factor":{"pattern":"^[1-9][0-9]*$"}
+    }}]);
+    schema["$defs"]["StaticAbility"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":{"required":["effect"],"properties":{"effect":effect.clone()}},
+            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
+        }));
+    schema["$defs"]["Definition"].as_object_mut().unwrap().entry("allOf").or_insert_with(||serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":effect}}}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]}}},"capabilities":{"contains":{"const":Capability::ControllerCreaturePlusOneCounterReplacementV1}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerCreaturePlusOneCounterReplacementV1}}}}}
+    }));
+}
+fn cascade_schema(schema: &mut serde_json::Value) {
+    schema["$defs"]["Definition"]["properties"]["triggered"]["maxItems"] =
+        serde_json::json!(u32::MAX);
+    let cascade = serde_json::json!({"required":["op"],"properties":{"op":{"const":"cascade"}}});
+    let self_condition = serde_json::json!({"required":["condition"],"properties":{"condition":{"const":"self_spell_cast"}}});
+    let ability = serde_json::json!({"properties":{
+        "functioning_zone":{"const":"stack"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
+        "program":{"properties":{"optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":cascade}}}
+    }});
+    schema["$defs"]["CascadeFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":cascade}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}
+    }});
+    schema["$defs"]["TriggeredAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
+        "if":self_condition,"then":ability,
+        "else":{"properties":{"functioning_zone":{"const":"battlefield"},"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}
+    }));
+    let grant_effect = serde_json::json!({"type":"object","required":["grant_spell_cascade"]});
+    let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":grant_effect}}}}});
+    schema["$defs"]["Definition"]["properties"]["static_abilities"]["maxItems"] =
+        serde_json::json!(u32::MAX);
+    schema["$defs"]["StaticEffect"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .unwrap()
+        .push(
+            serde_json::json!({"properties":{"grant_spell_cascade":{"properties":{
+                "eligibility":{"properties":{"minimum":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"}}},
+                "program":ability["properties"]["program"]
+            }}}}),
+        );
+    schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
+        .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+        .push(serde_json::json!({"if":{"required":["effect"],"properties":{"effect":grant_effect}},"then":{"properties":{"functioning_zone":{"const":"battlefield"}}}}));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":grant,"then":{"properties":{
+            "capabilities":{"contains":{"const":"static_spell_cascade_grant_v1"}},
+            "characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment"]},"subtypes":{"not":{"contains":{"enum":["Equipment","Aura"]}}}}}
+        }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"static_spell_cascade_grant_v1"}}}}}
+    }));
+    let history = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{
+        "required":["effect"],"properties":{"effect":{"type":"object","required":["grant_spell_cascade"],"properties":{"grant_spell_cascade":{
+            "required":["eligibility"],"properties":{"eligibility":{"required":["eligibility"],"properties":{"eligibility":{"enum":["first_cast_each_turn","first_cast_from_exile_each_turn"]}}}}
+        }}}}
+    }}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":history,"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":"cast_history_v1"}}}}}
+    }));
+    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
+    let requirements = [
+        Capability::CascadeV1,
+        Capability::ResolutionCastV1,
+        Capability::RandomBottomV1,
+    ];
+    let yes: Vec<_> = requirements
+        .iter()
+        .map(|cap| serde_json::json!({"contains":{"const":cap}}))
+        .collect();
+    let no: Vec<_> = requirements
+        .iter()
+        .map(|cap| serde_json::json!({"not":{"contains":{"const":cap}}}))
+        .collect();
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
+        serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),
+        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
+    ]);
+}
+fn extend_multitype_token_schema(schema: &mut serde_json::Value) {
+    use serde_json::json;
+    let additional_types =
+        json!({"required":["additional_types"],"properties":{"additional_types":{"minItems":1}}});
+    let excluded_subtypes: Vec<_> = UNSUPPORTED_RULES_SUBTYPES
+        .iter()
+        .copied()
+        .chain(["Aura", "Equipment"])
+        .collect();
+    schema["$defs"]["CreatureToken"]["allOf"] = json!([{
+        "if":additional_types,"then":{"properties":{"subtypes":{"items":{"not":{"enum":excluded_subtypes}}}}}
+    }]);
+    let free = json!({"$ref":"#/$defs/SingleTypeTokenProgram"});
+    schema["$defs"]["SingleTypeTokenProgram"] = json!({"properties":{
+        "instructions":{"items":{"not":{"required":["token"],"properties":{"token":additional_types}}}},
+        "modes":{"items":{"properties":{"program":free}}}
+    }});
+    let no_multitype = json!({"properties":{"program":free}});
+    let cap = json!({"contains":{"const":Capability::MultiTypeCreatureTokensV1}});
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "if":{"allOf":[
+                {"properties":{"spell":{"anyOf":[{"type":"null"},free]}}},
+                {"properties":{"activated":{"items":no_multitype}}},
+                {"properties":{"triggered":{"items":no_multitype}}}
+            ]},
+            "then":{"properties":{"capabilities":{"not":cap}}},
+            "else":{"properties":{"capabilities":cap}}
+        }));
+}
+
 pub fn catalog_schema() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
-    // CR 702.12/702.6: only the separately bounded Equipment grant is admitted.
+    counter_placement_schema(&mut schema);
+    let intrinsic_keywords = schema["$defs"]["KeywordAbility"]["enum"]
+        .as_array()
+        .unwrap()
+        .clone();
+    for value in intrinsic_keywords {
+        let keyword: KeywordAbility = serde_json::from_value(value.clone()).unwrap();
+        let capability = intrinsic_keyword_capability(keyword);
+        schema["$defs"]["Definition"].as_object_mut().unwrap()
+            .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
+            .push(serde_json::json!({
+                "if":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":value}}}},
+                "then":{"properties":{"capabilities":{"contains":{"const":capability}}}}
+            }));
+    }
+
+    // CR 702.12/702.6: preserve the bounded Equipment modifier and the
+    // separate battlefield grant to other controlled permanents.
+    schema["$defs"]["CreatureToken"]["properties"]["additional_types"] = serde_json::json!({"type":"array","maxItems":1,"items":{"enum":["artifact","enchantment"]}});
+    extend_multitype_token_schema(&mut schema);
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
+    let permanent_grant_effect = serde_json::json!({
+        "const": StaticEffect::GrantOtherControlledPermanentsIndestructible
+    });
+    let permanent_grant = serde_json::json!({"required":["static_abilities"],"properties":{
+        "static_abilities":{"contains":{"required":["effect"],"properties":{"effect":permanent_grant_effect}}}
+    }});
     let temporary_keyword = |keyword: &str| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords"},"keywords":{"contains":{"const":keyword}}}}}}}}});
-    let temporary_set_keyword = |keyword: KeywordAbility| serde_json::json!({"required":["spell"],"properties":{"spell":{"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords_set"},"keywords":{"contains":{"const":keyword}}}}}}}}});
+    let temporary_set_keyword = |keyword: KeywordAbility| {
+        let program = serde_json::json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{"required":["op","keywords"],"properties":{"op":{"const":"grant_keywords_set"},"keywords":{"contains":{"const":keyword}}}}}}});
+        serde_json::json!({"anyOf":[
+            {"required":["spell"],"properties":{"spell":program}},
+            {"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],"properties":{"program":program}}}}}
+        ]})
+    };
     let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({
             "if":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}},
+            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
+        }));
+    schema["$defs"]["StaticAbility"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":{"required":["effect"],"properties":{"effect":permanent_grant_effect}},
             "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
         }));
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
@@ -4282,7 +5285,13 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":permanent_grant,"then":{"properties":{
+                "characteristics":{"properties":{"kind":{"const":"creature"}}},
+                "static_abilities":{"maxItems":1},"activated":{"maxItems":0},
+                "mana_abilities":{"maxItems":0},"triggered":{"maxItems":0},
+                "capabilities":{"contains":{"const":Capability::StaticPermanentIndestructibleGrantV1}}
+            }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::StaticPermanentIndestructibleGrantV1}}}}}}),
             serde_json::json!({"if":intrinsic,"then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["creature","artifact","enchantment","land"]}}}}}}),
             serde_json::json!({"if":grant,"then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"const":["Equipment"]}}}}}}),
             serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"not":{"const":"creature"}}}}}},"then":{"properties":{"keywords":{"items":{"enum":["flash","indestructible"]}}}}}),
@@ -4754,6 +5763,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }});
     schema["$defs"]["TemporaryPermanentKeywordProgram"] = serde_json::json!({
         "required":["targets","instructions"],"properties":{
+            "optional_additional_costs":{"maxItems":0},
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
@@ -4774,7 +5784,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}}}},
         "then":{"anyOf":[{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"properties":{
-            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+            "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"enum":["battlefield_creature","controlled_battlefield_creature"]},"filter":{"type":"null"}}}},
             "instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}
@@ -4900,10 +5910,53 @@ pub fn catalog_schema() -> serde_json::Value {
         ]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
-        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
+        "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordAbility"}]}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
         "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
     }}));
+    // Optional fields deserialize null as None. Only a non-null cost/restriction
+    // selects this family; a selected counter cost must then be a positive quantity.
+    let counter_mana = serde_json::json!({"anyOf":[
+        {"required":["restriction"],"properties":{"restriction":{"type":"string"}}},
+        {"properties":{"costs":{"required":["remove_source_plus_one_counters"],"properties":{"remove_source_plus_one_counters":{"type":"string"}}}}}
+    ]});
+    schema["$defs"]["ManaAbility"]["allOf"] = serde_json::json!([{
+        "if":counter_mana,
+        "then":{"required":["restriction"],"properties":{
+            "restriction":{"const":"once_each_turn"},
+            "costs":{"required":["remove_source_plus_one_counters"],"properties":{
+                "remove_source_plus_one_counters":{"type":"string","pattern":"^[1-9][0-9]*$"},"tap":{"const":false},"sacrifice":{"const":false},"mana":{"type":"null"}}},
+            "production":{"properties":{"mana":{"const":"fixed"},"symbols":{"minItems":1}}}
+        }},"else":{"properties":{"costs":{"properties":{"tap":{"const":true},"sacrifice":{"const":false}}}}}
+    }]);
+    schema["$defs"]["CastColorFreeProgram"] = serde_json::json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"put_source_plus_one_counters_for_cast_colors"}}}}},
+        "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CastColorFreeProgram"}}}}
+    }});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties": {"spell": {"$ref": "#/$defs/CastColorFreeProgram"}, "activated": {"items": {"properties": {"program": {"$ref": "#/$defs/CastColorFreeProgram"}, "cost": {"properties": {"composite": {"properties": {"costs": {"not": {"required": ["remove_source_plus_one_counters"],"properties":{"remove_source_plus_one_counters":{"type":"string"}}}}}}}}}}}}}));
+    let cast_colors = serde_json::json!({"required":["program"],"properties":{"program":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"put_source_plus_one_counters_for_cast_colors"}}}}}}}});
+    let cast_color_condition = TriggerCondition::SpellCast {
+        caster: CasterRelation::Controller,
+        spell: TypePredicate::Any {},
+    };
+    schema["$defs"]["TriggeredAbility"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":cast_colors,"then":{"properties":{
+            "condition":{"const":cast_color_condition},"intervening_if":{"type":"null"},
+            "program":{"properties":{"targets":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1}}}
+        }}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["mana_abilities"],"properties":{"mana_abilities":{"contains":counter_mana}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CounterRemovalManaV1}},{"contains":{"const":Capability::PermanentManaV1}}]}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CounterRemovalManaV1}}}}}
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["triggered"],"properties":{"triggered":{"contains":cast_colors}}},
+        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"creature"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSpellColorCountersV1}},{"contains":{"const":Capability::PlusOneCountersV1}},{"contains":{"const":Capability::CastTriggerV1}}]}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastSpellColorCountersV1}}}}}
+    }));
+    cascade_schema(&mut schema);
+
     let permanent_target = serde_json::json!({"required":["targets"],"properties":{"targets":{"contains":{
         "required":["domain"],"properties":{"domain":{"const":"controlled_battlefield_permanent"}}
     }}}});
@@ -5006,6 +6059,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }
     schema["$defs"]["TemporarySetKeywordInstructions"] = serde_json::json!({"anyOf":set_shapes});
     let set_family_program = serde_json::json!({"properties":{
+        "optional_additional_costs":{"maxItems":0},
         "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
         "instructions":{"$ref":"#/$defs/TemporarySetKeywordInstructions"}
@@ -5079,8 +6133,11 @@ pub fn catalog_schema() -> serde_json::Value {
             {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
              "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastInstantV1}},{"not":{"contains":{"const":Capability::CastSorceryV1}}}]}}},
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
-        ]},"else":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}
+        ]},"else":{"if":{"$ref":"#/$defs/HasActivatedSetKeyword"},
+            "then":{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordDefinition"},
+            "else":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}}
     }));
+    sacrifice_set::schema(&mut schema);
     // Keep the Aura-control operation and capability paired with its complete
     // executable shape. This addition does not narrow other attachment families.
     // Derive the scoped keyword vocabulary through the shared static-layer
@@ -5150,6 +6207,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "spell":{"type":"object","properties":{
                 "timing":{"const":"main_phase"},"resolution":{"const":"permanent"},
                 "functioning_zone":{"const":"stack"},"additional_sacrifice":{"type":"null"},
+                "optional_additional_costs":{"maxItems":0},
                 "instructions":{"maxItems":0},"modes":{"maxItems":0},
                 "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
                     "slot":{"const":0},"selection_id":{"minLength":1},
@@ -5200,7 +6258,16 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":Capability::AuraControlV1}}
         }},"then":{"$ref":"#/$defs/AuraControlDefinition"}}),
         ]);
+    static_controller::schema(&mut schema);
+    optional_costs::schema(&mut schema);
+    counted_costs::schema(&mut schema);
+    typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
+    opponent_mana::extend_schema(&mut schema);
+    distinct_permanent_colors::extend_schema(&mut schema);
+    pain_mana::extend_schema(&mut schema);
+    source_tap_damage::extend_schema(&mut schema);
+    conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
@@ -5211,6 +6278,22 @@ pub fn catalog_schema() -> serde_json::Value {
     controller_counted_draw::extend_schema(&mut schema);
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
+    nonland_exile_life::extend_schema(&mut schema);
+    self_spell_protection::extend_schema(&mut schema);
+    opponent_nonland_destroy::extend_schema(&mut schema);
+    cycling::schema(&mut schema);
+    successor_tuck::extend_schema(&mut schema);
+    let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
+        "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
+            "spell":{"properties":{"predicate":{"const":"spell_color"}}}
+        }}}
+    }}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "if":{"required":["triggered"],"properties":{"triggered":{"contains":color_trigger}}},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::CastColorPredicateV1}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastColorPredicateV1}}}}}
+    }));
+    cast_origin::extend_schema(&mut schema);
     activated_artifact_draw::extend_schema(&mut schema);
     unlimited_hand_size::extend_schema(&mut schema);
     hand_size_adjustments::extend_schema(&mut schema);
@@ -5298,6 +6381,9 @@ mod activated_spell_counter_tests;
 mod activated_permanent_return_tests;
 
 #[cfg(test)]
+mod basic_land_split_tests;
+
+#[cfg(test)]
 mod permanent_owner_hand_tests;
 
 #[cfg(test)]
@@ -5351,6 +6437,13 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            CountedSelfGenericCostReductionV1,
+            OptionalAdditionalManaCostV1,
+            ResolutionCastV1,
+            CascadeV1,
+            StaticSpellCascadeGrantV1,
+            CastHistoryV1,
+            RandomBottomV1,
             NormalLayoutV1,
             BasicLandManaV1,
             LandPlayV1,
@@ -5384,6 +6477,8 @@ mod tests {
             ControllerHandReturnV1,
             ControllerDrawDiscardV1,
             ControllerCountedDrawV1,
+            ControllerDrawLandAllowanceV1,
+            TriggeredSuccessorLibraryTuckV1,
             ControllerDiscardV1,
             OpponentTargetV1,
             TargetPlayerSacrificeCreatureV1,
@@ -5391,7 +6486,10 @@ mod tests {
             StackAbilityTargetV1,
             CounterStackObjectV1,
             TapSourceCostV1,
+            PayLifeCostV1,
             ManaActivationCostV1,
+            HandActivationV1,
+            DiscardSourceCostV1,
             AnyDamageTargetV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
@@ -5420,6 +6518,7 @@ mod tests {
             LifelinkV1,
             DeathtouchV1,
             IndestructibleV1,
+            StaticPermanentIndestructibleGrantV1,
             TemporaryIndestructibleSpellV1,
             TemporaryFlyingSpellV1,
             TemporaryDeathtouchSpellV1,
@@ -5433,10 +6532,13 @@ mod tests {
             DoubleStrikeV1,
             MenaceV1,
             CreatureTokensV1,
+            MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
             BasicLandSearchV1,
+            BasicLandSplitSearchV1,
+            TypedLandSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
             TargetedCountedDrawV1,
@@ -5444,20 +6546,33 @@ mod tests {
             RandomPlayerDiscardV1,
             CastArtifactV1,
             PermanentManaV1,
+            OpponentLandManaV1,
+            DistinctPermanentColorsV1,
             CompositeActivationCostV1,
             AttachmentsV1,
             PermanentRemovalV1,
             SacrificeV1,
             BoardWipesV1,
+            SelfSpellProtectionV1,
             AnnouncedXDrawV1,
             EachPlayerDrawV1,
             AnnouncedXEffectsV1,
             FlashV1,
             EntersTappedV1,
+            ConditionalBasicLandEntryV1,
+            OptionalLifeLandEntryV1,
+            TypedNonbasicIntrinsicManaV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
             CastTriggerV1,
+            CastOriginTriggerV1,
+            CastColorPredicateV1,
+            CastSpellColorCountersV1,
+            CounterRemovalManaV1,
+            DisjointPainManaV1,
+            SourceTapTriggerV1,
+            ControllerCreaturePlusOneCounterReplacementV1,
             AttackTriggerV1,
             DamageTriggerV1,
             SourceDamageTriggerV2,
@@ -5507,6 +6622,163 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        let mut creator = definitions
+            .iter()
+            .find(|d| {
+                d.spell.as_ref().is_some_and(|p| {
+                    matches!(
+                        p.instructions.first(),
+                        Some(Instruction::CreateCreatureTokens { .. })
+                    )
+                })
+            })
+            .unwrap()
+            .clone();
+        creator.source_labels = None;
+        if let Instruction::CreateCreatureTokens { token, .. } =
+            &mut creator.spell.as_mut().unwrap().instructions[0]
+        {
+            token.colors.clear();
+            token.keywords.clear();
+            token.additional_types = vec![CardKind::Artifact];
+            token.subtypes = vec!["Latticekin".into()];
+            token.power = 3.into();
+            token.toughness = 7.into();
+        }
+        creator.capabilities = creator.requirements();
+        definitions.push(creator);
+        // Synthetic complete typed control; exact frozen source is compiled
+        // independently in compiler::ramos_m4e_tests.
+        let mut counted = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        let mut permanent_grant = counted.clone();
+        permanent_grant.source_labels = None;
+        permanent_grant.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::GrantOtherControlledPermanentsIndestructible,
+        }];
+        permanent_grant.capabilities = permanent_grant.requirements();
+        definitions.push(permanent_grant);
+        let mut distinct_colors = counted.clone();
+        distinct_colors.source_labels = None;
+        distinct_colors.characteristics.toughness = Some(Quantity::zero());
+        distinct_colors.keywords = vec![KeywordAbility::Vigilance];
+        let scope = PermanentColorScope::Controller;
+        distinct_colors.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifySourceByDistinctPermanentColors {
+                scope,
+                power_per_color: 2.into(),
+                toughness_per_color: 3.into(),
+            },
+        }];
+        distinct_colors.mana_abilities = vec![ManaAbility {
+            self_damage: None,
+            restriction: None,
+            costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
+                tap: true,
+                mana: None,
+                sacrifice: false,
+            },
+            production: ManaProduction::EachPermanentColor { scope },
+            source_block: 2,
+        }];
+        distinct_colors.capabilities = distinct_colors.requirements();
+        definitions.push(distinct_colors);
+        definitions.push(successor_tuck::witness(counted.clone()));
+        let mut origin_draw = counted.clone();
+        origin_draw.source_labels = None;
+        origin_draw.triggered = vec![TriggeredAbility {
+            death_filter: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::SpellCastWithOrigin {
+                caster: CasterRelation::Controller,
+                spell: TypePredicate::Any {},
+                origin: CastOriginPredicate::Outside {
+                    zone: CastOriginZone::ControllerHand,
+                },
+            },
+            intervening_if: None,
+            program: SpellProgram {
+                optional_additional_costs: vec![],
+                additional_sacrifice: None,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                targets: vec![],
+                instructions: vec![Instruction::DrawCards {
+                    recipient: None,
+                    count: 1.into(),
+                    source_block: 0,
+                }],
+                modes: vec![],
+            },
+        }];
+        origin_draw.capabilities = origin_draw.requirements();
+        let mut color_cast = origin_draw.clone();
+        color_cast.triggered[0].condition = TriggerCondition::SpellCast {
+            caster: CasterRelation::Controller,
+            spell: TypePredicate::SpellColor { color: Color::U },
+        };
+        color_cast.capabilities = color_cast.requirements();
+        definitions.push(color_cast);
+        definitions.push(origin_draw);
+        counted.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Stack,
+            effect: StaticEffect::ReduceSelfGenericCost {
+                per_object: 1.into(),
+                count: BattlefieldCount {
+                    kind: CardKind::Artifact,
+                    controller: CountController::Caster,
+                },
+            },
+        }];
+        counted.capabilities = counted.requirements();
+        definitions.push(counted);
+        let mut static_grant = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        static_grant.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::GrantSpellCascade {
+                eligibility: SpellCascadeEligibility::FirstCastEachTurn {},
+                program: canonical_cascade_program(0),
+            },
+        }];
+        static_grant.capabilities = static_grant.requirements();
+        definitions.push(static_grant);
+        let mut optional = definitions
+            .iter()
+            .find(|d| d.name == "Naturalize")
+            .unwrap()
+            .clone();
+        let identity = format!(
+            "card:{}/faces/0/abilities/0/keywords/0#keyword",
+            optional.oracle_id
+        );
+        let p = optional.spell.as_mut().unwrap();
+        p.optional_additional_costs = vec![OptionalAdditionalManaCost {
+            identity: identity.clone(),
+            source_block: 0,
+            mana: ManaCost {
+                generic: 2.into(),
+                colored: vec![Color::U],
+            },
+        }];
+        p.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+            cost_identity: identity,
+            count: 2.into(),
+            source_block: 1,
+        });
+        optional.capabilities = optional.requirements();
+        definitions.push(optional);
+
         definitions.push(creature_set_keyword_tests::grant(
             ObjectSet::ControllerCreatures,
             &[KeywordAbility::Haste],
@@ -5558,6 +6830,9 @@ mod tests {
             false,
         ));
         definitions.push(temporary_permanent_keyword_tests::grant(true));
+        definitions.push(sacrifice_set_tests::grant(&[
+            KeywordAbility::Indestructible,
+        ]));
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
@@ -5574,6 +6849,18 @@ mod tests {
         definitions.push(hand_return::witness());
         definitions.push(draw_discard::witness());
         definitions.push(controller_counted_draw::witness());
+        let mut draw_land_allowance = controller_counted_draw::witness();
+        draw_land_allowance
+            .spell
+            .as_mut()
+            .unwrap()
+            .instructions
+            .push(Instruction::GrantLandPlaysThisTurn {
+                count: "999999999999999999999999".parse().unwrap(),
+                source_block: 0,
+            });
+        draw_land_allowance.capabilities = draw_land_allowance.requirements();
+        definitions.push(draw_land_allowance);
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
@@ -5584,6 +6871,18 @@ mod tests {
         definitions.push(activated_artifact_draw::witness());
         definitions.extend(paid_counted_draw::witnesses());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
+        definitions.push(basic_land_split_tests::split_search());
+        definitions.push(typed_land_search_tests::typed_search());
+        definitions.push(conditional_lands::tests::land());
+        definitions.push(conditional_lands::tests::optional_land());
+        definitions.push(cycling::witness());
+        definitions.push(opponent_mana::witness());
+        definitions.push(pain_mana::witness());
+        definitions.push(source_tap_damage::witness());
+        definitions.push(ramos_m1_tests::ramos());
+        definitions.push(counter_placement_tests::provider(
+            CounterPlacementModification::Add { amount: 7.into() },
+        ));
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.
         let mut damage = definitions
@@ -5607,6 +6906,30 @@ mod tests {
         };
         damage.capabilities = damage.requirements();
         definitions.push(damage.clone());
+        // Complete synthetic contract-shape witness, not source admission.
+        // Compiler/core M3 tests separately consume both exact frozen records.
+        let mut cascade = damage.clone();
+        cascade.triggered = vec![TriggeredAbility {
+            functioning_zone: FunctioningZone::Stack,
+            condition: TriggerCondition::SelfSpellCast,
+            intervening_if: None,
+            death_filter: None,
+            program: SpellProgram {
+                optional_additional_costs: vec![],
+                additional_sacrifice: None,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                targets: vec![],
+                modes: vec![],
+                instructions: vec![Instruction::Cascade {
+                    threshold: CascadeThreshold::SourceSpellManaValue,
+                    source_block: 0,
+                }],
+            },
+        }];
+        cascade.capabilities = cascade.requirements();
+        definitions.push(cascade);
         let mut optional = damage.clone();
         optional.triggered[0].program.targets.clear();
         optional.triggered[0].program.instructions =
@@ -5735,6 +7058,17 @@ mod tests {
             assert!(!expanded.capabilities.contains(&DamageTriggerV1));
             definitions.push(expanded);
         }
+        definitions.push(typed_fetchland_tests::definition());
+        let protected_wipe = definitions
+            .iter()
+            .find(|d| {
+                d.static_abilities
+                    .iter()
+                    .any(|a| a.effect == StaticEffect::CantBeCountered)
+            })
+            .unwrap()
+            .clone();
+        definitions.push(self_spell_protection::witness(protected_wipe));
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)
@@ -6591,7 +7925,15 @@ mod tests {
             d.characteristics.snow = true;
             d.characteristics.kind = kind;
             d.capabilities = d.requirements();
-            assert!(d.validate().unwrap_err().contains("non-mana creature"));
+            assert!(
+                d.validate()
+                    .unwrap_err()
+                    .contains(if kind == CardKind::Land {
+                        "unsupported complete pure typed nonbasic land"
+                    } else {
+                        "non-mana creature"
+                    })
+            );
         }
         for (power, toughness, keywords, restrictions) in [
             (
@@ -6645,15 +7987,14 @@ mod tests {
         unbound.static_abilities[0].functioning_zone = FunctioningZone::Stack;
         unbound.capabilities = unbound.requirements();
         assert!(unbound.validate().is_err());
-        // Unqualified Controller scope requires an enchantment context; the
-        // attacking scope does not widen it on creatures.
+        // Controller scope uses the same live modifier family on creatures.
         unbound.static_abilities = vec![grant];
         if let StaticEffect::ModifyCreatures { scope, .. } = &mut unbound.static_abilities[0].effect
         {
             *scope = CreatureScope::Controller;
         }
         unbound.capabilities = unbound.requirements();
-        assert!(unbound.validate().is_err());
+        unbound.validate().unwrap();
     }
     #[test]
     fn grouped_damage_and_cast_prohibition_have_independent_capabilities_and_strict_shapes() {
@@ -6668,6 +8009,7 @@ mod tests {
             .unwrap()
             .clone();
         let program = SpellProgram {
+            optional_additional_costs: vec![],
             additional_sacrifice: None,
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
@@ -7211,6 +8553,12 @@ mod compound_indestructible_tests;
 mod temporary_deathtouch_tests;
 
 #[cfg(test)]
+mod ramos_m1_tests;
+
+#[cfg(test)]
+mod counter_placement_tests;
+
+#[cfg(test)]
 mod temporary_creature_keyword_tests;
 
 #[cfg(test)]
@@ -7223,13 +8571,29 @@ mod aura_control_tests;
 mod creature_set_keyword_tests;
 
 #[cfg(test)]
+mod static_controller_tests;
+
+#[cfg(test)]
 mod permanent_set_keyword_tests;
+
+#[cfg(test)]
+mod spell_cascade_grant_tests;
 
 #[cfg(test)]
 mod temporary_permanent_keyword_tests;
 
 #[cfg(test)]
 mod temporary_reach_tests;
+#[cfg(test)]
+mod typed_land_search_tests;
+
+mod sacrifice_set;
+pub use sacrifice_set::sacrifice_source_creature_set_keyword_ability;
+
+#[cfg(test)]
+mod sacrifice_set_tests;
+#[cfg(test)]
+mod typed_fetchland_tests;
 
 #[cfg(test)]
 mod temporary_vigilance_tests;

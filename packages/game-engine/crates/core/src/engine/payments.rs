@@ -15,6 +15,20 @@ impl From<PaymentError> for String {
     }
 }
 
+/// Successful completion is distinct from a rules inability to pay and from
+/// an engine error. This receipt is produced only after every cost and the one
+/// cast occurrence; a caller, rather than the payment primitive, owns resumption.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct AnnouncementCompleted {
+    pub(super) stack_id: StackId,
+    pub(super) controller: PlayerId,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum AnnouncementPayment {
+    Completed(AnnouncementCompleted),
+    Unpayable,
+}
+
 impl Game {
     pub(super) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
         match self.payment_pool(player, cost) {
@@ -128,17 +142,81 @@ impl Game {
     }
 
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
-        let stack = self.top()?.clone();
-        let cost = stack.total_cost.clone();
-        if !self.can_pay(stack.controller, &cost)? {
-            let undo = cast.undo_mana;
-            self.reverse_cast(cast, "insufficient mana", undo)?;
-            self.stabilize()?;
-            return Ok(());
+        let during_resolution = matches!(cast.completion, CastCompletion::Resolution { .. });
+        match self.pay_announcement_costs(&cast)? {
+            AnnouncementPayment::Completed(completed) => match cast.completion {
+                CastCompletion::Priority => {
+                    self.state.rules.priority = completed.controller;
+                    self.state.rules.frame = Frame::Priority;
+                }
+                CastCompletion::Resolution {
+                    permission,
+                    mut progress,
+                } => {
+                    if completed.stack_id != cast.stack_id
+                        || completed.controller != permission.caster
+                    {
+                        return Err("resolution payment completion identity".into());
+                    }
+                    progress.child = Some(completed.stack_id);
+                    progress.stage = cascade::CascadeStage::Randomize;
+                    self.prepare_cascade_remainder(&mut progress)?;
+                    self.state.rules.frame = Frame::Cascade { progress };
+                }
+            },
+            AnnouncementPayment::Unpayable => {
+                let undo = cast.undo_mana;
+                self.reverse_cast(cast, "insufficient mana", undo)?;
+            }
         }
-        self.check_sacrifice_payment(&stack, &cast)?;
+        if during_resolution {
+            Ok(())
+        } else {
+            self.stabilize()
+        }
+    }
+
+    // CR 601.2h-i / 608.2g: payment and cast-trigger collection do not grant
+    // priority or stabilize. The caller returns either to priority or to its
+    // owned resolving continuation. Payment itself never supplies permission.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn pay_announcement_costs(
+        &mut self,
+        cast: &Casting,
+    ) -> Result<AnnouncementPayment, String> {
+        let stack = self.top()?.clone();
+        self.validate_cost_lock(&stack)?;
+        self.validate_additional_cost_entry(&stack)?;
+        if stack.id != cast.stack_id
+            || stack.paid.is_some()
+            || stack.kind.is_spell() != cast.origin.is_spell()
+        {
+            return Err("announcement payment binding invariant".into());
+        }
+        if let CastCompletion::Resolution { permission, .. } = &cast.completion
+            && !self.resulting_permission_matches(permission, &stack)?
+        {
+            return Ok(AnnouncementPayment::Unpayable);
+        }
+        let cost = stack.total_cost.clone();
+        if let StackKind::Activated { ability, .. } = &stack.kind
+            && matches!(
+                self.definition(stack.source.card)?.activated[*ability as usize].cost,
+                ActivationCost::DiscardSource { .. }
+            )
+            && !self.hand_activation_source_payable(stack.controller, stack.source)
+        {
+            return Ok(AnnouncementPayment::Unpayable);
+        }
+        if !self.can_pay(stack.controller, &cost)? {
+            return Ok(AnnouncementPayment::Unpayable);
+        }
+        self.check_sacrifice_payment(&stack, cast)?;
         let proposed = {
-            let spending = cast.spending.ok_or("missing explicit mana spending")?;
+            let spending = cast
+                .spending
+                .clone()
+                .ok_or("missing explicit mana spending")?;
             self.selected_payment_pool(stack.controller, &cost, &spending)?;
             ProposedEvent::PayManaSelected {
                 player: stack.controller,
@@ -153,6 +231,30 @@ impl Game {
                 player: stack.controller,
             },
         )?;
+        // CR601.2h/602.2b/702.29a: debit the complete explicit mana selection
+        // before discarding precisely the preflighted source as a cost. The
+        // containing rule step stages both occurrences atomically. No choice
+        // of another hand card, no effect-time discard, no early cost on failure.
+        if let StackKind::Activated { ability, .. } = &stack.kind
+            && matches!(
+                self.definition(stack.source.card)?.activated[*ability as usize].cost,
+                ActivationCost::DiscardSource { .. }
+            )
+        {
+            self.commit(
+                ProposedEvent::DiscardCard {
+                    object: stack.source,
+                    player: stack.controller,
+                },
+                BatchCause::AbilityActivation {
+                    stack_id: stack.id,
+                    player: stack.controller,
+                    source: stack.source,
+                    decision_id: self.state.rules.revision,
+                    ability: *ability,
+                },
+            )?;
+        }
         if let StackKind::Activated { ability, .. } = stack.kind
             && let ActivationCost::Composite { costs } =
                 self.definition(stack.source.card)?.activated[ability as usize]
@@ -197,8 +299,9 @@ impl Game {
                 ability: *ability,
             })?;
         }
-        self.state.rules.priority = stack.controller;
-        self.state.rules.frame = Frame::Priority;
-        self.stabilize()
+        Ok(AnnouncementPayment::Completed(AnnouncementCompleted {
+            stack_id: stack.id,
+            controller: stack.controller,
+        }))
     }
 }

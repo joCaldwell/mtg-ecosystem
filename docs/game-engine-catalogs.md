@@ -21,9 +21,10 @@ cargo run --locked -p mtg-sim -- catalog extract /path/to/accepted.jsonl package
 cargo run --locked -p mtg-sim -- catalog verify /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json
 ```
 
-`build` compiles complete supported records and checks archive/provenance hashes,
-record pins, expected IR bytes and canonical digest. `--write` regenerates both
-outputs after source/rules review. Manifest fields are `schema_version: 1`,
+`build` checks complete supported records, provenance pins, IR bytes and digest.
+`--write` regenerates both outputs. `--json-errors` emits a structured diagnostic
+on stderr. Coverage publishes both receipts together and preserves occupied
+destinations unless their receipts already match. Manifest fields are `schema_version: 1`,
 `provenance`, `records`, `expected_ir`, `expected_digest` and `output_order`:
 `canonical` (sorted compact JSON), `sorted` (sorted pretty), or `struct` (typed
 field-order pretty). Manifest paths are relative to that manifest; source/archive

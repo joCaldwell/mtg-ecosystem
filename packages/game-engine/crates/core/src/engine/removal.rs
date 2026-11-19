@@ -20,14 +20,20 @@ pub(super) struct TargetFacts {
 impl Game {
     fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
         match frame {
-            Frame::Resolve { frame }
+            Frame::Cascade { progress } => Some(&mut progress.frame),
+            Frame::LandEntry {
+                origin: EntryOrigin::Search { frame },
+                ..
+            }
+            | Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }
             | Frame::ForcedSacrifice { frame, .. }
             | Frame::OptionalDamage { frame } => Some(frame),
+            Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
                 match transaction.continuation.as_mut() {
                     DamageContinuation::Instruction { frame } => Some(frame),
-                    DamageContinuation::Combat => None,
+                    DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
                 }
             }
             Frame::Stabilize { resume, .. } | Frame::LegendRule { resume, .. } => {
@@ -43,6 +49,7 @@ impl Game {
                 | CommanderContinuation::StateBasedBatch { resume, .. } => {
                     Self::target_information_frame(resume)
                 }
+                CommanderContinuation::CascadeBottom { progress } => Some(&mut progress.frame),
                 CommanderContinuation::Draw { .. } => None,
             },
             _ => None,

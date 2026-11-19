@@ -20,10 +20,14 @@ pub(super) fn coalesce(
     };
     let [
         Sentence {
+            condition: None,
+            condition_kind: None,
             bindings: a,
             steps: look,
         },
         Sentence {
+            condition: None,
+            condition_kind: None,
             bindings: b,
             steps: rest,
         },

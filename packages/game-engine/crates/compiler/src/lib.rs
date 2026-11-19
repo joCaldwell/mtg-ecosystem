@@ -13,6 +13,7 @@ mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
 mod bindings;
+mod cast_origin;
 pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -25,9 +26,11 @@ mod controller_surveil_tests;
 pub mod coverage;
 mod creature_entry_return;
 mod diagnostics;
+mod distinct_permanent_colors;
 mod draw_discard;
 #[cfg(test)]
 mod draw_discard_tests;
+mod draw_land_allowance;
 mod each_player_draw;
 mod fixed_mill;
 #[cfg(test)]
@@ -41,15 +44,32 @@ mod library_order_tests;
 mod library_selection;
 #[cfg(test)]
 mod library_selection_tests;
+mod nonland_exile_life;
 mod normalization;
+mod opponent_mana;
+mod opponent_nonland_destroy;
+mod optional_costs;
 mod paid_counted_draw;
+mod pain_mana;
 mod power_entry_draw;
 mod self_reference;
+mod self_spell_protection;
+mod source_tap_damage;
+mod spell_cascade_grants;
+mod static_permanent_indestructible;
+mod successor_tuck;
+use optional_costs::KickedCondition;
+mod conditional_lands;
+mod cycling;
+#[cfg(test)]
+mod cycling_tests;
 mod targeted_counted_draw;
 mod targeted_discard;
 #[cfg(test)]
 mod targeted_discard_tests;
 mod type_line;
+mod typed_fetchland;
+mod typed_land_search;
 mod unlimited_hand_size;
 pub use catalog::*;
 use normalization::{matches_fixed_amount, source_lines};
@@ -175,6 +195,7 @@ enum Ability {
         effects: Vec<Sentence>,
     },
     Activated {
+        restriction: Option<SourceActivationRestriction>,
         #[serde(rename = "abilityWord")]
         ability_word: Option<String>,
         costs: Vec<SourceCost>,
@@ -204,15 +225,17 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             "double-strike" => "double strike".to_owned(),
             _ => keyword,
         };
-        if !matches!(keyword.as_str(), "equip" | "enchant")
-            && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
-                .is_err()
+        if !matches!(
+            keyword.as_str(),
+            "equip" | "enchant" | "cascade" | "kicker" | "affinity" | "cycling"
+        ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
+            .is_err()
         {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "equip" => ["keyword", "cost"].as_slice(),
-            "enchant" => ["keyword", "filter"].as_slice(),
+            "equip" | "kicker" | "cycling" => ["keyword", "cost"].as_slice(),
+            "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
@@ -285,6 +308,8 @@ enum SourceTrigger {
     Cast {
         who: PlayerSelector,
         what: SourceTypeFilter,
+        #[serde(default, rename = "notFrom", deserialize_with = "present_json_operand")]
+        not_from: Option<serde_json::Value>,
     },
     Phase {
         phase: String,
@@ -296,6 +321,9 @@ enum SourceTrigger {
         to: serde_json::Value,
     },
     Enters {
+        what: TriggerObject,
+    },
+    BecomesTapped {
         what: TriggerObject,
     },
     Dies {
@@ -378,6 +406,7 @@ fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource
                 controller,
                 types: lower_type_predicate(
                     &SourceTypeFilter {
+                        colors: None,
                         cls: None,
                         types: Some(filter.types.clone()),
                         non_types: filter.non_types.clone(),
@@ -402,6 +431,8 @@ fn lower_damage_subject(what: &SourceDamageObject) -> Result<DamageTriggerSource
 #[serde(deny_unknown_fields)]
 struct SourceTypeFilter {
     #[serde(default, deserialize_with = "present_ast_field")]
+    colors: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "present_ast_field")]
     cls: Option<String>,
     #[serde(default, deserialize_with = "present_ast_field")]
     types: Option<Vec<String>>,
@@ -423,6 +454,30 @@ fn lower_type_predicate(
         || (f.cls.is_some() && f.cls.as_deref() != class)
     {
         return Err(unsupported("trigger.what", "unsupported spell class/depth"));
+    }
+    if let Some(colors) = &f.colors {
+        if !root
+            || class != Some("spell")
+            || colors.len() != 1
+            || f.types.is_some()
+            || f.non_types.is_some()
+            || f.all_of.is_some()
+            || f.any_of.is_some()
+        {
+            return Err(unsupported(
+                "trigger.what.colors",
+                "expected one standalone spell color",
+            ));
+        }
+        let color = match colors[0].as_str() {
+            "white" => Color::W,
+            "blue" => Color::U,
+            "black" => Color::B,
+            "red" => Color::R,
+            "green" => Color::G,
+            _ => return Err(unsupported("trigger.what.colors", "unknown spell color")),
+        };
+        return Ok(TypePredicate::SpellColor { color });
     }
     let kind = |s: &str| match s {
         "creature" => Ok(CardKind::Creature),
@@ -519,6 +574,7 @@ fn lower_attack_subject(what: &SourceAttacker) -> Result<AttackSubject, Failure>
                 controller,
                 types: lower_type_predicate(
                     &SourceTypeFilter {
+                        colors: None,
                         cls: None,
                         types: filter.types.clone(),
                         non_types: filter.non_types.clone(),
@@ -604,6 +660,14 @@ fn lower_temporary_creature_keywords(
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Sentence {
+    #[serde(default, deserialize_with = "present_ast_field")]
+    condition: Option<KickedCondition>,
+    #[serde(
+        default,
+        rename = "conditionKind",
+        deserialize_with = "present_ast_field"
+    )]
+    condition_kind: Option<String>,
     #[serde(default)]
     bindings: Vec<serde_json::Value>,
     steps: Vec<Step>,
@@ -612,6 +676,10 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    AdditionalLandPlays {
+        allowance: serde_json::Value,
+        duration: SourceDuration,
+    },
     LookAt {
         who: serde_json::Value,
         what: serde_json::Value,
@@ -657,6 +725,10 @@ enum Step {
         )]
         regeneration_forbidden: Option<bool>,
     },
+    Reveal {
+        who: PlayerSelector,
+        what: serde_json::Value,
+    },
     Search {
         who: PlayerSelector,
         zones: serde_json::Value,
@@ -678,7 +750,7 @@ enum Step {
     PutCounters {
         on: SourceCounterRecipient,
         counter: SourceCounter,
-        count: Count,
+        count: serde_json::Value,
     },
     Modal {
         count: ModeCount,
@@ -779,6 +851,11 @@ enum SourceCounterRecipient {
     Source(ThisObject),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "restriction", rename_all = "kebab-case", deny_unknown_fields)]
+enum SourceActivationRestriction {
+    OnceEachTurn {},
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceCounter {
     r#type: String,
@@ -786,9 +863,21 @@ struct SourceCounter {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "cost", rename_all = "kebab-case")]
 enum SourceCost {
-    Sacrifice { what: serde_json::Value },
+    RemoveCounters {
+        counter: SourceCounter,
+        count: Count,
+        from: serde_json::Value,
+    },
+    Sacrifice {
+        what: serde_json::Value,
+    },
     TapSelf {},
-    Mana { symbols: Vec<String> },
+    PayLife {
+        amount: serde_json::Value,
+    },
+    Mana {
+        symbols: Vec<String>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
@@ -967,6 +1056,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    CastSpellAbilities {
+        scope: serde_json::Value,
+        abilities: Vec<serde_json::Value>,
+    },
     PlayerRule {
         rule: serde_json::Value,
     },
@@ -977,10 +1070,21 @@ enum SourceStaticEffect {
     Prohibit {
         prohibition: serde_json::Value,
     },
+    EntryChoice {
+        what: serde_json::Value,
+        who: serde_json::Value,
+        costs: Vec<conditional_lands::EntryLifeCost>,
+        declined: serde_json::Value,
+    },
     EntersTapped {
         what: serde_json::Value,
-        #[serde(rename = "conditionKind")]
+        #[serde(
+            default,
+            rename = "conditionKind",
+            deserialize_with = "present_json_operand"
+        )]
         condition_kind: Option<serde_json::Value>,
+        #[serde(default, deserialize_with = "present_json_operand")]
         condition: Option<serde_json::Value>,
     },
     CostModification {
@@ -1062,11 +1166,37 @@ struct SourceReplacement {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "event", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceDamageEvent {
+    PutCounters {
+        on: Vec<CounterPlacementSourceRecipient>,
+        counter: SourceCounter,
+        cause: String,
+        quantity: SourceCounterThreshold,
+    },
     Damage {
         kind: String,
         source: ReplacementDamageSource,
         to: Vec<ReplacementRecipient>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CounterPlacementSourceRecipient {
+    #[serde(rename = "ref")]
+    reference: String,
+    filter: CounterPlacementSourceFilter,
+    count: Count,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CounterPlacementSourceFilter {
+    types: Vec<String>,
+    control: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceCounterThreshold {
+    op: String,
+    value: Count,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1091,12 +1221,16 @@ enum SourceReplacementAction {
 #[serde(deny_unknown_fields)]
 struct SourceQuantityChange {
     operation: String,
-    factor: u32,
+    factor: Option<u32>,
+    amount: Option<Count>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "mana", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceMana {
+    Choice {
+        options: Vec<SourceMana>,
+    },
     Fixed {
         symbols: Vec<Color>,
     },
@@ -1106,6 +1240,15 @@ enum SourceMana {
     CommanderColor {
         amount: Count,
         whose: PlayerSelector,
+    },
+    CouldProduce {
+        amount: Count,
+        what: serde_json::Value,
+        #[serde(rename = "colorOnly")]
+        color_only: bool,
+    },
+    EachColorAmong {
+        among: serde_json::Value,
     },
 }
 fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
@@ -1257,6 +1400,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         "/faces/0/abilities",
     )?;
     let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
+    let disjoint_mana =
+        pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
     // CR 207.2c: labels carry no rules meaning. All underlying fields must
     // still decode and lower, including conditions, costs and player relations.
@@ -1290,6 +1435,34 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if result.lines.len() != abilities.len() {
         return Err(invalid("lines", "unaccounted ability block"));
     }
+    for (block, ability) in abilities.iter().enumerate() {
+        if let Ability::Static { effect, .. } = ability {
+            conditional_lands::bind(
+                effect,
+                &binding,
+                &r.oracle_identity,
+                source_block(block)?,
+                &source,
+            )?;
+            spell_cascade_grants::bind(
+                effect,
+                &binding,
+                &r.oracle_identity,
+                source_block(block)?,
+                &source,
+            )?;
+            static_permanent_indestructible::bind(
+                effect,
+                &binding,
+                &source,
+                block,
+                &result.lines[block].text,
+            )?;
+        }
+    }
+    conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
+    typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     for (line, ability) in result.lines.iter().zip(&original) {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
@@ -1298,6 +1471,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let opponent_land_mana =
+        opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+    let (color_stats, color_mana) =
+        distinct_permanent_colors::lower(&abilities, &result, &binding, &source)?
+            .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
+    let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
+    nonland_exile_life::validate_binding(&source, &result, &binding)?;
+    let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
+    let mut draw_land_allowance =
+        draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
+    for (ability, raw) in abilities.iter().zip(&original) {
+        typed_land_search::validate_raw_actors(ability, raw.get())?;
+        typed_fetchland::validate_raw(ability, raw.get())?;
+    }
+    cast_origin::bind(&abilities, &binding, &source, &result)?;
+    successor_tuck::bind(&abilities, &binding, &source, &result)?;
     let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
     let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
@@ -1407,6 +1596,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
         ..SourceLabels::default()
     };
+    let mana_abilities: Vec<_> = disjoint_mana
+        .into_iter()
+        .flatten()
+        .chain(opponent_land_mana)
+        .chain(color_mana)
+        .collect();
+    labels
+        .mana
+        .extend(mana_abilities.iter().map(|a| a.source_block));
     let mut definition = Definition {
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
@@ -1432,7 +1630,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
         spell: None,
         activated: vec![],
-        mana_abilities: vec![],
+        mana_abilities,
         triggered: vec![],
         static_abilities: vec![],
         keywords: vec![],
@@ -1450,6 +1648,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery if opponent_nonland_destroy.is_some() => {
+            definition.spell = opponent_nonland_destroy;
+        }
         CardKind::Land | CardKind::Creature | CardKind::Artifact | CardKind::Enchantment => {
             if kind == CardKind::Land && basic && !abilities.is_empty() {
                 return Err(unsupported(
@@ -1469,6 +1670,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 // its battlefield abilities are distinct executable programs.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 definition.spell = Some(SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     timing: SpellTiming::MainPhase,
                     resolution: SpellResolution::Permanent,
@@ -1478,17 +1680,37 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            for (block, ability) in abilities.iter().enumerate() {
+            let remaining_abilities = if let Some(stats) = color_stats {
+                // The complete family consumed the static and activated blocks.
+                labels.statics.push(1);
+                definition.static_abilities.push(stats);
+                &abilities[..1]
+            } else if definition.mana_abilities.is_empty() {
+                abilities.as_slice()
+            } else {
+                // The other whole-source mana families consumed every block.
+                &[]
+            };
+            for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
-                        definition.static_abilities.push(lower_static(effect)?)
+                        definition
+                            .static_abilities
+                            .push(lower_static(effect, source_block(block)?)?)
                     }
                     Ability::Keywords { keywords, .. } => {
                         if keywords.is_empty() {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));
                         }
-                        for keyword in keywords {
+                        for (keyword_index, keyword) in keywords.iter().enumerate() {
+                            if keyword.keyword == "cycling" {
+                                labels.activated.push(source_block(block)?);
+                                definition
+                                    .activated
+                                    .push(cycling::lower(keyword, source_block(block)?)?);
+                                continue;
+                            }
                             if keyword.keyword == "equip"
                                 && kind == CardKind::Artifact
                                 && definition.characteristics.subtypes == ["Equipment"]
@@ -1512,6 +1734,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                         cost: c.mana.unwrap(),
                                     },
                                     program: SpellProgram {
+                                        optional_additional_costs: vec![],
                                         additional_sacrifice: None,
                                         timing: SpellTiming::MainPhase,
                                         resolution: SpellResolution::Instructions,
@@ -1572,6 +1795,89 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 });
                                 continue;
                             }
+                            if keyword.keyword == "affinity" {
+                                // CR 702.41a/b: complete exact filter and prospective caster.
+                                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                                if keyword.cost.is_some()
+                                    || keyword.filter
+                                        != Some(serde_json::json!({"types":["artifact"]}))
+                                {
+                                    return Err(unsupported(
+                                        "affinity",
+                                        "unsupported exact affinity selector",
+                                    ));
+                                }
+                                let binding: serde_json::Value =
+                                    decode(r.binding.get(), "binding")?;
+                                let path =
+                                    format!("/faces/0/abilities/{block}/keywords/{keyword_index}");
+                                let scope = format!(
+                                    "card:{}/faces/0/abilities/{block}#ability",
+                                    definition.oracle_id
+                                );
+                                let you = format!("card:{}{path}#you", definition.oracle_id);
+                                let id = format!("card:{}{path}#keyword", definition.oracle_id);
+                                let nodes = binding["nodes"].as_array().ok_or_else(|| {
+                                    unsupported("binding.affinity", "missing nodes")
+                                })?;
+                                let source_id =
+                                    format!("card:{}/source#object", definition.oracle_id);
+                                let face_id = format!("card:{}/faces/0#face", definition.oracle_id);
+                                let required = [
+                                    serde_json::json!({"id":source_id,"path":"/source","node":"source","identity":definition.oracle_id}),
+                                    serde_json::json!({"id":face_id,"path":"/faces/0","node":"face","source":source_id,"sourceFaceIndex":0,"name":definition.name,"layout":source.layout,"typeLine":source.type_line,"manaCost":source.mana_cost}),
+                                    serde_json::json!({"id":scope,"path":format!("/faces/0/abilities/{block}"),"node":"ability","source":source_id,"face":face_id,"abilityKind":"keywords"}),
+                                ];
+                                if binding["identity"] != definition.oracle_id
+                                    || required.iter().any(|expected| {
+                                        let found: Vec<_> = nodes
+                                            .iter()
+                                            .filter(|n| n["id"] == expected["id"])
+                                            .collect();
+                                        found.len() != 1
+                                            || expected
+                                                .as_object()
+                                                .unwrap()
+                                                .iter()
+                                                .any(|(k, v)| found[0][k] != *v)
+                                    })
+                                    || nodes.iter().filter(|n| n["id"] == id).count() != 1
+                                    || nodes.iter().filter(|n| n["id"] == you).count() != 1
+                                    || !nodes.iter().any(|n| {
+                                        n["id"] == id
+                                            && n["path"] == path
+                                            && n["scope"] == scope
+                                            && n["node"] == "keyword-ability"
+                                            && n["keyword"] == "affinity"
+                                            && n["abilities"] == serde_json::json!(["static"])
+                                            && n["you"] == you
+                                    })
+                                    || !nodes.iter().any(|n| {
+                                        n["id"] == you
+                                            && n["path"] == path
+                                            && n["scope"] == scope
+                                            && n["node"] == "runtime-player"
+                                            && n["role"] == "prospective-caster"
+                                    })
+                                {
+                                    return Err(unsupported(
+                                        "binding.affinity",
+                                        "missing exact prospective caster binding",
+                                    ));
+                                }
+                                labels.statics.push(source_block(block)?);
+                                definition.static_abilities.push(StaticAbility {
+                                    functioning_zone: FunctioningZone::Stack,
+                                    effect: StaticEffect::ReduceSelfGenericCost {
+                                        per_object: 1.into(),
+                                        count: BattlefieldCount {
+                                            kind: CardKind::Artifact,
+                                            controller: CountController::Caster,
+                                        },
+                                    },
+                                });
+                                continue;
+                            }
                             if keyword.cost.is_some() || keyword.filter.is_some() {
                                 return Err(unsupported(
                                     "keyword",
@@ -1579,6 +1885,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 ));
                             }
                             match keyword.keyword.as_str() {
+                                "cascade" if kind != CardKind::Land => {
+                                    // CR 702.85c: each exact keyword occurrence is
+                                    // independent, even inside one source block.
+                                    labels.triggered.push(source_block(block)?);
+                                    definition.triggered.push(TriggeredAbility {
+                                        functioning_zone: FunctioningZone::Stack,
+                                        condition: TriggerCondition::SelfSpellCast,
+                                        intervening_if: None,
+                                        death_filter: None,
+                                        program: canonical_cascade_program(source_block(block)?),
+                                    });
+                                }
                                 "flash" => definition.keywords.push(KeywordAbility::Flash),
                                 "defender" => definition.keywords.push(KeywordAbility::Defender),
                                 "trample" => definition.keywords.push(KeywordAbility::Trample),
@@ -1611,11 +1929,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             }
                         }
                     }
-                    Ability::Activated { costs, effects, .. } => {
-                        if let Some(mana) = lower_mana_ability(costs, effects, block, kind)? {
+                    Ability::Activated {
+                        costs,
+                        effects,
+                        restriction,
+                        ..
+                    } => {
+                        if let Some(mana) =
+                            lower_mana_ability(costs, effects, restriction.as_ref(), block, kind)?
+                        {
                             labels.mana.push(source_block(block)?);
                             definition.mana_abilities.push(mana);
                         } else {
+                            if restriction.is_some() {
+                                return Err(unsupported(
+                                    "restriction",
+                                    "restriction requires counter-removal mana",
+                                ));
+                            }
                             labels.activated.push(source_block(block)?);
                             definition
                                 .activated
@@ -1629,7 +1960,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if flash_end_step_draw {
+                        let ability = if let Some(ability) = source_tap_trigger.take() {
+                            ability
+                        } else if flash_end_step_draw {
                             unlimited_hand_size::lower_end_step_draw(
                                 trigger,
                                 effects,
@@ -1655,6 +1988,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 return Err(invalid("source.oracle_text", "spell has no source text"));
             }
             let mut program = SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 // CR 304.1 / 307.1: ordinary spell timing follows card type.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1669,8 +2003,27 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 instructions: vec![],
                 modes: vec![],
             };
+            optional_costs::declare(
+                &abilities,
+                &result,
+                &binding,
+                &definition.oracle_id,
+                &mut program,
+            )?;
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
+                if let Ability::Keywords { keywords, .. } = ability {
+                    if matches!(keywords.as_slice(), [k] if k.keyword == "kicker") {
+                        continue; // Complete declaration and linked condition checked together.
+                    }
+                    let previous = definition.triggered.len();
+                    optional_costs::instant_keywords(&mut definition, keywords, block)?;
+                    labels.triggered.extend(std::iter::repeat_n(
+                        source_block(block)?,
+                        definition.triggered.len() - previous,
+                    ));
+                    continue;
+                }
                 if let Ability::AdditionalCost { costs, .. } = ability {
                     if block != 0 || program.additional_sacrifice.is_some() {
                         return Err(unsupported(
@@ -1685,7 +2038,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     continue;
                 }
                 if let Ability::Static { effect, .. } = ability {
-                    let a = lower_static(effect)?;
+                    let a = lower_static(effect, source_block(block)?)?;
                     if a.functioning_zone != FunctioningZone::Stack {
                         return Err(unsupported("static", "spell static must function on stack"));
                     }
@@ -1704,6 +2057,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         count: count.clone(),
                         source_block: 0,
                     });
+                    continue;
+                }
+                if let Some(instructions) = draw_land_allowance.take() {
+                    if program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
+                    {
+                        return Err(unsupported(
+                            "land allowance",
+                            "requires ordinary spell costs",
+                        ));
+                    }
+                    program.instructions.extend(instructions);
                     continue;
                 }
                 if announced_x_effects {
@@ -1749,6 +2114,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 }
                 if let Some((count, life_loss)) = controller_counted_draw::coalesce(effects)? {
                     if abilities.len() != 1
+                        || program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
                         || block != 0
                         || !program.instructions.is_empty()
                         || !program.targets.is_empty()
@@ -1776,6 +2143,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     && let Some((draw, count)) = draw_discard::coalesce(effects)?
                 {
                     if abilities.len() != 1
+                        || program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
                         || block != 0
                         || !program.instructions.is_empty()
                         || !program.targets.is_empty()
@@ -1803,13 +2172,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 // Separate source blocks introduce independent occurrences (CR115.3).
                 // Reusing a selection ID across blocks must not alias targets.
                 slots.clear();
-                append_spell_effects(
-                    &mut program,
-                    effects,
-                    block,
-                    &mut slots,
-                    discard_target.map_or(PlayerBinding::Unbound, PlayerBinding::DiscardTarget),
-                )?;
+                if let Some(domain) = discard_target {
+                    if program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
+                    {
+                        return Err(unsupported("discard", "requires ordinary spell costs"));
+                    }
+                    append_spell_effects(
+                        &mut program,
+                        effects,
+                        block,
+                        &mut slots,
+                        PlayerBinding::DiscardTarget(domain),
+                    )?;
+                } else {
+                    optional_costs::append(&mut program, effects, block, &mut slots)?;
+                }
             }
             definition.spell = Some(program);
         }
@@ -1829,6 +2207,21 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 .any(|i| matches!(i, Instruction::LoseLifeDeathController { .. }))
     }) {
         return Err(unsupported("trigger", "unbound death controller"));
+    }
+    if definition
+        .activated
+        .iter()
+        .any(|a| sacrifice_source_creature_set_keyword_ability(a).is_some())
+    {
+        set_activation_binding::bind(
+            &binding,
+            &definition.oracle_id,
+            &definition.name,
+            &source.layout,
+            &source.type_line,
+            &source.mana_cost,
+            &canonical_abilities,
+        )?;
     }
     if definition.spell.as_ref().is_some_and(|p| {
         p.instructions.iter().any(|i| {
@@ -1973,6 +2366,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     definition
         .validate()
         .map_err(|e| unsupported("definition", e))?;
+    self_spell_protection::validate_binding(&definition, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     if let Some(spell) = &definition.spell
@@ -2217,7 +2611,14 @@ fn append_spell_effects(
         });
         return Ok(());
     }
-    if let [Sentence { bindings, steps }] = effects
+    if let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
         && let [Step::Modal { count, options }] = steps.as_slice()
     {
         // Outer sentence bindings define executable values; recursing only
@@ -2241,6 +2642,7 @@ fn append_spell_effects(
         }
         for option in options {
             let mut child = SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: program.timing,
                 resolution: program.resolution,
@@ -2288,7 +2690,10 @@ fn append_spell_effects(
             || !program.targets.is_empty()
             || !program.instructions.is_empty()
             || !slots.is_empty()
-            || effects.iter().any(|s| !s.bindings.is_empty())
+            || !program.optional_additional_costs.is_empty()
+            || effects.iter().any(|s| {
+                !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some()
+            })
             || effects.len() > 2
         {
             return Err(unsupported(
@@ -2366,18 +2771,26 @@ fn append_spell_effects(
         program.instructions.extend(tail);
         return Ok(());
     }
-    // CR 109.2/109.5, 608.2h, 611.2c: the permanent family consumes the
-    // complete sole pure-gain sentence. The general wipe path below cannot
-    // admit this selector, including inside costs, modes or later blocks.
+    // CR 109.2/109.5, 608.2h, 611.2c: shared controller-set coalescing
+    // consumes the complete sole pure-gain sentence. Definition/activation
+    // closure separately fences its selector, source kind, cost and context.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     if source_block == 0
         && player_binding == PlayerBinding::Unbound
         && program.functioning_zone == FunctioningZone::Stack
         && program.resolution == SpellResolution::Instructions
         && program.additional_sacrifice.is_none()
+        && program.optional_additional_costs.is_empty()
         && program.targets.is_empty()
         && program.instructions.is_empty()
-        && let [Sentence { bindings, steps }] = effects
+        && let [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::GainAbilities {
@@ -2388,10 +2801,13 @@ fn append_spell_effects(
         ] = steps.as_slice()
         && matches!(what["ref"].as_str(), Some("all" | "each"))
         && duration.duration == "end-of-turn"
-        && lower_object_set(what)? == ObjectSet::ControllerPermanents
+        && matches!(
+            lower_object_set(what)?,
+            ObjectSet::ControllerPermanents | ObjectSet::ControllerCreatures
+        )
     {
         program.instructions.push(Instruction::GrantKeywordsSet {
-            set: ObjectSet::ControllerPermanents,
+            set: lower_object_set(what)?,
             modifier: None,
             keywords: lower_temporary_creature_keywords(abilities)?,
             duration: Duration::UntilEndOfTurn,
@@ -2410,7 +2826,14 @@ fn append_spell_effects(
         && program.additional_sacrifice.is_none()
         && program.targets.is_empty()
         && program.instructions.is_empty()
-        && let [Sentence { bindings, steps }] = effects
+        && let [
+            Sentence {
+                condition: None,
+                condition_kind: None,
+                bindings,
+                steps,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::Pump {
@@ -2463,7 +2886,14 @@ fn append_spell_effects(
         && program.additional_sacrifice.is_none()
         && program.targets.is_empty()
         && program.instructions.is_empty()
-        && let [Sentence { bindings, steps }] = effects
+        && let [
+            Sentence {
+                condition: None,
+                condition_kind: None,
+                bindings,
+                steps,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::Pump {
@@ -2504,6 +2934,12 @@ fn append_spell_effects(
         return Ok(());
     }
     for sentence in effects {
+        if sentence.condition.is_some() || sentence.condition_kind.is_some() {
+            return Err(unsupported(
+                "effects.condition",
+                "unconsumed conditional instruction",
+            ));
+        }
         let counted = if sentence.bindings.is_empty() {
             false
         } else if sentence.bindings
@@ -2519,6 +2955,67 @@ fn append_spell_effects(
             && !matches!(sentence.steps.as_slice(),[Step::Damage {amount,..}] if *amount==serde_json::json!({"amount":"x"}))
         {
             return Err(unsupported("bindings", "unconsumed count binding"));
+        }
+        if let Some(instruction) = typed_land_search::lower(&sentence.steps, source_block)? {
+            program.instructions.push(instruction);
+            continue;
+        }
+        // CR 701.20a-b, 701.23b, 701.24a/e (pinned 2026-09-25): consume
+        // the entire reveal/identity partition, never squeeze it into all-entry search.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        if let [
+            Step::Search { who, zones, find },
+            Step::Reveal {
+                who: revealer,
+                what,
+            },
+            Step::Simultaneous { steps },
+            Step::Shuffle {
+                who: shuffler,
+                library,
+                optional: None,
+            },
+        ] = sentence.steps.as_slice()
+        {
+            let you = PlayerSelector {
+                player: "you".into(),
+                selection_id: None,
+                of: None,
+            };
+            let steps: Vec<Step> = serde_json::from_value(serde_json::Value::Array(steps.clone()))
+                .map_err(|_| {
+                    unsupported(
+                        "effects.simultaneous",
+                        "requires complete supported movements",
+                    )
+                })?;
+            let split = matches!(steps.as_slice(), [
+                Step::MoveZone { what: first, to: battlefield, tapped: Some(true), order: None },
+                Step::MoveZone { what: rest, to: hand, tapped: None, order: None }
+            ] if *first == serde_json::json!({"ref":"from-pool","pool":{"ref":"them"},"count":{"amount":"fixed","value":1}})
+                && *battlefield == serde_json::json!({"zone":"battlefield"})
+                && *rest == serde_json::json!({"ref":"rest"})
+                && *hand == serde_json::json!({"zone":"hand","owner":"your"}));
+            if *who != you
+                || revealer != who
+                || shuffler != who
+                || !split
+                || *zones
+                    != serde_json::json!({"selection":"all","of":[{"zone":"library","owner":"your"}]})
+                || *find
+                    != serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":2},"upTo":true})
+                || *what != serde_json::json!({"ref":"that","filter":{"cls":"card"},"plural":true})
+                || *library != serde_json::json!({"zone":"library","owner":{"player":"you"}})
+            {
+                return Err(unsupported(
+                    "effects.search",
+                    "unsupported complete search/reveal/split/shuffle sequence",
+                ));
+            }
+            program
+                .instructions
+                .push(Instruction::SearchBasicLandsSplit { source_block });
+            continue;
         }
         if let [
             Step::Search { who, zones, find },
@@ -2736,6 +3233,21 @@ fn append_spell_effects(
                         source_block,
                     }
                 }
+                Step::PutCounters {
+                    on: SourceCounterRecipient::Source(r),
+                    counter,
+                    count,
+                } if r.reference == "this"
+                    && r.noun == "creature"
+                    && counter.r#type == "+1/+1"
+                    && *count
+                        == serde_json::json!({"amount":"product","factors":[
+                            {"amount":"fixed","value":1},
+                            {"amount":"distinct-count","characteristic":"color","among":{"ref":"that","filter":{"cls":"spell"}}}
+                        ]}) =>
+                {
+                    Instruction::PutSourcePlusOneCountersForCastColors { source_block }
+                }
                 Step::PutCounters { on, counter, count } if counter.r#type == "+1/+1" => {
                     let on = match on {
                         SourceCounterRecipient::Target(t) => CounterRecipient::Target {
@@ -2755,7 +3267,10 @@ fn append_spell_effects(
                     };
                     Instruction::PutPlusOneCounters {
                         on,
-                        amount: fixed_positive(count)?,
+                        amount: fixed_positive(&decode::<Count>(
+                            &count.to_string(),
+                            "effects.counters.count",
+                        )?)?,
                         source_block,
                     }
                 }
@@ -3403,7 +3918,6 @@ fn lower_wipes_step(
 
 fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
     if !token.supertypes.is_empty()
-        || token.types != ["creature"]
         || token.power.amount != "fixed"
         || token.toughness.amount != "fixed"
     {
@@ -3412,6 +3926,28 @@ fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
             "unsupported token characteristic shape",
         ));
     }
+    let additional_types = match token.types.as_slice() {
+        [kind] if kind == "creature" => vec![],
+        [a, b] if a == "creature" || b == "creature" => {
+            let secondary = if a == "creature" { b } else { a };
+            match secondary.as_str() {
+                "artifact" => vec![CardKind::Artifact],
+                "enchantment" => vec![CardKind::Enchantment],
+                _ => {
+                    return Err(unsupported(
+                        "effects.token.types",
+                        "unsupported secondary type",
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(unsupported(
+                "effects.token.types",
+                "unsupported token types",
+            ));
+        }
+    };
     let colors = token
         .colors
         .iter()
@@ -3442,6 +3978,7 @@ fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let token = CreatureToken {
+        additional_types,
         colors,
         subtypes: token.subtypes.clone(),
         power: i64::from(token.power.value).into(),
@@ -3733,9 +4270,18 @@ fn lower_prevention(
         )),
     }
 }
-fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if let Some(entry) = conditional_lands::lower(effect)? {
+        return Ok(entry);
+    }
+    if let Some(grant) = spell_cascade_grants::lower(effect, source_block)? {
+        return Ok(grant);
+    }
     if let SourceStaticEffect::PlayerRule { rule } = effect {
         return unlimited_hand_size::lower_rule(rule);
+    }
+    if let Some(grant) = static_permanent_indestructible::lower(effect) {
+        return Ok(grant);
     }
     if let SourceStaticEffect::Control { who, what } = effect {
         if who.player != "you" || what.reference != "enchanted" {
@@ -4020,8 +4566,58 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
     let SourceStaticEffect::Replacement { replacement } = effect else {
         unreachable!()
     };
-    let SourceDamageEvent::Damage { kind, source, to } = &replacement.event;
     let SourceReplacementAction::ModifyQuantity { change } = &replacement.replace;
+    if let SourceDamageEvent::PutCounters {
+        on,
+        counter,
+        cause,
+        quantity,
+    } = &replacement.event
+    {
+        // CR 614.1a/614.4-5/616.1: bind the affected creature independently of
+        // the provider, whose current controller supplies “you”. Archived
+        // diagnostic binding flags do not authorize execution.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        let expected = serde_json::json!({"ref":"filter","filter":{"types":["creature"],"control":"you"},"count":{"amount":"fixed","value":1}});
+        if on.len() != 1
+            || on[0]
+                != serde_json::from_value::<CounterPlacementSourceRecipient>(expected)
+                    .expect("counter scope")
+            || counter.r#type != "+1/+1"
+            || cause != "any"
+            || quantity.op != "ge"
+            || !fixed_one(&quantity.value)
+            || replacement.occurrence != "each"
+        {
+            return Err(unsupported(
+                "abilities.static",
+                "unsupported complete counter placement scope",
+            ));
+        }
+        let modification = match (change.operation.as_str(), &change.amount, change.factor) {
+            ("add", Some(amount), None) => CounterPlacementModification::Add {
+                amount: fixed_positive(amount)?,
+            },
+            ("multiply", None, Some(factor)) if factor > 0 => {
+                CounterPlacementModification::Multiply {
+                    factor: i64::from(factor).into(),
+                }
+            }
+            _ => {
+                return Err(unsupported(
+                    "abilities.static",
+                    "unsupported counter placement quantity modification",
+                ));
+            }
+        };
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ControllerCreaturePlusOneCounterReplacement { modification },
+        });
+    }
+    let SourceDamageEvent::Damage { kind, source, to } = &replacement.event else {
+        unreachable!()
+    };
     let permanent = |recipient: &ReplacementRecipient| {
         matches!(recipient,
         ReplacementRecipient::Permanent(FilterObject { reference, filter: ObjectFilter::Class(CardFilter { cls }), count })
@@ -4036,7 +4632,8 @@ fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
         || !fixed_one(&source.count)
         || replacement.occurrence != "each"
         || change.operation != "multiply"
-        || change.factor != 2
+        || change.factor != Some(2)
+        || change.amount.is_some()
         || to.len() != 2
         || to.iter().filter(|r| permanent(r)).count() != 1
         || to.iter().filter(|r| player(r)).count() != 1
@@ -4449,13 +5046,16 @@ fn lower_trigger(
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
     if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {
+        if matches!(what, TriggerObject::This { noun } if noun == "creature") {
+            return successor_tuck::lower(effects, intervening, from, to, source_block(block)?);
+        }
         // This shortcut emits no binding instructions; unconsumed sentence
         // bindings must not disappear when bypassing append_spell_effects.
         if !matches!(what, TriggerObject::This {noun} if noun == "aura")
             || from != "battlefield"
             || *to != serde_json::json!({"zone":"graveyard","owner":"any"})
             || intervening.is_some()
-            || !matches!(effects, [Sentence {bindings, steps}] if bindings.is_empty() && matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
+            || !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty() && matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
         {
             return Err(unsupported("trigger", "unsupported Aura return"));
         }
@@ -4465,6 +5065,7 @@ fn lower_trigger(
             condition: TriggerCondition::SelfAuraToGraveyard,
             intervening_if: None,
             program: SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
@@ -4540,7 +5141,7 @@ fn lower_trigger(
             })
     }
     if has_draw_quantity(effects)
-        && !matches!(effects, [Sentence {bindings, steps}] if bindings.is_empty()
+        && !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty()
             && matches!(steps.as_slice(), [Step::Draw {amount: DrawAmount::ThatMuch {}, ..}]))
     {
         // Prior effects may produce another quantity. This finite binder only
@@ -4580,7 +5181,7 @@ fn lower_trigger(
             let attacker = lower_attack_subject(what)?;
             TriggerCondition::CreatureAttacked { attacker }
         },
-        SourceTrigger::Cast { who, what } => {
+        SourceTrigger::Cast { who, what, not_from } => {
             if who.selection_id.is_some() || who.of.is_some() { return Err(unsupported("trigger.who", "unsupported caster qualifier")); }
             let caster = match who.player.as_str() {
                 "you" => CasterRelation::Controller,
@@ -4588,7 +5189,11 @@ fn lower_trigger(
                 "an-opponent" => CasterRelation::Opponent,
                 _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
             };
-            TriggerCondition::SpellCast { caster, spell: lower_type_predicate(what, Some("spell"), true, 0)? }
+            let spell = lower_type_predicate(what, Some("spell"), true, 0)?;
+            match not_from {
+                None => TriggerCondition::SpellCast { caster, spell },
+                Some(zone) => cast_origin::lower_condition(caster, spell, zone)?,
+            }
         },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
@@ -4625,7 +5230,7 @@ fn lower_trigger(
     validate_trigger_damage_sources(&condition, effects)?;
     if matches!(condition, TriggerCondition::GroupedDamageDealt { .. })
         && (intervening.is_some()
-            || !matches!(effects, [Sentence {bindings,steps}] if bindings.is_empty()
+            || !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty()
             && matches!(steps.as_slice(), [Step::Draw {who,amount:DrawAmount::Fixed {value:1},optional:false}]
                 if who.player == "you" && who.of.is_none() && who.selection_id.is_none())))
     {
@@ -4635,6 +5240,7 @@ fn lower_trigger(
         ));
     }
     let mut program = SpellProgram {
+        optional_additional_costs: vec![],
         additional_sacrifice: None,
         timing: SpellTiming::Instant,
         resolution: SpellResolution::Instructions,
@@ -4643,8 +5249,17 @@ fn lower_trigger(
         instructions: vec![],
         modes: vec![],
     };
-    if let (SourceTrigger::Enters { what: subject }, [Sentence { bindings, steps }]) =
-        (trigger, effects)
+    if let (
+        SourceTrigger::Enters { what: subject },
+        [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ],
+    ) = (trigger, effects)
         && is_source_creature(subject)
         && intervening.is_none()
         && bindings.is_empty()
@@ -4735,12 +5350,27 @@ fn lower_permanent_costs(
     kind: CardKind,
 ) -> Result<PermanentActivationCosts, Failure> {
     let mut result = PermanentActivationCosts {
+        remove_source_plus_one_counters: None,
         tap: false,
         mana: None,
         sacrifice: false,
     };
     for cost in costs {
         match cost {
+            SourceCost::RemoveCounters {
+                counter,
+                count,
+                from,
+            } if result.remove_source_plus_one_counters.is_none()
+                && counter.r#type == "+1/+1"
+                && count.amount == "fixed"
+                && count.value > 0
+                && kind == CardKind::Creature
+                && *from == serde_json::json!({"ref":"this","noun":"creature"}) =>
+            {
+                result.remove_source_plus_one_counters =
+                    Some(Quantity::from(i64::from(count.value)));
+            }
             SourceCost::TapSelf {} if !result.tap => result.tap = true,
             SourceCost::Mana { symbols }
                 if result.mana.is_none()
@@ -4785,10 +5415,14 @@ fn lower_permanent_costs(
 fn lower_mana_ability(
     costs: &[SourceCost],
     effects: &[Sentence],
+    restriction: Option<&SourceActivationRestriction>,
     block: usize,
     kind: CardKind,
 ) -> Result<Option<ManaAbility>, Failure> {
-    if effects.iter().any(|s| !s.bindings.is_empty()) {
+    if effects
+        .iter()
+        .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())
+    {
         return Err(unsupported(
             "bindings",
             "bindings outside spell instructions",
@@ -4826,10 +5460,24 @@ fn lower_mana_ability(
         _ => return Err(unsupported("mana", "unsupported complete mana production")),
     };
     let costs = lower_permanent_costs(costs, kind)?;
-    if !costs.tap {
-        return Err(unsupported("mana", "mana ability requires tap-self"));
+    if costs.remove_source_plus_one_counters.is_some() {
+        if costs.tap
+            || costs.mana.is_some()
+            || costs.sacrifice
+            || restriction.is_none()
+            || !matches!(&production, ManaProduction::Fixed { symbols } if !symbols.is_empty())
+        {
+            return Err(unsupported(
+                "mana",
+                "unsupported counter-removal mana shape",
+            ));
+        }
+    } else if !costs.tap || restriction.is_some() {
+        return Err(unsupported("mana", "unsupported mana cost/restriction"));
     }
     Ok(Some(ManaAbility {
+        self_damage: None,
+        restriction: restriction.map(|_| ManaActivationRestriction::OnceEachTurn),
         costs,
         production,
         source_block: source_block(block)?,
@@ -4848,13 +5496,25 @@ fn lower_activation(
     if let Some(ability) = activated_artifact_draw::lower_two_draws(costs, effects, block, kind)? {
         return Ok(ability);
     }
-    if effects.iter().any(|s| !s.bindings.is_empty()) {
+    if effects
+        .iter()
+        .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())
+    {
         return Err(unsupported(
             "bindings",
             "bindings outside spell instructions",
         ));
     }
     let cost = match costs {
+        [
+            SourceCost::TapSelf {},
+            SourceCost::PayLife { amount },
+            SourceCost::Sacrifice { what },
+        ] if kind == CardKind::Land && *what == serde_json::json!({"ref":"this","noun":"land"}) => {
+            ActivationCost::TapPayLifeSacrificeSource {
+                life: typed_fetchland::life(amount)?,
+            }
+        }
         [SourceCost::Sacrifice { what }] if what["ref"] == "filter" => {
             ActivationCost::SacrificePermanent {
                 filter: lower_sacrifice_filter(what)?,
@@ -4917,6 +5577,9 @@ fn lower_activation(
             ));
         }
     };
+    if matches!(cost, ActivationCost::TapPayLifeSacrificeSource { .. }) {
+        return typed_fetchland::lower(cost, effects, block);
+    }
     // Only sacrificing this exact source establishes the first pronoun's
     // identity. Choosing another permanent does not make it the invocation.
     validate_damage_sources(
@@ -4927,6 +5590,7 @@ fn lower_activation(
     )?;
     let source_block = source_block(block)?;
     let mut program = SpellProgram {
+        optional_additional_costs: vec![],
         additional_sacrifice: None,
         timing: SpellTiming::Instant,
         resolution: SpellResolution::Instructions,
@@ -4935,6 +5599,36 @@ fn lower_activation(
         instructions: vec![],
         modes: vec![],
     };
+    // CR 602.2b, 608.2h, 611.2c: reuse the whole-sentence set coalescer,
+    // then require the complete pure controller-creature activation composition.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if effects
+        .iter()
+        .flat_map(|s| &s.steps)
+        .any(|step| matches!(step, Step::GainAbilities { .. }))
+    {
+        append_spell_effects(
+            &mut program,
+            effects,
+            block,
+            &mut BTreeMap::new(),
+            PlayerBinding::Unbound,
+        )?;
+        let ability = ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            cost,
+            program,
+        };
+        if kind != CardKind::Creature
+            || sacrifice_source_creature_set_keyword_ability(&ability).is_none()
+        {
+            return Err(unsupported(
+                "activation",
+                "unsupported complete set keyword activation",
+            ));
+        }
+        return Ok(ability);
+    }
     if matches!(cost, ActivationCost::SacrificePermanent { .. })
         || (matches!(cost, ActivationCost::SacrificeSource)
             && effects.iter().flat_map(|s| &s.steps).any(|i| {
@@ -5106,6 +5800,31 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_token_types_preserve_single_type_bytes() {
+        let mut source: SourceToken = serde_json::from_value(serde_json::json!({
+            "types":["artifact","creature"], "supertypes":[], "subtypes":["Latticekin"],
+            "colors":[], "keywords":[], "power":{"amount":"fixed","value":3},
+            "toughness":{"amount":"fixed","value":7}
+        }))
+        .unwrap();
+        let token = lower_creature_token(&source).unwrap();
+        assert!(token.characteristics().has_type(CardKind::Artifact));
+        source.types.reverse();
+        assert_eq!(lower_creature_token(&source).unwrap(), token);
+        source.types.pop();
+        let single = lower_creature_token(&source).unwrap();
+        let bytes = serde_json::to_value(&single).unwrap();
+        assert!(bytes.get("additional_types").is_none());
+        assert_eq!(
+            serde_json::from_value::<CreatureToken>(bytes).unwrap(),
+            single
+        );
+        assert!(!single.characteristics().has_type(CardKind::Artifact));
+        source.types.push("land".into());
+        assert!(lower_creature_token(&source).is_err());
+    }
+
     #[test]
     fn strict_mirror_reports_specific_nodes_keywords_and_fields() {
         for (raw, expected) in [
@@ -5685,7 +6404,7 @@ mod tests {
                 ],
             };
             assert!(
-                matches!(lower_static(&source).unwrap().effect, StaticEffect::ModifyCreatures {keywords,..} if keywords == [k])
+                matches!(lower_static(&source, 0).unwrap().effect, StaticEffect::ModifyCreatures {keywords,..} if keywords == [k])
             );
             let mut intrinsic = get("Storm Crow").clone();
             intrinsic.keywords = vec![k];
@@ -5926,6 +6645,118 @@ mod tests {
                 ),
                 "{name}"
             );
+        }
+    }
+    #[test]
+    fn basic_land_split_search_complete_frozen_sources_and_near_misses() {
+        let manifest = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+        for raw in [
+            include_str!("../../../tests/fixtures/ramos/8b755881-a72d-4e21-a369-d2924eb4585a.json"),
+            include_str!("../../../tests/fixtures/ramos/1593ea18-2f2f-4ab4-83fb-6ccc0bec8a90.json"),
+        ] {
+            let CompileResult::Lowered { definition } = compile(manifest, raw) else {
+                panic!(
+                    "complete frozen split-search source: {:?}",
+                    compile(manifest, raw)
+                );
+            };
+            assert_eq!(CURRENT_IR_VERSION, 1);
+            assert!(matches!(
+                definition.spell.as_ref().unwrap().instructions.as_slice(),
+                [Instruction::SearchBasicLandsSplit { .. }]
+            ));
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::BasicLandSplitSearchV1)
+            );
+            assert!(
+                !definition
+                    .capabilities
+                    .contains(&Capability::BasicLandSearchV1)
+            );
+            if definition.name == "Kodama's Reach" {
+                assert_eq!(definition.characteristics.subtypes, ["Arcane"]);
+            }
+            let mut missing = definition.clone();
+            missing
+                .capabilities
+                .retain(|c| *c != Capability::BasicLandSplitSearchV1);
+            assert!(missing.validate().is_err());
+            let mut extra = definition.clone();
+            extra
+                .spell
+                .as_mut()
+                .unwrap()
+                .instructions
+                .push(Instruction::DrawCards {
+                    count: 1.into(),
+                    recipient: None,
+                    source_block: 0,
+                });
+            extra.capabilities = extra.requirements().into_iter().collect();
+            assert!(extra.validate().is_err());
+            for (pointer, value) in [
+                ("/0/who/player", serde_json::json!("opponent")),
+                ("/0/who/of", serde_json::json!({"ref":"it"})),
+                ("/0/zones/of/0/owner", serde_json::json!("opponent")),
+                ("/0/for/count/value", serde_json::json!(1)),
+                ("/0/for/upTo", serde_json::json!(false)),
+                ("/0/for/filter/supertypes/0", serde_json::json!("snow")),
+                ("/0/for/filter/subtypes", serde_json::json!(["Forest"])),
+                ("/1/who/player", serde_json::json!("opponent")),
+                ("/1/what/ref", serde_json::json!("them")),
+                ("/1/what/plural", serde_json::json!(false)),
+                ("/2/steps/0/what/pool/ref", serde_json::json!("it")),
+                ("/2/steps/0/what/count/value", serde_json::json!(2)),
+                ("/2/steps/0/tapped", serde_json::json!(false)),
+                ("/2/steps/0/to/zone", serde_json::json!("hand")),
+                ("/2/steps/1/what/ref", serde_json::json!("them")),
+                ("/2/steps/1/to/owner", serde_json::json!("opponent")),
+                ("/2/steps/1/tapped", serde_json::json!(false)),
+                ("/3/who/selectionId", serde_json::json!("qualified")),
+                ("/3/library/owner/player", serde_json::json!("opponent")),
+            ] {
+                let bad = changed_source(raw, |r| {
+                    let result = &mut r["faces"][0]["result"];
+                    let steps = &mut result["abilities"][0]["effects"][0]["steps"];
+                    // Insert the leaf as well as replace existing values.
+                    let (parent, key) = pointer.rsplit_once('/').unwrap();
+                    let container = steps.pointer_mut(parent).unwrap();
+                    if let Ok(index) = key.parse::<usize>() {
+                        container[index] = value.clone();
+                    } else {
+                        container[key] = value.clone();
+                    }
+                    result["lines"][0]["ability"] = result["abilities"][0].clone();
+                });
+                assert!(
+                    !matches!(compile(manifest, &bad), CompileResult::Lowered { .. }),
+                    "{pointer}"
+                );
+            }
+            for remove in 0..4 {
+                let bad = changed_source(raw, |r| {
+                    let result = &mut r["faces"][0]["result"];
+                    result["abilities"][0]["effects"][0]["steps"]
+                        .as_array_mut()
+                        .unwrap()
+                        .remove(remove);
+                    result["lines"][0]["ability"] = result["abilities"][0].clone();
+                });
+                assert!(!matches!(
+                    compile(manifest, &bad),
+                    CompileResult::Lowered { .. }
+                ));
+            }
+            let renamed = changed_source(raw, |r| {
+                r["source"]["name"] = "Generic split witness".into();
+                r["faces"][0]["result"]["name"] = "Generic split witness".into();
+            });
+            assert!(matches!(
+                compile(manifest, &renamed),
+                CompileResult::Lowered { .. }
+            ));
         }
     }
     #[test]
@@ -7016,11 +7847,15 @@ mod tests {
         later_sentence.insert(
             0,
             Sentence {
+                condition: None,
+                condition_kind: None,
                 bindings: vec![],
                 steps: vec![draw],
             },
         );
         let modal = vec![Sentence {
+            condition: None,
+            condition_kind: None,
             bindings: vec![],
             steps: vec![Step::Modal {
                 count: ModeCount { exactly: 1 },
@@ -7139,6 +7974,7 @@ mod tests {
         assert_eq!(
             definition.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
@@ -7653,6 +8489,7 @@ mod tests {
                 functioning_zone: FunctioningZone::Battlefield,
                 condition: TriggerCondition::SelfEntersBattlefield,
                 program: SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     modes: vec![],
                     functioning_zone: FunctioningZone::Stack,
@@ -8797,8 +9634,7 @@ mod tests {
     fn white_mana_fixture_does_not_admit_additional_land_semantics() {
         type Mutation = fn(&mut serde_json::Value);
         let mutations: Vec<Mutation> = vec![
-            |record| record["source"]["type_line"] = "Land — Plains Island".into(),
-            |record| record["source"]["type_line"] = "Legendary Land — Plains".into(),
+            |record| record["source"]["type_line"] = "Land — Plains Desert".into(),
             |record| record["source"]["oracle_text"] = "{T}: Add {W}.".into(),
             |record| record["source"]["oracle_text"] = "When this land enters, draw a card.".into(),
             |record| record["source"]["card_faces"] = serde_json::json!([{}]),
@@ -8808,6 +9644,26 @@ mod tests {
             assert!(
                 !matches!(result, CompileResult::Lowered { .. }),
                 "unsupported land semantics disappeared: {result:?}"
+            );
+        }
+        for line in ["Land — Plains Island", "Legendary Land — Plains"] {
+            let raw = changed_record(6, |r| r["source"]["type_line"] = line.into());
+            let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, &raw) else {
+                panic!("supported pure intrinsic land: {line}");
+            };
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::TypedNonbasicIntrinsicManaV1)
+            );
+            assert!(definition.mana_abilities.is_empty());
+            assert!(definition.static_abilities.is_empty());
+            assert!(
+                definition
+                    .characteristics
+                    .subtypes
+                    .iter()
+                    .all(|s| basic_land_color(s).is_some())
             );
         }
         let renamed = changed_record(6, |record| {
@@ -8847,6 +9703,7 @@ mod tests {
         assert_eq!(
             ebb.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 modes: vec![],
                 timing: SpellTiming::MainPhase,
@@ -9015,6 +9872,7 @@ mod tests {
                 functioning_zone: FunctioningZone::Battlefield,
                 cost: ActivationCost::SacrificeSource,
                 program: SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     modes: vec![],
                     timing: SpellTiming::Instant,
@@ -9679,13 +10537,27 @@ mod temporary_deathtouch_tests;
 mod collar_source_tests;
 
 #[cfg(test)]
+mod ramos_m1_tests;
+
+#[cfg(test)]
+mod counter_placement_tests;
+
+#[cfg(test)]
 mod temporary_creature_keyword_tests;
+
+#[cfg(test)]
+mod ramos_m3_tests;
+#[cfg(test)]
+mod ramos_m4a_tests;
 
 #[cfg(test)]
 mod controlled_temporary_creature_keyword_tests;
 
 #[cfg(test)]
 mod aura_control_tests;
+
+#[cfg(test)]
+mod ramos_m3c_tests;
 
 #[cfg(test)]
 mod temporary_combat_keyword_tests;
@@ -9697,7 +10569,18 @@ mod source_label_tests;
 mod creature_set_keyword_tests;
 
 #[cfg(test)]
+mod ramos_m4b_tests;
+
+#[cfg(test)]
 mod permanent_set_keyword_tests;
+
+#[cfg(test)]
+mod ramos_m4c_tests;
+
+#[cfg(test)]
+mod ramos_m4d_tests;
+#[cfg(test)]
+mod ramos_m4e_tests;
 
 #[cfg(test)]
 mod temporary_permanent_keyword_tests;
@@ -9706,7 +10589,61 @@ mod temporary_permanent_keyword_tests;
 mod temporary_reach_tests;
 
 #[cfg(test)]
+mod combined_hand_cost_fences {
+    use super::*;
+    #[test]
+    fn combined_hand_families_reject_kicker_conditions_without_partial_lowering() {
+        for raw in [
+            include_str!("../../../tests/fixtures/36cd2364-d113-47d1-b2c4-b088d9eb88dd.json"),
+            include_str!("../../../tests/fixtures/32e9aa23-fc0a-4b82-82f9-1659c304428c.json"),
+            include_str!("../../../tests/fixtures/7eff84f1-f772-497a-b350-bbc93d0230f7.json"),
+        ] {
+            for condition in [
+                serde_json::json!(null),
+                serde_json::json!({"condition":"kicked","what":{"ref":"this","noun":"spell"},"comparison":{"op":"ge","value":{"amount":"fixed","value":1}}}),
+            ] {
+                let changed = tests::changed_source(raw, |r| {
+                    let result = &mut r["faces"][0]["result"];
+                    result["abilities"][0]["effects"][0]["condition"] = condition;
+                    result["abilities"][0]["effects"][0]["conditionKind"] = serde_json::json!("if");
+                    result["lines"][0]["ability"] = result["abilities"][0].clone();
+                });
+                assert!(!matches!(
+                    compile(
+                        include_str!("../../../tests/fixtures/archive-manifest-current.json"),
+                        &changed
+                    ),
+                    CompileResult::Lowered { .. }
+                ));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod escort_set_tests;
+
+#[cfg(test)]
 mod temporary_vigilance_tests;
+
+mod set_activation_binding;
 
 #[cfg(test)]
 mod temporary_double_strike_tests;
+
+#[cfg(test)]
+#[test]
+fn synthetic_cast_color_uses_spell_characteristics() {
+    let filter: SourceTypeFilter =
+        serde_json::from_str(r#"{"cls":"spell","colors":["blue"]}"#).unwrap();
+    let predicate = lower_type_predicate(&filter, Some("spell"), true, 0).unwrap();
+    let mut spell: Characteristics = serde_json::from_value(serde_json::json!({
+        "kind":"instant", "subtypes":[], "basic":false, "legendary":false,
+        "mana_cost":{"generic":"0","colored":[]}, "colors":["R"], "color_identity":["R","U"],
+        "power":null, "toughness":null
+    }))
+    .unwrap();
+    assert!(!predicate.matches(&spell));
+    spell.colors.push(Color::U);
+    assert!(predicate.matches(&spell));
+}

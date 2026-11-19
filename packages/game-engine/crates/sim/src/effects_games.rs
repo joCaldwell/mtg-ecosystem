@@ -571,6 +571,10 @@ impl Strategy {
             self.choices.push(o.clone());
         }
         Ok(match request {
+            PlayerRequest::CounterPlacementEffect { .. } => {
+                return Err("counter placement replacement choices outside this policy".into());
+            }
+
             PlayerRequest::Priority { .. } => {
                 if let Some(action) = self.actions.get(self.cursor).copied() {
                     let ready = match action.when {

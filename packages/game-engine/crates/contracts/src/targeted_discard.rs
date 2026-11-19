@@ -92,7 +92,7 @@ fn two_draws(p: &SpellProgram) -> bool {
 }
 
 fn discard_family(p: &SpellProgram) -> bool {
-    if p.additional_sacrifice.is_some() {
+    if p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty() {
         return false;
     }
     if p.modes.is_empty() {
@@ -104,9 +104,10 @@ fn discard_family(p: &SpellProgram) -> bool {
     // to the same raw source block, independent of their option index.
     p.timing == SpellTiming::Instant
         && p.modes.len() == 3
-        && p.modes
-            .iter()
-            .all(|m| m.program.additional_sacrifice.is_none())
+        && p.modes.iter().all(|m| {
+            m.program.additional_sacrifice.is_none()
+                && m.program.optional_additional_costs.is_empty()
+        })
         && p.modes
             .iter()
             .any(|m| player_discard(&m.program, TargetDomain::AnyPlayer))
@@ -164,7 +165,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     };
     let program = |targets: Value, instructions: Value| {
         json!({"properties":{
-            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":targets,
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":targets,
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "instructions":instructions
         }})
@@ -196,7 +197,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     );
     let mode = |shape: Value| json!({"contains":{"properties":{"program":shape}}});
     let modal = json!({"required":["modes"],"properties":{
-        "additional_sacrifice":{"type":"null"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},
+        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},
         "resolution":{"const":"instructions"},"targets":{"maxItems":0},"instructions":{"maxItems":0},
         "modes":{"minItems":3,"maxItems":3,"items":{"properties":{"program":{"properties":{"timing":{"const":"instant"}}}}},
             "allOf":[mode(discard(TargetDomain::AnyPlayer)),mode(destroy),mode(draw)]}

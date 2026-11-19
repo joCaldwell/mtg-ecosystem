@@ -46,14 +46,20 @@ fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
-        Frame::Resolve { frame }
+        Frame::Cascade { progress } => Some(&progress.frame.spell),
+        Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        }
+        | Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => Some(&frame.spell),
+        Frame::CounterPlacement { transaction } => Some(&transaction.frame.spell),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             match transaction.continuation.as_ref() {
                 DamageContinuation::Instruction { frame } => Some(&frame.spell),
-                DamageContinuation::Combat => None,
+                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
             }
         }
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
@@ -65,6 +71,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
             | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => resolving_entry(resume),
+            CommanderContinuation::CascadeBottom { progress } => Some(&progress.frame.spell),
             CommanderContinuation::Draw { .. } => None,
         },
         _ => None,
@@ -72,10 +79,16 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
-        Frame::Resolve { frame }
+        Frame::Cascade { progress } => update_entry(&mut progress.frame.spell, fact),
+        Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        }
+        | Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => update_entry(&mut frame.spell, fact),
+        Frame::CounterPlacement { transaction } => update_entry(&mut transaction.frame.spell, fact),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             // CR 608.2h/702.2e/702.15c: every prepared source departure
             // retains its actual last appearance, even without scoped effects.
@@ -98,6 +111,9 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
             }
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => update_frame(resume, fact),
+            CommanderContinuation::CascadeBottom { progress } => {
+                update_entry(&mut progress.frame.spell, fact)
+            }
             CommanderContinuation::Draw { .. } => {}
         },
         _ => {}
@@ -262,7 +278,7 @@ impl Game {
         top.entity_targets = entities;
         top.announced_entity_targets = announced;
         if cast.origin.is_spell() {
-            self.state.rules.frame = Frame::Mana { cast };
+            self.state.rules.frame = self.announcement_mana_frame(cast)?;
         } else {
             self.complete_targeted_activation(cast, input.decision_id)?;
         }
@@ -286,7 +302,7 @@ impl Game {
                     return Ok(());
                 }
                 ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
-                    self.state.rules.frame = Frame::Mana { cast };
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
                 ActivationCost::SacrificeSource => {
@@ -508,6 +524,21 @@ impl Game {
                     },
                     true,
                 )
+            }
+            Instruction::DealDamageToController {
+                amount,
+                source_block,
+            } => {
+                // CR 109.5/113.7a: use the trigger's frozen controller and
+                // the land's current or last-known source facts.
+                let controller = frame.spell.controller;
+                let damage = NoncombatDamageOccurrence {
+                    source: self.source_facts(&frame.spell)?,
+                    controller,
+                    recipient: DamageRecipient::Player { player: controller },
+                    amount,
+                };
+                return self.prepare_noncombat_damage(frame, damage, source_block);
             }
             Instruction::GainLife {
                 recipient,

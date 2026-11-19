@@ -4,6 +4,9 @@ fn source_labels_bind_complete_frozen_blocks_abilities_and_modes() {
     for raw in [
         include_str!("../../../tests/fixtures/healing-salve.json"),
         include_str!("../../../tests/fixtures/prodigal-sorcerer.json"),
+        include_str!("../../../tests/fixtures/ramos/eca32dcd-6845-433e-a631-ed1f0ee78f25.json"),
+        include_str!("../../../tests/fixtures/ramos/b4d6747c-3516-4e71-be30-af007c6b1dc4.json"),
+        include_str!("../../../tests/fixtures/natural-reclamation.json"),
     ] {
         let CompileResult::Lowered { definition } = compile(fixtures::MANIFEST, raw) else {
             panic!("frozen source rejected");
@@ -26,6 +29,7 @@ fn source_labels_bind_complete_frozen_blocks_abilities_and_modes() {
         assert_eq!(labels.activated.len(), definition.activated.len());
         assert_eq!(labels.triggered.len(), definition.triggered.len());
         assert_eq!(labels.mana.len(), definition.mana_abilities.len());
+        assert_eq!(labels.statics.len(), definition.static_abilities.len());
         assert_eq!(
             labels.spell_modes.len(),
             definition.spell.as_ref().unwrap().modes.len()

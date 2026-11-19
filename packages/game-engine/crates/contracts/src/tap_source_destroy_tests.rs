@@ -75,6 +75,7 @@ fn source_tap_destroy_requires_its_contextual_capability_without_promoting_old_c
     let mut sacrifice = tap_source_destroy();
     sacrifice.activated[0].cost = ActivationCost::Composite {
         costs: PermanentActivationCosts {
+            remove_source_plus_one_counters: None,
             tap: false,
             sacrifice: true,
             mana: Some(ManaCost {
@@ -151,6 +152,7 @@ fn source_tap_destroy_rejects_unreviewed_costs_filters_programs_and_source_kinds
             "composite-tap" => {
                 a.cost = ActivationCost::Composite {
                     costs: PermanentActivationCosts {
+                        remove_source_plus_one_counters: None,
                         tap: true,
                         sacrifice: false,
                         mana: Some(ManaCost {

@@ -12,6 +12,7 @@ pub(crate) fn has_counted_draw(p: &SpellProgram) -> bool {
 /// A standalone, unqualified target-player draw with an executable count other than one.
 pub fn targeted_counted_draw_program(p: &SpellProgram) -> bool {
     p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
         && p.modes.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
@@ -63,7 +64,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
     let capability = Capability::TargetedCountedDrawV1;
     let family = json!({"type":"object","properties":{
-        "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
         "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
             "slot":{"const":0},"selection_id":{"minLength":1},"domain":{"const":"any_player"},

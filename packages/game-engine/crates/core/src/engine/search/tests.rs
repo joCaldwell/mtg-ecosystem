@@ -434,6 +434,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
         .to_public();
     for owner in [PlayerId(1), PlayerId(3)] {
         view.objects.push(VisibleObject {
+            mana_ability_used: None,
             attached_to: None,
             attachments: vec![],
             keywords: vec![],

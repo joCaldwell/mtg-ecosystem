@@ -10,6 +10,7 @@ pub(crate) fn has_selection(p: &SpellProgram) -> bool {
 /// Exactly one controller library selection; no target, cost or other operation.
 pub fn controller_library_selection_program(p: &SpellProgram) -> bool {
     p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
         && p.modes.is_empty()
         && p.targets.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
@@ -46,7 +47,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
-    schema["$defs"]["ControllerLibrarySelectionProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":1,"maxItems":1,"items":{"required":["op","amount","remainder","source_block"],"properties":{"op":{"const":"select_library_card"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"remainder":{"enum":["bottom","graveyard"]},"source_block":{"const":0}}}}}});
+    schema["$defs"]["ControllerLibrarySelectionProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":1,"maxItems":1,"items":{"required":["op","amount","remainder","source_block"],"properties":{"op":{"const":"select_library_card"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"remainder":{"enum":["bottom","graveyard"]},"source_block":{"const":0}}}}}});
     schema["$defs"]["SelectionFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"select_library_card"}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/SelectionFreeProgram"}}}}}});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/SelectionFreeProgram"}},"then":{"$ref":"#/$defs/ControllerLibrarySelectionProgram"}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/SelectionFreeProgram"}}}});
@@ -134,5 +135,64 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn library_families_reject_optional_cost_and_conditional_draw_union() {
+    for mut d in [
+        witness(),
+        crate::library_order::witness(),
+        crate::hand_return::witness(),
+        crate::draw_discard::witness(),
+        crate::controller_counted_draw::witness(),
+        crate::targeted_counted_draw::witness(),
+    ] {
+        d.validate().unwrap();
+        let identity = "source-bound-test-cost".to_string();
+        d.spell
+            .as_mut()
+            .unwrap()
+            .optional_additional_costs
+            .push(OptionalAdditionalManaCost {
+                identity: identity.clone(),
+                source_block: 0,
+                mana: ManaCost {
+                    generic: 1.into(),
+                    colored: vec![],
+                },
+            });
+        d.capabilities = d.requirements();
+        assert!(!controller_library_selection_program(
+            d.spell.as_ref().unwrap()
+        ));
+        assert!(!controller_library_order_program(d.spell.as_ref().unwrap()));
+        assert!(!controller_hand_return_program(d.spell.as_ref().unwrap()));
+        assert!(!controller_draw_discard_program(d.spell.as_ref().unwrap()));
+        assert!(!controller_counted_draw_program(d.spell.as_ref().unwrap()));
+        assert!(d.validate().is_err());
+        let p = d.spell.as_mut().unwrap();
+        p.optional_additional_costs.clear();
+        p.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+            cost_identity: identity,
+            count: 1.into(),
+            source_block: 0,
+        });
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err());
+    }
+    let schema = catalog_schema();
+    for family in [
+        "ControllerLibrarySelectionProgram",
+        "ControllerLibraryOrderProgram",
+        "ControllerHandReturnProgram",
+        "ControllerDrawDiscardProgram",
+        "ControllerCountedDrawProgram",
+    ] {
+        assert_eq!(
+            schema["$defs"][family]["properties"]["optional_additional_costs"]["maxItems"],
+            0
+        );
     }
 }

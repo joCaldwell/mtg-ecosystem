@@ -27,7 +27,7 @@ fn program_schema(shape: Shape) -> Value {
         .collect();
     let mut program = json!({"properties":{
         "targets":targets,"instructions":{"minItems":instructions.len(),"maxItems":instructions.len()},
-        "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},
+        "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
     }});
     if shape == Shape::DrawOrDamage {

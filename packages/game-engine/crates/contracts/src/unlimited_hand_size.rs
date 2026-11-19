@@ -35,10 +35,16 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         ability.costs.tap
             && ability.costs.mana.is_none()
             && !ability.costs.sacrifice
+            && ability.costs.remove_source_plus_one_counters.is_none()
+            && ability.restriction.is_none()
+            && ability.self_damage.is_none()
             && match &ability.production {
                 ManaProduction::Fixed { symbols } => symbols.as_slice() == [Color::C],
                 ManaProduction::AnyColor => c.kind == CardKind::Artifact,
-                ManaProduction::CommanderColor => false,
+                ManaProduction::CommanderColor
+                | ManaProduction::OpponentLandColors
+                | ManaProduction::Choice { .. }
+                | ManaProduction::EachPermanentColor { .. } => false,
             }
     });
     if !valid_kind
@@ -58,9 +64,9 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || !d.keywords.is_empty()
         || !d.activated.is_empty()
         || !d.triggered.is_empty()
-        || d.spell
-            .as_ref()
-            .is_some_and(|p| p.additional_sacrifice.is_some())
+        || d.spell.as_ref().is_some_and(|p| {
+            p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty()
+        })
     {
         return Err("unsupported complete unlimited hand size family".into());
     }
@@ -79,7 +85,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "timing":{"const":SpellTiming::MainPhase},
             "resolution":{"const":SpellResolution::Permanent},
             "functioning_zone":{"const":FunctioningZone::Stack},
-            "additional_sacrifice":{"type":"null"},
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
             "instructions":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0}
         }
     });
@@ -233,7 +239,10 @@ fn unlimited_hand_size() {
             tap: true,
             mana: None,
             sacrifice: false,
+            remove_source_plus_one_counters: None,
         },
+        restriction: None,
+        self_damage: None,
         production: ManaProduction::AnyColor,
         source_block: 0,
     };

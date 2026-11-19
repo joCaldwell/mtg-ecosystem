@@ -32,6 +32,8 @@ A combined fixed stat/keyword grant is one instruction/effect with one recipient
 capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
+Ramos target status, exact producers and omissions belong to the
+[plan](game-engine-ramos-plan.md) and [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration); exact-deck admission remains open.
 
 Continuous Aura control shares one operation for creatures, artifacts, lands and
 general permanents. Control-source dependencies use scratch, apply-once ordering;

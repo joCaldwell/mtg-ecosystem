@@ -22,10 +22,14 @@ pub(super) fn coalesce(effects: &[Sentence]) -> Result<Option<Quantity>, Failure
     };
     let [
         Sentence {
+            condition: None,
+            condition_kind: None,
             bindings: a,
             steps: ordered,
         },
         Sentence {
+            condition: None,
+            condition_kind: None,
             bindings: b,
             steps: shuffled,
         },

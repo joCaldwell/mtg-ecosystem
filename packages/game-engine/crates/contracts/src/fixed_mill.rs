@@ -10,6 +10,7 @@ pub(crate) fn has_mill(p: &SpellProgram) -> bool {
 /// Exactly one controller/target-player mill, optionally with one controller draw.
 pub fn fixed_mill_program(p: &SpellProgram) -> bool {
     if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
@@ -67,7 +68,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
-    let root = json!({"properties":{"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}}});
+    let root = json!({"properties":{"optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}}});
     let draw = json!({"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"}}});
     let mill = |recipient: serde_json::Value| json!({"required":["op","count","source_block"],"properties":{"op":{"const":"mill_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"recipient":recipient}});
     let composition = |m: serde_json::Value| json!({"oneOf":[{"minItems":1,"maxItems":1,"items":m},{"minItems":2,"maxItems":2,"prefixItems":[m,draw],"items":false},{"minItems":2,"maxItems":2,"prefixItems":[draw,m],"items":false}]});
@@ -188,6 +189,61 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod ramos_combined_cost_fences {
+    use super::*;
+    #[test]
+    fn mill_combined_costs_and_conditional_draw_reject() {
+        for targeted in [false, true] {
+            let mut d = witness();
+            let p = d.spell.as_mut().unwrap();
+            if targeted {
+                p.targets = vec![TargetSpec {
+                    slot: 0,
+                    selection_id: "mill-player".into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain: TargetDomain::AnyPlayer,
+                    filter: None,
+                }];
+                let Instruction::MillCards { recipient, .. } = &mut p.instructions[0] else {
+                    unreachable!()
+                };
+                *recipient = Some(LifeRecipient::Target { target_slot: 0 });
+            }
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            let identity = format!(
+                "card:{}/faces/0/abilities/0/keywords/0#keyword",
+                d.oracle_id
+            );
+            let p = d.spell.as_mut().unwrap();
+            p.optional_additional_costs
+                .push(OptionalAdditionalManaCost {
+                    identity: identity.clone(),
+                    source_block: 0,
+                    mana: ManaCost {
+                        generic: 1.into(),
+                        colored: vec![],
+                    },
+                });
+            assert!(!fixed_mill_program(p));
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
+            let p = d.spell.as_mut().unwrap();
+            p.optional_additional_costs.clear();
+            p.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+                cost_identity: identity,
+                count: 1.into(),
+                source_block: 0,
+            });
+            assert!(!fixed_mill_program(p));
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
         }
     }
 }

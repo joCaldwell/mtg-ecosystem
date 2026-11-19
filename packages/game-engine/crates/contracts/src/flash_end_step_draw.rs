@@ -55,6 +55,7 @@ pub(super) fn definition_matches(definition: &Definition) -> bool {
         && spell.resolution == SpellResolution::Permanent
         && spell.functioning_zone == FunctioningZone::Stack
         && spell.additional_sacrifice.is_none()
+        && spell.optional_additional_costs.is_empty()
         && spell.instructions.is_empty()
         && spell.targets.is_empty()
         && spell.modes.is_empty()
@@ -81,7 +82,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "timing":{"const":SpellTiming::Instant},
         "resolution":{"const":SpellResolution::Instructions},
         "functioning_zone":{"const":FunctioningZone::Stack},
-        "additional_sacrifice":{"type":"null"},
+        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "targets":{"maxItems":0},
         "modes":{"maxItems":0},
         "instructions":{"minItems":1,"maxItems":1,"items":{
@@ -138,7 +139,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "timing":{"const":SpellTiming::Instant},
                 "resolution":{"const":SpellResolution::Permanent},
                 "functioning_zone":{"const":FunctioningZone::Stack},
-                "additional_sacrifice":{"type":"null"},
+                "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
                 "targets":{"maxItems":0},"instructions":{"maxItems":0},"modes":{"maxItems":0}
             }},
             "capabilities":{

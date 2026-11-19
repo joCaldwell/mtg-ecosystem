@@ -160,6 +160,7 @@ impl Shape {
             functioning_zone: FunctioningZone::Stack,
             resolution: SpellResolution::Instructions,
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             targets: self
                 .domain()
                 .into_iter()
@@ -198,6 +199,7 @@ impl Shape {
         };
         if !target_matches
             || p.additional_sacrifice.is_some()
+            || !p.optional_additional_costs.is_empty()
             || p.modes.len() != self.modes().len()
         {
             return false;

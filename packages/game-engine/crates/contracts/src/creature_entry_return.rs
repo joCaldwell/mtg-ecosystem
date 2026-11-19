@@ -31,6 +31,7 @@ fn trigger_program(p: &SpellProgram, keyword_blocks: usize) -> bool {
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
         && p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
         && p.modes.is_empty()
         && target.slot == 0
         && !target.selection_id.is_empty()
@@ -80,6 +81,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || cast.resolution != SpellResolution::Permanent
         || cast.functioning_zone != FunctioningZone::Stack
         || cast.additional_sacrifice.is_some()
+        || !cast.optional_additional_costs.is_empty()
         || !cast.instructions.is_empty()
         || !cast.targets.is_empty()
         || !cast.modes.is_empty()
@@ -104,7 +106,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"modes":{"items":{"properties":{"program":{"not":has_op}}}}},
         "if":has_op,"then":{"properties":{
-            "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"timing":{"const":"instant"},
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"timing":{"const":"instant"},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "instructions":singleton(json!({"allOf":[op],"properties":{"target_slot":{"const":0},"source_block":{"maximum":1}}})),
             "targets":singleton(json!({"required":["filter"],"properties":{"slot":{"const":0},"selection_id":{"minLength":1},
@@ -148,7 +150,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"activated":{"maxItems":0},
             "static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"enum":[[],["flying"]]},
             "spell":{"type":"object","properties":{"timing":{"const":"main_phase"},"functioning_zone":{"const":"stack"},
-                "resolution":{"const":"permanent"},"additional_sacrifice":{"type":"null"},"instructions":{"maxItems":0},
+                "resolution":{"const":"permanent"},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"instructions":{"maxItems":0},
                 "targets":{"maxItems":0},"modes":{"maxItems":0}}},
             "triggered":singleton(json!({"allOf":[trigger],"properties":{"condition":{"const":"self_enters_battlefield"},
                 "functioning_zone":{"const":"battlefield"},"death_filter":{"type":"null"},"intervening_if":{"type":"null"}}}))

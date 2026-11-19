@@ -138,6 +138,9 @@ pub(super) fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
                 assert_eq!(generic, Quantity::zero());
                 Response::SpendMana { spending }
             }
+            Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
+                order: candidates.clone(),
+            },
             Request::Priority { .. } => return,
             x => panic!("pay {x:?}"),
         };

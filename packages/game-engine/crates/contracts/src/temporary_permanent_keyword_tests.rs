@@ -227,15 +227,18 @@ fn temporary_permanent_keyword_contract_definition_contexts_reject() {
             1 => d.x_mana_cost = true,
             2 => d.keywords.push(KeywordAbility::Flash),
             3 => d.mana_abilities.push(ManaAbility {
+                self_damage: None,
                 costs: PermanentActivationCosts {
                     tap: true,
                     mana: None,
                     sacrifice: false,
+                    remove_source_plus_one_counters: None,
                 },
                 production: ManaProduction::Fixed {
                     symbols: vec![Color::U],
                 },
                 source_block: 0,
+                restriction: None,
             }),
             4 => d.intrinsic_zone = Some(FunctioningZone::Battlefield),
             5 => d.characteristics.additional_types.push(CardKind::Artifact),
@@ -308,4 +311,32 @@ fn temporary_permanent_keyword_zero_tail_exception_keeps_generic_life_strict() {
             assert!(d.validate().is_err(), "{name}:{index}");
         }
     }
+}
+
+#[test]
+fn temporary_permanent_keyword_rejects_optional_cost_and_conditional_draw_composition() {
+    let mut d = grant(true);
+    let p = d.spell.as_mut().unwrap();
+    p.optional_additional_costs
+        .push(OptionalAdditionalManaCost {
+            identity: "card:test/faces/0/abilities/0/keywords/0#keyword".into(),
+            source_block: 0,
+            mana: ManaCost {
+                generic: 1.into(),
+                colored: vec![],
+            },
+        });
+    assert!(temporary_targeted_keyword_program(p).is_none());
+    d.capabilities = d.requirements();
+    assert!(d.validate().is_err());
+    let p = d.spell.as_mut().unwrap();
+    p.optional_additional_costs.clear();
+    p.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+        count: 1.into(),
+        cost_identity: "card:test/faces/0/abilities/0/keywords/0#keyword".into(),
+        source_block: 0,
+    });
+    assert!(temporary_targeted_keyword_program(p).is_none());
+    d.capabilities = d.requirements();
+    assert!(d.validate().is_err());
 }

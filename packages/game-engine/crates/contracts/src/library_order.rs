@@ -12,6 +12,7 @@ pub(crate) fn has_order(p: &SpellProgram) -> bool {
 /// One fixed controller top ordering, optional shuffle, then one mandatory draw.
 pub fn controller_library_order_program(p: &SpellProgram) -> bool {
     p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
         && p.modes.is_empty()
         && p.targets.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
@@ -48,7 +49,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
-    s["$defs"]["ControllerLibraryOrderProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":3,"maxItems":3,"prefixItems":[{"required":["op","amount","source_block"],"properties":{"op":{"const":"order_library_top"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","source_block"],"properties":{"op":{"const":"optional_shuffle_library"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"},"source_block":{"const":1}}}],"items":false}}});
+    s["$defs"]["ControllerLibraryOrderProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":3,"maxItems":3,"prefixItems":[{"required":["op","amount","source_block"],"properties":{"op":{"const":"order_library_top"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","source_block"],"properties":{"op":{"const":"optional_shuffle_library"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"},"source_block":{"const":1}}}],"items":false}}});
     s["$defs"]["OrderFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":["order_library_top","optional_shuffle_library"]}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/OrderFreeProgram"}}}}}});
     s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/OrderFreeProgram"}},"then":{"$ref":"#/$defs/ControllerLibraryOrderProgram"}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/OrderFreeProgram"}}}});

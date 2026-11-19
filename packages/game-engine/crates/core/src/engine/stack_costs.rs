@@ -14,6 +14,78 @@ impl AnnouncementOrigin {
 }
 
 impl Game {
+    // CR602.2/702.29a: a hand card's owner activates it. A stale battlefield
+    // controller never supplies (or removes) permission outside battlefield.
+    pub(super) fn hand_activation_source_payable(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+    ) -> bool {
+        self.is_live(player)
+            && self
+                .current(source)
+                .is_ok_and(|o| o.zone == (Zone::Hand { owner: player }))
+            && self
+                .state
+                .rules
+                .cards
+                .get(&source.card)
+                .is_some_and(|c| c.owner == player)
+    }
+    // CR 118.3/119.4/602.2: payer is the current controller, and paying
+    // exactly all remaining life is legal. Zero is payable at any life total.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn validate_tap_life_sacrifice_source(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        life: &Quantity,
+    ) -> Result<(), String> {
+        let object = self.current(source)?;
+        if object.zone != Zone::Battlefield
+            || object.controller != player
+            || !self.is_live(player)
+            || object.tapped
+            || life.is_negative()
+            || (*life > Quantity::zero()
+                && self.state.rules.players[player.0 as usize].life < *life)
+        {
+            return Err("unpayable source tap, life and sacrifice cost".into());
+        }
+        Ok(())
+    }
+    fn pay_tap_life_sacrifice_source(
+        &mut self,
+        player: PlayerId,
+        source: ObjectId,
+        life: &Quantity,
+        cause: BatchCause,
+    ) -> Result<(), String> {
+        self.validate_tap_life_sacrifice_source(player, source, life)?;
+        let mut children = vec![EventGroup::Occurrence {
+            proposed: ProposedEvent::Tap { object: source },
+        }];
+        // Paying life is loss of life, not damage. Reuse the existing exact
+        // life-change occurrence; zero costs deliberately emit no life event.
+        if *life > Quantity::zero() {
+            children.push(EventGroup::Occurrence {
+                proposed: ProposedEvent::LoseLife {
+                    player,
+                    amount: life.clone(),
+                },
+            });
+        }
+        children.push(EventGroup::Occurrence {
+            proposed: ProposedEvent::Sacrifice {
+                object: source,
+                player,
+            },
+        });
+        // One ordered batch inside the staged rule step: no SBA/priority or
+        // observable partial tap/debit before the complete cost has committed.
+        self.commit_batch(cause, EventGroup::Ordered { children })?;
+        Ok(())
+    }
     pub(super) fn announce_ability(
         &mut self,
         player: PlayerId,
@@ -21,6 +93,14 @@ impl Game {
         object: ObjectId,
         ability: u32,
     ) -> Result<(), String> {
+        // CR602.2a/701.20a: reveal only after the ordinary priority authority
+        // and exact source/ability permission have succeeded. This precedes
+        // every opponent handle allocation; action queries allocate nothing.
+        if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player
+        {
+            return Err("ability proposal requires its ordinary priority owner".into());
+        }
+        self.validate_activation(player, object, ability)?;
         let cost = self
             .definition(object.card)?
             .activated
@@ -28,9 +108,8 @@ impl Game {
             .ok_or("missing activated cost")?
             .cost
             .clone();
-        let source_handles = (0..4)
-            .map(|viewer| self.handle_for(PlayerId(viewer), object))
-            .collect::<Result<Vec<_>, _>>()?;
+        let cast_from = self.current(object)?.zone;
+        let source_handles = self.capture_trigger_source_handles(object)?;
         let id = StackId(self.state.rules.next_stack_id);
         self.state.rules.next_stack_id = self
             .state
@@ -43,6 +122,7 @@ impl Game {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
             ActivationCost::Mana { cost } => cost.clone(),
+            ActivationCost::DiscardSource { mana } => mana.clone(),
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
             }
@@ -54,13 +134,18 @@ impl Game {
         let chosen = matches!(cost, ActivationCost::SacrificePermanent { .. });
         let mana = matches!(
             cost,
-            ActivationCost::Mana { .. } | ActivationCost::SacrificePermanent { mana: Some(_), .. }
+            ActivationCost::Mana { .. }
+                | ActivationCost::DiscardSource { .. }
+                | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
         let targeted = !self.definition(object.card)?.activated[ability as usize]
             .program
             .targets
             .is_empty();
         self.state.rules.stack.push(StackInstance {
+            cost_lock: None,
+            selected_additional_costs: None,
+            alternative_cost: None,
             x: None,
             death_controller: None,
             sacrificed: None,
@@ -83,7 +168,7 @@ impl Game {
             announced_targets: vec![vec![]; 4],
             paid: (!mana && !targeted && !chosen).then_some(total_cost.clone()),
             total_cost,
-            cast_from: Zone::Battlefield,
+            cast_from,
         });
         if targeted {
             if cost != ActivationCost::TapSource
@@ -98,6 +183,7 @@ impl Game {
                 return Err("unsupported targeted activation cost".into());
             }
             let cast = Casting {
+                completion: CastCompletion::Priority,
                 sacrifice: None,
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
@@ -122,6 +208,7 @@ impl Game {
         } else if mana {
             self.state.rules.frame = Frame::Mana {
                 cast: Casting {
+                    completion: CastCompletion::Priority,
                     sacrifice: None,
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
@@ -136,6 +223,7 @@ impl Game {
             // CR 602.2b/601.2g-h: no mana opportunity for a cost with no mana.
             self.state.rules.frame = Frame::SacrificeCost {
                 cast: Casting {
+                    completion: CastCompletion::Priority,
                     sacrifice: None,
                     origin: AnnouncementOrigin::Activated,
                     spending: Some(BTreeMap::new()),
@@ -147,7 +235,20 @@ impl Game {
                 },
             };
         } else {
-            if let ActivationCost::Composite { costs } = &cost {
+            if let ActivationCost::TapPayLifeSacrificeSource { life } = &cost {
+                self.pay_tap_life_sacrifice_source(
+                    player,
+                    object,
+                    life,
+                    BatchCause::AbilityActivation {
+                        stack_id: id,
+                        player,
+                        source: object,
+                        decision_id,
+                        ability,
+                    },
+                )?;
+            } else if let ActivationCost::Composite { costs } = &cost {
                 self.pay_permanent_source_costs(
                     object,
                     player,
@@ -164,8 +265,10 @@ impl Game {
                 let proposed = match cost {
                     ActivationCost::SacrificeSource => ProposedEvent::Sacrifice { object, player },
                     ActivationCost::TapSource => ProposedEvent::Tap { object },
-                    ActivationCost::Composite { .. }
+                    ActivationCost::TapPayLifeSacrificeSource { .. }
+                    | ActivationCost::Composite { .. }
                     | ActivationCost::Mana { .. }
+                    | ActivationCost::DiscardSource { .. }
                     | ActivationCost::SacrificePermanent { .. } => {
                         return Err("activated cost branch invariant".into());
                     }
@@ -209,6 +312,7 @@ impl Game {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
             ActivationCost::Mana { cost } => cost.clone(),
+            ActivationCost::DiscardSource { mana } => mana.clone(),
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
             }
@@ -250,7 +354,16 @@ impl Game {
                     )
                 }))
             || entry.total_cost != expected
-            || entry.cast_from != Zone::Battlefield
+            || entry.cast_from
+                != match activated.functioning_zone {
+                    FunctioningZone::Hand => Zone::Hand {
+                        owner: entry.controller,
+                    },
+                    FunctioningZone::Battlefield => Zone::Battlefield,
+                    FunctioningZone::Stack => {
+                        return Err("invalid activation functioning zone".into());
+                    }
+                }
             || match &entry.paid {
                 Some(paid) => *paid != expected,
                 None => {
@@ -258,6 +371,7 @@ impl Game {
                         || !(matches!(
                             activated.cost,
                             ActivationCost::Mana { .. }
+                                | ActivationCost::DiscardSource { .. }
                                 | ActivationCost::Composite { .. }
                                 | ActivationCost::SacrificePermanent { .. }
                                 | ActivationCost::SacrificeSource
@@ -267,20 +381,51 @@ impl Game {
         {
             return Err("snapshot activated invocation invariant".into());
         }
+        if activated.functioning_zone == FunctioningZone::Hand {
+            let fact = entry
+                .source_facts
+                .as_ref()
+                .ok_or("missing hand activation source facts")?;
+            if !hand_discard_draw_activation(activated)
+                || fact.object != entry.source
+                || fact.owner != entry.controller
+                || fact.zone != entry.cast_from
+                || (entry.paid.is_none()
+                    && !self.hand_activation_source_payable(entry.controller, entry.source))
+                || (entry.paid.is_some() && self.current(entry.source).is_ok())
+            {
+                return Err("snapshot hand activation cost/source invariant".into());
+            }
+        }
         Ok(())
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
+        self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
+        self.validate_additional_cost_entry(entry)?;
+        if entry.alternative_cost.is_some()
+            && (!entry.kind.is_spell()
+                || entry.cast_from != Zone::Exile
+                || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
+            || (entry.kind.is_spell()
+                && entry.cast_from == Zone::Exile
+                && entry.alternative_cost != Some(cascade::AlternativeCost::WithoutManaCost))
+        {
+            return Err("snapshot alternative casting cost/origin invariant".into());
+        }
         let x_spell = self.definition(entry.source.card)?.x_mana_cost && entry.kind.is_spell();
         let choosing_mode =
             matches!(&self.state.rules.frame, Frame::Modes { cast } if cast.stack_id == entry.id);
         let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
+        // An alternative cast fixes X at zero even while a mode is pending.
+        let x_fixed_by_alternative = entry.alternative_cost.is_some();
+        let x_bound = x_spell && (x_fixed_by_alternative || (!choosing_mode && !announcing_x));
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
-            || entry.x.is_some() != (x_spell && !choosing_mode && !announcing_x)
-            || (announcing_x && !x_spell)
+            || entry.x.is_some() != x_bound
+            || (announcing_x && (!x_spell || x_fixed_by_alternative))
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
-                != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.definition(entry.source.card)?.triggered[*ability as usize].condition==TriggerCondition::OpponentCreatureDies)
+                != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.effective_trigger(entry.source, *ability)?.condition==TriggerCondition::OpponentCreatureDies)
         {
             return Err("snapshot X/death LKI binding invariant".into());
         }
@@ -343,6 +488,20 @@ impl Game {
         self.eligible_stack_targets(domain, Some(countering))
             .contains(&target)
     }
+    // CR 101.2/101.3, 113.6 and 608.2b: protection applies when countering
+    // the source spell. Its stack target legality is evaluated separately.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn spell_cannot_be_countered(&self, entry: &StackInstance) -> Result<bool, String> {
+        Ok(entry.kind.is_spell()
+            && self
+                .definition(entry.source.card)?
+                .static_abilities
+                .iter()
+                .any(|ability| {
+                    ability.functioning_zone == FunctioningZone::Stack
+                        && ability.effect == StaticEffect::CantBeCountered
+                }))
+    }
     pub(super) fn validate_stack_targets(
         &self,
         player: PlayerId,
@@ -389,7 +548,7 @@ impl Game {
             .ok_or("missing stack target invocation")?;
         top.stack_targets = entries;
         top.announced_stack_targets = announced;
-        self.state.rules.frame = Frame::Mana { cast };
+        self.state.rules.frame = self.announcement_mana_frame(cast)?;
         Ok(())
     }
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs

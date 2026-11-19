@@ -31,6 +31,7 @@ pub(super) fn lower_two_draws(
         },
         program: SpellProgram {
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
@@ -269,6 +270,7 @@ mod tests {
                     }),
                     tap: true,
                     sacrifice: false,
+                    remove_source_plus_one_counters: None,
                 },
             }
         );

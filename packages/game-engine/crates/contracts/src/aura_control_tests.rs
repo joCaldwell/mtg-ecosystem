@@ -158,7 +158,10 @@ fn aura_control_rejects_every_outside_shape_even_with_recomputed_capabilities() 
         }),
         ("mana ability", |d| {
             d.mana_abilities.push(ManaAbility {
+                self_damage: None,
+                restriction: None,
                 costs: PermanentActivationCosts {
+                    remove_source_plus_one_counters: None,
                     tap: true,
                     mana: None,
                     sacrifice: false,
@@ -549,6 +552,51 @@ fn aura_control_new_unit_serialization_rejects_old_internal_ir() {
                 .unwrap()
                 .contains(&serde_json::json!(Capability::CreatureTargetV1))
         );
+    }
+}
+
+#[test]
+fn aura_control_typed_shapes_exclude_optional_cost_and_conditional_draw() {
+    for baseline in [
+        typed_aura(CardKind::Creature),
+        typed_aura(CardKind::Artifact),
+        typed_aura(CardKind::Land),
+        general_aura(),
+    ] {
+        baseline.validate().unwrap();
+        for variant in 0..3 {
+            let mut invalid = baseline.clone();
+            let identity = format!(
+                "card:{}/faces/0/abilities/0/keywords/0#keyword",
+                invalid.oracle_id
+            );
+            let program = invalid.spell.as_mut().unwrap();
+            if variant != 1 {
+                program
+                    .optional_additional_costs
+                    .push(OptionalAdditionalManaCost {
+                        identity: identity.clone(),
+                        source_block: 0,
+                        mana: ManaCost {
+                            generic: 2.into(),
+                            colored: vec![Color::U],
+                        },
+                    });
+            }
+            if variant != 0 {
+                program
+                    .instructions
+                    .push(Instruction::DrawCardsIfAdditionalCost {
+                        cost_identity: identity,
+                        count: 2.into(),
+                        source_block: 1,
+                    });
+            }
+            assert_eq!(aura_control_domain(&invalid), None);
+            assert!(!aura_control_source(&invalid));
+            invalid.capabilities = invalid.requirements();
+            assert!(invalid.validate().is_err());
+        }
     }
 }
 

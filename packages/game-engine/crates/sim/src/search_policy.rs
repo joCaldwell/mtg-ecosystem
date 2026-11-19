@@ -11,10 +11,13 @@ fn selected_program<'a>(
 ) -> Option<&'a SpellProgram> {
     let entry = observation.view.stack.last()?;
     let program = if let Some(trigger) = &entry.triggered {
+        let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &trigger.ability else {
+            return None; // Static spell grants have no search admission.
+        };
         &search_candidates::definition(catalog, &trigger.oracle_id)
             .ok()?
             .triggered
-            .get(usize::try_from(trigger.ability).ok()?)?
+            .get(usize::try_from(*index).ok()?)?
             .program
     } else if let Some(ability) = &entry.ability {
         &search_candidates::definition(catalog, &ability.oracle_id)
@@ -70,6 +73,10 @@ pub(super) fn choose(
     let beneficial =
         selected_program(catalog, observation).is_some_and(search_candidates::beneficial);
     Ok(match request {
+        PlayerRequest::CounterPlacementEffect { .. } => {
+            return Err("counter placement replacement choices outside this policy".into());
+        }
+
         PlayerRequest::HandReturn { .. }
         | PlayerRequest::LibraryOrder { .. }
         | PlayerRequest::LibrarySelect { .. }
@@ -80,6 +87,9 @@ pub(super) fn choose(
         PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
             keep: candidates.last().ok_or("empty legend choices")?.clone(),
         },
+        PlayerRequest::AdditionalCosts { .. } => {
+            return Err("optional casting costs outside this completion policy".into());
+        }
         PlayerRequest::AnnounceX { .. } => {
             return Err("X request unsupported by this completion policy".into());
         }
@@ -88,6 +98,7 @@ pub(super) fn choose(
         }
         PlayerRequest::ManaColor { .. }
         | PlayerRequest::SearchLands { .. }
+        | PlayerRequest::SearchLandBattlefield { .. }
         | PlayerRequest::OptionalEffect { .. }
         | PlayerRequest::OptionalRecursion { .. } => {
             return Err("staples request unsupported by this completion policy".into());

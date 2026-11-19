@@ -26,6 +26,7 @@ pub fn activated_artifact_draw_ability(ability: &ActivatedAbility) -> bool {
         && p.timing == SpellTiming::Instant
         && p.resolution == SpellResolution::Instructions
         && p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
         && p.targets.is_empty()
         && p.modes.is_empty()
         && match p.instructions.split_last() {
@@ -63,9 +64,9 @@ pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
         || !d.static_abilities.is_empty()
         || !d.triggered.is_empty()
         || !d.mana_abilities.is_empty()
-        || d.spell
-            .as_ref()
-            .is_some_and(|p| p.additional_sacrifice.is_some())
+        || d.spell.as_ref().is_some_and(|p| {
+            p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty()
+        })
     {
         return Err("paid artifact draw requires a complete ordinary artifact source".into());
     }
@@ -101,7 +102,7 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
                 }}
             }}},
             "program":{"properties":{
-                "additional_sacrifice":{"type":"null"},"targets":{"maxItems":0},"modes":{"maxItems":0},
+                "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"targets":{"maxItems":0},"modes":{"maxItems":0},
                 "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},
                 "resolution":{"const":"instructions"},
                 "instructions":{"anyOf":[
@@ -160,7 +161,7 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
                     "power":{"type":"null"},"toughness":{"type":"null"}
                 }},
                 "spell":{"type":"object","properties":{
-                    "additional_sacrifice":{"type":"null"},"targets":{"maxItems":0},
+                    "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"targets":{"maxItems":0},
                     "modes":{"maxItems":0},"instructions":{"maxItems":0},
                     "functioning_zone":{"const":"stack"},"timing":{"const":"main_phase"},
                     "resolution":{"const":"permanent"}

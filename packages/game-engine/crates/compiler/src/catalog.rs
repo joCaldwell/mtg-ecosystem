@@ -11,9 +11,43 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CatalogError {
-    InvalidManifest { path: PathBuf, reason: String },
-    InvalidRecordGroups { reason: String },
-    InvalidData { reason: String },
+    InvalidManifest {
+        path: PathBuf,
+        reason: String,
+    },
+    InvalidRecordGroups {
+        reason: String,
+    },
+    InvalidData {
+        reason: String,
+    },
+    UnsupportedSource {
+        file: String,
+        path: String,
+        reason: String,
+    },
+    InvalidSource {
+        file: String,
+        path: String,
+        reason: String,
+    },
+}
+impl CatalogError {
+    /// Keep the historical CLI envelope for callers that have not opted in to JSON errors.
+    pub fn into_legacy_build_error(self) -> Self {
+        let (file, diagnostic) = match self {
+            Self::UnsupportedSource { file, path, reason } => {
+                (file, CompileResult::Unsupported { path, reason })
+            }
+            Self::InvalidSource { file, path, reason } => {
+                (file, CompileResult::Invalid { path, reason })
+            }
+            error => return error,
+        };
+        Self::InvalidData {
+            reason: format!("{file}: {diagnostic:?}"),
+        }
+    }
 }
 impl From<String> for CatalogError {
     fn from(reason: String) -> Self {
@@ -211,7 +245,20 @@ fn build_with(
                 }
                 definitions.push(*definition);
             }
-            result => return Err(format!("{file}: {result:?}").into()),
+            CompileResult::Unsupported { path, reason } => {
+                return Err(CatalogError::UnsupportedSource {
+                    file: file.clone(),
+                    path,
+                    reason,
+                });
+            }
+            CompileResult::Invalid { path, reason } => {
+                return Err(CatalogError::InvalidSource {
+                    file: file.clone(),
+                    path,
+                    reason,
+                });
+            }
         }
     }
     definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));

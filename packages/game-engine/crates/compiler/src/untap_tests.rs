@@ -76,6 +76,7 @@ fn complete_burst_source_preserves_provenance_and_unqualified_permanent_target()
     assert_eq!(
         d.spell,
         Some(SpellProgram {
+            optional_additional_costs: vec![],
             additional_sacrifice: None,
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,

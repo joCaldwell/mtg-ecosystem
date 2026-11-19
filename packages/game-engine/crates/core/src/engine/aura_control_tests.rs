@@ -1081,12 +1081,20 @@ mod composed_tests;
 mod atomic_targeted_keyword_tests;
 
 #[cfg(test)]
+#[path = "m4b_tests.rs"]
+mod m4b_tests;
+
+#[cfg(test)]
 #[path = "permanent_set_keyword_tests.rs"]
 mod permanent_set_keyword_tests;
 
 #[cfg(test)]
 #[path = "typed_aura_control_tests.rs"]
 mod typed_aura_control_tests;
+
+#[cfg(test)]
+#[path = "m4c_control_tests.rs"]
+mod m4c_control_tests;
 
 #[cfg(test)]
 #[path = "general_aura_control_tests.rs"]
@@ -1126,9 +1134,13 @@ mod draw_discard_tests;
 #[path = "controller_counted_draw_tests.rs"]
 mod controller_counted_draw_tests;
 
+#[path = "draw_land_allowance_tests.rs"]
+mod draw_land_allowance_tests;
+
 #[path = "power_entry_draw_tests.rs"]
 mod power_entry_draw_tests;
 
+#[cfg(test)]
 #[path = "announced_x_draw_tests.rs"]
 mod announced_x_draw_tests;
 #[path = "announced_x_effects_tests.rs"]
@@ -1140,6 +1152,11 @@ mod targeted_counted_draw_tests;
 #[path = "temporary_reach_tests.rs"]
 mod temporary_reach_tests;
 
+#[cfg(test)]
+#[path = "escort_set_tests.rs"]
+mod escort_set_tests;
+
+#[cfg(test)]
 #[path = "temporary_vigilance_tests.rs"]
 mod temporary_vigilance_tests;
 

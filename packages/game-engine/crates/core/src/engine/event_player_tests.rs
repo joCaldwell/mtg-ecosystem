@@ -29,7 +29,10 @@ fn priority(g: &mut Game, who: u8) {
 fn add_mana(p: &mut Prepared, id: &str) {
     edit(p, id, |d| {
         d.mana_abilities = vec![ManaAbility {
+            restriction: None,
+            self_damage: None,
             costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
                 tap: true,
                 mana: None,
                 sacrifice: false,
@@ -614,7 +617,8 @@ fn power_entry_draw_self_entry_rechecks_derived_power_for_trigger_controller() {
         }),
     };
     assert!(matches!(&trigger.kind, StackKind::Triggered {
-        ability: 0, witness: TriggerEventWitness::Moved { movement, .. }, match_condition: Some(check), ..
+        ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
+        witness: TriggerEventWitness::Moved { movement, .. }, match_condition: Some(check), ..
     } if movement.successor == trigger.source && check == &matched));
     recover(&g);
     let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();

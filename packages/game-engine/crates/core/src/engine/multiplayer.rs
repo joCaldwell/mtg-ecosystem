@@ -54,7 +54,9 @@ pub struct CommanderHistory {
 // deserialize buffered Content, which cannot decode a string as the numeric
 // scalar inside PlayerId. Adapt these map KEYS only; PlayerId values remain
 // numeric. Serialization and JsonSchema still use the original field types.
-fn player_quantity_map<'de, D>(deserializer: D) -> Result<BTreeMap<PlayerId, Quantity>, D::Error>
+pub(super) fn player_quantity_map<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<PlayerId, Quantity>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -401,6 +403,7 @@ impl Game {
             .retain(|s| !lost_stack.contains(&s.id));
         self.revalidate_trigger_departure()?;
         self.revalidate_damage_departure()?;
+        self.revalidate_counter_placement_departure()?;
         for stack_id in &lost_stack {
             self.record_event(Event::StackRemovedForDeparture {
                 stack_id: *stack_id,
@@ -438,7 +441,8 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::AnnounceX { cast }
+        if let Frame::AdditionalCosts { cast }
+        | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
@@ -464,7 +468,8 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::AnnounceX { cast }
+        if let Frame::AdditionalCosts { cast }
+        | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
         | Frame::Targets { cast }
@@ -480,7 +485,8 @@ impl Game {
             // their identities and recheck them at resolution under608.2b.
             let proposing = matches!(
                 self.state.rules.frame,
-                Frame::AnnounceX { .. }
+                Frame::AdditionalCosts { .. }
+                    | Frame::AnnounceX { .. }
                     | Frame::Modes { .. }
                     | Frame::EntityTargets { .. }
                     | Frame::Targets { .. }
@@ -523,7 +529,7 @@ impl Game {
                 proposing && !self.has_target_domain(self.program()?, self.top()?.controller);
             let source_bad = cast.origin == AnnouncementOrigin::Activated
                 && (matches!(self.state.rules.frame, Frame::EntityTargets { .. })
-                    || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..}))))))
+                    || matches!(self.top()?.kind, StackKind::Activated {ability,..} if self.top().is_ok_and(|top| self.definition(top.source.card).is_ok_and(|d| d.activated.get(ability as usize).is_some_and(|a| matches!(a.cost, ActivationCost::Composite {..} | ActivationCost::DiscardSource {..}))))))
                 && self.current(self.top()?.source).is_err();
             // CR 601.2e/601.6: proposal legality is checked before the
             // mana/payment stages (601.2f-h). A prohibition that appears
@@ -547,6 +553,7 @@ impl Game {
                 | Frame::SacrificeCost { .. }
                 | Frame::SpendMana { .. }
                 | Frame::ManaAbility { .. }
+                | Frame::ManaSourceChoice { .. }
         ) && self
             .state
             .rules
@@ -571,7 +578,9 @@ impl Game {
             frame.random_discard = None;
         }
         self.revalidate_commander_departure()?;
+        self.revalidate_land_entry_departure()?;
         self.revalidate_actions_departure()?;
+        self.revalidate_cascade_departure()?;
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }

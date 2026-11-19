@@ -3,6 +3,9 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum CommanderContinuation {
+    CascadeBottom {
+        progress: Box<CascadeProgress>,
+    },
     HandReturn {
         frame: Resolving,
         objects: Vec<ObjectId>,
@@ -102,29 +105,29 @@ impl Game {
         caster: PlayerId,
         from: Zone,
     ) -> Result<ManaCost, String> {
-        let mut cost = self.definition(card)?.characteristics.mana_cost.clone();
-        if self
-            .definition(card)?
-            .static_abilities
-            .iter()
-            .any(|a| a.effect == StaticEffect::ReduceGenericByCreatureCount)
-        {
-            cost.generic.subtract(&Quantity::from(
-                self.objects_in_set(&ObjectSet::Creatures, caster).len() as i64,
-            ));
-            if cost.generic.is_negative() {
-                cost.generic = Quantity::zero();
-            }
-        }
-        if matches!(from, Zone::Command { .. }) {
-            if from != (Zone::Command { owner: caster }) {
-                return Err("unsupported command-zone casting permission".into());
-            }
-            cost.generic
-                .add(&self.state.rules.commanders.tax(card, caster)?);
-        }
-        Ok(cost)
+        self.announcement_cost(card, caster, from, None)
     }
+    pub(super) fn announcement_cost(
+        &self,
+        card: CardId,
+        caster: PlayerId,
+        from: Zone,
+        alternative: Option<cascade::AlternativeCost>,
+    ) -> Result<ManaCost, String> {
+        self.announcement_cost_with_additional(card, caster, from, alternative, &[])
+    }
+    pub(super) fn announcement_cost_with_additional(
+        &self,
+        card: CardId,
+        caster: PlayerId,
+        from: Zone,
+        alternative: Option<cascade::AlternativeCost>,
+        selected: &[String],
+    ) -> Result<ManaCost, String> {
+        let lock = self.cost_lock_inputs(card, caster, from)?;
+        self.construct_spell_cost(card, alternative, None, selected, &lock)
+    }
+
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next
     // SBA opportunity even if declined. Historical pools permit at most one.
     // Match pods preserve every simultaneous fresh opportunity and process
@@ -247,6 +250,9 @@ impl Game {
             destination
         };
         match continuation {
+            CommanderContinuation::CascadeBottom { progress } => {
+                self.resume_cascade_commander(progress, object, to_command)?
+            }
             CommanderContinuation::HandReturn {
                 frame,
                 objects,
@@ -299,6 +305,9 @@ impl Game {
                 mut frame,
                 source_block,
             } => {
+                if self.is_successor_tuck(&frame)? {
+                    return self.complete_successor_tuck(frame, to_command);
+                }
                 let outcome = if !present {
                     InstructionOutcome::ObjectNoLongerPresent { target: object }
                 } else {
@@ -484,6 +493,15 @@ impl Game {
             }
             let current = self.current(*object)?;
             match continuation.as_ref() {
+                CommanderContinuation::CascadeBottom { progress } => {
+                    self.validate_cascade_commander_choice(progress, *object, *destination)?;
+                    if *destination != (Zone::Library { owner })
+                        || current.zone != Zone::Exile
+                        || progress.stage != cascade::CascadeStage::Bottom
+                    {
+                        return Err("snapshot cascade commander replacement invariant".into());
+                    }
+                }
                 CommanderContinuation::HandReturn {
                     frame,
                     objects,
@@ -538,6 +556,19 @@ impl Game {
                     frame,
                     source_block,
                 } => {
+                    if self.is_successor_tuck(frame)? {
+                        let (expected, _, expected_block) =
+                            self.successor_tuck_instruction(frame)?;
+                        if *object != expected
+                            || *source_block != expected_block
+                            || *destination != (Zone::Library { owner })
+                            || current.zone != (Zone::Graveyard { owner })
+                            || frame.spell.controller != owner
+                        {
+                            return Err("snapshot commander successor tuck invariant".into());
+                        }
+                        return self.validate_resolving(frame);
+                    }
                     let program = self.program_for(&frame.spell)?;
                     let instruction = program.instructions.get(frame.cursor as usize);
                     let (slot, expected_destination, expected_block) = match instruction {
@@ -637,6 +668,9 @@ impl Game {
                             }
                             Some(
                                 Instruction::DrawDamageAmount { source_block: b }
+                                | Instruction::DrawCardsIfAdditionalCost {
+                                    source_block: b, ..
+                                }
                                 | Instruction::DrawAnnouncedX {
                                     source_block: b, ..
                                 },

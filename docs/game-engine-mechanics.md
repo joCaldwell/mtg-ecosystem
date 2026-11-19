@@ -128,6 +128,20 @@ Personal effects for a departed invocation controller skip rather than redirect.
 
 <a id="announcement-priority-and-payment"></a>
 
+Typed nonbasic lands derive intrinsic mana; `ManaColor` selects before costs.
+Conditional entry counts prior Basic+Land objects once per simultaneous group.
+Optional-life entry chooses before debit/entry, reserves combined costs, and
+atomically commits payments, entries and landplay usage. Forced/intrinsic/declined
+tapping combine. Landplay and paid Lore/Claim/Farseek retain owned continuations,
+privacy and recovery. Source integers are exact u64; IR quantities remain arbitrary
+precision. Fetch activations atomically tap, pay life and sacrifice the source
+before typed search; the current controller pays and paid roots retain LKI through
+source-owner departure. Sacrifice-source creature activations capture controller
+creatures at resolution for pure temporary keyword grants.
+Cycling pays mana then discards its announced hand source; resolution draws without
+moving that discarded card. Focused proof uses38/28,IR1; admission and opponent
+production remain open.
+
 ## Casting, costs, targets and stack
 
 Stack projections run bottom to top. Saved announcement handles are historical:
@@ -142,9 +156,12 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
-X is announced nonnegative and frozen for stack mana value and supported draw,
-damage, life and mill effects. Generic
-self-cost reduction cannot erase colored costs.
+X is announced nonnegative and frozen; stack mana value and supported draw, damage, life and mill effects use it.
+CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
+of BoardWipes. Every validated slot applies; the legacy creature reducer shares
+its arithmetic. Base/alternative, X, selected additionals and increases precede
+reductions and floor-zero, preserving colored/colorless symbols. Private locks freeze
+bounded counts at CR601.2f; replay authenticates them without later-board repricing.
 
 Activated abilities use a separate stack ID/historical source handle; their card
 stays in place. Tap-source costs enforce readiness/continuous control, subject to
@@ -155,6 +172,7 @@ Failed payment removes the proposal and can reverse its recorded mana activation
 or draw one or two followed by a mandatory discard.
 Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
 wait for the complete invocation. Additional costs never change mana value.
+Targeted discard uses the announced player's hand.
 
 Object target slots share domain/filter because the request supplies one common
 candidate set; unequal per-slot filters reject. Entity/player/opponent/stack
@@ -263,15 +281,22 @@ Complete Shrapnel Blast lowers one-artifact additional sacrifice through that
 same family. Forced opponent sacrifices choose in APNAP order with earlier choices
 visible, then move simultaneously. A player with no candidate sacrifices nothing.
 
-Board-wide sets are evaluated at instruction execution, including granted
-keywords. Set destruction/exile/bounce and all-recipient damage commit atomically.
-Temporary set P/T effects capture members on creation; later entrants are excluded.
-Counted quantities use the instruction's actual typed outcomes, not a later board
-scan. Destruction counts exclude prevented destruction but include successful
-movement replaced by exile. An Anger-style turn-long replacement applies only to
-creatures actually dealt its damage; later sacrifice/zero-toughness deaths may be
-exiled and do not die. Indestructible prevents destruction before that replacement.
-No creature dies trigger is inferred from generic departure.
+Board-wide sets include granted keywords at execution; destruction/exile/bounce
+and all-recipient damage commit atomically. Temporary P/T sets capture recipients,
+excluding later entrants. Counts use typed outcomes, including exile-replaced
+but excluding prevented destruction. Anger-style turn-long replacement covers
+only creatures actually dealt its damage, including later sacrifices/zero-toughness
+moves: exile causes no death. Indestructible prevents destruction before replacement;
+generic departures never imply dies triggers.
+
+`TypedLandSearchV1` consumes complete own-library → battlefield → shuffle spells:
+Nature's Lore, Farseek, Skyshroud Claim. Land subtype OR ignores Basic supertype;
+positive exact maxima use only common physical capacity for offered counts.
+Finding zero is legal (CR 701.23b); found cards enter simultaneously without reveal;
+forced tapping preserves intrinsic entry. Extra filters/clauses/costs/composition
+reject. Basic/split IR stays separate. Validated typed nonbasics are eligible;
+Command Tower remains negative. Cinder Glade/Prairie Stream entry uses common-prior
+facts. Shock entry, cycling and consumer admission remain open.
 
 ## Keywords, attachments and temporary effects
 
@@ -532,8 +557,8 @@ retain their original 409 controls and payloads. The
 [separate permanent controls](../packages/game-engine/crates/contracts/tests/permanent-set-keyword-schema-probes.mjs)
 cover the new selector, disjoint family/primitive closure, signed/zero modifier
 negatives and all other opcode/context fences. These are bounded synthetic IR
-controls; `--prepare-only` constructs them without schema execution. New Rust tests
-and schema validation remain UNRUN pending parent source-bound qualification.
+controls; `--prepare-only` constructs them without schema execution. Source-qualified tests/schema evidence is indexed in the evidence guide; acceptance
+never transfers to later source.
 The targeted atomic-grant probes remain separate; their prior split-format 1,955-probe inventory has its own historical identity. This family
 changes no catalog bodies, pool/profile/policy,
 hosting/search or consumer admission; Card IR remains schema 1.
@@ -550,6 +575,17 @@ Cast triggers collect after
 successful payment; declared attacks use the real declaration batch. Ordinary
 step, death, ETB, draw/discard and combat/noncombat-damage families each retain
 strict source/program validation.
+
+Live battlefield static grants add independent cascade instances to completed spells
+of the source's current controller using disjoint mana-value, first-cast or
+first-from-exile predicates. A constant four-seat ledger counts every successful
+cast, including observer-free and resolution casts, and resets only on a new turn.
+Intrinsic indexes and grant-source incarnation/static indexes are distinct identities.
+The cast spell remains rules source; caster and grant provenance freeze at collection,
+surviving later grantor departure/control changes. Whole batches preflight IDs,
+fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
+firstness; failed proposals/payments never consume it. Complete frozen Nexus and
+Wild-Magic Sorcerer reuse canonical cascade; Yidris remains unsupported.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,

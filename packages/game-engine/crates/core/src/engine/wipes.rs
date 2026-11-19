@@ -22,6 +22,13 @@ impl Game {
                 match set {
                     ObjectSet::Creatures => creature,
                     ObjectSet::NonlandPermanents => d.characteristics.kind != CardKind::Land,
+                    ObjectSet::OpponentNonlandPermanents => {
+                        // CR 109.5, 205.2b, 608.2h, 806.1: use current control
+                        // and exclude every permanent with the land type.
+                        o.controller != controller
+                            && self.is_live(o.controller)
+                            && !d.characteristics.has_type(CardKind::Land)
+                    }
                     ObjectSet::Enchantments => d.characteristics.has_type(CardKind::Enchantment),
                     ObjectSet::AttackingCreatures => {
                         creature && self.state.rules.combat.iter().any(|a| a.attacker == o.id)
@@ -72,29 +79,15 @@ impl Game {
             return Err("X already announced".into());
         }
         top.x = Some(value.clone());
-        top.total_cost.generic.add(&value);
+
         let stack_id = top.id;
         self.record_event(Event::XAnnounced {
             stack_id,
             player: input.player,
             value,
         })?;
-        self.begin_cast_targets(cast)
-    }
-    pub(super) fn cant_counter(&self, id: StackId) -> bool {
-        self.state
-            .rules
-            .stack
-            .iter()
-            .find(|e| e.id == id)
-            .is_some_and(|e| {
-                e.kind.is_spell()
-                    && self.definition(e.source.card).is_ok_and(|d| {
-                        d.static_abilities
-                            .iter()
-                            .any(|a| a.effect == StaticEffect::CantBeCountered)
-                    })
-            })
+        self.state.rules.frame = self.spell_announcement_frame(cast)?;
+        Ok(())
     }
     pub(super) fn anger_replaces_death(&self, object: ObjectId, destination: Zone) -> bool {
         matches!(destination,Zone::Graveyard { .. }) && self.current(object).is_ok_and(|o|o.zone==Zone::Battlefield) && self.state.rules.effects.iter().any(|e|matches!(&e.kind,ResolvedEffectKind::ExileDamaged {targets} if targets.contains(&object)))
@@ -349,6 +342,9 @@ impl Game {
                 action,
                 source_block,
             } => self.move_board_set(frame, set, action, source_block),
+            Instruction::DestroySet { set, source_block } => {
+                self.move_board_set(frame, set, SetMove::Destroy, source_block)
+            }
             Instruction::PumpSet {
                 set,
                 power,
