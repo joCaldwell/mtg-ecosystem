@@ -142,7 +142,8 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
-X is announced nonnegative and frozen; only stack mana value includes it. Generic
+X is announced nonnegative and frozen for stack mana value and supported draw,
+damage, life and mill effects. Generic
 self-cost reduction cannot erase colored costs.
 
 Activated abilities use a separate stack ID/historical source handle; their card
