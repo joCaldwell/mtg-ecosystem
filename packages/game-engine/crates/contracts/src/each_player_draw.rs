@@ -57,6 +57,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || !p.targets.is_empty()
         || !p.modes.is_empty()
         || p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
         || !d.keywords.is_empty()
         || !d.static_abilities.is_empty()
         || !d.mana_abilities.is_empty()
@@ -81,6 +82,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
         "if":{"not":free},"then":{"properties":{
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},
+            "optional_additional_costs":{"maxItems":0},
             "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":op}}}}
         }}
     }));

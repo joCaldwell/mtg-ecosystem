@@ -32,6 +32,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || !d.static_abilities.is_empty()
         || !d.keywords.is_empty()
         || cast.additional_sacrifice.is_some()
+        || !cast.optional_additional_costs.is_empty()
         || !cast.modes.is_empty()
         || !cast.targets.is_empty()
     {
@@ -59,6 +60,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         _ => return Err(err()),
     };
     if !p.targets.is_empty()
+        || !p.optional_additional_costs.is_empty()
         || !matches!(p.instructions.as_slice(),
         [Instruction::DiscardPlayerSet {count, source_block: 0, ..}] if *count > Quantity::zero())
     {
@@ -76,7 +78,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "properties":{"modes":{"items":{"properties":{"program":{"not":has}}}}},
         "if":has,"then":{"properties":{
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "instructions":singleton(op),"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"}
+            "instructions":singleton(op),"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},
+            "optional_additional_costs":{"maxItems":0}
         }}
     }));
     let ability = json!({"required":["program"],"properties":{"program":has}});
@@ -114,7 +117,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         }})),
         "spell":{"type":"object","properties":{"functioning_zone":{"const":"stack"},"timing":{"const":"main_phase"},
             "resolution":{"const":"permanent"},"instructions":{"maxItems":0},"targets":{"maxItems":0},
-            "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"}}}
+            "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}
     },"if":{"properties":{"characteristics":{"required":["additional_types"],"properties":{"additional_types":{"const":["artifact"]}}}}},
     "then":{"properties":{"capabilities":caps(&artifact_caps)}},"else":{"properties":{"capabilities":caps(&creature_caps)}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({

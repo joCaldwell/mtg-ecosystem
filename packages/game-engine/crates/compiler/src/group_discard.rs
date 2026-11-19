@@ -143,6 +143,7 @@ pub(super) fn entry_trigger(discard: Instruction) -> TriggeredAbility {
         condition: TriggerCondition::SelfEntersBattlefield,
         program: SpellProgram {
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
