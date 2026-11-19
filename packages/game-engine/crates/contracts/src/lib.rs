@@ -41,6 +41,7 @@ pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
+mod graveyard_battlefield_return;
 mod group_discard;
 mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
@@ -366,6 +367,7 @@ pub enum Capability {
     PlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
+    GraveyardBattlefieldReturnV1,
     BasicLandSearchV1,
     BasicLandSplitSearchV1,
     TypedLandSearchV1,
@@ -814,6 +816,10 @@ pub enum Instruction {
     DestroyAllCreatures {
         source_block: u32,
     },
+    ReturnOwnGraveyardCreatureToBattlefield {
+        target_slot: u32,
+        source_block: u32,
+    },
     ReturnOwnGraveyardCreatureToHand {
         target_slot: u32,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1067,7 +1073,8 @@ impl Instruction {
             Self::ReturnAuraFromGraveyard { source_block, .. } => *source_block,
             Self::DestroyTargetCreature { source_block, .. } => *source_block,
             Self::DestroyAllCreatures { source_block, .. } => *source_block,
-            Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
+            Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
+            | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::SearchBasicLands { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::PutPlusOneCounters { source_block, .. } => *source_block,
@@ -2767,6 +2774,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
@@ -4375,7 +4383,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
             Instruction::DestroyAllCreatures { .. } => None,
-            Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
+            Instruction::ReturnOwnGraveyardCreatureToBattlefield { target_slot, .. }
+            | Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
             }
             Instruction::SearchTypedLands { search, .. } => {
@@ -4932,6 +4941,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::DestroyTargetCreature { .. } | Instruction::DestroyAllCreatures { .. } => {
                 Capability::DestroyCreatureV1
+            }
+            Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. } => {
+                Capability::GraveyardBattlefieldReturnV1
             }
             Instruction::ReturnOwnGraveyardCreatureToHand { .. } => {
                 Capability::GraveyardRecursionV1
@@ -6344,6 +6356,7 @@ pub fn catalog_schema() -> serde_json::Value {
     controller_counted_draw::extend_schema(&mut schema);
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
+    graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
@@ -6604,6 +6617,7 @@ mod tests {
             PlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
+            GraveyardBattlefieldReturnV1,
             BasicLandSearchV1,
             BasicLandSplitSearchV1,
             TypedLandSearchV1,
@@ -6905,6 +6919,7 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());
         definitions.push(announced_x_draw::effects_witness());

@@ -1179,3 +1179,6 @@ mod creature_entry_return_tests;
 
 #[path = "each_player_draw_tests.rs"]
 mod each_player_draw_tests;
+
+#[path = "graveyard_battlefield_return_tests.rs"]
+mod graveyard_battlefield_return_tests;
