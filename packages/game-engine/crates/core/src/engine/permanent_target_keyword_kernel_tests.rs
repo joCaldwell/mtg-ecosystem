@@ -106,6 +106,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
         x: None,
         death_controller: None,
         sacrificed: None,
+        sacrificed_set: vec![],
         mode: None,
         effect_source_handles: g.capture_trigger_source_handles(source).unwrap(),
         source_facts: None,
@@ -788,7 +789,7 @@ fn permanent_target_kernel_normal_target_requests_and_validation_preserve_querie
     g.state.rules.frame = Frame::Targets {
         cast: Casting {
             completion: CastCompletion::Priority,
-            sacrifice: None,
+            sacrifices: vec![],
             origin: AnnouncementOrigin::Spell,
             spending: None,
             stack_id: f.spell.id,

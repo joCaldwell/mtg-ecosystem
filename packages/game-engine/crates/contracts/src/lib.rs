@@ -368,6 +368,7 @@ pub enum Capability {
     AttachmentsV1,
     PermanentRemovalV1,
     SacrificeV1,
+    FixedArtifactSacrificeCostV1,
     BoardWipesV1,
     SelfSpellProtectionV1,
     AnnouncedXDrawV1,
@@ -1324,6 +1325,13 @@ pub struct SpellProgram {
 pub struct SpellMode {
     pub program: SpellProgram,
 }
+fn single_sacrifice() -> u8 {
+    1
+}
+fn single_sacrifice_count(n: &u8) -> bool {
+    *n == 1
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActivationCost {
@@ -1332,6 +1340,12 @@ pub enum ActivationCost {
         mana: ManaCost,
     },
     SacrificePermanent {
+        #[serde(
+            default = "single_sacrifice",
+            skip_serializing_if = "single_sacrifice_count"
+        )]
+        #[schemars(range(min = 1))]
+        count: u8,
         filter: SacrificeFilter,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana: Option<ManaCost>,
@@ -2133,6 +2147,12 @@ impl Definition {
             {
                 set.insert(Capability::TapSourceDestroyV1);
             }
+            if matches!(
+                ability.cost,
+                ActivationCost::SacrificePermanent { count: 2.., .. }
+            ) {
+                set.insert(Capability::FixedArtifactSacrificeCostV1);
+            }
             set.insert(match ability.cost {
                 ActivationCost::DiscardSource { .. } => Capability::DiscardSourceCostV1,
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
@@ -2775,6 +2795,37 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if let ActivationCost::SacrificePermanent {
+                count,
+                filter,
+                mana,
+            } = &ability.cost
+                && *count != 1
+            {
+                let p = &ability.program;
+                if *count < 2
+                    || filter.types != [CardKind::Artifact]
+                    || !filter.subtypes.is_empty()
+                    || mana
+                        .as_ref()
+                        .is_some_and(|m| m.generic.is_negative() || m.colored.contains(&Color::C))
+                    || !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
+                    || equipment
+                    || ability.functioning_zone != FunctioningZone::Battlefield
+                    || p.functioning_zone != FunctioningZone::Stack
+                    || p.timing != SpellTiming::Instant
+                    || p.resolution != SpellResolution::Instructions
+                    || !p.targets.is_empty()
+                    || !p.modes.is_empty()
+                    || p.additional_sacrifice.is_some()
+                    || !p.optional_additional_costs.is_empty()
+                    || !matches!(p.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1))
+                {
+                    return Err("unsupported fixed artifact sacrifice activation".into());
+                }
+                validate_instruction_program(p)?;
+                continue;
+            }
             if ability.functioning_zone == FunctioningZone::Hand
                 || matches!(ability.cost, ActivationCost::DiscardSource { .. })
             {
@@ -2848,7 +2899,7 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
-            if let ActivationCost::SacrificePermanent { filter, mana } = &ability.cost {
+            if let ActivationCost::SacrificePermanent { filter, mana, .. } = &ability.cost {
                 filter.validate()?;
                 if mana
                     .as_ref()
@@ -5096,6 +5147,41 @@ fn counter_placement_schema(schema: &mut serde_json::Value) {
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerCreaturePlusOneCounterReplacementV1}}}}}
     }));
 }
+// CR 602.2b, 601.2h, 701.21a. Only an artifact set and a single controller
+// draw are executable in this cost family. Source admission is separate.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
+    use serde_json::json;
+    let counted = json!({"required":["cost"],"properties":{"cost":{"type":"object",
+        "required":["sacrifice_permanent"],"properties":{"sacrifice_permanent":{
+            "required":["count"],"properties":{"count":{"minimum":2}}
+        }}
+    }}});
+    let ability = json!({"if":counted,"then":{"properties":{
+        "functioning_zone":{"const":"battlefield"},
+        "cost":{"properties":{"sacrifice_permanent":{"properties":{
+            "filter":{"const":{"types":["artifact"],"subtypes":[]}},
+            "mana":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"},"colored":{"items":{"enum":["W","U","B","R","G"]}}}}
+        }}}},
+        "program":{"properties":{"functioning_zone":{"const":"stack"},"timing":{"const":"instant"},
+            "resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}
+            }}}
+        }}
+    }}});
+    let contains_cap = json!({"contains":{"const":Capability::FixedArtifactSacrificeCostV1}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "properties":{"activated":{"items":ability}},
+        "if":{"required":["activated"],"properties":{"activated":{"contains":counted}}},
+        "then":{"properties":{
+            "characteristics":{"properties":{"kind":{"enum":["creature","artifact"]},"subtypes":{"not":{"contains":{"const":"Equipment"}}}}},
+            "capabilities":contains_cap
+        }},
+        "else":{"properties":{"capabilities":{"not":contains_cap}}}
+    }));
+}
 fn cascade_schema(schema: &mut serde_json::Value) {
     schema["$defs"]["Definition"]["properties"]["triggered"]["maxItems"] =
         serde_json::json!(u32::MAX);
@@ -6237,6 +6323,7 @@ pub fn catalog_schema() -> serde_json::Value {
     static_controller::schema(&mut schema);
     optional_costs::schema(&mut schema);
     counted_costs::schema(&mut schema);
+    fixed_artifact_sacrifice_schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     opponent_mana::extend_schema(&mut schema);
@@ -6527,6 +6614,7 @@ mod tests {
             AttachmentsV1,
             PermanentRemovalV1,
             SacrificeV1,
+            FixedArtifactSacrificeCostV1,
             BoardWipesV1,
             SelfSpellProtectionV1,
             AnnouncedXDrawV1,
@@ -6628,6 +6716,35 @@ mod tests {
             .find(|d| d.name == "Grizzly Bears")
             .unwrap()
             .clone();
+        let mut multi = counted.clone();
+        multi.source_labels = None;
+        multi.activated.push(ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            cost: ActivationCost::SacrificePermanent {
+                count: 2,
+                filter: SacrificeFilter {
+                    types: vec![CardKind::Artifact],
+                    subtypes: vec![],
+                },
+                mana: None,
+            },
+            program: SpellProgram {
+                functioning_zone: FunctioningZone::Stack,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                instructions: vec![Instruction::DrawCards {
+                    count: 1.into(),
+                    recipient: None,
+                    source_block: 0,
+                }],
+                targets: vec![],
+                modes: vec![],
+                additional_sacrifice: None,
+                optional_additional_costs: vec![],
+            },
+        });
+        multi.capabilities = multi.requirements();
+        definitions.push(multi);
         let mut permanent_grant = counted.clone();
         permanent_grant.source_labels = None;
         permanent_grant.static_abilities = vec![StaticAbility {

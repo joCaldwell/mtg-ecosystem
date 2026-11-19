@@ -542,6 +542,7 @@ impl Game {
                 self.reverse_departure_cast(cast)?;
             }
         }
+        self.revalidate_sacrifice_departure()?;
         // A departure can invalidate an accepted priority cast or mana
         // activation before its rule step. Keep the input journal, discard
         // only the stale proposal, and leave valid pending actions intact.

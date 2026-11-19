@@ -896,6 +896,8 @@ struct StackInstance {
     death_controller: Option<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sacrificed: Option<ObjectBefore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sacrificed_set: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -927,8 +929,8 @@ struct StackInstance {
 #[serde(deny_unknown_fields)]
 struct Casting {
     completion: CastCompletion,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    sacrifice: Option<ObjectId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sacrifices: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
     origin: AnnouncementOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3320,7 +3322,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 45,
+            snapshot_version: 46,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3362,7 +3364,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 45
+        if s.snapshot_version != 46
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3572,7 +3574,9 @@ impl Game {
             | Frame::SacrificeCost { cast }
             | Frame::Payment { cast } => {
                 let top = self.top()?;
-                if cast.origin.is_spell() != top.kind.is_spell()
+                if (!cast.sacrifices.is_empty()
+                    && !matches!(s.rules.frame, Frame::SacrificeCost { .. }))
+                    || cast.origin.is_spell() != top.kind.is_spell()
                     || cast.stack_id != top.id
                     || cast.original_object.card != top.source.card
                     || if cast.origin.is_spell() {

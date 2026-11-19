@@ -82,6 +82,7 @@ fn sacrifice_set_source_cost_program_closure_rejects_synthetic_mutations() {
             }
             2 => {
                 a.cost = ActivationCost::SacrificePermanent {
+                    count: 1,
                     filter: SacrificeFilter {
                         types: vec![CardKind::Creature],
                         subtypes: vec![],

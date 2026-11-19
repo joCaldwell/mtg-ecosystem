@@ -325,8 +325,8 @@ impl Game {
         {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }
-        if let ActivationCost::SacrificePermanent { filter, .. } = &ability.cost
-            && (self.sacrifice_candidates(player, filter).is_empty())
+        if let ActivationCost::SacrificePermanent { filter, count, .. } = &ability.cost
+            && self.sacrifice_candidates(player, filter).len() < usize::from(*count)
         {
             return Err("no payable sacrifice permanent".into());
         }

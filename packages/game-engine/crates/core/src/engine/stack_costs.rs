@@ -149,6 +149,7 @@ impl Game {
             x: None,
             death_controller: None,
             sacrificed: None,
+            sacrificed_set: vec![],
             mode: None,
             effect_source_handles: vec![],
             source_facts: { Some(self.object_before(object)?) },
@@ -184,7 +185,7 @@ impl Game {
             }
             let cast = Casting {
                 completion: CastCompletion::Priority,
-                sacrifice: None,
+                sacrifices: vec![],
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
                 stack_id: id,
@@ -209,7 +210,7 @@ impl Game {
             self.state.rules.frame = Frame::Mana {
                 cast: Casting {
                     completion: CastCompletion::Priority,
-                    sacrifice: None,
+                    sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
                     stack_id: id,
@@ -224,7 +225,7 @@ impl Game {
             self.state.rules.frame = Frame::SacrificeCost {
                 cast: Casting {
                     completion: CastCompletion::Priority,
-                    sacrifice: None,
+                    sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: Some(BTreeMap::new()),
                     stack_id: id,
