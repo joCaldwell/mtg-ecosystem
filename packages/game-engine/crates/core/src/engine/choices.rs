@@ -409,11 +409,8 @@ impl Game {
         let StackKind::Triggered { ability, .. } = &stack.kind else {
             return Ok(None);
         };
-        let Some(condition) = self
-            .effective_trigger(stack.source, *ability)?
-            .intervening_if
-            .as_ref()
-        else {
+        let definition = self.effective_trigger(stack.source, *ability)?;
+        let Some(condition) = definition.intervening_if.as_ref() else {
             return Ok(None);
         };
         let check = self.check_intervening(
