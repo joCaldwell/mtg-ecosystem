@@ -5240,8 +5240,17 @@ fn lower_trigger(
         instructions: vec![],
         modes: vec![],
     };
-    if let (SourceTrigger::Enters { what: subject }, [Sentence { bindings, steps }]) =
-        (trigger, effects)
+    if let (
+        SourceTrigger::Enters { what: subject },
+        [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ],
+    ) = (trigger, effects)
         && is_source_creature(subject)
         && intervening.is_none()
         && bindings.is_empty()
