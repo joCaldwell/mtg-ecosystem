@@ -53,9 +53,9 @@ Priority, announcements, payment and resolving frames are separate states. No
 priority exists during announcement/resolution; retain the frozen invocation
 through supported source departure. Land plays and ordinary creature timing require
 active-player main priority and an empty stack; supported flash is explicit.
-Untap, upkeep, draw, combat, end and cleanup use recorded transitions. Cleanup
-atomically clears temporary effects and marked damage. Concessions are trusted
-recorded external inputs processed before ordinary work/query exposure.
+Turn steps use recorded transitions. Cleanup uses the active player's current hand
+limit, then clears temporary effects and marked damage atomically. Concessions are
+trusted recorded external inputs processed before ordinary work/query exposure.
 Land usage resets only when a new turn begins.
 
 <a id="player-visibility-and-query-recovery"></a>

@@ -196,6 +196,40 @@ impl Game {
         }
         Ok((next, owner))
     }
+    fn cleanup_discard_count(&self, player: PlayerId) -> Result<usize, String> {
+        let excess = self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == (Zone::Hand { owner: player }))
+            .count()
+            .saturating_sub(7);
+        if excess == 0 {
+            return Ok(0);
+        }
+        // CR 402.2/514.1/611.3a-b: derive the hand limit from current
+        // battlefield control at the start of each cleanup step.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        for source in self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Battlefield && o.controller == player)
+        {
+            if self
+                .definition(source.id.card)?
+                .static_abilities
+                .iter()
+                .any(|ability| ability.effect == StaticEffect::UnlimitedControllerHandSize)
+            {
+                return Ok(0);
+            }
+        }
+        Ok(excess)
+    }
+
     pub(super) fn enter_turn_step(&mut self) -> Result<(), String> {
         if !self.state.rules.stack.is_empty() || self.state.rules.pending.is_some() {
             return Err("unsupported turn entry boundary".into());
@@ -284,14 +318,7 @@ impl Game {
             TurnStep::PostcombatMain => {}
             TurnStep::Cleanup => {
                 self.state.rules.frame = if let Some(player) = self.state.rules.active {
-                    let count = self
-                        .state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| o.zone == (Zone::Hand { owner: player }))
-                        .count()
-                        .saturating_sub(7);
+                    let count = self.cleanup_discard_count(player)?;
                     if count > 0 {
                         Frame::Discard { player, count }
                     } else {
