@@ -112,10 +112,11 @@ def incremental_plan(worktree, max_bytes=2 * GIB):
     if not target.exists():
         return []
     no_symlinks(target)
-    # Cargo's host and explicit-target layouts only. No arbitrary user paths.
+    # Cargo's standard layouts and the dedicated engine:dev cache only.
     profiles = [target / name for name in ('debug', 'release')]
     profiles += [entry / name for entry in target.iterdir() if entry.is_dir()
                  and entry.name not in ('debug', 'release') for name in ('debug', 'release')]
+    profiles.append(target / 'engine-dev' / 'quick')
     rows = []
     for profile in profiles:
         candidate = profile / 'incremental'

@@ -122,21 +122,21 @@ with assertions and overflow checks. Use package checks for changed binary targe
 One native owner holds `~/.local/share/mtg-ecosystem/engine-verification/cargo.lock`.
 Native check/smoke/retention runners own it internally, including nested Node
 Cargo calls: never acquire twice. Explicit multi-phase acceptance may also use
-`full-gate.lock`. Standalone Cargo (create lock parent first; verify selector):
+`full-gate.lock`. For repeated edits, the development command reuses incremental
+artifacts in this checkout's `target/engine-dev`. Confirm the test selector ran:
 
 ```sh
-sh scripts/engine-env.sh flock "$HOME/.local/share/mtg-ecosystem/engine-verification/cargo.lock" cargo test --locked --profile quick -p mtg-core FILTER
+npm run engine:dev -- test -p mtg-core --lib FILTER
 ```
 
-The quick test profile uses opt-level 0 and line tables, retaining assertions
-and overflow checks. Use the standard test profile for runtime-heavy runs and
-keep receipts tied to their producer profile.
+Use `engine:dev` with Cargo `check`, `build` or `test` arguments. It selects
+`quick`, checks cache budgets under the shared lock and honors explicit
+`CARGO_TARGET_DIR` and `CARGO_INCREMENTAL`. Use the standard profile for
+runtime-heavy tests. Keep receipts tied to their producer profile.
 
-Do source/docs work while busy; never edit measured source or duplicate builds.
-Launcher/cache helper selects CARGO_TARGET_DIR and defaults CARGO_INCREMENTAL=0;
-explicit overrides win. Native admission happens under lock, not source commands.
-[Storage/cache policy](game-engine-storage.md#cache-selection-and-lifecycle)
-owns budgets, freshness and protected historical caches.
+Do source/docs work while busy. Freeze measured source and avoid duplicate builds.
+[Storage policy](game-engine-storage.md#cache-selection-and-lifecycle) owns cache
+defaults, budgets, freshness and protected historical caches.
 
 ## Bound and publish a batch
 
