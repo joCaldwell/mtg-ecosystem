@@ -1205,6 +1205,13 @@ impl Strategy<'_> {
                 }
                 ObjectSet::ControllerPermanents => o.controller == v.viewer,
                 ObjectSet::NonlandPermanents => c.kind != CardKind::Land,
+                ObjectSet::OpponentNonlandPermanents => {
+                    o.controller != v.viewer
+                        && v.players.iter().any(|p| {
+                            p.player == o.controller && p.status == mtg_core::PlayerStatus::Live
+                        })
+                        && !c.has_type(CardKind::Land)
+                }
                 ObjectSet::Enchantments => c.has_type(CardKind::Enchantment),
                 ObjectSet::AttackingCreatures => v.combat.iter().any(|a| a.attacker == o.handle),
                 ObjectSet::OpponentCreatures => {

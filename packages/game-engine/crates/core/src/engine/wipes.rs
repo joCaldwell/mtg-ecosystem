@@ -22,6 +22,13 @@ impl Game {
                 match set {
                     ObjectSet::Creatures => creature,
                     ObjectSet::NonlandPermanents => d.characteristics.kind != CardKind::Land,
+                    ObjectSet::OpponentNonlandPermanents => {
+                        // CR 109.5, 205.2b, 608.2h, 806.1: use current control
+                        // and exclude every permanent with the land type.
+                        o.controller != controller
+                            && self.is_live(o.controller)
+                            && !d.characteristics.has_type(CardKind::Land)
+                    }
                     ObjectSet::Enchantments => d.characteristics.has_type(CardKind::Enchantment),
                     ObjectSet::AttackingCreatures => {
                         creature && self.state.rules.combat.iter().any(|a| a.attacker == o.id)
@@ -350,6 +357,9 @@ impl Game {
                 action,
                 source_block,
             } => self.move_board_set(frame, set, action, source_block),
+            Instruction::DestroySet { set, source_block } => {
+                self.move_board_set(frame, set, SetMove::Destroy, source_block)
+            }
             Instruction::PumpSet {
                 set,
                 power,

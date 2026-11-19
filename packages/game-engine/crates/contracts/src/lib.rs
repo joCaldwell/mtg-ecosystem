@@ -38,6 +38,7 @@ mod library_order;
 pub use hand_return::controller_hand_return_program;
 mod library_selection;
 mod nonland_exile_life;
+mod opponent_nonland_destroy;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
 pub use library_order::controller_library_order_program;
@@ -410,6 +411,7 @@ pub enum ObjectSet {
     ControllerPermanents,
     Creatures,
     NonlandPermanents,
+    OpponentNonlandPermanents,
     Enchantments,
     AttackingCreatures,
     OpponentCreatures,
@@ -602,6 +604,10 @@ pub enum Instruction {
     MoveSet {
         set: ObjectSet,
         action: SetMove,
+        source_block: u32,
+    },
+    DestroySet {
+        set: ObjectSet,
         source_block: u32,
     },
     PumpSet {
@@ -857,6 +863,7 @@ impl Instruction {
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
+            Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
@@ -2439,6 +2446,7 @@ impl Definition {
             return Err("invalid source/AST provenance".into());
         }
         nonland_exile_life::validate_definition(self)?;
+        opponent_nonland_destroy::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
             if source["oracle_text"].as_str() != Some(labels.text.as_str())
@@ -3803,6 +3811,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     for instruction in &p.instructions {
         let binding = match instruction {
             Instruction::MoveSet { .. }
+            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
@@ -4454,6 +4463,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             } => Capability::TemporaryCreatureSetKeywordProgramV1,
             Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
             Instruction::MoveSet { .. }
+            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
@@ -5801,6 +5811,7 @@ pub fn catalog_schema() -> serde_json::Value {
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
+    opponent_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
     cast_origin::extend_schema(&mut schema);

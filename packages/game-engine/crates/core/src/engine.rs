@@ -33,6 +33,8 @@ mod activated_spell_counter_tests;
 mod permanent_owner_hand_tests;
 #[cfg(test)]
 mod nonland_exile_life_tests;
+#[cfg(test)]
+mod opponent_nonland_destroy_tests;
 mod removal;
 #[cfg(test)]
 mod removal_information_tests;
