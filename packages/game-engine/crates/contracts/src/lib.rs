@@ -63,6 +63,7 @@ pub use archives::*;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
 mod paid_counted_draw;
+mod power_entry_draw;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -326,6 +327,7 @@ pub enum Capability {
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
+    PowerFilteredCreatureEntryV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -367,6 +369,7 @@ pub enum Capability {
     BoardWipesV1,
     SelfSpellProtectionV1,
     AnnouncedXDrawV1,
+    AnnouncedXEffectsV1,
     TargetedCountedDrawV1,
     TargetPlayerDiscardV1,
 }
@@ -872,6 +875,18 @@ pub enum Instruction {
         recipient: LifeRecipient,
         source_block: u32,
     },
+    DealDamageAnnouncedX {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
+    MillAnnouncedX {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     ChangeLifeAnnouncedX {
         #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
         #[schemars(with = "LifeRecipient")]
@@ -987,6 +1002,8 @@ impl Instruction {
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::DrawAnnouncedX { source_block, .. }
+            | Self::DealDamageAnnouncedX { source_block, .. }
+            | Self::MillAnnouncedX { source_block, .. }
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
@@ -1409,6 +1426,12 @@ pub enum TriggerCondition {
     SelfBecomesTapped,
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
+    /// CR 603.6a/603.10: read the entering creature's derived battlefield power
+    /// and controller immediately after the completed entry event.
+    ControlledCreatureEntersWithPower {
+        minimum_power: Quantity,
+        other: bool,
+    },
     /// The disjoint union of this creature and all other creatures dying.
     AnyCreatureDies,
     SelfDies,
@@ -1615,6 +1638,9 @@ impl TriggerCondition {
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
             Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
+            Self::ControlledCreatureEntersWithPower { .. } => {
+                "controlled_creature_enters_with_power"
+            }
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
             Self::SelfBecomesTapped => "self_becomes_tapped",
@@ -1623,11 +1649,12 @@ impl TriggerCondition {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCondition {
     ControllerHandEmpty,
     SourceStatus { status: TapStatus },
+    ControllerHasCreatureWithPower { minimum_power: Quantity },
 }
 /// CR 110.5: only battlefield permanents have tapped/untapped status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2166,6 +2193,9 @@ impl Definition {
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
+                TriggerCondition::ControlledCreatureEntersWithPower { .. } => {
+                    Capability::PowerFilteredCreatureEntryV1
+                }
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
                 TriggerCondition::SelfAuraToGraveyard => Capability::AttachmentsV1,
@@ -2273,6 +2303,7 @@ impl Definition {
         hand_return::validate_definition(self)?;
         unlimited_hand_size::validate_definition(self)?;
         hand_size_adjustments::validate_definition(self)?;
+        power_entry_draw::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2552,15 +2583,16 @@ impl Definition {
         }
         if self.x_mana_cost
             != self.spell.as_ref().is_some_and(|p| {
-                p.instructions.iter().any(|i| {
-                    matches!(
-                        i,
-                        Instruction::DamageSet {
-                            amount: WipeAmount::AnnouncedX,
-                            ..
-                        } | Instruction::DrawAnnouncedX { .. }
-                    )
-                })
+                announced_x_draw::has_x_instruction(p)
+                    || p.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            Instruction::DamageSet {
+                                amount: WipeAmount::AnnouncedX,
+                                ..
+                            }
+                        )
+                    })
             })
         {
             return Err("unbound mana X".into());
@@ -3107,7 +3139,12 @@ impl Definition {
                 || !p.modes.is_empty()
                 || (ability.intervening_if.is_some()
                     && ability.condition != TriggerCondition::SelfDies
-                    && !matches!(ability.condition, TriggerCondition::StepBegan { .. }))
+                    && !matches!(ability.condition, TriggerCondition::StepBegan { .. })
+                    && !(ability.condition == TriggerCondition::SelfEntersBattlefield
+                        && matches!(
+                            ability.intervening_if,
+                            Some(InterveningCondition::ControllerHasCreatureWithPower { .. })
+                        )))
                 || (matches!(
                     ability.intervening_if,
                     Some(InterveningCondition::SourceStatus { .. })
@@ -4368,6 +4405,18 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::DealDamageAnnouncedX { target_slot, .. } => {
+                let domain = p.targets.get(*target_slot as usize).map(|t| t.domain);
+                match domain {
+                    Some(
+                        d @ (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature),
+                    ) => Some((*target_slot, d)),
+                    _ => return Err("unbound announced X damage target".into()),
+                }
+            }
+            Instruction::MillAnnouncedX { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::AnyPlayer))
+            }
             Instruction::GainLife {
                 recipient, amount, ..
             }
@@ -4677,7 +4726,20 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::AnyPlayer => Capability::AnyPlayerTargetV1,
         });
     }
+    if matches!(
+        program.instructions.as_slice(),
+        [Instruction::ChangeLifeAnnouncedX {
+            recipient: LifeRecipient::Target { target_slot: 0 },
+            gain: true,
+            source_block: 0
+        }]
+    ) {
+        set.insert(Capability::AnnouncedXEffectsV1);
+    }
     for instruction in &program.instructions {
+        if matches!(instruction, Instruction::DealDamageAnnouncedX { .. }) {
+            set.insert(Capability::NoncombatDamageV1);
+        }
         if instruction.uses_event_player() {
             set.insert(Capability::EventPlayerRecipientV1);
         }
@@ -4759,6 +4821,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
+                Capability::AnnouncedXEffectsV1
+            }
             Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
@@ -6174,6 +6239,7 @@ pub fn catalog_schema() -> serde_json::Value {
     hand_size_adjustments::extend_schema(&mut schema);
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
+    power_entry_draw::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -6371,6 +6437,7 @@ mod tests {
             TriggeredAbilityV1,
             SelfEntersBattlefieldV1,
             OtherCreatureEntersBattlefieldV1,
+            PowerFilteredCreatureEntryV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -6425,6 +6492,7 @@ mod tests {
             BoardWipesV1,
             SelfSpellProtectionV1,
             AnnouncedXDrawV1,
+            AnnouncedXEffectsV1,
             FlashV1,
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
@@ -6705,6 +6773,8 @@ mod tests {
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
         definitions.push(announced_x_draw::witness());
+        definitions.push(announced_x_draw::effects_witness());
+        definitions.push(power_entry_draw::witness());
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
         definitions.push(library_selection::witness());

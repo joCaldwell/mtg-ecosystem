@@ -9,6 +9,10 @@ pub mod fixtures {
 }
 mod activated_artifact_draw;
 mod announced_x_draw;
+mod announced_x_effects;
+#[cfg(test)]
+mod announced_x_effects_tests;
+mod bindings;
 mod cast_origin;
 pub mod catalog;
 mod controller_counted_draw;
@@ -45,6 +49,7 @@ mod opponent_nonland_destroy;
 mod optional_costs;
 mod paid_counted_draw;
 mod pain_mana;
+mod power_entry_draw;
 mod self_reference;
 mod self_spell_protection;
 mod source_tap_damage;
@@ -265,6 +270,10 @@ struct ModeOption {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "condition", rename_all = "kebab-case")]
 enum SourceCondition {
+    Control {
+        who: SourceControlPlayer,
+        what: TriggerObject,
+    },
     CardsInHand {
         who: PlayerSelector,
         comparison: SourceComparison,
@@ -591,6 +600,8 @@ enum TriggerObject {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TriggerFilter {
+    #[serde(default, deserialize_with = "present_ast_field")]
+    properties: Option<[SourceProperty; 1]>,
     #[serde(default)]
     other: bool,
     types: Vec<String>,
@@ -599,6 +610,12 @@ struct TriggerFilter {
     non_token: bool,
     #[serde(default, rename = "nonSubtypes")]
     non_subtypes: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceProperty {
+    property: String,
+    comparison: SourceComparison,
 }
 // CR 113.10, 611.2a/c and 613.1f: gained keyword abilities share the
 // ordinary captured-target grant operation. The complete program is validated
@@ -1457,6 +1474,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
     let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
         && let [Ability::Spell { .. }] = abilities.as_slice()
     {
@@ -2026,6 +2044,16 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     program.instructions.extend(instructions);
                     continue;
                 }
+                if announced_x_effects {
+                    append_spell_effects(
+                        &mut program,
+                        effects,
+                        block,
+                        &mut slots,
+                        PlayerBinding::AnnouncedX,
+                    )?;
+                    continue;
+                }
                 if effects.iter().flat_map(|s| &s.steps).any(|step| {
                     matches!(
                         step,
@@ -2220,6 +2248,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             .iter()
             .any(|n| n["node"] == "event" && n["operation"] == "discard")
     }) && discard_target.is_none()
+        && !announced_x_effects
         && !definition.spell.as_ref().is_some_and(|p| {
             controller_draw_discard_program(p)
                 || matches!(
@@ -2311,6 +2340,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .validate()
         .map_err(|e| unsupported("definition", e))?;
     self_spell_protection::validate_binding(&definition, &binding)?;
+    power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
     {
@@ -2476,6 +2506,7 @@ fn bind_target(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PlayerBinding {
     Unbound,
+    AnnouncedX,
     DiscardTarget(TargetDomain),
     EventPlayer,
     DamageRecipient,
@@ -3017,6 +3048,13 @@ fn append_spell_effects(
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         for step in &sentence.steps {
+            if player_binding == PlayerBinding::AnnouncedX
+                && let Some(instruction) =
+                    announced_x_effects::instruction(step, program, slots, source_block)?
+            {
+                program.instructions.push(instruction);
+                continue;
+            }
             if player_binding == PlayerBinding::Unbound
                 && matches!(step, Step::LoseLife { who, .. } if who.player == "that-player")
             {
@@ -4855,7 +4893,7 @@ fn is_source_creature(subject: &TriggerObject) -> bool {
     matches!(subject,TriggerObject::This {noun} if noun=="creature")
 }
 fn is_other_creature(subject: &TriggerObject) -> bool {
-    matches!(subject,TriggerObject::Filter {filter,count} if filter.other && filter.types==["creature"] && filter.control.is_none() && !filter.non_token && filter.non_subtypes.is_empty() && fixed_one(count))
+    matches!(subject,TriggerObject::Filter {filter,count} if filter.properties.is_none() && filter.other && filter.types==["creature"] && filter.control.is_none() && !filter.non_token && filter.non_subtypes.is_empty() && fixed_one(count))
 }
 // Optional AST flags may be omitted, but a present value must be a boolean.
 fn present_bool_field<'de, D: serde::Deserializer<'de>>(
@@ -4996,6 +5034,7 @@ fn lower_trigger(
         match what {
             TriggerObject::Filter { filter: f, count }
                 if fixed_one(count)
+                    && f.properties.is_none()
                     && f.types == ["creature"]
                     && f.control.as_deref() == Some("you")
                     && f.non_subtypes.iter().all(|s| s == "Spirit")
@@ -5115,8 +5154,14 @@ fn lower_trigger(
             };
             TriggerCondition::StepBegan { step, turn_relation }
         },
-        SourceTrigger::Dies { what: TriggerObject::Filter { filter, count } } if fixed_one(count) && filter.types == ["creature"] && filter.control.as_deref() == Some("opponent") && !filter.other && !filter.non_token && filter.non_subtypes.is_empty() => TriggerCondition::OpponentCreatureDies,
+        SourceTrigger::Dies { what: TriggerObject::Filter { filter, count } } if fixed_one(count) && filter.properties.is_none() && filter.types == ["creature"] && filter.control.as_deref() == Some("opponent") && !filter.other && !filter.non_token && filter.non_subtypes.is_empty() => TriggerCondition::OpponentCreatureDies,
         _ if death_filter.is_some() => TriggerCondition::AnyCreatureDies,
+        SourceTrigger::Enters { what: TriggerObject::Filter { filter, count } } if filter.properties.is_some() => {
+            TriggerCondition::ControlledCreatureEntersWithPower {
+                minimum_power: power_entry_draw::minimum_power(filter, count, true)?,
+                other: filter.other,
+            }
+        },
         SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment" => TriggerCondition::SelfEntersBattlefield,
         SourceTrigger::Dies {what} if is_source_creature(what)=>TriggerCondition::SelfDies,
         SourceTrigger::Enters {what} if is_source_creature(what)=>TriggerCondition::SelfEntersBattlefield,
@@ -5168,6 +5213,16 @@ fn lower_trigger(
     )?;
     let intervening_if = match intervening {
         None => None,
+        Some(SourceCondition::Control {
+            who,
+            what: TriggerObject::Filter { filter, count },
+        }) if matches!(trigger, SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment")
+            && who.player == "you" =>
+        {
+            Some(InterveningCondition::ControllerHasCreatureWithPower {
+                minimum_power: power_entry_draw::minimum_power(filter, count, false)?,
+            })
+        }
         Some(SourceCondition::CardsInHand { who, comparison })
             if (condition == TriggerCondition::SelfDies
                 || matches!(condition, TriggerCondition::StepBegan { .. }))

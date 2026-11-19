@@ -122,6 +122,12 @@ pub enum TriggerEventWitness {
         object: ObjectId,
         controller: PlayerId,
     },
+    /// CR 603.6a/603.10: the entrant as it appeared after the whole event.
+    /// A move names its actual successor; a created token starts at incarnation 0.
+    CreatureEnteredWithPower {
+        entrant: Box<ObjectBefore>,
+        movement: Option<MoveOutcome>,
+    },
     StepBegan {
         turn: TurnState,
         owner: PlayerId,
@@ -137,6 +143,7 @@ impl TriggerEventWitness {
                 m.previous
             }),
             Self::TokenEntered { object } | Self::Tapped { object, .. } => Some(*object),
+            Self::CreatureEnteredWithPower { entrant, .. } => Some(entrant.object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::StepBegan { .. } | Self::SpellCast { .. } | Self::GroupedDamageDealt { .. } => {
@@ -294,6 +301,23 @@ fn attack_matches(
             }) && types.matches(&attacker.characteristics)
         }
     }
+}
+fn power_entry_matches(
+    minimum_power: &Quantity,
+    other: bool,
+    source: ObjectId,
+    controller: PlayerId,
+    entrant: &ObjectBefore,
+) -> bool {
+    entrant.zone == Zone::Battlefield
+        && entrant.controller == controller
+        && (!other || entrant.object != source)
+        && entrant.characteristics.has_type(CardKind::Creature)
+        && entrant
+            .characteristics
+            .power
+            .as_ref()
+            .is_some_and(|power| power >= minimum_power)
 }
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
@@ -699,6 +723,8 @@ impl Game {
             _ => None,
         };
         let mut matched = vec![];
+        // Filled once per actual entry, only if a power-filtered observer exists.
+        let mut entry_facts = None;
         for object in observers
             .state
             .rules
@@ -714,7 +740,42 @@ impl Game {
                 .enumerate()
             {
                 let mut grouped_members = None;
+                let mut power_entry = None;
                 let matches = match &definition.condition {
+                    TriggerCondition::ControlledCreatureEntersWithPower {
+                        minimum_power,
+                        other,
+                    } => {
+                        if enters && entry_facts.is_none() {
+                            entry_facts =
+                                Some(observers.object_before(
+                                    subject.ok_or("missing entry trigger subject")?,
+                                )?);
+                        }
+                        if let Some(entrant) = &entry_facts
+                            && power_entry_matches(
+                                minimum_power,
+                                *other,
+                                object.id,
+                                object.controller,
+                                entrant,
+                            )
+                        {
+                            power_entry = Some(TriggerEventWitness::CreatureEnteredWithPower {
+                                entrant: Box::new(entrant.clone()),
+                                movement: match &witness {
+                                    TriggerEventWitness::Moved { movement } => {
+                                        Some(movement.clone())
+                                    }
+                                    TriggerEventWitness::TokenEntered { .. } => None,
+                                    _ => return Err("missing actual entry authority".into()),
+                                },
+                            });
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     TriggerCondition::GroupedDamageDealt { .. } => {
                         if let TriggerEventWitness::GroupedDamageDealt { kind, members, .. } =
                             &witness
@@ -812,7 +873,7 @@ impl Game {
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
                 {
-                    let mut matched_witness = witness.clone();
+                    let mut matched_witness = power_entry.unwrap_or_else(|| witness.clone());
                     if let TriggerEventWitness::GroupedDamageDealt { members, .. } =
                         &mut matched_witness
                     {
@@ -1648,6 +1709,47 @@ impl Game {
                     && *at_tap == controller
                     && death_controller.is_none()
             }
+            TriggerEventWitness::CreatureEnteredWithPower { entrant, movement } => {
+                self.validate_characteristic_identity(entrant.object, &entrant.characteristics)?;
+                let token = self.state.rules.tokens.contains_key(&entrant.object.card);
+                let actual_entry = match movement {
+                    Some(m) => {
+                        !token
+                            && m.destination == Zone::Battlefield
+                            && match m.from {
+                                Zone::Battlefield => false,
+                                Zone::Stack | Zone::Exile => true,
+                                Zone::Hand { owner }
+                                | Zone::Library { owner }
+                                | Zone::Command { owner }
+                                | Zone::Graveyard { owner } => owner == entrant.owner,
+                            }
+                            && m.successor == entrant.object
+                            && m.previous.card == m.successor.card
+                            && m.previous.incarnation.checked_add(1)
+                                == Some(m.successor.incarnation)
+                    }
+                    None => {
+                        token
+                            && entrant.object.incarnation == 0
+                            && entrant.default_controller == entrant.owner
+                    }
+                };
+                actual_entry
+                    && death_controller.is_none()
+                    && entrant.default_controller.0 < 4
+                    && entrant.marked_damage == Quantity::zero()
+                    && !entrant.deathtouch_damage
+                    && !entrant.attack_ready
+                    && self
+                        .state
+                        .rules
+                        .cards
+                        .get(&entrant.object.card)
+                        .is_some_and(|c| c.owner == entrant.owner)
+                    && matches!(condition, TriggerCondition::ControlledCreatureEntersWithPower { minimum_power, other }
+                        if power_entry_matches(minimum_power, *other, source, controller, entrant))
+            }
             TriggerEventWitness::Moved { movement: m } => {
                 self.state.rules.cards.contains_key(&m.previous.card)
                     && m.successor.card == m.previous.card
@@ -1660,7 +1762,8 @@ impl Game {
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
                         | TriggerCondition::SelfBecomesTapped
-                        | TriggerCondition::GroupedDamageDealt { .. } => false,
+                        | TriggerCondition::GroupedDamageDealt { .. }
+                        | TriggerCondition::ControlledCreatureEntersWithPower { .. } => false,
                         TriggerCondition::SelfMoved { .. } => {
                             death_controller.is_none()
                                 && self_graveyard_successor(witness, source, controller).is_some()

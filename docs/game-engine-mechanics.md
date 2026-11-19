@@ -156,7 +156,7 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
-X is announced nonnegative and frozen; only stack mana value includes it.
+X is announced nonnegative and frozen; stack mana value and supported draw, damage, life and mill effects use it.
 CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
 of BoardWipes. Every validated slot applies; the legacy creature reducer shares
 its arithmetic. Base/alternative, X, selected additionals and increases precede
@@ -568,10 +568,10 @@ hosting/search or consumer admission; Card IR remains schema 1.
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
-controller, event-player, source incarnation and family-specific witnesses.
-Intervening conditions check at collection and resolution. Source status uses
-current incarnation or departure-refreshed LKI bounded by live continuations;
-never retain an unbounded permanent LKI archive. Cast triggers collect after
+controllers, actors, incarnations and witnesses. Power-filtered entries use
+derived post-event power. Intervening conditions recheck at resolution. Source
+status uses current incarnation or departure-refreshed LKI in live continuations.
+Cast triggers collect after
 successful payment; declared attacks use the real declaration batch. Ordinary
 step, death, ETB, draw/discard and combat/noncombat-damage families each retain
 strict source/program validation.

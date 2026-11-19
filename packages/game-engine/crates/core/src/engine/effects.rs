@@ -2490,21 +2490,12 @@ impl Game {
                     self.validate_sacrifice_damage_transaction(tx, frame)?;
                 } else {
                     let (target_slot, amount, source_block, recipient) = match instruction {
-                        Instruction::DealDamage {
-                            target_slot,
-                            amount,
-                            source_block,
-                        } => (
-                            Some(*target_slot),
-                            amount,
-                            *source_block,
-                            frame
-                                .spell
-                                .entity_targets
-                                .get(*target_slot as usize)
-                                .copied()
-                                .ok_or("missing damage target")?,
-                        ),
+                        Instruction::DealDamage { .. }
+                        | Instruction::DealDamageAnnouncedX { .. } => {
+                            let (slot, amount, block, target) =
+                                self.directed_damage_operands(&frame.spell, instruction)?;
+                            (Some(slot), amount, block, target)
+                        }
                         Instruction::DamageTargetController {
                             target_slot,
                             amount,

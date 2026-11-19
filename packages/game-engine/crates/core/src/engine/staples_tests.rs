@@ -1161,6 +1161,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::PutHandOnLibrary { .. }
                     | Instruction::DrawAnnouncedX { .. }
                     | Instruction::ChangeLifeAnnouncedX { .. }
+                    | Instruction::DealDamageAnnouncedX { .. }
+                    | Instruction::MillAnnouncedX { .. }
                     | Instruction::DrawDamageAmount { .. }
                     | Instruction::DealDamageToController { .. }
                     | Instruction::SacrificeCreature { .. }

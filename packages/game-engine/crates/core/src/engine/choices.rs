@@ -29,6 +29,13 @@ pub enum SourceInformation {
     Current,
     LastKnown,
 }
+/// Historical battlefield incarnation and its derived power at this check.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QualifyingCreature {
+    pub object: ObjectId,
+    pub power: Quantity,
+}
 /// Evidence of the information actually read, never a fabricated hand count.
 /// The hand-empty variant retains its existing serialized field shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,11 +54,17 @@ pub enum InterveningCheck {
         information: SourceInformation,
         passed: bool,
     },
+    ControllerHasCreatureWithPower {
+        controller: PlayerId,
+        minimum_power: Quantity,
+        qualifying: Option<QualifyingCreature>,
+    },
 }
 impl InterveningCheck {
     pub fn passed(&self) -> bool {
         match self {
             Self::ControllerHandEmpty { passed, .. } | Self::SourceStatus { passed, .. } => *passed,
+            Self::ControllerHasCreatureWithPower { qualifying, .. } => qualifying.is_some(),
         }
     }
     fn validates(
@@ -85,6 +98,20 @@ impl InterveningCheck {
                     && *s == source
                     && *expected == *status
                     && *passed == status.matches(*tapped)
+            }
+            (
+                InterveningCondition::ControllerHasCreatureWithPower { minimum_power },
+                Self::ControllerHasCreatureWithPower {
+                    controller: c,
+                    minimum_power: recorded,
+                    qualifying,
+                },
+            ) => {
+                *c == controller
+                    && recorded == minimum_power
+                    && qualifying
+                        .as_ref()
+                        .is_none_or(|fact| &fact.power >= minimum_power)
             }
             _ => false,
         }
@@ -344,6 +371,35 @@ impl Game {
                     passed: status.matches(tapped),
                 }
             }
+            InterveningCondition::ControllerHasCreatureWithPower { minimum_power } => {
+                let mut qualifying = None;
+                for object in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Battlefield && o.controller == controller)
+                {
+                    let characteristics = self.characteristics(object.id)?;
+                    if characteristics.has_type(CardKind::Creature) {
+                        let power = characteristics
+                            .power
+                            .ok_or("missing battlefield creature power")?;
+                        if &power >= minimum_power {
+                            qualifying = Some(QualifyingCreature {
+                                object: object.id,
+                                power,
+                            });
+                            break;
+                        }
+                    }
+                }
+                InterveningCheck::ControllerHasCreatureWithPower {
+                    controller,
+                    minimum_power: minimum_power.clone(),
+                    qualifying,
+                }
+            }
         })
     }
     pub(super) fn check_resolution_condition(
@@ -356,11 +412,12 @@ impl Game {
         let Some(condition) = self
             .effective_trigger(stack.source, *ability)?
             .intervening_if
+            .as_ref()
         else {
             return Ok(None);
         };
         let check = self.check_intervening(
-            &condition,
+            condition,
             stack.controller,
             stack.source,
             stack

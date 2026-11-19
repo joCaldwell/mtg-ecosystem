@@ -1137,9 +1137,14 @@ mod controller_counted_draw_tests;
 #[path = "draw_land_allowance_tests.rs"]
 mod draw_land_allowance_tests;
 
+#[path = "power_entry_draw_tests.rs"]
+mod power_entry_draw_tests;
+
 #[cfg(test)]
 #[path = "announced_x_draw_tests.rs"]
 mod announced_x_draw_tests;
+#[path = "announced_x_effects_tests.rs"]
+mod announced_x_effects_tests;
 #[path = "targeted_counted_draw_tests.rs"]
 mod targeted_counted_draw_tests;
 
