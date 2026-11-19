@@ -59,7 +59,29 @@ def verify():
     return manifest
 
 
-def audit(binary, output, manifest):
+def source_diagnostic(stderr, json_errors):
+    if json_errors:
+        try:
+            error = json.loads(stderr)
+        except ValueError:
+            return {}
+        if isinstance(error, dict) and error.get("kind") in ("unsupported_source", "invalid_source") and all(
+            isinstance(error.get(key), str) for key in ("file", "path", "reason")
+        ):
+            return {"status": error["kind"].removesuffix("_source"), "path": error["path"], "reason": error["reason"]}
+        return {}
+
+    # Retained CLI binaries printed the compiler diagnostic inside a Rust Debug envelope.
+    envelope = re.fullmatch(r'Error: InvalidData \{ reason: ("(?:\\.|[^"\\])*") \}\n', stderr)
+    if envelope:
+        detail = json.loads(envelope[1])
+        diagnostic = re.search(r': (Unsupported|Invalid) \{ path: ("(?:\\.|[^"\\])*"), reason: ("(?:\\.|[^"\\])*") \}$', detail)
+        if diagnostic:
+            return {"status": diagnostic[1].lower(), "path": json.loads(diagnostic[2]), "reason": json.loads(diagnostic[3])}
+    return {}
+
+
+def audit(binary, output, manifest, json_errors=False):
     output.mkdir(parents=True, exist_ok=False)
     rows = []
     report = {"format_version": 1, "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
@@ -73,6 +95,8 @@ def audit(binary, output, manifest):
         path = stem.with_suffix(".catalog.json")
         path.write_text(json.dumps(catalog, indent=2) + "\n")
         command = [str(binary), "catalog", "build", str(path), "--write"]
+        if json_errors:
+            command.append("--json-errors")
         run = subprocess.run(command, capture_output=True, text=True)
         row = {"oracle_id": c["oracle_id"], "name": c["name"], "command": command,
                "exit_code": run.returncode, "stdout": run.stdout, "stderr": run.stderr}
@@ -82,13 +106,7 @@ def audit(binary, output, manifest):
                        singleton_catalog_sha256=stem.with_suffix(".sha256").read_text())
         else:
             row["status"] = "catalog_error"
-            # Decode only the CLI's Rust Debug envelope. Exact output stays above.
-            envelope = re.fullmatch(r'Error: InvalidData \{ reason: ("(?:\\.|[^"\\])*") \}\n', run.stderr)
-            if envelope:
-                detail = json.loads(envelope[1])
-                diagnostic = re.search(r': (Unsupported|Invalid) \{ path: ("(?:\\.|[^"\\])*"), reason: ("(?:\\.|[^"\\])*") \}$', detail)
-                if diagnostic:
-                    row.update(status=diagnostic[1].lower(), path=json.loads(diagnostic[2]), reason=json.loads(diagnostic[3]))
+            row.update(source_diagnostic(run.stderr, json_errors))
         rows.append(row)
         # Preserve each result immediately, including unexpected failures.
         (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -147,7 +165,7 @@ if __name__ == "__main__":
     target = verify()
     if sys.argv[1:] == ["--verify"]:
         print(json.dumps({"verified_definitions": len(target["cards"]), "cards": target["deck"]["quantity_count"], "lands": target["deck"]["frozen_source_land_count"]}))
-    elif len(sys.argv) == 3:
-        audit(pathlib.Path(sys.argv[1]).resolve(), pathlib.Path(sys.argv[2]).resolve(), target)
+    elif len(sys.argv) == 3 or (len(sys.argv) == 4 and sys.argv[3] == "--json-errors"):
+        audit(pathlib.Path(sys.argv[1]).resolve(), pathlib.Path(sys.argv[2]).resolve(), target, json_errors=len(sys.argv) == 4)
     else:
-        raise SystemExit("usage: audit.py --verify | audit.py MTG_SIM_BINARY NEW_OUTPUT_DIRECTORY")
+        raise SystemExit("usage: audit.py --verify | audit.py MTG_SIM_BINARY NEW_OUTPUT_DIRECTORY [--json-errors]")

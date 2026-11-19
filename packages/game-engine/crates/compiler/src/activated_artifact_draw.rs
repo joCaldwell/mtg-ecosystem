@@ -270,6 +270,7 @@ mod tests {
                     }),
                     tap: true,
                     sacrifice: false,
+                    remove_source_plus_one_counters: None,
                 },
             }
         );

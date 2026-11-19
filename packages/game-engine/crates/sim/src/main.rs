@@ -1616,8 +1616,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let out = args.get(4).map_or(Path::new("generated/cards-as-data-coverage"), Path::new);
                     serde_json::to_value(mtg_compiler::coverage::coverage(Path::new(&args[2]), out)?)?
                 }
-                Some("build") if args.len() == 3 || (args.len() == 4 && args[3] == "--write") => {
-                    mtg_compiler::generate_catalog(Path::new(&args[2]), args.len() == 4)?
+                Some("build") if args.len() >= 3 => {
+                    let mut write = false;
+                    let mut json_errors = false;
+                    for flag in &args[3..] {
+                        match flag.as_str() {
+                            "--write" if !write => write = true,
+                            "--json-errors" if !json_errors => json_errors = true,
+                            _ => return Err(format!("invalid or duplicate catalog build flag {flag:?}").into()),
+                        }
+                    }
+                    match mtg_compiler::generate_catalog(Path::new(&args[2]), write) {
+                        Ok(report) => report,
+                        Err(error) if json_errors => {
+                            eprintln!("{}", canonical(&error)?);
+                            std::process::exit(1);
+                        }
+                        Err(error) => return Err(error.into_legacy_build_error().into()),
+                    }
                 }
                 Some("verify") if args.len() == 4 => {
                     mtg_compiler::verify_archive(Path::new(&args[2]), Path::new(&args[3]))?
@@ -1625,7 +1641,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some("extract") if args.len() >= 5 => {
                     mtg_compiler::extract_records(Path::new(&args[2]), Path::new(&args[3]), &args[4..])?
                 }
-                _ => return Err("usage: catalog coverage ARCHIVE [--out DIR] | catalog build MANIFEST [--write] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID... | catalog verify ARCHIVE PROVENANCE".into()),
+                _ => return Err("usage: catalog coverage ARCHIVE [--out DIR] | catalog build MANIFEST [--write] [--json-errors] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID... | catalog verify ARCHIVE PROVENANCE".into()),
             };
             println!("{}", canonical(&report)?);
         }
