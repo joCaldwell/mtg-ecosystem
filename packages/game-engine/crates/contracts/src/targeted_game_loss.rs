@@ -154,7 +154,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
                     && artifact_loss_activation(a)
                     && a.program.targets[0].selection_id == bound.selection
                     && matches!(&a.cost, ActivationCost::Composite {costs} if costs.mana.as_ref() == Some(&bound.mana))
-                    && d.source_labels.as_ref().is_some_and(|l| {
+                    && d.source_labels.as_ref().is_none_or(|l| {
                         l.blocks.iter().map(String::as_str).eq(text.lines())
                             && l.statics == [0]
                             && l.activated == [1]
@@ -216,8 +216,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
             {"required":["spell"],"properties":{"capabilities":caps(&[Capability::CastSorceryV1]),
                 "characteristics":{"properties":{"kind":{"const":"sorcery"}}},"spell":loss(SpellTiming::MainPhase,0),
                 "static_abilities":{"maxItems":0},"activated":{"maxItems":0}}},
-            {"required":["spell","activated","static_abilities","source_labels"],"properties":{
-                "source_labels":{"type":"object","properties":{"statics":{"const":[0]},"activated":{"const":[1]},"blocks":{"minItems":2,"maxItems":2}}},
+            {"required":["spell","activated","static_abilities"],"properties":{
+                "source_labels":{"properties":{"statics":{"const":[0]},"activated":{"const":[1]},"blocks":{"minItems":2,"maxItems":2}}},
                 "capabilities":caps(&[Capability::CastArtifactV1,Capability::ActivatedAbilityV1,Capability::CompositeActivationCostV1,Capability::EntersTappedV1]),
                 "characteristics":{"properties":{"kind":{"const":"artifact"}}},
                 "spell":{"type":"object","properties":{"timing":{"const":"main_phase"},"functioning_zone":{"const":"stack"},"resolution":{"const":"permanent"},
