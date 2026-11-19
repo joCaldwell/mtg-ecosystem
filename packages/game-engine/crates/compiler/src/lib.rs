@@ -45,6 +45,7 @@ mod library_selection;
 mod library_selection_tests;
 mod nonland_exile_life;
 mod normalization;
+mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_costs;
@@ -1486,6 +1487,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let drain = opponent_life_drain::lower(&shape, &result, &binding)?;
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
     let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
         && let [Ability::Spell { .. }] = abilities.as_slice()
@@ -2060,6 +2062,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ));
                     }
                     program.instructions.extend(instructions);
+                    continue;
+                }
+                if let Some(amount) = &drain {
+                    program.instructions.push(Instruction::DrainOpponents {
+                        amount: amount.clone(),
+                        source_block: 0,
+                    });
                     continue;
                 }
                 if announced_x_effects {
