@@ -9,8 +9,8 @@ fn hand_size_rule(who: &Value, change: Value) -> Value {
     json!({"who":who,"rule":"maximum-hand-size","change":change})
 }
 
-fn reduction_change(amount: i64) -> Value {
-    json!({"operation":"reduce","amount":{"amount":"fixed","value":amount}})
+fn fixed_change(operation: &str, amount: i64) -> Value {
+    json!({"operation":operation,"amount":{"amount":"fixed","value":amount}})
 }
 
 pub(super) fn lower_rule(rule: &Value) -> Result<StaticAbility, Failure> {
@@ -32,12 +32,19 @@ pub(super) fn lower_rule(rule: &Value) -> Result<StaticAbility, Failure> {
             .as_i64()
             .filter(|value| *value > 0)
             .ok_or_else(rule_error)?;
-        if *rule != hand_size_rule(who, reduction_change(amount)) {
+        if *rule == hand_size_rule(who, fixed_change("reduce", amount)) {
+            StaticEffect::ReduceMaximumHandSize {
+                scope,
+                amount: Quantity::from(amount),
+            }
+        } else if scope == HandSizeScope::Controller
+            && *rule == hand_size_rule(who, fixed_change("increase", amount))
+        {
+            StaticEffect::IncreaseMaximumHandSize {
+                amount: Quantity::from(amount),
+            }
+        } else {
             return Err(rule_error());
-        }
-        StaticEffect::ReduceMaximumHandSize {
-            scope,
-            amount: Quantity::from(amount),
         }
     };
     Ok(StaticAbility {
@@ -47,7 +54,7 @@ pub(super) fn lower_rule(rule: &Value) -> Result<StaticAbility, Failure> {
 }
 
 // Match the archive producer's spelled-number vocabulary and canonical decimal text.
-fn matches_reduction_amount(text: &str, amount: i64) -> bool {
+fn matches_fixed_amount(text: &str, amount: i64) -> bool {
     const UNITS: [&str; 20] = [
         "one",
         "two",
@@ -128,7 +135,7 @@ pub(super) fn validate_source(
     let you = json!({"player":"you"});
     let mut actors = vec![(base.clone(), base.clone(), "static-source-controller")];
     let mut extra_nodes = Vec::new();
-    let (who, change, target) = match &static_ability.effect {
+    let (who, change, target, companion_keyword) = match &static_ability.effect {
         StaticEffect::UnlimitedControllerHandSize
             if text == STATIC_TEXT && abilities.len() == 1 + definition.mana_abilities.len() =>
         {
@@ -136,6 +143,7 @@ pub(super) fn validate_source(
                 you.clone(),
                 json!({"operation":"none"}),
                 format!("card:{identity}{base}#you"),
+                None,
             )
         }
         StaticEffect::ReduceMaximumHandSize { scope, amount } => {
@@ -160,47 +168,76 @@ pub(super) fn validate_source(
             let spelled = text
                 .strip_prefix(&format!("{prefix} maximum hand size is reduced by "))
                 .and_then(|tail| tail.strip_suffix('.'));
-            if !spelled.is_some_and(|spelled| matches_reduction_amount(spelled, value))
+            if !spelled.is_some_and(|spelled| matches_fixed_amount(spelled, value))
                 || !definition.mana_abilities.is_empty()
             {
                 return Err(shape_error());
             }
-            match (abilities.as_slice(), definition.keywords.as_slice()) {
-                ([_], []) => {}
-                ([_, _], [KeywordAbility::Flying])
-                    if *scope == HandSizeScope::Controller
-                        && definition.characteristics.kind == CardKind::Creature =>
-                {
-                    let flying = 1 - static_block;
-                    if labels
-                        .blocks
-                        .get(flying)
-                        .map(|s| normalization::literal_spelling(s))
-                        .as_deref()
-                        != Some("Flying")
-                        || abilities[flying]
-                            != json!({"kind":"keywords","keywords":[{"keyword":"flying"}]})
-                    {
-                        return Err(shape_error());
-                    }
-                    let path = format!("/faces/0/abilities/{flying}");
-                    let keyword = format!("{path}/keywords/0");
-                    extra_nodes.push(ability_binding(identity, &path, "keywords"));
-                    actors.push((path.clone(), path.clone(), "static-source-controller"));
-                    actors.push((keyword.clone(), path.clone(), "static-source-controller"));
-                    extra_nodes.push(json!({
-                        "id":format!("card:{identity}{keyword}#keyword"), "path":keyword,
-                        "node":"keyword-ability", "scope":format!("card:{identity}{path}#ability"),
-                        "keyword":"flying", "abilities":["static"],
-                        "you":format!("card:{identity}{keyword}#you"), "rules":["702.9"]
-                    }));
-                }
-                _ => return Err(shape_error()),
+            let keyword = (*scope == HandSizeScope::Controller).then_some((
+                KeywordAbility::Flying,
+                "Flying",
+                "flying",
+                "702.9",
+            ));
+            (who, fixed_change("reduce", value), target, Some(keyword))
+        }
+        StaticEffect::IncreaseMaximumHandSize { amount } => {
+            let value = amount.to_string().parse().map_err(|_| shape_error())?;
+            let spelled = text
+                .strip_prefix("Your maximum hand size is increased by ")
+                .and_then(|tail| tail.strip_suffix('.'));
+            if !spelled.is_some_and(|spelled| matches_fixed_amount(spelled, value))
+                || !definition.mana_abilities.is_empty()
+            {
+                return Err(shape_error());
             }
-            (who, reduction_change(value), target)
+            extra_nodes.push(ability_binding(identity, &base, "static"));
+            (
+                you.clone(),
+                fixed_change("increase", value),
+                format!("card:{identity}{base}#you"),
+                Some(Some((
+                    KeywordAbility::Defender,
+                    "Defender",
+                    "defender",
+                    "702.3",
+                ))),
+            )
         }
         _ => return Err(shape_error()),
     };
+    if let Some(companion_keyword) = companion_keyword {
+        match (abilities.as_slice(), definition.keywords.as_slice()) {
+            ([_], []) => {}
+            ([_, _], [keyword]) if definition.characteristics.kind == CardKind::Creature => {
+                let (expected, spelling, name, rule) = companion_keyword.ok_or_else(shape_error)?;
+                let block = 1 - static_block;
+                if *keyword != expected
+                    || labels
+                        .blocks
+                        .get(block)
+                        .map(|s| normalization::literal_spelling(s))
+                        .as_deref()
+                        != Some(spelling)
+                    || abilities[block] != json!({"kind":"keywords","keywords":[{"keyword":name}]})
+                {
+                    return Err(shape_error());
+                }
+                let path = format!("/faces/0/abilities/{block}");
+                let keyword = format!("{path}/keywords/0");
+                extra_nodes.push(ability_binding(identity, &path, "keywords"));
+                actors.push((path.clone(), path.clone(), "static-source-controller"));
+                actors.push((keyword.clone(), path.clone(), "static-source-controller"));
+                extra_nodes.push(json!({
+                    "id":format!("card:{identity}{keyword}#keyword"), "path":keyword,
+                    "node":"keyword-ability", "scope":format!("card:{identity}{path}#ability"),
+                    "keyword":name, "abilities":["static"],
+                    "you":format!("card:{identity}{keyword}#you"), "rules":[rule]
+                }));
+            }
+            _ => return Err(shape_error()),
+        }
+    }
     if *raw_static
         != json!({
             "kind":"static", "effect":{"static":"player-rule", "rule":hand_size_rule(&who, change)}
@@ -382,7 +419,7 @@ fn reduced_hand_size() {
     use HandSizeScope::{Controller, Opponents};
 
     let reduction =
-        |player, amount| hand_size_rule(&json!({"player":player}), reduction_change(amount));
+        |player, amount| hand_size_rule(&json!({"player":player}), fixed_change("reduce", amount));
     let static_ability = |scope, amount| StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
         effect: StaticEffect::ReduceMaximumHandSize {
@@ -401,7 +438,7 @@ fn reduced_hand_size() {
         ("/who", json!({"player":"you", "of":null})),
         ("/who/player", json!("each-player")),
         ("/rule", json!("starting-hand-size")),
-        ("/change/operation", json!("increase")),
+        ("/change/operation", json!("set")),
         ("/change/amount/amount", json!("variable")),
         ("/change/amount/value", json!(0)),
         ("/change/amount/value", json!(-1)),
@@ -461,7 +498,7 @@ fn reduced_hand_size() {
                 let result = &mut record["faces"][0]["result"];
                 let block = usize::from(!keywords.is_empty());
                 result["abilities"][block]["effect"]["rule"]["change"] =
-                    reduction_change(amount + 1);
+                    fixed_change("reduce", amount + 1);
                 result["lines"][block]["ability"] = result["abilities"][block].clone();
             });
             assert!(
@@ -473,5 +510,100 @@ fn reduced_hand_size() {
             );
         }
         assert!(lines.next().is_none());
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn increased_hand_size() {
+    let rule = hand_size_rule(&json!({"player":"you"}), fixed_change("increase", 1));
+    let effect = StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::IncreaseMaximumHandSize {
+            amount: Quantity::from(1),
+        },
+    };
+    assert_eq!(lower_rule(&rule).unwrap(), effect);
+
+    for (path, value) in [
+        ("/who/player", json!("each-opponent")),
+        ("/who/player", json!("each-player")),
+        ("/who", json!({"player":"you","of":null})),
+        ("/rule", json!("starting-hand-size")),
+        (
+            "/change",
+            json!({"operation":"increase","amount":{"amount":"fixed","value":1},"duration":null}),
+        ),
+        ("/change/amount/amount", json!("variable")),
+        ("/change/amount/value", json!(0)),
+        ("/change/amount/value", json!(-1)),
+        ("/change/amount/value", json!(1.5)),
+    ] {
+        let mut changed = rule.clone();
+        *changed.pointer_mut(path).unwrap() = value;
+        assert!(lower_rule(&changed).is_err(), "{path}");
+    }
+
+    if let Ok(path) = std::env::var("MTG_INCREASED_HAND_SIZE_ARCHIVE_PROBE") {
+        let raw = std::fs::read_to_string(path).unwrap();
+        let mut lines = raw.lines();
+        let line = lines.next().unwrap();
+        assert!(lines.next().is_none());
+        let definition = match compile(fixtures::MANIFEST, line) {
+            CompileResult::Lowered { definition } => definition,
+            failure => panic!("{failure:?}"),
+        };
+        assert_eq!(definition.provenance.source_index, 23328);
+        assert_eq!(definition.characteristics.kind, CardKind::Creature);
+        assert_eq!(definition.static_abilities, [effect]);
+        assert_eq!(definition.keywords, [KeywordAbility::Defender]);
+        assert!(
+            definition
+                .capabilities
+                .contains(&Capability::IncreasedHandSizeV1)
+        );
+
+        let wrong_amount = tests::changed_source(line, |record| {
+            let result = &mut record["faces"][0]["result"];
+            result["abilities"][1]["effect"]["rule"]["change"] = fixed_change("increase", 2);
+            result["lines"][1]["ability"] = result["abilities"][1].clone();
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &wrong_amount),
+            CompileResult::Unsupported { path, .. } if path == "static.player-rule"
+        ));
+
+        for node_path in ["/faces/0/abilities/1", "/faces/0/abilities/0/keywords/0"] {
+            let wrong_controller = tests::changed_source(line, |record| {
+                let actor = record["binding"]["nodes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|node| node["path"] == node_path && node["node"] == "runtime-player")
+                    .unwrap();
+                actor["role"] = json!("owner");
+            });
+            assert!(
+                matches!(
+                    compile(fixtures::MANIFEST, &wrong_controller),
+                    CompileResult::Unsupported { path, .. } if path == "binding"
+                ),
+                "{node_path}"
+            );
+        }
+
+        let wrong_keyword_rule = tests::changed_source(line, |record| {
+            let keyword = record["binding"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|node| node["node"] == "keyword-ability")
+                .unwrap();
+            keyword["rules"] = json!(["702.9"]);
+        });
+        assert!(matches!(
+            compile(fixtures::MANIFEST, &wrong_keyword_rule),
+            CompileResult::Unsupported { path, .. } if path == "binding"
+        ));
     }
 }

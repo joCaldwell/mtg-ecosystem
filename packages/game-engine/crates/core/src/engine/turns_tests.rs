@@ -1143,22 +1143,6 @@ fn reduced_hand_size_applies_during_cleanup_with_unlimited_sources_and_exact_flo
         }),
     );
 
-    let start_cleanup = |mut fixture: Prepared| {
-        fixture.profile_digest = digest(&fixture.config).unwrap();
-        let mut game = Game::new(fixture);
-        for _ in 0..4 {
-            let Advance::AwaitingDecision(request @ Request::Priority { .. }) =
-                game.advance(Budget::new(100))
-            else {
-                panic!("expected end-step priority");
-            };
-            game.respond(request.player(), request.decision_id(), Response::Pass)
-                .unwrap();
-        }
-        let boundary = game.advance(Budget::new(100));
-        (game, boundary)
-    };
-
     // Unlimited persists whether its source precedes or follows the reducers.
     for index in [0, 10] {
         let mut fixture = p.clone();
@@ -1202,6 +1186,155 @@ fn reduced_hand_size_applies_during_cleanup_with_unlimited_sources_and_exact_flo
             .all(|object| game.zone(game.object_id(object.card).unwrap()) == Some(inactive))
     );
     recover(&game);
+}
+
+fn start_cleanup(mut fixture: Prepared) -> (Game, Advance) {
+    fixture.profile_digest = digest(&fixture.config).unwrap();
+    let mut game = Game::new(fixture);
+    for _ in 0..4 {
+        let Advance::AwaitingDecision(request @ Request::Priority { .. }) =
+            game.advance(Budget::new(100))
+        else {
+            panic!("expected end-step priority");
+        };
+        game.respond(request.player(), request.decision_id(), Response::Pass)
+            .unwrap();
+    }
+    let boundary = game.advance(Budget::new(100));
+    (game, boundary)
+}
+
+#[test]
+fn increased_hand_size_applies_during_cleanup_with_exact_signed_totals() {
+    let mut p = prepared();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let creature = catalog.definition_by_oracle_id(BEARS).unwrap().clone();
+    let increase = "test-hand-size-increase";
+    let reduction = "test-hand-size-reduction";
+    let huge_increase = "test-hand-size-huge-increase";
+    for (id, effect) in [
+        (
+            increase,
+            StaticEffect::IncreaseMaximumHandSize {
+                amount: Quantity::from(4),
+            },
+        ),
+        (
+            reduction,
+            StaticEffect::ReduceMaximumHandSize {
+                scope: HandSizeScope::Opponents,
+                amount: Quantity::from(9),
+            },
+        ),
+        (
+            huge_increase,
+            StaticEffect::IncreaseMaximumHandSize {
+                amount: "10000000000000000000000000000000000000000".parse().unwrap(),
+            },
+        ),
+    ] {
+        let mut source = creature.clone();
+        source.oracle_id = id.into();
+        source.name = id.into();
+        source.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect,
+        });
+        source.capabilities = source.requirements();
+        catalog.definitions.push(source);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+
+    let player = PlayerId(0);
+    let opponent = PlayerId(1);
+    p.config.initial.turn_step = TurnStep::End;
+    p.config.cards.extend((10..19).map(|id| CardSetup {
+        id: CardId(id),
+        oracle_id: FOREST.into(),
+        owner: player,
+        controller: player,
+        zone: Zone::Hand { owner: player },
+    }));
+
+    for (first, second, expected_count) in [
+        (increase, FOREST, 1),
+        // 7 - 9 + 4 leaves two cards in either source order.
+        (reduction, increase, 10),
+        (increase, reduction, 10),
+        (huge_increase, FOREST, 0),
+    ] {
+        let mut fixture = p.clone();
+        fixture
+            .config
+            .cards
+            .extend(
+                [first, second]
+                    .into_iter()
+                    .zip(8..10)
+                    .map(|(oracle_id, id)| CardSetup {
+                        id: CardId(id),
+                        oracle_id: oracle_id.into(),
+                        owner: opponent,
+                        controller: if oracle_id == reduction {
+                            opponent
+                        } else {
+                            player
+                        },
+                        zone: Zone::Battlefield,
+                    }),
+            );
+        fixture.config.cards.sort_by_key(|card| card.id);
+        let (mut game, boundary) = start_cleanup(fixture);
+        if expected_count == 0 {
+            assert_eq!(game.active_player(), Some(opponent));
+            assert!(matches!(
+                boundary,
+                Advance::AwaitingDecision(Request::Priority { .. })
+            ));
+            continue;
+        }
+        let Advance::AwaitingDecision(Request::Discard {
+            player: discarding_player,
+            decision_id,
+            count,
+            candidates,
+        }) = boundary
+        else {
+            panic!("expected cleanup discard");
+        };
+        assert_eq!(discarding_player, player);
+        assert_eq!(count, expected_count);
+        assert_eq!(candidates.len(), 12);
+        game.respond(
+            player,
+            decision_id,
+            Response::Discard {
+                objects: candidates.into_iter().take(count).collect(),
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            game.advance(Budget::new(100)),
+            Advance::AwaitingDecision(Request::Priority { .. })
+        ));
+        assert_eq!(game.active_player(), Some(opponent));
+        assert_eq!(
+            game.state
+                .rules
+                .objects
+                .values()
+                .filter(|object| object.zone == Zone::Hand { owner: player })
+                .count(),
+            12 - count
+        );
+        if expected_count == 1 {
+            recover(&game);
+        }
+    }
 }
 
 #[test]
