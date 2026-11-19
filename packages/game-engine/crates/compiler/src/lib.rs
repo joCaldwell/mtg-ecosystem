@@ -35,6 +35,7 @@ mod library_selection;
 #[cfg(test)]
 mod library_selection_tests;
 mod normalization;
+mod paid_counted_draw;
 mod self_reference;
 mod targeted_counted_draw;
 mod type_line;
@@ -1855,6 +1856,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             result.abilities.get(),
         )?;
     }
+    paid_counted_draw::validate_source(&definition, &labels, &binding, result.abilities.get())?;
     if definition.static_abilities.iter().any(|ability| {
         matches!(
             ability.effect,
@@ -4579,6 +4581,7 @@ fn lower_permanent_costs(
                     && *what
                         == serde_json::json!({"ref":"this","noun":match kind {
                             CardKind::Artifact => "artifact",
+                            CardKind::Enchantment => "enchantment",
                             CardKind::Land => "land",
                             _ => "creature",
                         }}) =>
@@ -4655,6 +4658,9 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
+    if let Some(ability) = paid_counted_draw::lower(costs, effects, block, kind)? {
+        return Ok(ability);
+    }
     if let Some(ability) = activated_artifact_draw::lower_two_draws(costs, effects, block, kind)? {
         return Ok(ability);
     }
