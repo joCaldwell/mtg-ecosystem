@@ -51,6 +51,18 @@ pub struct ResolvedEffect {
     pub expires_in_cleanup_of_turn: u64,
     pub kind: ResolvedEffectKind,
 }
+impl ResolvedEffect {
+    pub(super) fn additional_land_plays(&self, player: PlayerId, turn: u64) -> Option<&Quantity> {
+        match &self.kind {
+            ResolvedEffectKind::AdditionalLandPlays { count }
+                if self.origin.controller == player && self.expires_in_cleanup_of_turn == turn =>
+            {
+                Some(count)
+            }
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
@@ -80,6 +92,9 @@ pub enum ResolvedEffectKind {
         toughness: Quantity,
     },
     PreventCombatDamage,
+    AdditionalLandPlays {
+        count: Quantity,
+    },
     PreventNextDamage {
         target: TargetEntity,
         remaining: Quantity,
@@ -374,6 +389,12 @@ impl Game {
             }
             Instruction::PreventCombatDamage { source_block, .. } => {
                 (ResolvedEffectKind::PreventCombatDamage, source_block)
+            }
+            Instruction::GrantLandPlaysThisTurn {
+                count,
+                source_block,
+            } => {
+                (ResolvedEffectKind::AdditionalLandPlays { count }, source_block)
             }
             Instruction::PreventNextDamage {
                 target_slot,
@@ -1158,6 +1179,14 @@ impl Game {
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == effect.origin.source_block,
                     (
+                        Instruction::GrantLandPlaysThisTurn { count, source_block },
+                        ResolvedEffectKind::AdditionalLandPlays { count: granted },
+                    ) => {
+                        frame.spell.kind.is_spell()
+                            && count == granted
+                            && *source_block == effect.origin.source_block
+                    }
+                    (
                         Instruction::PreventNextDamage {
                             target_slot,
                             amount,
@@ -1580,6 +1609,14 @@ impl Game {
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == e.origin.source_block && e.target_handles.is_empty(),
                     (
+                        Instruction::GrantLandPlaysThisTurn { count, source_block },
+                        ResolvedEffectKind::AdditionalLandPlays { count: granted },
+                    ) => {
+                        count == granted
+                            && *source_block == e.origin.source_block
+                            && e.target_handles.is_empty()
+                    }
+                    (
                         Instruction::PreventNextDamage {
                             amount,
                             source_block,
@@ -1774,6 +1811,12 @@ pub enum VisibleEffect {
     PreventCombatDamage {
         handle: EffectHandle,
         origin: VisibleEffectSource,
+        expires_in_cleanup_of_turn: u64,
+    },
+    AdditionalLandPlays {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        count: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
     PreventNextDamage {
@@ -2011,6 +2054,12 @@ impl Game {
             ResolvedEffectKind::PreventCombatDamage => VisibleEffect::PreventCombatDamage {
                 handle,
                 origin,
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
+            ResolvedEffectKind::AdditionalLandPlays { count } => VisibleEffect::AdditionalLandPlays {
+                handle,
+                origin,
+                count: count.clone(),
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
             ResolvedEffectKind::PreventNextDamage { target, remaining } => {

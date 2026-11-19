@@ -10,6 +10,7 @@ pub mod fixtures {
 mod cast_origin;
 pub mod catalog;
 mod controller_counted_draw;
+mod draw_land_allowance;
 #[cfg(test)]
 mod controller_counted_draw_tests;
 mod controller_library;
@@ -614,6 +615,10 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    AdditionalLandPlays {
+        allowance: serde_json::Value,
+        duration: SourceDuration,
+    },
     LookAt {
         who: serde_json::Value,
         what: serde_json::Value,
@@ -1383,6 +1388,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
+    let mut draw_land_allowance =
+        draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
@@ -1926,6 +1933,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(instructions) = draw_land_allowance.take() {
+                    if program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
+                    {
+                        return Err(unsupported("land allowance", "requires ordinary spell costs"));
+                    }
+                    program.instructions.extend(instructions);
+                    continue;
+                }
                 if let Some(count) = controller_counted_draw::coalesce(effects)? {
                     if abilities.len() != 1
                         || block != 0

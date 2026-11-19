@@ -941,6 +941,7 @@ impl Game {
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::PreventCombatDamage { .. }
+            | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
             op @ (Instruction::DealDamage { .. }
             | Instruction::GainLife { .. }
