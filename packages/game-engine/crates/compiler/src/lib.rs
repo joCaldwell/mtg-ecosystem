@@ -3796,7 +3796,6 @@ fn lower_wipes_step(
 
 fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
     if !token.supertypes.is_empty()
-        || token.types != ["creature"]
         || token.power.amount != "fixed"
         || token.toughness.amount != "fixed"
     {
@@ -3805,6 +3804,18 @@ fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
             "unsupported token characteristic shape",
         ));
     }
+    let additional_types = match token.types.as_slice() {
+        [kind] if kind == "creature" => vec![],
+        [a, b] if a == "creature" || b == "creature" => {
+            let secondary = if a == "creature" { b } else { a };
+            match secondary.as_str() {
+                "artifact" => vec![CardKind::Artifact],
+                "enchantment" => vec![CardKind::Enchantment],
+                _ => return Err(unsupported("effects.token.types", "unsupported secondary type")),
+            }
+        }
+        _ => return Err(unsupported("effects.token.types", "unsupported token types")),
+    };
     let colors = token
         .colors
         .iter()
@@ -3835,6 +3846,7 @@ fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let token = CreatureToken {
+        additional_types,
         colors,
         subtypes: token.subtypes.clone(),
         power: i64::from(token.power.value).into(),
@@ -5612,6 +5624,27 @@ fn lower_activation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_token_types_preserve_single_type_bytes() {
+        let mut source: SourceToken = serde_json::from_value(serde_json::json!({
+            "types":["artifact","creature"], "supertypes":[], "subtypes":["Latticekin"],
+            "colors":[], "keywords":[], "power":{"amount":"fixed","value":3},
+            "toughness":{"amount":"fixed","value":7}
+        })).unwrap();
+        let token = lower_creature_token(&source).unwrap();
+        assert!(token.characteristics().has_type(CardKind::Artifact));
+        source.types.reverse();
+        assert_eq!(lower_creature_token(&source).unwrap(), token);
+        source.types.pop();
+        let single = lower_creature_token(&source).unwrap();
+        let bytes = serde_json::to_value(&single).unwrap();
+        assert!(bytes.get("additional_types").is_none());
+        assert_eq!(serde_json::from_value::<CreatureToken>(bytes).unwrap(), single);
+        assert!(!single.characteristics().has_type(CardKind::Artifact));
+        source.types.push("land".into());
+        assert!(lower_creature_token(&source).is_err());
+    }
+
     #[test]
     fn strict_mirror_reports_specific_nodes_keywords_and_fields() {
         for (raw, expected) in [

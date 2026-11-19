@@ -351,6 +351,7 @@ pub enum Capability {
     DoubleStrikeV1,
     MenaceV1,
     CreatureTokensV1,
+    MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -533,6 +534,8 @@ impl<'de> Deserialize<'de> for ActionRecipient {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreatureToken {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_types: Vec<CardKind>,
     pub colors: Vec<Color>,
     pub subtypes: Vec<String>,
     pub power: Quantity,
@@ -540,8 +543,33 @@ pub struct CreatureToken {
     pub keywords: Vec<KeywordAbility>,
 }
 impl CreatureToken {
+    pub fn characteristics(&self) -> Characteristics {
+        Characteristics {
+            kind: CardKind::Creature,
+            additional_types: self.additional_types.clone(),
+            subtypes: self.subtypes.clone(),
+            basic: false,
+            legendary: false,
+            snow: false,
+            mana_cost: ManaCost {
+                generic: Quantity::zero(),
+                colored: vec![],
+            },
+            colors: self.colors.clone(),
+            color_identity: self.colors.clone(),
+            power: Some(self.power.clone()),
+            toughness: Some(self.toughness.clone()),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
-        if self.keywords.contains(&KeywordAbility::Flash)
+        if !matches!(
+            self.additional_types.as_slice(),
+            [] | [CardKind::Artifact] | [CardKind::Enchantment]
+        )
+            || (!self.additional_types.is_empty() && self.subtypes.iter().any(|s|
+                unsupported_rules_subtype(s) || matches!(s.as_str(), "Aura" | "Equipment")))
+            || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
             || self.colors.iter().collect::<BTreeSet<_>>().len() != self.colors.len()
@@ -4624,6 +4652,11 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if instruction.uses_event_player() {
             set.insert(Capability::EventPlayerRecipientV1);
         }
+        if matches!(instruction, Instruction::CreateCreatureTokens { token, .. }
+            | Instruction::CreateTokensFor { token, .. } if !token.additional_types.is_empty())
+        {
+            set.insert(Capability::MultiTypeCreatureTokensV1);
+        }
         if let Instruction::CreateCreatureTokens { token, .. } = instruction
             && token
                 .keywords
@@ -5024,6 +5057,8 @@ pub fn catalog_schema() -> serde_json::Value {
 
     // CR 702.12/702.6: preserve the bounded Equipment modifier and the
     // separate battlefield grant to other controlled permanents.
+    schema["$defs"]["CreatureToken"]["properties"]["additional_types"] =
+        serde_json::json!({"type":"array","maxItems":1,"items":{"enum":["artifact","enchantment"]}});
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let permanent_grant_effect = serde_json::json!({
@@ -6296,6 +6331,7 @@ mod tests {
             DoubleStrikeV1,
             MenaceV1,
             CreatureTokensV1,
+            MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
@@ -6381,6 +6417,26 @@ mod tests {
                 catalog.definitions
             })
             .collect::<Vec<_>>();
+        let mut creator = definitions
+            .iter()
+            .find(|d| d.spell.as_ref().is_some_and(|p| {
+                matches!(p.instructions.first(), Some(Instruction::CreateCreatureTokens { .. }))
+            }))
+            .unwrap()
+            .clone();
+        creator.source_labels = None;
+        if let Instruction::CreateCreatureTokens { token, .. } =
+            &mut creator.spell.as_mut().unwrap().instructions[0]
+        {
+            token.colors.clear();
+            token.keywords.clear();
+            token.additional_types = vec![CardKind::Artifact];
+            token.subtypes = vec!["Latticekin".into()];
+            token.power = 3.into();
+            token.toughness = 7.into();
+        }
+        creator.capabilities = creator.requirements();
+        definitions.push(creator);
         // Synthetic complete typed control; exact frozen source is compiled
         // independently in compiler::ramos_m4e_tests.
         let mut counted = definitions

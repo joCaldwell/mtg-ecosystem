@@ -79,22 +79,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
     let mut d = source.clone();
     d.oracle_id = format!("token:{}", id.0);
     d.name = format!("{} Token", token.subtypes.join(" "));
-    d.characteristics = Characteristics {
-        kind: CardKind::Creature,
-        additional_types: vec![],
-        subtypes: token.subtypes.clone(),
-        basic: false,
-        legendary: false,
-        snow: false,
-        mana_cost: ManaCost {
-            generic: Quantity::zero(),
-            colored: vec![],
-        },
-        colors: token.colors.clone(),
-        color_identity: token.colors.clone(),
-        power: Some(token.power.clone()),
-        toughness: Some(token.toughness.clone()),
-    };
+    d.characteristics = token.characteristics();
     d.intrinsic_zone = None;
     d.spell = None;
     d.activated.clear();
