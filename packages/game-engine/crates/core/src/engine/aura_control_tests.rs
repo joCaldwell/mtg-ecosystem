@@ -1126,6 +1126,9 @@ mod draw_discard_tests;
 #[path = "controller_counted_draw_tests.rs"]
 mod controller_counted_draw_tests;
 
+#[path = "power_entry_draw_tests.rs"]
+mod power_entry_draw_tests;
+
 #[path = "announced_x_draw_tests.rs"]
 mod announced_x_draw_tests;
 #[path = "targeted_counted_draw_tests.rs"]
