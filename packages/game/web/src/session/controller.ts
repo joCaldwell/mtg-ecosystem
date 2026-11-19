@@ -198,6 +198,9 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
       // Only a command refresh in this original authorization may reuse these
       // verified immutable reads. Reconnects invalidate them before retrying.
       let verified: VerifiedReads | null = null;
+      // Keep completed stages of the current verification across a hinted 429.
+      // A sliding window may allow only one request after each cooldown.
+      let verification: { manifest: PublicManifest; reads?: VerifiedReads } | null = null;
       let consecutiveFailures = 0;
       // A successful empty poll does not reset a collision/rate-limit budget.
       let rateLimitFailures = 0;
@@ -209,15 +212,18 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
         try {
           if (!initialized) {
             this.#update({ connection: 'authenticating' });
-            let assets: VerifiedReads | null = run.refresh ? verified : null;
+            let assets: VerifiedReads | undefined = (run.refresh ? verified : null) ?? verification?.reads;
             if (!assets) {
-              const manifest = await transport.manifest(signal);
-              if (!this.#current(run)) return;
-              checkManifest(binding, manifest);
+              if (!verification) {
+                const manifest = await transport.manifest(signal);
+                if (!this.#current(run)) return;
+                checkManifest(binding, manifest);
+                verification = { manifest: immutable(manifest) };
+              }
               const metadata = await transport.presentation(signal);
               if (!this.#current(run)) return;
               if (metadata && metadata.catalog_sha256 !== binding.catalog_sha256) throw new SessionFailure('incompatible');
-              assets = immutable({ manifest, metadata });
+              assets = verification.reads = immutable({ manifest: verification.manifest, metadata });
             }
             const refreshing = run.refresh;
             const read = resumeRead(binding, this.#snapshot.read, await transport.resume(signal));
@@ -240,6 +246,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
               if (!this.#current(run)) return;
             }
             if (refreshing) { run.refresh = false; run.commands?.refreshed(); }
+            if (!cooledDown) verification = null;
             initialized = true;
           } else {
             const current = this.#snapshot.read!;
@@ -261,6 +268,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           // A successful recovery resume alone cannot renew the retry budget:
           // the next poll may still fail. Only a successful stream read does.
           if (polling) {
+            verification = null;
             consecutiveFailures = 0;
             // Successful reads after an observed server cooldown establish real
             // recovery. Hintless collision loops retain their bounded budget.
@@ -287,6 +295,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           this.#update({ connection: 'retrying', retry: attempt, failure: kind });
           const hint = kind === 'rate-limited' ? transport.retryAfter?.() ?? 0 : 0;
           const cooldown = Number.isFinite(hint) ? Math.min(MAX_READ_RETRY_MS, Math.max(0, hint)) : 0;
+          if (cooldown === 0) verification = null;
           await this.#effects.wait(Math.max(500 * 2 ** (attempt - 1), cooldown), signal);
           if (!this.#current(run)) return;
           if (cooldown > 0) cooledDown = true;

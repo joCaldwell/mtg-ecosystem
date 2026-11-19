@@ -172,6 +172,86 @@ test('a server cooldown waits without I/O, then revalidates the full committed b
   r.controller.stop(); r.sleeps[2]!.done.resolve(); await running;
 });
 
+test('hinted 429s preserve newly verified recovery stages without renewing the retry budget', async () => {
+  const cooldown = 35_000;
+  const r = rig({ retryAfter: () => cooldown });
+  const running = r.controller.join('seat0'); await flush();
+  const initial = r.controller.getSnapshot();
+  const emptyPage: StreamPage = { protocol_version: 1, entries: [], next: original.next, has_more: false };
+  let sleep = 0;
+  const wake = async (milliseconds: number) => {
+    const wait = r.sleeps[sleep++]!;
+    assert.equal(wait.milliseconds, milliseconds);
+    wait.done.resolve(); await flush();
+  };
+  const initialCalls = ['manifest', 'presentation', 'resume'];
+  assert.deepEqual(r.calls, initialCalls);
+  await wake(100); r.pollResults[0]!.resolve(emptyPage); await flush();
+  await wake(100); r.pollResults[1]!.reject(new SessionFailure('rate-limited')); await flush();
+  assert.equal(r.controller.getSnapshot().retry, 1);
+  assert.deepEqual(r.calls, initialCalls, 'no recovery read before cooldown');
+
+  const readPresentation = r.transport.presentation;
+  const readResume = r.transport.resume;
+  r.transport.presentation = async () => {
+    r.transport.presentation = readPresentation;
+    r.calls.push('presentation');
+    throw new SessionFailure('rate-limited');
+  };
+  r.transport.resume = async () => {
+    r.transport.resume = readResume;
+    r.calls.push('resume');
+    throw new SessionFailure('rate-limited');
+  };
+  await wake(cooldown);
+  assert.equal(r.controller.getSnapshot().retry, 2);
+  assert.deepEqual(r.calls.slice(3), ['manifest', 'presentation']);
+  await wake(cooldown);
+  assert.equal(r.controller.getSnapshot().retry, 3);
+  assert.deepEqual(r.calls.slice(3), ['manifest', 'presentation', 'presentation', 'resume']);
+  assert.equal(r.controller.getSnapshot().metadata, initial.metadata, 'staged presentation is not published before resume');
+  await wake(cooldown);
+  assert.equal(r.controller.getSnapshot().connection, 'ready');
+  assert.notEqual(r.controller.getSnapshot().metadata, initial.metadata);
+  assert.deepEqual(r.calls.slice(3), ['manifest', 'presentation', 'presentation', 'resume', 'resume']);
+
+  await wake(100); r.pollResults[2]!.reject(new SessionFailure('rate-limited')); await flush();
+  assert.equal(r.controller.getSnapshot().retry, 4, 'successful resume alone cannot renew the retry budget');
+  await wake(cooldown);
+  assert.deepEqual(r.calls.slice(8), ['resume'], 'recovery remains open until a successful stream read');
+  await wake(100); r.pollResults[3]!.resolve(emptyPage); await flush();
+  await wake(100); r.pollResults[4]!.reject(new SessionFailure('rate-limited')); await flush();
+  assert.equal(r.controller.getSnapshot().retry, 1, 'successful stream read renews the retry budget');
+  await wake(cooldown);
+  assert.deepEqual(r.calls.slice(9), initialCalls, 'a new recovery episode requires fresh revalidation');
+  r.controller.stop(); await wake(100); await running;
+});
+
+test('hintless 429 and 503 discard partial revalidation from a hinted cooldown', async () => {
+  for (const kind of ['rate-limited', 'unavailable'] as const) {
+    let hint = 35_000;
+    const r = rig({ retryAfter: () => hint });
+    const running = r.controller.join('seat0'); await flush();
+    const readPresentation = r.transport.presentation;
+    r.transport.presentation = async () => {
+      r.transport.presentation = readPresentation;
+      r.calls.push('presentation');
+      if (kind === 'rate-limited') hint = 0;
+      throw new SessionFailure(kind);
+    };
+    r.sleeps[0]!.done.resolve(); await flush();
+    r.pollResults[0]!.reject(new SessionFailure('rate-limited')); await flush();
+    assert.equal(r.sleeps[1]!.milliseconds, 35_000);
+    r.sleeps[1]!.done.resolve(); await flush();
+    assert.equal(r.sleeps[2]!.milliseconds, 1_000);
+    assert.deepEqual(r.calls.slice(3), ['manifest', 'presentation'], kind);
+    r.sleeps[2]!.done.resolve(); await flush();
+    assert.deepEqual(r.calls.slice(5), ['manifest', 'presentation', 'resume'], kind);
+    assert.equal(r.controller.getSnapshot().connection, 'ready', kind);
+    r.controller.stop(); r.sleeps[3]!.done.resolve(); await running;
+  }
+});
+
 test('only successful polling after an explicit cooldown renews the rate-limit recovery budget', async () => {
   for (const hinted of [true, false]) {
     const r = rig({ ...(hinted ? { retryAfter: () => 35_000 } : {}) });

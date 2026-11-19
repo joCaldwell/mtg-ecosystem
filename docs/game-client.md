@@ -70,9 +70,10 @@ last Observation/token across lifecycle-only pages. A changed generation/seat/
 identity invalidates all asynchronous completions, drafts and effects before I/O.
 Reads use bounded backoff/retry; 429 responses may extend the wait using an
 authorization-local `Retry-After` hint, capped at 60 seconds and aborted on stop.
-Only a successful stream read after that cooldown renews the rate-limit retry
-budget; hintless collision loops remain bounded. A failed/partial response body is uncertainty,
-not a successful response. Reauthorize/verify manifests before recovery.
+Only a successful stream read after cooldown renews the rate-limit retry budget.
+Hintless collisions stay bounded. Failed or partial bodies remain uncertain.
+Recovery verifies manifest and metadata, retaining completed stages across hinted
+429s within the same authorization.
 
 ## Durable command journal
 
