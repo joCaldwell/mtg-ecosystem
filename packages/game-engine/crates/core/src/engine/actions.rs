@@ -793,32 +793,7 @@ impl Game {
                         }
                     }
                     Response::ResolveDiscard { objects } => {
-                        let result = self.commit_batch(
-                            cause,
-                            EventGroup::Simultaneous {
-                                occurrences: objects
-                                    .into_iter()
-                                    .map(|object| ProposedEvent::DiscardCard {
-                                        object,
-                                        player: request.player(),
-                                    })
-                                    .collect(),
-                            },
-                        )?;
-                        let movements = result
-                            .occurrences
-                            .iter()
-                            .map(|r| match &r.actual {
-                                EventOutcome::CardDiscarded { movement, .. } => {
-                                    Ok(movement.clone())
-                                }
-                                _ => Err("missing simultaneous discard outcome".to_string()),
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-                        InstructionOutcome::Discarded {
-                            player: request.player(),
-                            movements,
-                        }
+                        self.discard_batch(cause, request.player(), objects)?
                     }
                     _ => return Err("resolution response invariant".into()),
                 };
@@ -827,6 +802,35 @@ impl Game {
             _ => return Err("action frame invariant".into()),
         }
         Ok(())
+    }
+    pub(super) fn discard_batch(
+        &mut self,
+        cause: BatchCause,
+        player: PlayerId,
+        objects: Vec<ObjectId>,
+    ) -> Result<InstructionOutcome, String> {
+        let movements = if objects.is_empty() {
+            vec![]
+        } else {
+            let result = self.commit_batch(
+                cause,
+                EventGroup::Simultaneous {
+                    occurrences: objects
+                        .into_iter()
+                        .map(|object| ProposedEvent::DiscardCard { object, player })
+                        .collect(),
+                },
+            )?;
+            result
+                .occurrences
+                .iter()
+                .map(|r| match &r.actual {
+                    EventOutcome::CardDiscarded { movement, .. } => Ok(movement.clone()),
+                    _ => Err("missing simultaneous discard outcome".to_string()),
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        Ok(InstructionOutcome::Discarded { player, movements })
     }
     fn validate_choice_input(
         &self,
@@ -851,6 +855,9 @@ impl Game {
         mut frame: Resolving,
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
+        if frame.random_discard.is_some() {
+            return Err("cannot advance an unfinished random discard".into());
+        }
         if frame.draw_progress.is_some() {
             return Err("cannot advance an unfinished counted draw".into());
         }
@@ -1100,6 +1107,7 @@ impl Game {
                 };
                 Ok(())
             }
+            Instruction::DiscardTargetPlayerAtRandom { .. } => self.random_discard_step(frame),
             op @ (Instruction::DiscardCards { .. } | Instruction::DiscardTargetPlayer { .. }) => {
                 let (player, count, source_block) = self.discard_spec(&frame, &op)?;
                 if count.is_negative() {
@@ -1500,6 +1508,7 @@ impl Game {
         self.validate_target_facts(frame)?;
         self.validate_set_damage_facts(frame)?;
         self.validate_draw_progress(frame)?;
+        self.validate_random_discard_progress(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
