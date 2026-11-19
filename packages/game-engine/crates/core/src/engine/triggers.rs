@@ -237,6 +237,37 @@ fn caster_matches(relation: CasterRelation, caster: PlayerId, controller: Player
         CasterRelation::Opponent => caster != controller,
     }
 }
+fn cast_matches(
+    condition: &TriggerCondition,
+    cast: &CastOccurrence,
+    source: ObjectId,
+    controller: PlayerId,
+) -> bool {
+    match condition {
+        TriggerCondition::SelfSpellCast => cast.spell.object == source && cast.caster == controller,
+        TriggerCondition::SpellCast { caster, spell } => {
+            caster_matches(*caster, cast.caster, controller)
+                && spell.matches(&cast.spell.characteristics)
+        }
+        TriggerCondition::SpellCastWithOrigin {
+            caster,
+            spell,
+            origin,
+        } => {
+            // CR 601.2a/i, 603.3a: use the completed cast's origin and the
+            // source controller at the event, including when replaying LKI.
+            // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            let CastOriginPredicate::Outside { zone } = origin;
+            let excluded = match zone {
+                CastOriginZone::ControllerHand => Zone::Hand { owner: controller },
+            };
+            cast.cast_from != excluded
+                && caster_matches(*caster, cast.caster, controller)
+                && spell.matches(&cast.spell.characteristics)
+        }
+        _ => false,
+    }
+}
 fn attack_matches(
     predicate: &AttackSubject,
     source: ObjectId,
@@ -685,9 +716,11 @@ impl Game {
                         matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, .. }
                             if attack_matches(predicate, object.id, object.controller, attacker))
                     }
-                    TriggerCondition::SelfSpellCast => matches!(&witness, TriggerEventWitness::SpellCast { cast } if cast.spell.object == object.id && cast.caster == object.controller),
-                    TriggerCondition::SpellCast { caster, spell } => {
-                        matches!(&witness, TriggerEventWitness::SpellCast {cast} if caster_matches(*caster, cast.caster, object.controller) && spell.matches(&cast.spell.characteristics))
+                    TriggerCondition::SelfSpellCast
+                    | TriggerCondition::SpellCast { .. }
+                    | TriggerCondition::SpellCastWithOrigin { .. } => {
+                        matches!(&witness, TriggerEventWitness::SpellCast { cast }
+                            if cast_matches(&definition.condition, cast, object.id, object.controller))
                     }
                     TriggerCondition::StepBegan {
                         step,
@@ -1353,6 +1386,8 @@ impl Game {
             )
             || (matches!(definition.condition, TriggerCondition::SelfMoved { .. })
                 && (fact.controller != controller || fact.owner != controller))
+            || (matches!(definition.condition, TriggerCondition::SpellCastWithOrigin { .. })
+                && fact.controller != controller)
             || handles.len() != 4
         {
             return Err("snapshot trigger source invariant".into());
@@ -1540,10 +1575,7 @@ impl Game {
                     && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
                         || cast.cast_from == Zone::Exile)
                     && cast.x.as_ref().is_none_or(|x| !x.is_negative())
-                    && (matches!(condition, TriggerCondition::SpellCast {caster,spell} if caster_matches(*caster, cast.caster, controller) && spell.matches(&cast.spell.characteristics))
-                        || (*condition == TriggerCondition::SelfSpellCast
-                            && cast.spell.object == source
-                            && cast.caster == controller))
+                    && cast_matches(condition, cast, source, controller)
                     && death_controller.is_none()
             }
 
@@ -1573,6 +1605,7 @@ impl Game {
                         TriggerCondition::SelfSpellCast
                         | TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
+                        | TriggerCondition::SpellCastWithOrigin { .. }
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
                         | TriggerCondition::GroupedDamageDealt { .. } => false,

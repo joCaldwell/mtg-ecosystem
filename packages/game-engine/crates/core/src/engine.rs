@@ -326,6 +326,8 @@ mod cascade_tests;
 mod casting;
 use cascade::{CascadeProgress, CastCompletion, CastPermission};
 #[cfg(test)]
+mod cast_origin_tests;
+#[cfg(test)]
 mod casting_foundation_tests;
 mod hand_return;
 mod intrinsic_mana;
