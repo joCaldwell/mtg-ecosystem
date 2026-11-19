@@ -222,3 +222,8 @@ Fetch/Escort source `17660e54` combines main `a844ccb8`:30 distinct Rust,
 fetch authority/departures; Escort proves captured protection/LKI/recovery. One
 review's casting-program/binding fixes and test-only producer bridges remain in
 `generated/ramos/next-fetch-set/integration.json`. Native released; no deck/consumer admission.
+
+Cycling source `abdf634f`:4 focused Rust functions,51 schema probes; audit39/46/0,
+38/28,IR1. Paid public activation includes privacy, single-unit restore/replay.
+`generated/ramos/cycling-combined/integration.json` retains current exports; broader
+regressions, remaining test drafts and consumer admission are deferred.

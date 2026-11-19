@@ -34,9 +34,9 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 ### M2 Complete land and ramp infrastructure
 
 Typed search, Cinder entry, intrinsic mana, five shocks and fetch costs are locally
-qualified at `17660e54`:36 definitions lowered/validated,49 Unsupported.
+qualified at `abdf634f`:39 definitions lowered/validated,46 Unsupported.
 [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) owns proof.
-Triome cycling is source-only pending native qualification; opponent production remains open.
+Triome cycling is qualified; opponent production remains open.
 
 ### M4 Complete the cascade package and casting history
 
