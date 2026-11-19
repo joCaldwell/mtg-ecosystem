@@ -33,17 +33,17 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-Typed search, Cinder entry, intrinsic mana, five shocks and fetch costs are locally
-qualified at `abdf634f`:39 definitions lowered/validated,46 Unsupported.
+Typed search, Cinder entry, intrinsic mana, shocks, fetch costs, cycling and opponent
+mana have focused witnesses. Audit `df70b8c4`:50 definitions lower,35 remain Unsupported.
 [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) owns proof.
-Triome cycling is qualified; opponent production remains open.
+Exact-deck and consumer admission remain open.
 
 ### M4 Complete the cascade package and casting history
 
 Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn are qualified above. Next:
-Enigma's exact battlefield-to-own-graveyard successor and third-from-top library
-movement/knowledge; Yidris needs complete AST/binding before grants. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
-values and Vega's non-hand-cast draw.
+Yidris needs complete AST/binding before grants; Enigma successor tuck and Vega
+cast-origin draw have focused witnesses. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
+values.
 
 ### M5 Add color and mana engines
 
@@ -55,12 +55,12 @@ unspent-mana replacement and private choices.
 
 Complete Aragorn, Whirlwind, Temur Ascendancy, Rhystic payments, distributed Abzan
 counters, Esper discard, Quandrix choose-two/graveyard targets, Conflux colored
-search and Urban Evolution land permissions.
+search. Urban Evolution has a focused land-permission witness.
 
 ### M7 Complete protection and board interaction
 
-Complete Anguished Unmaking, Void Rend, Ruinous Ultimatum, Child, Avacyn,
-Exterminatus, Farewell and Akroma's Will.
+Anguished Unmaking, Void Rend and Ruinous Ultimatum have focused witnesses.
+Complete Child, Avacyn, Exterminatus, Farewell and Akroma's Will.
 
 ### M8 Add spell and permanent copies
 
