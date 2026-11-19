@@ -1235,6 +1235,7 @@ fn flash_end_step_draw() {
         intervening_if: None,
         program: SpellProgram {
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
