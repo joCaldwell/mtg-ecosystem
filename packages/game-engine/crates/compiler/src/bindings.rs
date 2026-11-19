@@ -114,6 +114,15 @@ impl<'a> Bindings<'a> {
         self.node(path, kind, "event-result", fields);
     }
 
+    pub(super) fn validate_ordered(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        if binding["nodes"].as_array() != Some(&self.nodes)
+            || binding["references"].as_array() != Some(&self.references)
+        {
+            return Err(unsupported("binding", message));
+        }
+        self.validate(binding, message)
+    }
+
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
         let same_members = |actual: &Value, expected: &[Value]| {
             actual.as_array().is_some_and(|items| {
