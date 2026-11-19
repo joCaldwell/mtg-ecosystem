@@ -966,7 +966,8 @@ impl Game {
             | Instruction::ModifySourcePowerToughness { .. }) => {
                 self.execute_sacrifice_instruction(frame, i)
             }
-            i @ (Instruction::DestroyPermanent { .. }
+            i @ (Instruction::ReturnEntryTargetCreature { .. }
+            | Instruction::DestroyPermanent { .. }
             | Instruction::ExilePermanent { .. }
             | Instruction::UntapPermanent { .. }
             | Instruction::TapPermanent { .. }
@@ -1636,6 +1637,23 @@ impl Game {
         Ok(())
     }
     pub(super) fn revalidate_actions_departure(&mut self) -> Result<(), String> {
+        if let Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::OptionalEffect { target, .. },
+        } = &self.state.rules.frame
+            && self.current(*target).is_err()
+            && matches!(
+                self.program_for(&frame.spell)?
+                    .instructions
+                    .get(frame.cursor as usize),
+                Some(Instruction::ReturnEntryTargetCreature { .. })
+            )
+        {
+            let outcome = InstructionOutcome::ObjectNoLongerPresent { target: *target };
+            let frame = frame.clone();
+            self.state.rules.pending = None;
+            return self.finish_instruction(frame, outcome);
+        }
         if matches!(
             self.state.rules.frame,
             Frame::ResolutionChoice { .. }

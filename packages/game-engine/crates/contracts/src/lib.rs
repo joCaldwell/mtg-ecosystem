@@ -62,6 +62,7 @@ mod optional_costs;
 mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
+mod creature_entry_return;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
 mod paid_counted_draw;
@@ -330,6 +331,7 @@ pub enum Capability {
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
     PowerFilteredCreatureEntryV1,
+    CreatureEntryReturnV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -849,6 +851,11 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
+    ReturnEntryTargetCreature {
+        target_slot: u32,
+        optional: bool,
+        source_block: u32,
+    },
     ReturnToOwnerHand {
         target_slot: u32,
         source_block: u32,
@@ -1019,7 +1026,8 @@ impl Instruction {
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
-            Self::ReturnToOwnerHand { source_block, .. } => *source_block,
+            Self::ReturnEntryTargetCreature { source_block, .. }
+            | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
@@ -2328,6 +2336,7 @@ impl Definition {
         unlimited_hand_size::validate_definition(self)?;
         hand_size_adjustments::validate_definition(self)?;
         power_entry_draw::validate_definition(self)?;
+        creature_entry_return::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3197,6 +3206,7 @@ impl Definition {
                             | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                            | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DestroyPermanent { .. }
                             | Instruction::DestroySet { .. }
                             | Instruction::CreateCreatureTokens { .. }
@@ -4217,7 +4227,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
-            Instruction::ExilePermanent { target_slot, .. }
+            Instruction::ReturnEntryTargetCreature { target_slot, .. }
+            | Instruction::ExilePermanent { target_slot, .. }
             | Instruction::UntapPermanent { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
@@ -4887,6 +4898,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
+            Instruction::ReturnEntryTargetCreature { .. } => Capability::CreatureEntryReturnV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
             Instruction::MoveTriggeredSuccessor { .. } => {
@@ -6279,6 +6291,7 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    creature_entry_return::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -6477,6 +6490,7 @@ mod tests {
             SelfEntersBattlefieldV1,
             OtherCreatureEntersBattlefieldV1,
             PowerFilteredCreatureEntryV1,
+            CreatureEntryReturnV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -6815,6 +6829,7 @@ mod tests {
         definitions.push(announced_x_draw::witness());
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
+        definitions.push(creature_entry_return::witness());
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
         definitions.push(targeted_discard::random_witness());
