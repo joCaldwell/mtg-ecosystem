@@ -158,6 +158,7 @@ fn aura_control_rejects_every_outside_shape_even_with_recomputed_capabilities() 
         }),
         ("mana ability", |d| {
             d.mana_abilities.push(ManaAbility {
+                self_damage: None,
                 restriction: None,
                 costs: PermanentActivationCosts {
                     remove_source_plus_one_counters: None,

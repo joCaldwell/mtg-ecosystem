@@ -35,6 +35,7 @@ mod library_selection;
 mod library_selection_tests;
 mod normalization;
 mod optional_costs;
+mod pain_mana;
 mod self_reference;
 mod spell_cascade_grants;
 use optional_costs::KickedCondition;
@@ -1138,6 +1139,9 @@ struct SourceQuantityChange {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "mana", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceMana {
+    Choice {
+        options: Vec<SourceMana>,
+    },
     Fixed {
         symbols: Vec<Color>,
     },
@@ -1298,6 +1302,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         "/faces/0/abilities",
     )?;
     let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
+    let disjoint_mana = pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     // CR 207.2c: labels carry no rules meaning. All underlying fields must
     // still decode and lower, including conditions, costs and player relations.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1463,6 +1468,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
         ..SourceLabels::default()
     };
+    let mana_abilities = disjoint_mana.map(Vec::from).unwrap_or_default();
+    labels.mana.extend(mana_abilities.iter().map(|a| a.source_block));
     let mut definition = Definition {
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
@@ -1488,7 +1495,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
         spell: None,
         activated: vec![],
-        mana_abilities: vec![],
+        mana_abilities,
         triggered: vec![],
         static_abilities: vec![],
         keywords: vec![],
@@ -1535,7 +1542,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            for (block, ability) in abilities.iter().enumerate() {
+            // A whole-source lowering has already consumed both mana blocks.
+            let remaining_abilities = if definition.mana_abilities.is_empty() {
+                abilities.as_slice()
+            } else {
+                &[]
+            };
+            for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
@@ -5040,6 +5053,7 @@ fn lower_mana_ability(
         return Err(unsupported("mana", "unsupported mana cost/restriction"));
     }
     Ok(Some(ManaAbility {
+        self_damage: None,
         restriction: restriction.map(|_| ManaActivationRestriction::OnceEachTurn),
         costs,
         production,

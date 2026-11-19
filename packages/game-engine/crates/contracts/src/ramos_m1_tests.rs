@@ -32,6 +32,7 @@ pub(super) fn ramos() -> Definition {
         },
     }];
     d.mana_abilities = vec![ManaAbility {
+        self_damage: None,
         source_block: 2,
         restriction: Some(ManaActivationRestriction::OnceEachTurn),
         costs: PermanentActivationCosts {
