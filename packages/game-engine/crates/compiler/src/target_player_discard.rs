@@ -40,16 +40,17 @@ pub(super) fn validate_bindings(
     binding: &Value,
     identity: &str,
     block: usize,
-) -> Result<(), Failure> {
+) -> Result<Vec<String>, Failure> {
+    let mut events = Vec::new();
     if ability["kind"] != "spell" {
-        return Ok(());
+        return Ok(events);
     }
     let path = format!("/faces/0/abilities/{block}");
     let scope = format!("card:{identity}{path}#ability");
     for (sentence, steps) in sentences(ability) {
         for (index, step) in steps.iter().enumerate() {
             let step_path = format!("{path}/effects/{sentence}/steps/{index}");
-            bind_step(step, &step_path, &scope, binding, identity)?;
+            events.extend(bind_step(step, &step_path, &scope, binding, identity)?);
             if step["effect"] == "modal"
                 && let Some(options) = step["options"].as_array()
             {
@@ -59,14 +60,20 @@ pub(super) fn validate_bindings(
                             let child_path = format!(
                                 "{step_path}/options/{option}/effects/{sentence}/steps/{index}"
                             );
-                            bind_step(child, &child_path, &scope, binding, identity)?;
+                            events.extend(bind_step(
+                                child,
+                                &child_path,
+                                &scope,
+                                binding,
+                                identity,
+                            )?);
                         }
                     }
                 }
             }
         }
     }
-    Ok(())
+    Ok(events)
 }
 
 fn sentences(program: &Value) -> impl Iterator<Item = (usize, &Vec<Value>)> {
@@ -84,9 +91,9 @@ fn bind_step(
     scope: &str,
     binding: &Value,
     identity: &str,
-) -> Result<(), Failure> {
+) -> Result<Option<String>, Failure> {
     if step["effect"] != "discard" || step["who"]["player"] != "target-player" {
-        return Ok(());
+        return Ok(None);
     }
     let fail = || {
         unsupported(
@@ -190,7 +197,7 @@ fn bind_step(
     {
         return Err(fail());
     }
-    Ok(())
+    Ok(Some(event))
 }
 
 fn unique<T>(mut values: impl Iterator<Item = T>) -> Option<T> {
@@ -239,7 +246,10 @@ mod tests {
                 {"path":what_path,"expression":what,"binding":"bound","target":query}
             ]
         });
-        validate_bindings(&ability, &binding, identity, 0).unwrap();
+        assert_eq!(
+            validate_bindings(&ability, &binding, identity, 0).unwrap(),
+            [event]
+        );
         let Ability::Spell { effects, .. } = serde_json::from_value(ability.clone()).unwrap()
         else {
             panic!("expected spell");

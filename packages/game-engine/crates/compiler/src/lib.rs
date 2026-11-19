@@ -1400,13 +1400,19 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
     cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
+    let mut bound_target_discards = BTreeSet::new();
     for (block, (line, ability)) in result.lines.iter().zip(&original).enumerate() {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
         let b: serde_json::Value = decode(ability.get(), "abilities")?;
         if a != b || line.text.is_empty() {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
-        target_player_discard::validate_bindings(&b, &binding, &r.oracle_identity, block)?;
+        bound_target_discards.extend(target_player_discard::validate_bindings(
+            &b,
+            &binding,
+            &r.oracle_identity,
+            block,
+        )?);
     }
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -2126,9 +2132,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         definition.characteristics.kind,
         CardKind::Instant | CardKind::Sorcery
     ) && binding["nodes"].as_array().is_some_and(|nodes| {
-        nodes
-            .iter()
-            .any(|n| n["node"] == "event" && n["operation"] == "discard")
+        nodes.iter().any(|n| {
+            n["node"] == "event"
+                && n["operation"] == "discard"
+                && n["id"]
+                    .as_str()
+                    .is_none_or(|id| !bound_target_discards.contains(id))
+        })
     }) && !definition
         .spell
         .as_ref()
@@ -2136,7 +2146,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     {
         return Err(unsupported(
             "binding",
-            "ordinary discard binding requires the complete draw/discard source",
+            "ordinary discard binding requires a complete supported discard source",
         ));
     }
     if definition
