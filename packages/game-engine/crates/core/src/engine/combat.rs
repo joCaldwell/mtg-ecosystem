@@ -772,21 +772,15 @@ impl Game {
             player: *player,
             reason: *reason,
         }));
-        self.commit_batch(
+        let batch = self.commit_batch(
             BatchCause::StateBased,
             EventGroup::Simultaneous { occurrences },
         )?;
         // Victim validation must still see the flag in the simultaneous SBA.
         // Only exact-incarnation survivors consume their checked window afterward.
         self.consume_checked_deathtouch(&checked_deathtouch)?;
-        if !losses.is_empty() {
-            self.record_event(Event::PlayersLost {
-                losses: losses.clone(),
-            })?;
-            self.apply_simultaneous_losses(&losses.iter().map(|(p, _)| *p).collect::<Vec<_>>())?;
-            if self.finish_if_ended()? {
-                return Ok(());
-            }
+        if self.finish_committed_player_losses(&batch)? {
+            return Ok(());
         }
         self.state.rules.frame = Frame::Stabilize {
             resume: Box::new(resume),

@@ -585,7 +585,32 @@ impl Game {
         }
         self.stabilize()
     }
-    pub(super) fn apply_simultaneous_losses(&mut self, players: &[PlayerId]) -> Result<(), String> {
+    /// CR 104.5/800.4a: derive departures from actual loss occurrences. Only
+    /// the players marked by the completed batch may leave for these losses.
+    pub(super) fn finish_committed_player_losses(
+        &mut self,
+        batch: &CommittedBatch,
+    ) -> Result<bool, String> {
+        let losses: Vec<_> = batch
+            .occurrences
+            .iter()
+            .filter_map(|occurrence| match &occurrence.actual {
+                EventOutcome::Lost { player, reason } => Some((*player, *reason)),
+                _ => None,
+            })
+            .collect();
+        let players: Vec<_> = losses.iter().map(|(player, _)| *player).collect();
+        if players != self.state.rules.losing_players {
+            return Err("committed losses disagree with pending departures".into());
+        }
+        if players.is_empty() {
+            return Ok(false);
+        }
+        self.record_event(Event::PlayersLost { losses })?;
+        self.apply_simultaneous_losses(&players)?;
+        self.finish_if_ended()
+    }
+    fn apply_simultaneous_losses(&mut self, players: &[PlayerId]) -> Result<(), String> {
         self.state.rules.simultaneous_losses = true;
         self.state.rules.losing_players = players.to_vec();
         let mut removed = vec![];
