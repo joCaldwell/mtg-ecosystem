@@ -101,7 +101,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const recordPauseCounts: Record<string, number> = {};
   const recordStateCounts: Record<string, number> = {};
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
-  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeStale: boolean; lastHttp: number; rateHint: boolean };
+  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeComplete: boolean; nativeStale: boolean; lastHttp: number; rateHint: boolean };
   let discovery: Discovery | null = null;
   const queryOwners = new WeakMap<Request, Discovery>();
   const readOrdinals = new WeakMap<Request, number>();
@@ -306,6 +306,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
               if (["complete", "incomplete"].includes(value.outcome.status)) {
                 check(value.outcome.page.token === queryOwner.context.token, "discovery_original_token");
                 queryOwner.beginnings.push(...value.outcome.page.beginnings);
+                queryOwner.nativeComplete ||= value.outcome.status === "complete";
               }
             }
           } else if (path.endsWith("/commands")) {
@@ -412,6 +413,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
       beginnings = []; // No prior selection/menu crosses a UI discovery chain.
       const button = page!.getByRole("button", { name: "Discover actions", exact: true });
+      const actions = page!.getByRole("region", { name: "Available actions", exact: true }).locator("ol > li > button");
       const phases = {
         complete: "Discovery complete. Each submitted action is validated again by the host.",
         limited: "Discovery reached a local limit. Results are not a complete menu.",
@@ -474,9 +476,13 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             check(beginning.label !== "unavailable" && beginning.label.available.text === "Finish adding mana; reverse reversible mana if payment fails", "conditional_reversal_wording");
             conditionalReversal = true;
           }
-          const menu = page!.getByRole("region", { name: "Available actions", exact: true });
-          const action = menu.locator("ol > li > button").nth(index);
-          check(await menu.locator("ol > li > button").count() === values.length, "discovery_current_menu");
+          const action = actions.nth(index);
+          if (await actions.count() !== values.length) {
+            await healthy();
+            check(!await currentContext(original), "discovery_current_menu");
+            lateNoSendInvalidations++;
+            return false;
+          }
           const before = sent.size;
           try {
             // A short actionability deadline avoids waiting on an old disabled
@@ -495,13 +501,16 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         discover: async (original, end) => {
           // The returned command context belongs to this fresh discovery,
           // never to the discarded stale menu.
-          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeStale: false, lastHttp: 0, rateHint: false }; discovery = attempt;
+          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeComplete: false, nativeStale: false, lastHttp: 0, rateHint: false }; discovery = attempt;
           await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
           await button.click(); discoveryGenerations++; let phase = "";
           try {
             await until(async () => {
               if (!attempt.calls) return false;
-              for (const [name, text] of Object.entries(phases)) if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
+              for (const [name, text] of Object.entries(phases)) {
+                if (name === "complete" && (!attempt.nativeComplete || await actions.count() !== attempt.beginnings.length)) continue;
+                if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
+              }
               return false;
             }, "discovery_complete", Math.min(20_000, Math.max(1, end - Date.now())));
           } finally {
