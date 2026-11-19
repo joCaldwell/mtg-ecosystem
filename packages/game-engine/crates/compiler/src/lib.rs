@@ -31,6 +31,7 @@ mod draw_discard_tests;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod group_discard;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
@@ -1298,6 +1299,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
+    let group_discard = group_discard::lower(&result, &shape, &binding, types.kind)?;
     let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
         && let [Ability::Spell { .. }] = abilities.as_slice()
     {
@@ -1627,7 +1629,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if flash_end_step_draw {
+                        let ability = if let Some(discard) = &group_discard {
+                            group_discard::entry_trigger(discard.clone())
+                        } else if flash_end_step_draw {
                             unlimited_hand_size::lower_end_step_draw(
                                 trigger,
                                 effects,
@@ -1697,6 +1701,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(discard) = &group_discard {
+                    program.instructions.push(discard.clone());
+                    continue;
+                }
                 if announced_x_effects {
                     append_spell_effects(
                         &mut program,
@@ -1872,7 +1880,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         nodes
             .iter()
             .any(|n| n["node"] == "event" && n["operation"] == "discard")
-    }) && discard_target.is_none()
+    }) && group_discard.is_none()
+        && discard_target.is_none()
         && !announced_x_effects
         && !definition.spell.as_ref().is_some_and(|p| {
             controller_draw_discard_program(p)
