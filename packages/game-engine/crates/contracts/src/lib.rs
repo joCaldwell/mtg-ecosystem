@@ -19,6 +19,7 @@ pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
+mod each_player_draw;
 mod targeted_counted_draw;
 mod targeted_discard;
 pub use targeted_counted_draw::targeted_counted_draw_program;
@@ -317,6 +318,7 @@ pub enum Capability {
     SacrificeV1,
     BoardWipesV1,
     AnnouncedXDrawV1,
+    EachPlayerDrawV1,
     AnnouncedXEffectsV1,
     TargetedCountedDrawV1,
     TargetPlayerDiscardV1,
@@ -412,6 +414,15 @@ pub enum WipeAmount {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RandomDiscardCount {
+    Fixed {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        value: Quantity,
+    },
+    AnnouncedX,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DrawEachCount {
     Fixed {
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
         value: Quantity,
@@ -758,6 +769,12 @@ pub enum Instruction {
         count: Quantity,
         source_block: u32,
     },
+    /// CR 121.2c: each player finishes their draws before the next player in turn order.
+    DrawEachPlayer {
+        count: DrawEachCount,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     DrawAnnouncedX {
         #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
         #[schemars(with = "LifeRecipient")]
@@ -883,7 +900,8 @@ impl Instruction {
             Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
-            Self::DrawAnnouncedX { source_block, .. }
+            Self::DrawEachPlayer { source_block, .. }
+            | Self::DrawAnnouncedX { source_block, .. }
             | Self::DealDamageAnnouncedX { source_block, .. }
             | Self::MillAnnouncedX { source_block, .. }
             | Self::ChangeLifeAnnouncedX { source_block, .. }
@@ -1865,6 +1883,7 @@ impl Definition {
         announced_x_draw::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
+        each_player_draw::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -2102,6 +2121,9 @@ impl Definition {
                             i,
                             Instruction::DamageSet {
                                 amount: WipeAmount::AnnouncedX,
+                                ..
+                            } | Instruction::DrawEachPlayer {
+                                count: DrawEachCount::AnnouncedX,
                                 ..
                             } | Instruction::DiscardTargetPlayerAtRandom {
                                 count: RandomDiscardCount::AnnouncedX,
@@ -3393,6 +3415,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
+            | Instruction::DrawEachPlayer { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::DrawDamageAmount { .. } => None,
             Instruction::DamageSet {
@@ -4040,6 +4063,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::AnnouncedXEffectsV1
             }
             Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
+            Instruction::DrawEachPlayer { .. } => Capability::EachPlayerDrawV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
@@ -5169,6 +5193,7 @@ pub fn catalog_schema() -> serde_json::Value {
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     targeted_discard::extend_schema(&mut schema);
+    each_player_draw::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -5411,6 +5436,7 @@ mod tests {
             SacrificeV1,
             BoardWipesV1,
             AnnouncedXDrawV1,
+            EachPlayerDrawV1,
             AnnouncedXEffectsV1,
             FlashV1,
             EntersTappedV1,
@@ -5522,6 +5548,7 @@ mod tests {
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
         definitions.push(announced_x_draw::witness());
+        definitions.push(each_player_draw::witness());
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
         definitions.push(targeted_counted_draw::witness());

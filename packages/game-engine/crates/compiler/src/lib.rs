@@ -27,6 +27,7 @@ mod diagnostics;
 mod draw_discard;
 #[cfg(test)]
 mod draw_discard_tests;
+mod each_player_draw;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
@@ -1296,6 +1297,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
     let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
         && let [Ability::Spell { .. }] = abilities.as_slice()
@@ -1696,6 +1698,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(count) = &each_player_draw {
+                    program.instructions.push(Instruction::DrawEachPlayer {
+                        count: count.clone(),
+                        source_block: 0,
+                    });
+                    continue;
+                }
                 if announced_x_effects {
                     append_spell_effects(
                         &mut program,
