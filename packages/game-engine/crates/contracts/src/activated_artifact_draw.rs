@@ -1,6 +1,7 @@
 //! Battlefield activations pay their fixed mana and source tap costs at
 //! announcement (CR 113.6, 602.2b, 601.2h) and draw for the ability's
-//! controller on resolution (CR 113.8, 121.2, 608.2c).
+//! controller on resolution, with a discard in the draw/discard programs
+//! (CR 113.8, 121.2, 701.9, 608.2c).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -13,8 +14,8 @@ const CAPABILITIES: [Capability; 6] = [
     Capability::ActivatedArtifactDrawV1,
 ];
 
-/// The exact paid source-tap draw-one ability. Definition validation also
-/// checks the complete source and its cast program.
+/// Paid source-tap draw-one, or one or two draws followed by one discard.
+/// Definition validation also checks the complete source and its cast program.
 pub fn activated_artifact_draw_ability(ability: &ActivatedAbility) -> bool {
     let p = &ability.program;
     ability.functioning_zone == FunctioningZone::Battlefield
@@ -27,9 +28,26 @@ pub fn activated_artifact_draw_ability(ability: &ActivatedAbility) -> bool {
         && p.additional_sacrifice.is_none()
         && p.targets.is_empty()
         && p.modes.is_empty()
-        && matches!(p.instructions.as_slice(),
-            [Instruction::DrawCards { count, recipient: None, source_block: 0 }]
-                if *count == Quantity::from(1))
+        && match p.instructions.split_last() {
+            Some((last, [])) => draw_one(last),
+            Some((
+                Instruction::DiscardCards {
+                    count,
+                    recipient: None,
+                    source_block: 0,
+                },
+                draws @ ([_] | [_, _]),
+            )) => *count == Quantity::from(1) && draws.iter().all(draw_one),
+            _ => false,
+        }
+}
+
+fn draw_one(instruction: &Instruction) -> bool {
+    matches!(
+        instruction,
+        Instruction::DrawCards { count, recipient: None, source_block: 0 }
+            if *count == Quantity::from(1)
+    )
 }
 
 pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
@@ -59,6 +77,13 @@ pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
 pub(super) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
 
+    let draw = unit_instruction_schema("draw_cards");
+    let discard = unit_instruction_schema("discard_cards");
+    let has_discard = json!({"required":["activated"],"properties":{
+        "activated":{"contains":{"properties":{"program":{"properties":{
+            "instructions":{"contains":discard}
+        }}}}}
+    }});
     let defs = &mut s["$defs"];
     defs["ActivatedArtifactDrawAbility"] = json!({
         "required":["functioning_zone","cost","program"],
@@ -79,18 +104,17 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
                 "additional_sacrifice":{"type":"null"},"targets":{"maxItems":0},"modes":{"maxItems":0},
                 "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},
                 "resolution":{"const":"instructions"},
-                "instructions":{"minItems":1,"maxItems":1,"items":{
-                    "required":["op","count","source_block"],"properties":{
-                        "op":{"const":"draw_cards"},"count":{"const":"1"},
-                        "recipient":{"type":"null"},"source_block":{"const":0}
-                    }
-                }}
+                "instructions":{"anyOf":[
+                    {"minItems":1,"maxItems":1,"items":draw},
+                    {"minItems":2,"prefixItems":[draw,discard],"items":false},
+                    {"minItems":3,"prefixItems":[draw,draw,discard],"items":false}
+                ]}
             }}
         }
     });
     defs["ArtifactDrawFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":{"required":["op"],"properties":{
-            "op":{"enum":["draw_cards","optional_draw_cards"]}
+            "op":{"enum":["draw_cards","optional_draw_cards","discard_cards"]}
         }}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/ArtifactDrawFreeProgram"}}}}
     }});
@@ -119,6 +143,11 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
         .chain(["Equipment", "Aura"])
         .collect::<Vec<_>>();
     let required_caps = CAPABILITIES.map(|cap| json!({"contains":{"const":cap}}));
+    let discard_cap = json!({"contains":{"const":Capability::ControllerDiscardV1}});
+    let allowed_caps = CAPABILITIES
+        .into_iter()
+        .chain([Capability::ControllerDiscardV1])
+        .collect::<Vec<_>>();
     defs["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"required":["activated"],"properties":{"activated":{"contains":composite_draw}}},
         "then":{
@@ -140,11 +169,24 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
                 "mana_abilities":{"maxItems":0},"triggered":{"maxItems":0},
                 "static_abilities":{"maxItems":0},"keywords":{"maxItems":0},
                 "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
-                "capabilities":{"items":{"enum":CAPABILITIES},"allOf":required_caps}
-            }
+                "capabilities":{"items":{"enum":allowed_caps},"allOf":required_caps}
+            },
+            "if":has_discard,
+            "then":{"properties":{"capabilities":discard_cap}},
+            "else":{"properties":{"capabilities":{"not":discard_cap}}}
         },
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ActivatedArtifactDrawV1}}}}}
     }));
+}
+
+fn unit_instruction_schema(op: &str) -> serde_json::Value {
+    serde_json::json!({
+        "required":["op","count","source_block"],
+        "properties":{
+            "op":{"const":op},"count":{"const":"1"},
+            "recipient":{"type":"null"},"source_block":{"const":0}
+        }
+    })
 }
 
 #[cfg(test)]
@@ -226,6 +268,38 @@ fn paid_artifact_draw_requires_exact_ability_source_and_capabilities() {
         invalid.capabilities = invalid.requirements();
         assert!(invalid.validate().is_err(), "{label}");
     }
+
+    let draw = d.activated[0].program.instructions[0].clone();
+    let discard = Instruction::DiscardCards {
+        count: 1.into(),
+        recipient: None,
+        source_block: 0,
+    };
+    for instructions in [
+        vec![draw.clone(), discard.clone()],
+        vec![draw.clone(), draw.clone(), discard.clone()],
+    ] {
+        let mut loot = d.clone();
+        loot.activated[0].program.instructions = instructions;
+        loot.capabilities = loot.requirements();
+        assert_eq!(
+            loot.capabilities,
+            BTreeSet::from(CAPABILITIES)
+                .into_iter()
+                .chain([Capability::ControllerDiscardV1])
+                .collect()
+        );
+        loot.validate().unwrap();
+        loot.capabilities.remove(&Capability::ControllerDiscardV1);
+        assert!(loot.validate().is_err());
+    }
+    for instructions in [vec![draw.clone(), draw.clone()], vec![discard, draw]] {
+        let mut invalid = d.clone();
+        invalid.activated[0].program.instructions = instructions;
+        invalid.capabilities = invalid.requirements();
+        assert!(invalid.validate().is_err());
+    }
+
     let mut legacy = d;
     let ActivationCost::Composite { costs } = &mut legacy.activated[0].cost else {
         panic!("expected composite activation");
