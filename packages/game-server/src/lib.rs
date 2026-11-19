@@ -17,6 +17,7 @@ pub mod codec;
 pub mod registry;
 
 mod recovery_hashes;
+mod resume_reader;
 
 /// Host code plus the engine code/toolchain/build identity. Catalogs remain
 /// independently pinned by match metadata. Never use the engine-only identity

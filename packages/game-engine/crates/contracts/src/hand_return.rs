@@ -84,7 +84,17 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     let family = json!({"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"}]});
     let defs = s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap();
     defs.push(json!({"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}},"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}}));
-    defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1]}}}}}}));
+    defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1,Capability::LifeLossV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1]}}}}}}));
+    // LifeLoss is an independent required capability only for the exact tail.
+    let loses_life = json!({"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"lose_life"}}}}}}}});
+    defs.push(json!({
+        "if":has,
+        "then":{
+            "if":loses_life,
+            "then":{"properties":{"capabilities":{"contains":{"const":Capability::LifeLossV1}}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::LifeLossV1}}}}}
+        }
+    }));
     for (program, cap) in [
         (
             "ControllerCountedDrawProgram",

@@ -27,8 +27,12 @@ pub fn engine_build_input(path: &str) -> bool {
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+mod activated_artifact_draw;
+pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
+mod targeted_counted_draw;
+pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
@@ -52,8 +56,10 @@ mod archives;
 mod optional_costs;
 mod static_controller;
 pub use archives::*;
+mod hand_size_adjustments;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
+mod unlimited_hand_size;
 
 /// The sole active Card IR schema accepted and emitted by the engine.
 pub const CURRENT_IR_VERSION: u32 = 1;
@@ -185,23 +191,23 @@ impl Characteristics {
 /// Rule-bearing subtype boundaries from CR 205.3g–k, 301.5–7, 303.4/7,
 /// 709.5, 714–720. Other subtype labels do not themselves supply abilities.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+const UNSUPPORTED_RULES_SUBTYPES: &[&str] = &[
+    "Saga",
+    "Class",
+    "Case",
+    "Vehicle",
+    "Curse",
+    "Spacecraft",
+    "Attraction",
+    "Room",
+    "Contraption",
+    "Fortification",
+    "Role",
+    "Adventure",
+    "Omen",
+];
 pub fn unsupported_rules_subtype(subtype: &str) -> bool {
-    matches!(
-        subtype,
-        "Saga"
-            | "Class"
-            | "Case"
-            | "Vehicle"
-            | "Curse"
-            | "Spacecraft"
-            | "Attraction"
-            | "Room"
-            | "Contraption"
-            | "Fortification"
-            | "Role"
-            | "Adventure"
-            | "Omen"
-    )
+    UNSUPPORTED_RULES_SUBTYPES.contains(&subtype)
 }
 
 #[derive(
@@ -234,6 +240,9 @@ pub enum Capability {
     SnowSupertypeV1,
     AttackingCreatureKeywordsV1,
     OpponentCastProhibitionV1,
+    UnlimitedHandSizeV1,
+    ReducedHandSizeV1,
+    IncreasedHandSizeV1,
     GroupedCreatureDamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
@@ -271,6 +280,7 @@ pub enum Capability {
     TapSourceUntapCreatureV1,
     ActivatedSpellCounterV1,
     ActivatedPermanentOwnerHandV1,
+    ActivatedArtifactDrawV1,
     OwnerHandMoveV1,
     PermanentOwnerHandMoveV1,
     CastSorceryV1,
@@ -345,6 +355,7 @@ pub enum Capability {
     SacrificeV1,
     BoardWipesV1,
     SelfSpellProtectionV1,
+    TargetedCountedDrawV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1006,6 +1017,13 @@ impl SpellCascadeEligibility {
         !matches!(self, Self::ManaValueAtLeast { .. })
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HandSizeScope {
+    Controller,
+    Opponents,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
@@ -1023,6 +1041,25 @@ pub enum StaticEffect {
     ControlEnchantedPermanent,
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
     OpponentsCantCastDuringControllerTurn,
+    /// CR 109.5, 611.3, 613.11, 514.1: the battlefield source's current
+    /// controller has no maximum hand size.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    UnlimitedControllerHandSize,
+    /// CR 109.5, 611.3, 613.11, 514.1: subtract from the maximum hand size
+    /// of the current controller or that controller's opponents.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    ReduceMaximumHandSize {
+        scope: HandSizeScope,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+    },
+    /// CR 109.5, 611.3, 613.11, 514.1: add to the maximum hand size
+    /// of the current controller of this battlefield source.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    IncreaseMaximumHandSize {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+    },
     EntersTapped,
     /// CR 109.5/205.4c/614.12: count prior basic lands of the entering controller.
     EntersTappedUnlessControllerBasicLands {
@@ -1909,6 +1946,9 @@ impl Definition {
             if matches!(ability.cost, ActivationCost::DiscardSource { .. }) {
                 set.insert(Capability::ManaActivationCostV1);
             }
+            if activated_artifact_draw_ability(ability) {
+                set.insert(Capability::ActivatedArtifactDrawV1);
+            }
             if has_untap(&ability.program) {
                 set.insert(Capability::TapSourceUntapCreatureV1);
             }
@@ -2048,6 +2088,9 @@ impl Definition {
                 StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. } => {
                     Capability::ControllerCreaturePlusOneCounterReplacementV1
                 }
+                StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
+                StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
+                StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::EntersTappedUnlessPayLife { .. } => {
                     Capability::OptionalLifeLandEntryV1
@@ -2090,9 +2133,12 @@ impl Definition {
         u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         controller_library::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
+        targeted_counted_draw::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
+        unlimited_hand_size::validate_definition(self)?;
+        hand_size_adjustments::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2557,6 +2603,11 @@ impl Definition {
             {
                 return Err("counter removal requires mana ability".into());
             }
+            if activated_artifact_draw_ability(ability) {
+                activated_artifact_draw::validate_source(self)?;
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if has_untap(&ability.program) {
                 if c.kind != CardKind::Creature || !tap_source_untap_ability(ability) {
                     return Err("tap-source untap requires a creature, pure source tap and one creature target".into());
@@ -2954,9 +3005,12 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
+                && a.effect != StaticEffect::UnlimitedControllerHandSize
                 && !matches!(
                     a.effect,
-                    StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
+                    StaticEffect::ReduceMaximumHandSize { .. }
+                        | StaticEffect::IncreaseMaximumHandSize { .. }
+                        | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                 )
                 && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                 && !matches!(
@@ -3612,6 +3666,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("cascade requires one complete targetless program".into());
     }
+    if targeted_counted_draw::has_counted_draw(p) && !targeted_counted_draw_program(p) {
+        return Err("unsupported complete targeted counted draw".into());
+    }
     if hand_return::has_hand_program(p)
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
@@ -4196,22 +4253,15 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     _ => return Err("unsupported mill recipient".into()),
                 }
             }
-            Instruction::DrawCards {
-                count, recipient, ..
-            } => {
-                if *count != Quantity::from(1) {
-                    return Err("unsupported draw cardinality".into());
+            Instruction::DrawCards { recipient, .. } => match recipient {
+                Some(LifeRecipient::EachOpponent) => {
+                    return Err("unsupported each-opponent draw".into());
                 }
-                match recipient {
-                    Some(LifeRecipient::EachOpponent) => {
-                        return Err("unsupported each-opponent draw".into());
-                    }
-                    Some(LifeRecipient::Target { target_slot }) => {
-                        Some((*target_slot, TargetDomain::AnyPlayer))
-                    }
-                    _ => None,
+                Some(LifeRecipient::Target { target_slot }) => {
+                    Some((*target_slot, TargetDomain::AnyPlayer))
                 }
-            }
+                _ => None,
+            },
             Instruction::DiscardCards { count, .. } => {
                 if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
                     return Err("unsupported draw/discard cardinality".into());
@@ -4508,6 +4558,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
+                Capability::TargetedCountedDrawV1
+            }
             Instruction::DrawCards {
                 recipient: Some(_), ..
             } => Capability::TargetPlayerDrawV1,
@@ -5826,6 +5879,7 @@ pub fn catalog_schema() -> serde_json::Value {
     pain_mana::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
+    targeted_counted_draw::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -5837,6 +5891,9 @@ pub fn catalog_schema() -> serde_json::Value {
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
     cast_origin::extend_schema(&mut schema);
+    activated_artifact_draw::extend_schema(&mut schema);
+    unlimited_hand_size::extend_schema(&mut schema);
+    hand_size_adjustments::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5997,6 +6054,7 @@ mod tests {
             TapSourceUntapCreatureV1,
             ActivatedSpellCounterV1,
             ActivatedPermanentOwnerHandV1,
+            ActivatedArtifactDrawV1,
             OwnerHandMoveV1,
             PermanentOwnerHandMoveV1,
             CastSorceryV1,
@@ -6072,6 +6130,7 @@ mod tests {
             TypedLandSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
+            TargetedCountedDrawV1,
             CastArtifactV1,
             PermanentManaV1,
             OpponentLandManaV1,
@@ -6107,6 +6166,9 @@ mod tests {
             SnowSupertypeV1,
             AttackingCreatureKeywordsV1,
             OpponentCastProhibitionV1,
+            UnlimitedHandSizeV1,
+            ReducedHandSizeV1,
+            IncreasedHandSizeV1,
             GroupedCreatureDamageTriggerV1,
             ControlledCreatureDamageReplacementV1,
         ];
@@ -6288,6 +6350,7 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(targeted_counted_draw::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
@@ -6312,6 +6375,7 @@ mod tests {
         definitions.push(tap_source_untap_tests::tap_source_untap());
         definitions.push(activated_spell_counter_tests::activated_counter());
         definitions.push(activated_permanent_return_tests::activated_return());
+        definitions.push(activated_artifact_draw::witness());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         definitions.push(basic_land_split_tests::split_search());
         definitions.push(typed_land_search_tests::typed_search());
@@ -6446,6 +6510,9 @@ mod tests {
         }];
         prohibit.capabilities = prohibit.requirements();
         definitions.push(prohibit);
+        definitions.push(unlimited_hand_size::witness());
+        definitions.push(hand_size_adjustments::reduced_witness());
+        definitions.push(hand_size_adjustments::increased_witness());
         let mut controlled_replacement = damage.clone();
         controlled_replacement.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,

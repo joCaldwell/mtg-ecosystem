@@ -11,7 +11,17 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, Semaphore, oneshot};
+
+pub(crate) const READER_LIMIT: usize = 4;
+type Reader = Arc<crate::resume_reader::ResumeReader>;
+
+// The production await seam also permits a deterministic held-reply regression.
+async fn await_worker_reply(
+    request: impl std::future::Future<Output = Result<WorkerReply, crate::process::BridgeError>>,
+) -> Result<WorkerReply, crate::process::BridgeError> {
+    request.await
+}
 
 pub const QUEUE_LIMIT: usize = 16;
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -64,6 +74,8 @@ async fn complete_scheduled<T>(
 pub struct Broker {
     queue: Arc<Mutex<Queue>>,
     notify: Arc<Notify>,
+    reader: Arc<Mutex<Option<Reader>>>,
+    reader_admission: Arc<Semaphore>,
 }
 impl Broker {
     pub fn start(process: WorkerProcess) -> (Self, tokio::task::JoinHandle<()>) {
@@ -82,6 +94,8 @@ impl Broker {
         let broker = Self {
             queue: Arc::new(Mutex::new(Queue::default())),
             notify: Arc::new(Notify::new()),
+            reader: Arc::new(Mutex::new(Some(process.resume_reader()))),
+            reader_admission: Arc::new(Semaphore::new(READER_LIMIT)),
         };
         let actor = broker.clone();
         let task = tokio::spawn(async move { actor.run(process, config).await });
@@ -106,9 +120,62 @@ impl Broker {
         Ok(receiver)
     }
     pub async fn call(&self, command: WorkerCommand) -> Reply {
+        // Both HTTP and the lifecycle projector use this call boundary. Pure
+        // committed Resume never enters the one-rules-executor queue.
+        if let WorkerCommand::Resume { seat } = command {
+            return self.resume(seat).await;
+        }
         self.enqueue(command)?
             .await
             .unwrap_or(Err(BrokerError::Unavailable))
+    }
+    async fn resume(&self, seat: u8) -> Reply {
+        let permit = self
+            .reader_admission
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| BrokerError::Busy)?;
+        let reader = self
+            .reader
+            .lock()
+            .map_err(|_| BrokerError::Unavailable)?
+            .clone()
+            .ok_or(BrokerError::Unavailable)?;
+        let epoch = reader.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            // Admission follows the blocking job even if its caller is dropped.
+            let _permit = permit;
+            reader.read(seat)
+        })
+        .await
+        .map_err(|_| BrokerError::Unavailable)?;
+        let gate = self.reader.lock().map_err(|_| BrokerError::Unavailable)?;
+        if !gate
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &epoch) && epoch.check().is_ok())
+        {
+            return Err(BrokerError::Unavailable);
+        }
+        result
+            .map(|resume| WorkerReply::Resume {
+                resume: Box::new(resume),
+            })
+            .map_err(|_| BrokerError::Unavailable)
+    }
+    fn revoke_reader(&self) {
+        if let Ok(mut gate) = self.reader.lock()
+            && let Some(reader) = gate.take()
+        {
+            reader.revoke();
+        }
+    }
+    fn install_reader(&self, process: &WorkerProcess) -> Option<()> {
+        let queue = self.queue.lock().ok()?;
+        if queue.stopping || queue.dead {
+            return None;
+        }
+        *self.reader.lock().ok()? = Some(process.resume_reader());
+        Some(())
     }
     /// None means the submission has already left this queue (or never existed).
     /// The caller may inspect its durable execution status, but cannot undo it.
@@ -147,17 +214,36 @@ impl Broker {
         if let Ok(mut queue) = self.queue.lock() {
             queue.stopping = true;
         }
+        self.revoke_reader();
         self.notify.notify_one();
     }
     fn finish(&self) {
         if let Ok(mut queue) = self.queue.lock() {
             queue.dead = true;
+            self.revoke_reader();
             for item in queue.requests.drain(..) {
                 for sender in item.replies {
                     let _ = sender.send(Err(BrokerError::Unavailable));
                 }
             }
         }
+        self.revoke_reader();
+    }
+    fn expose_reply(&self, result: Reply, replies: Vec<oneshot::Sender<Reply>>) -> bool {
+        let failed = result.is_err()
+            || matches!(
+                &result,
+                Ok(WorkerReply::Error {
+                    code: crate::ipc::WorkerErrorCode::Unavailable
+                })
+            );
+        if failed {
+            self.revoke_reader();
+        }
+        for sender in replies {
+            let _ = sender.send(result.clone());
+        }
+        failed
     }
     async fn recover(
         &self,
@@ -165,6 +251,7 @@ impl Broker {
         config: &Option<SpawnConfig>,
         attempts: &mut usize,
     ) -> Option<WorkerProcess> {
+        self.revoke_reader();
         // Never replace a writer whose resource group was not verified empty.
         if old.shutdown(Duration::from_secs(5)).await.is_err() {
             return None;
@@ -208,8 +295,7 @@ impl Broker {
                 {
                     continue;
                 }
-                let result = process
-                    .call(item.command, CALL_TIMEOUT)
+                let result = await_worker_reply(process.call(item.command, CALL_TIMEOUT))
                     .await
                     .map_err(|_| BrokerError::Unavailable);
                 if let Ok(reply) = &result
@@ -218,20 +304,14 @@ impl Broker {
                     status = next.clone();
                 }
                 served = served.saturating_add(1);
-                let failed = result.is_err()
-                    || matches!(
-                        &result,
-                        Ok(WorkerReply::Error {
-                            code: crate::ipc::WorkerErrorCode::Unavailable
-                        })
-                    );
-                for sender in item.replies {
-                    let _ = sender.send(result.clone());
-                }
+                let failed = self.expose_reply(result, item.replies);
                 if failed {
                     match self.recover(process, &config, &mut recoveries).await {
                         Some(recovered) => {
                             process = recovered;
+                            if self.install_reader(&process).is_none() {
+                                break;
+                            }
                             status = process.status().clone();
                             served = 0;
                             last_clock = tokio::time::Instant::now();
@@ -264,7 +344,12 @@ impl Broker {
                 }
             };
             served = 0;
-            match complete_scheduled(process.call(command, CALL_TIMEOUT), &mut last_clock).await {
+            match complete_scheduled(
+                await_worker_reply(process.call(command, CALL_TIMEOUT)),
+                &mut last_clock,
+            )
+            .await
+            {
                 Ok(reply) if !matches!(reply, WorkerReply::Error { .. }) => {
                     if let Some(next) = reply.status() {
                         status = next.clone();
@@ -273,6 +358,9 @@ impl Broker {
                 _ => match self.recover(process, &config, &mut recoveries).await {
                     Some(recovered) => {
                         process = recovered;
+                        if self.install_reader(&process).is_none() {
+                            break;
+                        }
                         status = process.status().clone();
                         last_clock = tokio::time::Instant::now();
                     }
@@ -307,6 +395,8 @@ mod tests {
         Broker {
             queue: Arc::new(Mutex::new(Queue::default())),
             notify: Arc::new(Notify::new()),
+            reader: Arc::new(Mutex::new(None)),
+            reader_admission: Arc::new(Semaphore::new(READER_LIMIT)),
         }
     }
     #[tokio::test]
@@ -456,5 +546,250 @@ mod tests {
         }
         assert_eq!(original.await.unwrap().unwrap(), result);
         assert_eq!(cancel.await.unwrap().unwrap(), Some(result));
+    }
+    #[tokio::test]
+    async fn committed_resume_bypasses_held_production_ipc_await_for_every_seat() {
+        let mut fixture = crate::resume_reader::tests::Fixture::new();
+        fixture.settle();
+        fixture
+            .worker
+            .clock(ClockControl::Pause, std::time::Instant::now())
+            .unwrap();
+        let broker = idle();
+        *broker.reader.lock().unwrap() = Some(fixture.reader());
+        let (entered_tx, entered_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let actor = broker.clone();
+        let held = tokio::spawn(async move {
+            let result = await_worker_reply(async {
+                entered_tx.send(()).unwrap();
+                release_rx.await.unwrap();
+                Ok(WorkerReply::Clocked {
+                    status: ExecutionStatus::ResourcePaused,
+                })
+            })
+            .await;
+            // This is the production await path; no queue is drained while its
+            // single IPC request is unresolved.
+            result.unwrap()
+        });
+        entered_rx.await.unwrap();
+        let mut baseline = actor.enqueue(WorkerCommand::Resume { seat: 0 }).unwrap();
+        assert!(matches!(
+            baseline.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        for seat in 0..4 {
+            let reply = tokio::time::timeout(
+                Duration::from_secs(2),
+                broker.call(WorkerCommand::Resume { seat }),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                reply,
+                WorkerReply::Resume {
+                    resume: Box::new(fixture.worker.resume(seat).unwrap())
+                }
+            );
+            assert!(!held.is_finished());
+        }
+        assert!(matches!(
+            baseline.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        assert_eq!(broker.queue.lock().unwrap().requests.len(), 1);
+        release_tx.send(()).unwrap();
+        held.await.unwrap();
+        broker.finish();
+        assert_eq!(baseline.await.unwrap(), Err(BrokerError::Unavailable));
+    }
+    #[tokio::test]
+    async fn reader_admission_and_revocation_fail_closed_without_rules_queue_fallback() {
+        let f = crate::resume_reader::tests::Fixture::new();
+        let broker = idle();
+        let reader = f.reader();
+        *broker.reader.lock().unwrap() = Some(reader.clone());
+        let permits = broker
+            .reader_admission
+            .clone()
+            .acquire_many_owned(READER_LIMIT as u32)
+            .await
+            .unwrap();
+        assert_eq!(
+            broker.call(WorkerCommand::Resume { seat: 0 }).await,
+            Err(BrokerError::Busy)
+        );
+        assert!(broker.queue.lock().unwrap().requests.is_empty());
+        drop(permits);
+        assert!(broker.call(WorkerCommand::Resume { seat: 0 }).await.is_ok());
+        // Fatal reply revokes before a caller can observe the reply; recovery
+        // cannot borrow the previous Ready even though dead/stopping are false.
+        let (sender, receiver) = oneshot::channel();
+        assert!(broker.expose_reply(
+            Ok(WorkerReply::Error {
+                code: crate::ipc::WorkerErrorCode::Unavailable
+            }),
+            vec![sender]
+        ));
+        assert!(matches!(
+            receiver.await.unwrap(),
+            Ok(WorkerReply::Error { .. })
+        ));
+        assert!(!broker.queue.lock().unwrap().dead);
+        assert!(reader.read(0).is_err());
+        assert_eq!(
+            broker.call(WorkerCommand::Resume { seat: 0 }).await,
+            Err(BrokerError::Unavailable)
+        );
+        *broker.reader.lock().unwrap() = Some(f.reader());
+        assert!(broker.call(WorkerCommand::Resume { seat: 0 }).await.is_ok());
+        broker.stop();
+        assert_eq!(
+            broker.call(WorkerCommand::Resume { seat: 0 }).await,
+            Err(BrokerError::Unavailable)
+        );
+    }
+    #[tokio::test]
+    async fn dropped_read_retains_bounded_admission_and_revoked_epoch_cannot_escape() {
+        use std::future::Future;
+        let f = crate::resume_reader::tests::Fixture::new();
+        let broker = idle();
+        let reader = f.reader();
+        *broker.reader.lock().unwrap() = Some(reader.clone());
+        let (locked_tx, locked_rx) = oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let blocked_reader = reader.clone();
+        let held = tokio::task::spawn_blocking(move || {
+            let _lock = blocked_reader.hold_for_test();
+            locked_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        locked_rx.await.unwrap();
+        let mut abandoned = Box::pin(broker.call(WorkerCommand::Resume { seat: 0 }));
+        // Poll exactly once: production admission occurs synchronously, then
+        // spawn_blocking waits on the held connection. No timing sleeps.
+        std::future::poll_fn(|cx| {
+            assert!(abandoned.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            broker.reader_admission.available_permits(),
+            READER_LIMIT - 1
+        );
+        drop(abandoned);
+        assert_eq!(
+            broker.reader_admission.available_permits(),
+            READER_LIMIT - 1
+        );
+        let mut stale = Box::pin(broker.call(WorkerCommand::Resume { seat: 1 }));
+        std::future::poll_fn(|cx| {
+            assert!(stale.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        broker.revoke_reader(); // recovery fence, before any new Ready
+        assert_eq!(
+            broker.call(WorkerCommand::Resume { seat: 2 }).await,
+            Err(BrokerError::Unavailable)
+        );
+        release_tx.send(()).unwrap();
+        held.await.unwrap();
+        assert_eq!(stale.await, Err(BrokerError::Unavailable));
+        // Acquire all permits to join even the abandoned blocking read.
+        let all = tokio::time::timeout(
+            Duration::from_secs(2),
+            broker
+                .reader_admission
+                .clone()
+                .acquire_many_owned(READER_LIMIT as u32),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        drop(all);
+        *broker.reader.lock().unwrap() = Some(f.reader());
+        assert!(broker.call(WorkerCommand::Resume { seat: 0 }).await.is_ok());
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn completed_resume_cannot_escape_after_pinned_worker_death() {
+        use std::{future::Future, process::Stdio};
+        struct Reap(std::process::Child);
+        impl Drop for Reap {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        // A blocking stdin keeps the pinned process live without timing sleeps.
+        // The fixture supplies actual committed views; this process supplies
+        // the independently sampled kernel-liveness boundary.
+        let mut process = Reap(
+            std::process::Command::new("/usr/bin/cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let mut f = crate::resume_reader::tests::Fixture::new();
+        f.settle();
+        let reader = Arc::new(
+            crate::resume_reader::ResumeReader::open(
+                &f.directory,
+                &f.root,
+                f.worker.identity().clone(),
+                f.worker.read_descriptor().unwrap(),
+                crate::resume_reader::Liveness::open(process.0.id()).unwrap(),
+            )
+            .unwrap(),
+        );
+        let broker = idle();
+        *broker.reader.lock().unwrap() = Some(reader.clone());
+        let (locked_tx, locked_rx) = oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let held_reader = reader.clone();
+        let held = tokio::task::spawn_blocking(move || {
+            let _lock = held_reader.hold_for_test();
+            locked_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        locked_rx.await.unwrap();
+        let mut response = Box::pin(broker.call(WorkerCommand::Resume { seat: 0 }));
+        std::future::poll_fn(|cx| {
+            assert!(response.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert_eq!(
+            broker.reader_admission.available_permits(),
+            READER_LIMIT - 1
+        );
+        release_tx.send(()).unwrap();
+        held.await.unwrap();
+        // Production admission is released only after read() has returned.
+        // Acquire every permit to join that work WITHOUT polling the broker
+        // future, so its successful result is suspended before exposure.
+        let all = tokio::time::timeout(
+            Duration::from_secs(2),
+            broker
+                .reader_admission
+                .clone()
+                .acquire_many_owned(READER_LIMIT as u32),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        process.0.kill().unwrap();
+        process.0.wait().unwrap();
+        assert!(reader.is_active(), "death alone does not revoke the epoch");
+        assert!(!broker.queue.lock().unwrap().dead);
+        assert!(
+            matches!(response.await, Err(BrokerError::Unavailable)),
+            "completed resume must not outlive its pinned worker"
+        );
+        drop(all);
     }
 }

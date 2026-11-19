@@ -51,6 +51,7 @@ pub struct WorkerProcess {
     next_id: u64,
     usable: bool,
     cleaned: bool,
+    resume_reader: std::sync::Arc<crate::resume_reader::ResumeReader>,
 }
 fn duration(value: Duration) -> Result<(), BridgeError> {
     if value.is_zero() || value > MAX_TIMEOUT {
@@ -367,15 +368,64 @@ impl WorkerProcess {
             if frame.ipc_version != ipc::IPC_VERSION || frame.request_id != 0 || ready.pid == 0 {
                 return Err(BridgeError::Protocol);
             }
+            // Pin the actual proc inode before asynchronous systemd verification;
+            // never re-open a numeric PID when servicing reads.
+            let live = crate::resume_reader::Liveness::open(ready.pid)
+                .map_err(|_| BridgeError::Isolation)?;
             verify_identity(&config.expected_identity, &ready.identity)?;
             verify_properties(&show(&unit).await?, &ready)?;
-            Ok(ready)
+            live.check().map_err(|_| BridgeError::Isolation)?;
+            Ok((ready, live))
         })
         .await;
-        let ready = match startup {
+        let (ready, live) = match startup {
             Ok(Ok(ready)) => ready,
             _ => return Err(BridgeError::Isolation),
         };
+        // Registry layout: ROOT/matches/MATCH/worker. Validate every private
+        // ancestor, not just the SQLite filename supplied to its VFS.
+        let directory = config.directory.clone();
+        if directory.file_name().and_then(|v| v.to_str()) != Some("worker")
+            || directory
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|v| v.to_str())
+                != Some(ready.identity.match_id.as_str())
+        {
+            return Err(BridgeError::Isolation);
+        }
+        let private_root = directory
+            .ancestors()
+            .nth(3)
+            .ok_or(BridgeError::Isolation)?
+            .to_path_buf();
+        if directory
+            .ancestors()
+            .nth(2)
+            .and_then(|p| p.file_name())
+            .and_then(|v| v.to_str())
+            != Some("matches")
+        {
+            return Err(BridgeError::Isolation);
+        }
+        let identity = ready.identity.clone();
+        let descriptor = ready.read.clone();
+        let resume_reader = timeout_at(
+            deadline,
+            tokio::task::spawn_blocking(move || {
+                crate::resume_reader::ResumeReader::open(
+                    &directory,
+                    &private_root,
+                    identity,
+                    descriptor,
+                    live,
+                )
+            }),
+        )
+        .await
+        .map_err(|_| BridgeError::Isolation)?
+        .map_err(|_| BridgeError::Isolation)?
+        .map_err(|_| BridgeError::Isolation)?;
         let child = guard.child.take().ok_or(BridgeError::Unavailable)?;
         guard.armed = false;
 
@@ -389,7 +439,14 @@ impl WorkerProcess {
             next_id: 1,
             usable: true,
             cleaned: false,
+            resume_reader: std::sync::Arc::new(resume_reader),
         })
+    }
+    pub(crate) fn resume_reader(&self) -> std::sync::Arc<crate::resume_reader::ResumeReader> {
+        self.resume_reader.clone()
+    }
+    fn revoke_reader(&self) {
+        self.resume_reader.revoke();
     }
     pub fn ready(&self) -> &WorkerReady {
         &self.ready
@@ -421,6 +478,9 @@ impl WorkerProcess {
         })
         .map_err(|_| BridgeError::InvalidRequest)?;
         self.next_id = next;
+        if matches!(command, WorkerCommand::Shutdown) {
+            self.revoke_reader();
+        }
         self.usable = false;
         // Cancellation by an outer HTTP/broker task must also stop the unit.
         let mut lease = CallLease {
@@ -470,6 +530,9 @@ impl WorkerProcess {
                             code: ipc::WorkerErrorCode::Unavailable
                         }
                 );
+                if !lease.process.usable {
+                    lease.process.revoke_reader();
+                }
                 Ok(reply)
             }
             _ => {
@@ -482,6 +545,7 @@ impl WorkerProcess {
         answer
     }
     async fn cleanup(&mut self) -> Result<(), BridgeError> {
+        self.revoke_reader();
         self.usable = false;
         self.input.take();
         self.output.take();
@@ -504,6 +568,7 @@ impl WorkerProcess {
         Ok(())
     }
     pub async fn shutdown(mut self, wait: Duration) -> Result<(), BridgeError> {
+        self.revoke_reader();
         let result = if self.usable {
             self.call(WorkerCommand::Shutdown, wait).await.map(|_| ())
         } else {
@@ -515,6 +580,7 @@ impl WorkerProcess {
 }
 impl WorkerProcess {
     fn emergency_cleanup(&mut self) {
+        self.revoke_reader();
         if self.cleaned {
             return;
         }
@@ -566,6 +632,10 @@ mod tests {
                 tasks_max: 32,
             },
             status: ExecutionStatus::Running,
+            read: crate::store::ReadDescriptor {
+                generation: 1,
+                bootstrap_sha256: "a".repeat(64),
+            },
         };
         for properties in [
             "MemoryMax=4294967296\n",
@@ -612,5 +682,38 @@ mod tests {
             a.bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b"-.".contains(&b))
         );
+    }
+    #[test]
+    fn owner_drop_revokes_reader_even_after_process_cleanup() {
+        let f = crate::resume_reader::tests::Fixture::new();
+        let reader = f.reader();
+        assert!(reader.read(0).is_ok());
+        // Already-cleaned handles take the real Drop path without launching or
+        // controlling any unit. A separately cloned reader must still revoke.
+        let process = WorkerProcess {
+            child: None,
+            input: None,
+            output: None,
+            unit: String::new(),
+            ready: WorkerReady {
+                identity: f.worker.identity().clone(),
+                pid: std::process::id(),
+                limits: ipc::KernelLimits {
+                    cgroup: "/not-a-real-worker".into(),
+                    memory_max: ipc::MEMORY_MAX,
+                    memory_swap_max: 0,
+                    tasks_max: ipc::TASKS_MAX,
+                },
+                status: ExecutionStatus::Running,
+                read: f.worker.read_descriptor().unwrap(),
+            },
+            status: ExecutionStatus::Running,
+            next_id: 1,
+            usable: false,
+            cleaned: true,
+            resume_reader: reader.clone(),
+        };
+        drop(process);
+        assert!(reader.read(0).is_err());
     }
 }

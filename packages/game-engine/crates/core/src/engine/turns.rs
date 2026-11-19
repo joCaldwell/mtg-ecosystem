@@ -219,6 +219,63 @@ impl Game {
         }
         Ok((next, owner))
     }
+    fn cleanup_discard_count(&self, player: PlayerId) -> Result<usize, String> {
+        let hand_size = self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == (Zone::Hand { owner: player }))
+            .count();
+        if hand_size == 0 {
+            return Ok(0);
+        }
+        // CR 107.1b/109.5/402.2/514.1/611.3a-b/613.11: derive the limit
+        // from current battlefield control at the start of cleanup. The
+        // supported increases and reductions commute. Keep intermediate values
+        // signed, floor the final limit at zero, and let an unlimited source
+        // absorb all finite changes.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        let mut limit = Quantity::from(7);
+        for source in self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Battlefield && self.is_live(o.controller))
+        {
+            let controlled = source.controller == player;
+            for ability in &self.definition(source.id.card)?.static_abilities {
+                if ability.functioning_zone != FunctioningZone::Battlefield {
+                    continue;
+                }
+                match &ability.effect {
+                    StaticEffect::UnlimitedControllerHandSize if controlled => return Ok(0),
+                    StaticEffect::IncreaseMaximumHandSize { amount } if controlled => {
+                        limit.add(amount);
+                    }
+                    StaticEffect::ReduceMaximumHandSize { scope, amount }
+                        if match scope {
+                            HandSizeScope::Controller => controlled,
+                            HandSizeScope::Opponents => !controlled,
+                        } =>
+                    {
+                        limit.subtract(amount);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if limit <= Quantity::zero() {
+            return Ok(hand_size);
+        }
+        // A positive exact limit outside usize exceeds any realizable hand.
+        let Ok(limit) = limit.to_string().parse::<usize>() else {
+            return Ok(0);
+        };
+        Ok(hand_size.saturating_sub(limit))
+    }
+
     pub(super) fn enter_turn_step(&mut self) -> Result<(), String> {
         if !self.state.rules.stack.is_empty() || self.state.rules.pending.is_some() {
             return Err("unsupported turn entry boundary".into());
@@ -307,14 +364,7 @@ impl Game {
             TurnStep::PostcombatMain => {}
             TurnStep::Cleanup => {
                 self.state.rules.frame = if let Some(player) = self.state.rules.active {
-                    let count = self
-                        .state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| o.zone == (Zone::Hand { owner: player }))
-                        .count()
-                        .saturating_sub(7);
+                    let count = self.cleanup_discard_count(player)?;
                     if count > 0 {
                         Frame::Discard { player, count }
                     } else {

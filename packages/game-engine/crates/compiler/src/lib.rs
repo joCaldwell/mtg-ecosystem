@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
+mod activated_artifact_draw;
 mod cast_origin;
 pub mod catalog;
 mod controller_counted_draw;
@@ -50,9 +51,11 @@ mod conditional_lands;
 mod cycling;
 #[cfg(test)]
 mod cycling_tests;
+mod targeted_counted_draw;
 mod type_line;
 mod typed_fetchland;
 mod typed_land_search;
+mod unlimited_hand_size;
 pub use catalog::*;
 use normalization::source_lines;
 
@@ -986,6 +989,9 @@ enum SourceStaticEffect {
     CastSpellAbilities {
         scope: serde_json::Value,
         abilities: Vec<serde_json::Value>,
+    },
+    PlayerRule {
+        rule: serde_json::Value,
     },
     Control {
         who: SourceControlPlayer,
@@ -1945,8 +1951,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     program.instructions.extend(instructions);
                     continue;
                 }
-                if let Some(count) = controller_counted_draw::coalesce(effects)? {
+                if abilities.len() == 1
+                    && targeted_counted_draw::lower(effects, &mut program, &mut slots)?
+                {
+                    continue;
+                }
+                if let Some((count, life_loss)) = controller_counted_draw::coalesce(effects)? {
                     if abilities.len() != 1
+                        || program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
                         || block != 0
                         || !program.instructions.is_empty()
                         || !program.targets.is_empty()
@@ -1961,10 +1974,19 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         count,
                         source_block: 0,
                     });
+                    if let Some(amount) = life_loss {
+                        program.instructions.push(Instruction::LoseLife {
+                            recipient: LifeRecipient::Controller,
+                            amount,
+                            source_block: 0,
+                        });
+                    }
                     continue;
                 }
                 if let Some((draw, count)) = draw_discard::coalesce(effects)? {
                     if abilities.len() != 1
+                        || program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
                         || block != 0
                         || !program.instructions.is_empty()
                         || !program.targets.is_empty()
@@ -2119,6 +2141,43 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &binding,
             &definition.oracle_id,
             &canonical_abilities,
+        )?;
+    }
+    if definition
+        .spell
+        .as_ref()
+        .is_some_and(targeted_counted_draw_program)
+    {
+        targeted_counted_draw::validate_source(
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
+    }
+    if definition
+        .activated
+        .iter()
+        .any(mtg_contracts::activated_artifact_draw_ability)
+    {
+        activated_artifact_draw::validate_source(
+            &binding,
+            &definition.oracle_id,
+            result.abilities.get(),
+        )?;
+    }
+    if definition.static_abilities.iter().any(|ability| {
+        matches!(
+            ability.effect,
+            StaticEffect::UnlimitedControllerHandSize
+                | StaticEffect::ReduceMaximumHandSize { .. }
+                | StaticEffect::IncreaseMaximumHandSize { .. }
+        )
+    }) {
+        unlimited_hand_size::validate_source(
+            &definition,
+            &labels,
+            &binding,
+            result.abilities.get(),
         )?;
     }
     definition.capabilities = definition.requirements();
@@ -3962,6 +4021,9 @@ fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<Static
     if let Some(grant) = spell_cascade_grants::lower(effect, source_block)? {
         return Ok(grant);
     }
+    if let SourceStaticEffect::PlayerRule { rule } = effect {
+        return unlimited_hand_size::lower_rule(rule);
+    }
     if let SourceStaticEffect::Control { who, what } = effect {
         if who.player != "you" || what.reference != "enchanted" {
             return Err(unsupported(
@@ -5124,6 +5186,9 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
+    if let Some(ability) = activated_artifact_draw::lower_two_draws(costs, effects, block, kind)? {
+        return Ok(ability);
+    }
     if effects
         .iter()
         .any(|s| !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some())

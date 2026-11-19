@@ -53,9 +53,9 @@ Priority, announcements, payment and resolving frames are separate states. No
 priority exists during announcement/resolution; retain the frozen invocation
 through supported source departure. Land plays and ordinary creature timing require
 active-player main priority and an empty stack; supported flash is explicit.
-Untap, upkeep, draw, combat, end and cleanup use recorded transitions. Cleanup
-atomically clears temporary effects and marked damage. Concessions are trusted
-recorded external inputs processed before ordinary work/query exposure.
+Cleanup applies net hand-size adjustments to finite limits, floored at zero,
+then clears temporary effects and marked damage atomically.
+Concessions are trusted recorded external inputs processed before work or queries.
 Land usage resets only when a new turn begins.
 
 <a id="player-visibility-and-query-recovery"></a>
@@ -112,11 +112,12 @@ hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositio
 Top-order/optional-shuffle/draw privately orders an incarnation-preserving prefix,
 offers a boolean, then draws. Shuffles include empty/singleton
 libraries; declines consume no randomness. `ControllerCountedDrawV1` fences standalone
-nonnegative controller draws: sequential attempts without clamping; legacy one/two-card
-source IR stays unchanged. Counted draws precede whole-hand returns
+nonnegative controller draws: sequential attempts without clamping, optionally followed
+by fixed positive controller life loss (`LifeLossV1`). Legacy one/two-card source IR stays unchanged. Counted draws precede whole-hand returns
 or simultaneous discards. Returns create successors after Commander replacements;
 discard precedes Commander SBAs. Short hands clamp; failed draws never interrupt
-resolution. These families add no source, target, mana or priority authority.
+resolution. `TargetedCountedDrawV1` uses the same progress for one announced player; departure never redirects remaining attempts.
+These families add no source, mana or priority authority.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
@@ -163,9 +164,10 @@ bounded counts at CR601.2f; replay authenticates them without later-board repric
 Activated abilities use a separate stack ID/historical source handle; their card
 stays in place. Tap-source costs enforce readiness/continuous control, subject to
 supported haste. Mana, tap and additional sacrifice costs retain separate guards.
-Mana-cost activations announce, offer their mana window and require exact spending;
-costs without mana offer no mana opportunity. Failed payment removes the proposal
-and optionally reverses only its receipt-recorded mana activations.
+Mana-cost activations offer a mana window and require exact spending.
+Failed payment removes the proposal and can reverse its recorded mana activations.
+`ActivatedArtifactDrawV1` combines fixed mana and artifact tap costs with draw one,
+or draw one or two followed by a mandatory discard.
 Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
 wait for the complete invocation. Additional costs never change mana value.
 

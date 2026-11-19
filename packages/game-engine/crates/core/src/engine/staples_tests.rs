@@ -1256,6 +1256,9 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                 match &a.effect {
                     StaticEffect::ControlEnchantedPermanent
                     | StaticEffect::GrantSpellCascade { .. }
+                    | StaticEffect::UnlimitedControllerHandSize
+                    | StaticEffect::ReduceMaximumHandSize { .. }
+                    | StaticEffect::IncreaseMaximumHandSize { .. }
                     | StaticEffect::EntersTapped
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }

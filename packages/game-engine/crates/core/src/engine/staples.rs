@@ -170,40 +170,48 @@ impl Game {
         Ok(())
     }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
-        match self
+        let instruction = self
             .program_for(&frame.spell)?
             .instructions
             .get(frame.cursor as usize)
-        {
-            Some(Instruction::DrawCards {
+            .ok_or("missing draw instruction")?;
+        Self::draw_player_for_instruction(frame, instruction)
+    }
+
+    pub(super) fn draw_player_for_instruction(
+        frame: &Resolving,
+        instruction: &Instruction,
+    ) -> Result<PlayerId, String> {
+        match instruction {
+            Instruction::DrawCards {
                 recipient: Some(LifeRecipient::Target { target_slot }),
                 ..
-            }) => frame
+            } => frame
                 .spell
                 .player_targets
                 .get(*target_slot as usize)
                 .copied()
                 .ok_or_else(|| "missing draw target".into()),
-            Some(Instruction::DrawCards {
+            Instruction::DrawCards {
                 recipient: Some(LifeRecipient::EventPlayer),
                 ..
-            }) => frame
+            } => frame
                 .spell
                 .kind
                 .event_player()?
                 .ok_or_else(|| "absent draw event player".into()),
-            Some(Instruction::DrawCards {
+            Instruction::DrawCards {
                 recipient: Some(LifeRecipient::EachOpponent),
                 ..
-            }) => Err("unsupported each-opponent draw".into()),
-            Some(Instruction::DrawCards {
+            } => Err("unsupported each-opponent draw".into()),
+            Instruction::DrawCards {
                 recipient: None | Some(LifeRecipient::Controller),
                 ..
-            })
-            | Some(Instruction::OptionalDrawCards { .. })
-            | Some(Instruction::DrawControllerCards { .. })
-            | Some(Instruction::DrawDamageAmount { .. })
-            | Some(Instruction::DrawCardsIfAdditionalCost { .. }) => Ok(frame.spell.controller),
+            }
+            | Instruction::OptionalDrawCards { .. }
+            | Instruction::DrawControllerCards { .. }
+            | Instruction::DrawCardsIfAdditionalCost { .. }
+            | Instruction::DrawDamageAmount { .. } => Ok(frame.spell.controller),
             _ => Err("not draw instruction".into()),
         }
     }

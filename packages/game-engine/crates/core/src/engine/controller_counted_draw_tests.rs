@@ -214,3 +214,144 @@ fn controller_counted_draw_short_library_finishes_attempts_before_sba() {
         assert!(!g.is_live(PlayerId(0)));
     });
 }
+
+const CRAVING: &str =
+    include_str!("../../../../tests/fixtures/78725353-9274-420a-b722-add0f43c444e.json");
+const AMBITION: &str =
+    include_str!("../../../../tests/fixtures/84de4fec-2f38-4293-93d3-b3882c5aac14.json");
+#[test]
+fn controller_counted_draw_life_paid_sources_and_commander_finish_draws_before_loss() {
+    for (name, raw, commander) in [
+        ("Ancient Craving", CRAVING, false),
+        ("Ambition's Cost", AMBITION, false),
+        ("Ancient Craving", CRAVING, true),
+    ] {
+        let mut p = setup(name, raw, "Swamp");
+        if commander {
+            // Explicit setup-provided tucked commander, no paid-tuck/pod claim.
+            let id = p.config.initial_libraries()[&PlayerId(0)][0];
+            let oracle = p
+                .catalog
+                .definitions
+                .iter()
+                .find(|d| d.name == "Caelorna, Coral Tyrant")
+                .unwrap()
+                .oracle_id
+                .clone();
+            p.config
+                .cards
+                .iter_mut()
+                .find(|c| c.id == id)
+                .unwrap()
+                .oracle_id = oracle;
+            p.config.commanders = vec![id];
+            p.profile_digest = digest(&p.config).unwrap();
+        }
+        both(p, |g, q| {
+            let before = library(g);
+            announce(g, q, 0, vec![]);
+            assert!(g.state.rules.stack.last().unwrap().paid.is_some());
+            let mut completed = false;
+            let mut replaced = false;
+            for _ in 0..1000 {
+                assert_eq!(g.state.rules.players[0].life, 40.into());
+                if matches!(&g.state.rules.frame,Frame::Resolve{frame} if frame.cursor==1&&matches!(frame.outcomes.first(),Some(InstructionOutcome::DrawAttempts{attempted,failed,..})if *attempted==3.into()&&*failed==0.into()))
+                {
+                    completed = true;
+                    break;
+                }
+                match g.advance(Budget::new(1)) {
+                    Advance::Suspended { .. } => (),
+                    Advance::AwaitingDecision(r) => {
+                        let response = if matches!(r, Request::CommanderReturn { .. }) {
+                            assert!(commander && !replaced);
+                            recover(g);
+                            replaced = true;
+                            Response::CommanderReturn { to_command: true }
+                        } else {
+                            pass(&r)
+                        };
+                        g.respond(r.player(), r.decision_id(), response).unwrap();
+                    }
+                    other => panic!("draw/life prefix {other:?}"),
+                }
+            }
+            assert!(completed);
+            assert_eq!(replaced, commander);
+            assert_eq!(library(g), before[3..]);
+            assert_eq!(
+                g.action_hand(PlayerId(0)).len(),
+                if commander { 2 } else { 3 }
+            );
+            recover(g);
+            resolve(g, q, |_| {});
+            assert_eq!(g.state.rules.players[0].life, 37.into());
+            if q == 1 {
+                let losses=batches(g).into_iter().flat_map(|b|b.occurrences.iter()).filter(|o|matches!(&o.actual,EventOutcome::LifeLost{player:PlayerId(0),amount,previous,current}if *amount==3.into()&&*previous==40.into()&&*current==37.into())).count();
+                assert_eq!(losses, 1);
+            }
+        });
+    }
+}
+#[test]
+fn controller_counted_draw_life_departure_and_failed_draws_preserve_tail_order() {
+    for depart in [false, true] {
+        let mut p = setup("Ancient Craving", CRAVING, "Swamp");
+        if !depart {
+            p.config.initial.life[0] = 3.into();
+            let keep = p.config.initial_libraries()[&PlayerId(0)][0];
+            p.config
+                .cards
+                .retain(|c| c.zone != (Zone::Library { owner: PlayerId(0) }) || c.id == keep);
+            p.config.initial.libraries = None;
+            p.profile_digest = digest(&p.config).unwrap();
+        }
+        both(p, |g, q| {
+            announce(g, q, 0, vec![]);
+            let mut completed = false;
+            for _ in 0..1000 {
+                if matches!(&g.state.rules.frame,Frame::Resolve{frame}if frame.cursor==1) {
+                    completed = true;
+                    break;
+                }
+                step(g);
+            }
+            assert!(completed);
+            assert!(g.is_live(PlayerId(0)));
+            let Frame::Resolve { frame } = &g.state.rules.frame else {
+                panic!("draw completed")
+            };
+            assert!(
+                matches!(frame.outcomes.first(),Some(InstructionOutcome::DrawAttempts{attempted,failed,..})if *attempted==3.into()&&*failed==if depart{0.into()}else{2.into()})
+            );
+            assert_eq!(
+                g.state.rules.players[0].life,
+                if depart { 40.into() } else { 3.into() }
+            );
+            recover(g);
+            if depart {
+                g.concede(PlayerId(0)).unwrap();
+                recover(g);
+            } else {
+                step(g);
+                assert!(g.is_live(PlayerId(0)));
+                assert_eq!(g.state.rules.players[0].life, 0.into());
+                recover(g);
+            }
+            resolve(g, q, |_| {});
+            assert!(!g.is_live(PlayerId(0)));
+            for seat in 1..4 {
+                assert_eq!(g.state.rules.players[seat].life, 40.into());
+                assert!(g.action_hand(PlayerId(seat as u8)).is_empty());
+            }
+            if depart && q == 1 {
+                assert!(
+                    !batches(g)
+                        .into_iter()
+                        .flat_map(|b| &b.occurrences)
+                        .any(|o| matches!(o.actual, EventOutcome::LifeLost { .. }))
+                );
+            }
+        });
+    }
+}

@@ -959,6 +959,385 @@ fn generic_cleanup_discard_and_ordered_library_draw_are_available() {
 }
 
 #[test]
+fn unlimited_hand_size_tracks_current_controller_and_ends_after_paid_bounce() {
+    let mut p = prepared();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let source = catalog
+        .definitions
+        .iter_mut()
+        .find(|definition| definition.oracle_id == BEARS)
+        .unwrap();
+    // Private synthetic grant on an existing creature shape.
+    source.static_abilities.push(StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::UnlimitedControllerHandSize,
+    });
+    source.capabilities = source.requirements();
+    source.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+
+    let controller = PlayerId(0);
+    let owner = PlayerId(1);
+    let source = CardId(2);
+    p.config.cards[2].owner = owner;
+    p.config.cards[2].zone = Zone::Battlefield;
+    let mana_source = CardId(8);
+    let bounce = CardId(9);
+    p.config.cards.extend([
+        CardSetup {
+            id: mana_source,
+            oracle_id: ISLAND.into(),
+            owner,
+            controller: owner,
+            zone: Zone::Battlefield,
+        },
+        CardSetup {
+            id: bounce,
+            oracle_id: SPELL.into(),
+            owner,
+            controller: owner,
+            zone: Zone::Hand { owner },
+        },
+    ]);
+    for (player, cards) in [(controller, 10..16), (owner, 16..22)] {
+        p.config.cards.extend(cards.map(|id| CardSetup {
+            id: CardId(id),
+            oracle_id: FOREST.into(),
+            owner: player,
+            controller: player,
+            zone: Zone::Hand { owner: player },
+        }));
+    }
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let hand_count = |game: &Game, owner| {
+        game.state
+            .rules
+            .objects
+            .values()
+            .filter(|object| object.zone == Zone::Hand { owner })
+            .count()
+    };
+    let mut game = Game::new(p.clone());
+    until(&mut game, 1, TurnStep::End);
+    assert_eq!(hand_count(&game, controller), 8);
+    until(&mut game, 2, TurnStep::PrecombatMain);
+    assert_eq!(hand_count(&game, controller), 8);
+    assert_eq!(hand_count(&game, owner), 8);
+
+    let mana_object = game.object_id(mana_source).unwrap();
+    let source_object = game.object_id(source).unwrap();
+    input(
+        &mut game,
+        Response::ActivateMana {
+            object: mana_object,
+        },
+    );
+    input(&mut game, Response::Cast { card: bounce });
+    input(
+        &mut game,
+        Response::Targets {
+            objects: vec![source_object],
+        },
+    );
+    input(&mut game, Response::FinishMana { undo_mana: false });
+    assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
+    assert!(game.state.rules.stack[0].paid.is_some());
+    for _ in 0..4 {
+        pass(&mut game);
+    }
+    assert_eq!(
+        game.zone(game.object_id(source).unwrap()),
+        Some(Zone::Hand { owner })
+    );
+    until(&mut game, 2, TurnStep::End);
+    for _ in 0..4 {
+        pass(&mut game);
+    }
+    let Advance::AwaitingDecision(Request::Discard {
+        count,
+        player,
+        candidates,
+        ..
+    }) = settle(&mut game)
+    else {
+        panic!("expected cleanup discard after the source left the battlefield");
+    };
+    assert_eq!(player, owner);
+    assert_eq!(count, 1);
+    assert_eq!(candidates.len(), 8);
+    input(
+        &mut game,
+        Response::Discard {
+            objects: vec![candidates[0]],
+        },
+    );
+    assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
+    assert_eq!(hand_count(&game, owner), 7);
+    assert_eq!(
+        Game::replay(p, &game.replay_journal()).unwrap().state,
+        game.state
+    );
+}
+
+#[test]
+fn reduced_hand_size_applies_during_cleanup_with_unlimited_sources_and_exact_floor() {
+    let mut p = prepared();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let creature = catalog.definition_by_oracle_id(BEARS).unwrap().clone();
+    let controller_reduction = "test-hand-size-controller";
+    let opponent_reduction = "test-hand-size-opponents";
+    let unlimited = "test-hand-size-unlimited";
+    for (id, effect) in [
+        (
+            controller_reduction,
+            StaticEffect::ReduceMaximumHandSize {
+                scope: HandSizeScope::Controller,
+                amount: Quantity::from(3),
+            },
+        ),
+        (
+            opponent_reduction,
+            StaticEffect::ReduceMaximumHandSize {
+                scope: HandSizeScope::Opponents,
+                amount: Quantity::from(5),
+            },
+        ),
+        (unlimited, StaticEffect::UnlimitedControllerHandSize),
+    ] {
+        let mut source = creature.clone();
+        source.oracle_id = id.into();
+        source.name = id.into();
+        source.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect,
+        });
+        source.capabilities = source.requirements();
+        catalog.definitions.push(source);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+
+    let player = PlayerId(0);
+    let opponent = PlayerId(1);
+    let inactive = Zone::Graveyard { owner: player };
+    p.config.initial.turn_step = TurnStep::End;
+    p.config.cards[0].oracle_id = unlimited.into();
+    p.config.cards[0].zone = inactive;
+    p.config.cards.extend(
+        [
+            (8, controller_reduction, opponent, player, Zone::Battlefield),
+            (9, opponent_reduction, player, opponent, Zone::Battlefield),
+            (10, unlimited, player, player, inactive),
+            (11, FOREST, player, player, Zone::Hand { owner: player }),
+        ]
+        .map(|(id, oracle_id, owner, controller, zone)| CardSetup {
+            id: CardId(id),
+            oracle_id: oracle_id.into(),
+            owner,
+            controller,
+            zone,
+        }),
+    );
+
+    // Unlimited persists whether its source precedes or follows the reducers.
+    for index in [0, 10] {
+        let mut fixture = p.clone();
+        fixture.config.cards[index].zone = Zone::Battlefield;
+        let (game, boundary) = start_cleanup(fixture);
+        assert_eq!(game.active_player(), Some(opponent));
+        assert!(matches!(
+            boundary,
+            Advance::AwaitingDecision(Request::Priority { .. })
+        ));
+    }
+    let (mut game, boundary) = start_cleanup(p);
+    let Advance::AwaitingDecision(Request::Discard {
+        player: discarding_player,
+        decision_id,
+        count,
+        candidates,
+    }) = boundary
+    else {
+        panic!("expected cleanup discard");
+    };
+    assert_eq!(discarding_player, player);
+    assert_eq!(count, 4);
+    assert_eq!(candidates.len(), 4);
+    game.respond(
+        player,
+        decision_id,
+        Response::Discard {
+            objects: candidates.clone(),
+        },
+    )
+    .unwrap();
+    assert!(matches!(
+        game.advance(Budget::new(100)),
+        Advance::AwaitingDecision(Request::Priority { .. })
+    ));
+    assert_eq!(game.active_player(), Some(opponent));
+    assert!(
+        candidates
+            .iter()
+            .all(|object| game.zone(game.object_id(object.card).unwrap()) == Some(inactive))
+    );
+    recover(&game);
+}
+
+fn start_cleanup(mut fixture: Prepared) -> (Game, Advance) {
+    fixture.profile_digest = digest(&fixture.config).unwrap();
+    let mut game = Game::new(fixture);
+    for _ in 0..4 {
+        let Advance::AwaitingDecision(request @ Request::Priority { .. }) =
+            game.advance(Budget::new(100))
+        else {
+            panic!("expected end-step priority");
+        };
+        game.respond(request.player(), request.decision_id(), Response::Pass)
+            .unwrap();
+    }
+    let boundary = game.advance(Budget::new(100));
+    (game, boundary)
+}
+
+#[test]
+fn increased_hand_size_applies_during_cleanup_with_exact_signed_totals() {
+    let mut p = prepared();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let creature = catalog.definition_by_oracle_id(BEARS).unwrap().clone();
+    let increase = "test-hand-size-increase";
+    let reduction = "test-hand-size-reduction";
+    let huge_increase = "test-hand-size-huge-increase";
+    for (id, effect) in [
+        (
+            increase,
+            StaticEffect::IncreaseMaximumHandSize {
+                amount: Quantity::from(4),
+            },
+        ),
+        (
+            reduction,
+            StaticEffect::ReduceMaximumHandSize {
+                scope: HandSizeScope::Opponents,
+                amount: Quantity::from(9),
+            },
+        ),
+        (
+            huge_increase,
+            StaticEffect::IncreaseMaximumHandSize {
+                amount: "10000000000000000000000000000000000000000".parse().unwrap(),
+            },
+        ),
+    ] {
+        let mut source = creature.clone();
+        source.oracle_id = id.into();
+        source.name = id.into();
+        source.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect,
+        });
+        source.capabilities = source.requirements();
+        catalog.definitions.push(source);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+
+    let player = PlayerId(0);
+    let opponent = PlayerId(1);
+    p.config.initial.turn_step = TurnStep::End;
+    p.config.cards.extend((10..19).map(|id| CardSetup {
+        id: CardId(id),
+        oracle_id: FOREST.into(),
+        owner: player,
+        controller: player,
+        zone: Zone::Hand { owner: player },
+    }));
+
+    for (first, second, expected_count) in [
+        (increase, FOREST, 1),
+        // 7 - 9 + 4 leaves two cards in either source order.
+        (reduction, increase, 10),
+        (increase, reduction, 10),
+        (huge_increase, FOREST, 0),
+    ] {
+        let mut fixture = p.clone();
+        fixture
+            .config
+            .cards
+            .extend(
+                [first, second]
+                    .into_iter()
+                    .zip(8..10)
+                    .map(|(oracle_id, id)| CardSetup {
+                        id: CardId(id),
+                        oracle_id: oracle_id.into(),
+                        owner: opponent,
+                        controller: if oracle_id == reduction {
+                            opponent
+                        } else {
+                            player
+                        },
+                        zone: Zone::Battlefield,
+                    }),
+            );
+        fixture.config.cards.sort_by_key(|card| card.id);
+        let (mut game, boundary) = start_cleanup(fixture);
+        if expected_count == 0 {
+            assert_eq!(game.active_player(), Some(opponent));
+            assert!(matches!(
+                boundary,
+                Advance::AwaitingDecision(Request::Priority { .. })
+            ));
+            continue;
+        }
+        let Advance::AwaitingDecision(Request::Discard {
+            player: discarding_player,
+            decision_id,
+            count,
+            candidates,
+        }) = boundary
+        else {
+            panic!("expected cleanup discard");
+        };
+        assert_eq!(discarding_player, player);
+        assert_eq!(count, expected_count);
+        assert_eq!(candidates.len(), 12);
+        game.respond(
+            player,
+            decision_id,
+            Response::Discard {
+                objects: candidates.into_iter().take(count).collect(),
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            game.advance(Budget::new(100)),
+            Advance::AwaitingDecision(Request::Priority { .. })
+        ));
+        assert_eq!(game.active_player(), Some(opponent));
+        assert_eq!(
+            game.state
+                .rules
+                .objects
+                .values()
+                .filter(|object| object.zone == Zone::Hand { owner: player })
+                .count(),
+            12 - count
+        );
+        if expected_count == 1 {
+            recover(&game);
+        }
+    }
+}
+
+#[test]
 fn land_movement_and_counting_batch_failure_is_atomic() {
     let mut game = Game::new(prepared());
     let before = game.snapshot().unwrap();

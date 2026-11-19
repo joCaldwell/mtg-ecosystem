@@ -102,6 +102,7 @@ pub struct WorkerReady {
     pub pid: u32,
     pub limits: KernelLimits,
     pub status: ExecutionStatus,
+    pub(crate) read: crate::store::ReadDescriptor,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reply", rename_all = "snake_case", deny_unknown_fields)]
@@ -461,6 +462,7 @@ pub fn run_child(
                     pid: std::process::id(),
                     limits,
                     status: status(&worker),
+                    read: worker.read_descriptor()?,
                 },
             },
         },
