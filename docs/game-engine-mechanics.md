@@ -117,8 +117,8 @@ opponent hand-size reductions can draw at their controller's end step. Paid
 activations can draw after tapping or sacrificing their source. Counted
 draws precede whole-hand returns or simultaneous discards. Commander replacements
 precede return successors; discard precedes Commander SBAs. Short hands clamp;
-failed draws continue. `TargetedCountedDrawV1` shares progress for one announced
-player; departure never redirects attempts or grants new authority.
+failed draws continue. Targeted and announced-X draws share progress. X programs
+may change life or require discard. Departure never redirects attempts.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.

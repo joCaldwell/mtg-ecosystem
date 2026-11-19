@@ -8,6 +8,7 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 mod activated_artifact_draw;
+mod announced_x_draw;
 pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -871,6 +872,7 @@ struct Count {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "amount", rename_all = "kebab-case", deny_unknown_fields)]
 enum DrawAmount {
+    X {},
     Fixed { value: u32 },
     ThatMuch {},
 }
@@ -1655,6 +1657,32 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if effects.iter().flat_map(|s| &s.steps).any(|step| {
+                    matches!(
+                        step,
+                        Step::Draw {
+                            amount: DrawAmount::X {},
+                            ..
+                        }
+                    )
+                }) {
+                    if !definition.x_mana_cost || abilities.len() != 1 {
+                        return Err(unsupported(
+                            "effects.draw",
+                            "requires standalone announced X spell",
+                        ));
+                    }
+                    announced_x_draw::lower(
+                        result.abilities.get(),
+                        &result.lines[0].text,
+                        &binding,
+                        &definition.oracle_id,
+                        &source.mana_cost,
+                        &mut program,
+                        &mut slots,
+                    )?;
+                    continue;
+                }
                 if abilities.len() == 1
                     && targeted_counted_draw::lower(effects, &mut program, &mut slots)?
                 {
@@ -1792,11 +1820,16 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         nodes
             .iter()
             .any(|n| n["node"] == "event" && n["operation"] == "discard")
-    }) && !definition
-        .spell
-        .as_ref()
-        .is_some_and(controller_draw_discard_program)
-    {
+    }) && !definition.spell.as_ref().is_some_and(|p| {
+        controller_draw_discard_program(p)
+            || matches!(
+                p.instructions.as_slice(),
+                [
+                    Instruction::DrawAnnouncedX { .. },
+                    Instruction::DiscardCards { .. }
+                ]
+            )
+    }) {
         return Err(unsupported(
             "binding",
             "ordinary discard binding requires the complete draw/discard source",

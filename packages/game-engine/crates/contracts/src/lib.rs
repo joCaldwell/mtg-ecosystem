@@ -18,6 +18,7 @@ mod activated_artifact_draw;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
+mod announced_x_draw;
 mod targeted_counted_draw;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
@@ -312,6 +313,7 @@ pub enum Capability {
     PermanentRemovalV1,
     SacrificeV1,
     BoardWipesV1,
+    AnnouncedXDrawV1,
     TargetedCountedDrawV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -741,6 +743,19 @@ pub enum Instruction {
         count: Quantity,
         source_block: u32,
     },
+    DrawAnnouncedX {
+        #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
+        #[schemars(with = "LifeRecipient")]
+        recipient: LifeRecipient,
+        source_block: u32,
+    },
+    ChangeLifeAnnouncedX {
+        #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
+        #[schemars(with = "LifeRecipient")]
+        recipient: LifeRecipient,
+        gain: bool,
+        source_block: u32,
+    },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
     /// one card, including when their library is empty.
     OptionalDrawCards {
@@ -826,7 +841,9 @@ impl Instruction {
             Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
-            Self::DrawCards { source_block, .. } => *source_block,
+            Self::DrawAnnouncedX { source_block, .. }
+            | Self::ChangeLifeAnnouncedX { source_block, .. }
+            | Self::DrawCards { source_block, .. } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardCards { source_block, .. } => *source_block,
@@ -1576,9 +1593,7 @@ impl Definition {
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
         }
-        if self.x_mana_cost {
-            set.insert(Capability::BoardWipesV1);
-        }
+
         match self.characteristics.kind {
             CardKind::Land => {
                 set.insert(Capability::LandPlayV1);
@@ -1788,6 +1803,7 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         controller_library::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
+        announced_x_draw::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
@@ -2025,7 +2041,7 @@ impl Definition {
                         Instruction::DamageSet {
                             amount: WipeAmount::AnnouncedX,
                             ..
-                        }
+                        } | Instruction::DrawAnnouncedX { .. }
                     )
                 })
             })
@@ -3638,6 +3654,14 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     _ => return Err("unsupported mill recipient".into()),
                 }
             }
+            Instruction::DrawAnnouncedX { recipient, .. }
+            | Instruction::ChangeLifeAnnouncedX { recipient, .. } => match recipient {
+                LifeRecipient::Controller => None,
+                LifeRecipient::Target { target_slot } => {
+                    Some((*target_slot, TargetDomain::AnyPlayer))
+                }
+                _ => return Err("invalid announced X recipient".into()),
+            },
             Instruction::DrawCards { recipient, .. } => match recipient {
                 Some(LifeRecipient::EachOpponent) => {
                     return Err("unsupported each-opponent draw".into());
@@ -3906,6 +3930,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::GraveyardRecursionV1
             }
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
+            Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
+            Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
             Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
                 Capability::TargetedCountedDrawV1
             }
@@ -5028,6 +5055,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ]);
     controller_library::extend_schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
+    announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
@@ -5266,6 +5294,7 @@ mod tests {
             PermanentRemovalV1,
             SacrificeV1,
             BoardWipesV1,
+            AnnouncedXDrawV1,
             FlashV1,
             EntersTappedV1,
             StepBeginningTriggerV1,
@@ -5375,6 +5404,7 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(announced_x_draw::witness());
         definitions.push(targeted_counted_draw::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());

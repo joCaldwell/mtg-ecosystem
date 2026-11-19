@@ -2920,8 +2920,8 @@ impl Game {
                             mana_activations: vec![],
                             undo_mana: false,
                         };
-                        self.state.rules.frame = if self.definition(card)?.x_mana_cost {
-                            Frame::AnnounceX { cast }
+                        if self.definition(card)?.x_mana_cost {
+                            self.state.rules.frame = Frame::AnnounceX { cast };
                         } else if !self
                             .definition(card)?
                             .spell
@@ -2930,26 +2930,10 @@ impl Game {
                             .modes
                             .is_empty()
                         {
-                            Frame::Modes { cast }
-                        } else if self.program()?.targets.is_empty() {
-                            Frame::Mana { cast }
-                        } else if matches!(
-                            self.program()?.targets[0].domain,
-                            TargetDomain::StackSpell
-                                | TargetDomain::StackActivatedOrTriggeredAbility
-                        ) {
-                            Frame::StackTargets { cast }
-                        } else if self.program()?.targets[0].domain == TargetDomain::AnyDamageTarget
-                        {
-                            Frame::EntityTargets { cast }
-                        } else if matches!(
-                            self.program()?.targets[0].domain,
-                            TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer
-                        ) {
-                            Frame::PlayerTargets { cast }
+                            self.state.rules.frame = Frame::Modes { cast };
                         } else {
-                            Frame::Targets { cast }
-                        };
+                            self.begin_cast_targets(cast)?;
+                        }
                         self.state.rules.passes.clear();
                     }
                     Response::Pass => {

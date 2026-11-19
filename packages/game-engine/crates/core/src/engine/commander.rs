@@ -615,9 +615,12 @@ impl Game {
                             Some(Instruction::OptionalDrawCards { source_block: b }) => {
                                 b == source_block
                             }
-                            Some(Instruction::DrawDamageAmount { source_block: b }) => {
-                                b == source_block && frame.draw_progress.is_some()
-                            }
+                            Some(
+                                Instruction::DrawDamageAmount { source_block: b }
+                                | Instruction::DrawAnnouncedX {
+                                    source_block: b, ..
+                                },
+                            ) => b == source_block && frame.draw_progress.is_some(),
                             _ => false,
                         }
                     {

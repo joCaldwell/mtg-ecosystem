@@ -291,6 +291,10 @@ impl Game {
             player: input.player,
             mode,
         })?;
+        self.begin_cast_targets(cast)
+    }
+
+    pub(super) fn begin_cast_targets(&mut self, cast: Casting) -> Result<(), String> {
         let p = self.program()?;
         self.state.rules.frame = if p.targets.is_empty() {
             Frame::Mana { cast }
