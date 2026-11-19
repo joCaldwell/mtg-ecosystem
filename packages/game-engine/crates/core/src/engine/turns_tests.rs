@@ -959,6 +959,128 @@ fn generic_cleanup_discard_and_ordered_library_draw_are_available() {
 }
 
 #[test]
+fn unlimited_hand_size_tracks_current_controller_and_ends_after_paid_bounce() {
+    let mut p = prepared();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let source = catalog
+        .definitions
+        .iter_mut()
+        .find(|definition| definition.oracle_id == BEARS)
+        .unwrap();
+    // Private synthetic grant on an existing creature shape.
+    source.static_abilities.push(StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::UnlimitedControllerHandSize,
+    });
+    source.capabilities = source.requirements();
+    source.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+
+    let controller = PlayerId(0);
+    let owner = PlayerId(1);
+    let source = CardId(2);
+    p.config.cards[2].owner = owner;
+    p.config.cards[2].zone = Zone::Battlefield;
+    let mana_source = CardId(8);
+    let bounce = CardId(9);
+    p.config.cards.extend([
+        CardSetup {
+            id: mana_source,
+            oracle_id: ISLAND.into(),
+            owner,
+            controller: owner,
+            zone: Zone::Battlefield,
+        },
+        CardSetup {
+            id: bounce,
+            oracle_id: SPELL.into(),
+            owner,
+            controller: owner,
+            zone: Zone::Hand { owner },
+        },
+    ]);
+    for (player, cards) in [(controller, 10..16), (owner, 16..22)] {
+        p.config.cards.extend(cards.map(|id| CardSetup {
+            id: CardId(id),
+            oracle_id: FOREST.into(),
+            owner: player,
+            controller: player,
+            zone: Zone::Hand { owner: player },
+        }));
+    }
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let hand_count = |game: &Game, owner| {
+        game.state
+            .rules
+            .objects
+            .values()
+            .filter(|object| object.zone == Zone::Hand { owner })
+            .count()
+    };
+    let mut game = Game::new(p.clone());
+    until(&mut game, 1, TurnStep::End);
+    assert_eq!(hand_count(&game, controller), 8);
+    until(&mut game, 2, TurnStep::PrecombatMain);
+    assert_eq!(hand_count(&game, controller), 8);
+    assert_eq!(hand_count(&game, owner), 8);
+
+    let mana_object = game.object_id(mana_source).unwrap();
+    let source_object = game.object_id(source).unwrap();
+    input(
+        &mut game,
+        Response::ActivateMana {
+            object: mana_object,
+        },
+    );
+    input(&mut game, Response::Cast { card: bounce });
+    input(
+        &mut game,
+        Response::Targets {
+            objects: vec![source_object],
+        },
+    );
+    input(&mut game, Response::FinishMana { undo_mana: false });
+    assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
+    assert!(game.state.rules.stack[0].paid.is_some());
+    for _ in 0..4 {
+        pass(&mut game);
+    }
+    assert_eq!(
+        game.zone(game.object_id(source).unwrap()),
+        Some(Zone::Hand { owner })
+    );
+    until(&mut game, 2, TurnStep::End);
+    for _ in 0..4 {
+        pass(&mut game);
+    }
+    let Advance::AwaitingDecision(Request::Discard {
+        count,
+        player,
+        candidates,
+        ..
+    }) = settle(&mut game)
+    else {
+        panic!("expected cleanup discard after the source left the battlefield");
+    };
+    assert_eq!(player, owner);
+    assert_eq!(count, 1);
+    assert_eq!(candidates.len(), 8);
+    input(
+        &mut game,
+        Response::Discard {
+            objects: vec![candidates[0]],
+        },
+    );
+    assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
+    assert_eq!(hand_count(&game, owner), 7);
+    assert_eq!(
+        Game::replay(p, &game.replay_journal()).unwrap().state,
+        game.state
+    );
+}
+
+#[test]
 fn land_movement_and_counting_batch_failure_is_atomic() {
     let mut game = Game::new(prepared());
     let before = game.snapshot().unwrap();

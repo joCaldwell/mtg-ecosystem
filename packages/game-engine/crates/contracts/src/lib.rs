@@ -40,6 +40,7 @@ mod archives;
 pub use archives::*;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
+mod unlimited_hand_size;
 
 /// The sole active Card IR schema accepted and emitted by the engine.
 pub const CURRENT_IR_VERSION: u32 = 1;
@@ -205,6 +206,7 @@ pub enum Capability {
     SnowSupertypeV1,
     AttackingCreatureKeywordsV1,
     OpponentCastProhibitionV1,
+    UnlimitedHandSizeV1,
     GroupedCreatureDamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
@@ -887,6 +889,10 @@ pub enum StaticEffect {
     ControlEnchantedPermanent,
     /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
     OpponentsCantCastDuringControllerTurn,
+    /// CR 109.5, 611.3, 613.11, 514.1: the battlefield source's current
+    /// controller has no maximum hand size.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    UnlimitedControllerHandSize,
     EntersTapped,
     ReduceGenericByCreatureCount,
     CantBeCountered,
@@ -1725,6 +1731,7 @@ impl Definition {
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
                 }
+                StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
                     Capability::BoardWipesV1
@@ -1756,6 +1763,7 @@ impl Definition {
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
+        unlimited_hand_size::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2455,6 +2463,7 @@ impl Definition {
         if self.static_abilities.iter().any(|a| {
             a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
+                && a.effect != StaticEffect::UnlimitedControllerHandSize
                 && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                 && !matches!(
                     a.effect,
@@ -4980,6 +4989,7 @@ pub fn catalog_schema() -> serde_json::Value {
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
     activated_artifact_draw::extend_schema(&mut schema);
+    unlimited_hand_size::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5225,6 +5235,7 @@ mod tests {
             SnowSupertypeV1,
             AttackingCreatureKeywordsV1,
             OpponentCastProhibitionV1,
+            UnlimitedHandSizeV1,
             GroupedCreatureDamageTriggerV1,
             ControlledCreatureDamageReplacementV1,
         ];
@@ -5426,6 +5437,7 @@ mod tests {
         }];
         prohibit.capabilities = prohibit.requirements();
         definitions.push(prohibit);
+        definitions.push(unlimited_hand_size::witness());
         let mut controlled_replacement = damage.clone();
         controlled_replacement.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,

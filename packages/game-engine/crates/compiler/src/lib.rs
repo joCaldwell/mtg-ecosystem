@@ -38,6 +38,7 @@ mod normalization;
 mod self_reference;
 mod targeted_counted_draw;
 mod type_line;
+mod unlimited_hand_size;
 pub use catalog::*;
 use normalization::source_lines;
 
@@ -930,6 +931,9 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    PlayerRule {
+        rule: serde_json::Value,
+    },
     Control {
         who: SourceControlPlayer,
         what: SourceControlObject,
@@ -1842,6 +1846,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         activated_artifact_draw::validate_source(
             &binding,
             &definition.oracle_id,
+            result.abilities.get(),
+        )?;
+    }
+    if definition
+        .static_abilities
+        .iter()
+        .any(|ability| ability.effect == StaticEffect::UnlimitedControllerHandSize)
+    {
+        unlimited_hand_size::validate_source(
+            &definition,
+            &labels,
+            &binding,
             result.abilities.get(),
         )?;
     }
@@ -3558,6 +3574,9 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect) -> Result<StaticAbility, Failure> {
+    if let SourceStaticEffect::PlayerRule { rule } = effect {
+        return unlimited_hand_size::lower_rule(rule);
+    }
     if let SourceStaticEffect::Control { who, what } = effect {
         if who.player != "you" || what.reference != "enchanted" {
             return Err(unsupported(
