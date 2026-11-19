@@ -1173,6 +1173,80 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
+    pub(super) fn draw_one(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        source_block: u32,
+    ) -> Result<(), String> {
+        if !self.is_live(player) {
+            return self
+                .finish_draw_attempt(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        if let Some(card) = self
+            .state
+            .rules
+            .libraries
+            .get(&player)
+            .and_then(|cards| cards.first())
+            .copied()
+        {
+            let object = self
+                .object_id(card)
+                .ok_or("missing instruction draw source")?;
+            if self.state.rules.commanders.history(card).is_some() {
+                self.state.rules.frame = Frame::CommanderReturn {
+                    object,
+                    destination: Zone::Hand { owner: player },
+                    continuation: Box::new(CommanderContinuation::ResolutionDraw {
+                        frame,
+                        player,
+                        source_block,
+                    }),
+                };
+                Ok(())
+            } else {
+                let movement = self.move_object_for(
+                    object,
+                    Zone::Hand { owner: player },
+                    BatchCause::Instruction {
+                        stack_id: frame.spell.id,
+                        player,
+                        source: frame.spell.source,
+                        cursor: frame.cursor,
+                        source_block,
+                    },
+                )?;
+                self.finish_draw_attempt(
+                    frame,
+                    InstructionOutcome::Drawn {
+                        player,
+                        movement: Some(movement),
+                        failed: false,
+                    },
+                )
+            }
+        } else {
+            self.commit(
+                ProposedEvent::FailedDraw { player },
+                BatchCause::Instruction {
+                    stack_id: frame.spell.id,
+                    player,
+                    source: frame.spell.source,
+                    cursor: frame.cursor,
+                    source_block,
+                },
+            )?;
+            self.finish_draw_attempt(
+                frame,
+                InstructionOutcome::Drawn {
+                    player,
+                    movement: None,
+                    failed: true,
+                },
+            )
+        }
+    }
     fn counted_draw_spec(
         &self,
         frame: &Resolving,
