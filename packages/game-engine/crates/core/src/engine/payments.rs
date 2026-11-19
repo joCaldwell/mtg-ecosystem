@@ -133,7 +133,7 @@ impl Game {
         };
         self.validate_spending(input.player, &spending)?;
         cast.spending = Some(spending);
-        if self.invocation_sacrifice_filter(self.top()?).is_some() {
+        if self.invocation_sacrifice(self.top()?).is_some() {
             self.state.rules.frame = Frame::SacrificeCost { cast };
             Ok(())
         } else {
@@ -274,7 +274,7 @@ impl Game {
                 },
             )?;
         }
-        self.pay_sacrifice_cost(&stack, cast.sacrifice)?;
+        self.pay_sacrifice_cost(&stack, &cast.sacrifices)?;
         self.state
             .rules
             .stack

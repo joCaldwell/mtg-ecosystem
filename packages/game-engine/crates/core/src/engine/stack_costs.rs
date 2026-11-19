@@ -138,6 +138,10 @@ impl Game {
                 | ActivationCost::DiscardSource { .. }
                 | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
+        let modal = !self.definition(object.card)?.activated[ability as usize]
+            .program
+            .modes
+            .is_empty();
         let targeted = !self.definition(object.card)?.activated[ability as usize]
             .program
             .targets
@@ -149,6 +153,7 @@ impl Game {
             x: None,
             death_controller: None,
             sacrificed: None,
+            sacrificed_set: vec![],
             mode: None,
             effect_source_handles: vec![],
             source_facts: { Some(self.object_before(object)?) },
@@ -170,7 +175,7 @@ impl Game {
             total_cost,
             cast_from,
         });
-        if targeted {
+        if modal || targeted {
             if cost != ActivationCost::TapSource
                 && !matches!(
                     cost,
@@ -184,7 +189,7 @@ impl Game {
             }
             let cast = Casting {
                 completion: CastCompletion::Priority,
-                sacrifice: None,
+                sacrifices: vec![],
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
                 stack_id: id,
@@ -193,23 +198,27 @@ impl Game {
                 mana_activations: vec![],
                 undo_mana: false,
             };
-            self.state.rules.frame = match self.definition(object.card)?.activated[ability as usize]
-                .program
-                .targets[0]
-                .domain
-            {
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                    Frame::StackTargets { cast }
+            self.state.rules.frame = if modal {
+                Frame::Modes { cast }
+            } else {
+                match self.definition(object.card)?.activated[ability as usize]
+                    .program
+                    .targets[0]
+                    .domain
+                {
+                    TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
+                        Frame::StackTargets { cast }
+                    }
+                    TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
+                    _ => Frame::EntityTargets { cast },
                 }
-                TargetDomain::ControlledBattlefieldCreature
-                | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
-                _ => Frame::EntityTargets { cast },
             };
         } else if mana {
             self.state.rules.frame = Frame::Mana {
                 cast: Casting {
                     completion: CastCompletion::Priority,
-                    sacrifice: None,
+                    sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
                     stack_id: id,
@@ -224,7 +233,7 @@ impl Game {
             self.state.rules.frame = Frame::SacrificeCost {
                 cast: Casting {
                     completion: CastCompletion::Priority,
-                    sacrifice: None,
+                    sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: Some(BTreeMap::new()),
                     stack_id: id,
@@ -321,8 +330,10 @@ impl Game {
                 colored: vec![],
             },
         };
+        let program = self.program_for(entry)?;
         let announcing = match self.underlying_mana_frame(&self.state.rules.frame) {
-            Frame::Targets { cast }
+            Frame::Modes { cast }
+            | Frame::Targets { cast }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }
             | Frame::Mana { cast }
@@ -338,7 +349,7 @@ impl Game {
         };
         if source_handles.len() != 4
             || (!entry.targets.is_empty()
-                && activated.program.targets.first().is_none_or(|t| {
+                && program.targets.first().is_none_or(|t| {
                     !matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
@@ -347,7 +358,7 @@ impl Game {
                 }))
             || !entry.player_targets.is_empty()
             || (!entry.stack_targets.is_empty()
-                && activated.program.targets.first().is_none_or(|t| {
+                && program.targets.first().is_none_or(|t| {
                     !matches!(
                         t.domain,
                         TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility
@@ -375,7 +386,7 @@ impl Game {
                                 | ActivationCost::Composite { .. }
                                 | ActivationCost::SacrificePermanent { .. }
                                 | ActivationCost::SacrificeSource
-                        ) || (!activated.program.targets.is_empty()))
+                        ) || (!program.targets.is_empty()))
                 }
             }
         {
