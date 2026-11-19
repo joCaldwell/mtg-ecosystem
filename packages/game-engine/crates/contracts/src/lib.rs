@@ -38,6 +38,7 @@ use std::{collections::BTreeSet, fmt, str::FromStr};
 
 mod archives;
 pub use archives::*;
+mod reduced_hand_size;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -207,6 +208,7 @@ pub enum Capability {
     AttackingCreatureKeywordsV1,
     OpponentCastProhibitionV1,
     UnlimitedHandSizeV1,
+    ReducedHandSizeV1,
     GroupedCreatureDamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
@@ -880,6 +882,13 @@ pub struct DeathFilter {
 pub enum Duration {
     UntilEndOfTurn,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HandSizeScope {
+    Controller,
+    Opponents,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
@@ -893,6 +902,14 @@ pub enum StaticEffect {
     /// controller has no maximum hand size.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     UnlimitedControllerHandSize,
+    /// CR 109.5, 611.3, 613.11, 514.1: subtract from the maximum hand size
+    /// of the current controller or that controller's opponents.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    ReduceMaximumHandSize {
+        scope: HandSizeScope,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+    },
     EntersTapped,
     ReduceGenericByCreatureCount,
     CantBeCountered,
@@ -1732,6 +1749,7 @@ impl Definition {
                     Capability::OpponentCastProhibitionV1
                 }
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
+                StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
                     Capability::BoardWipesV1
@@ -1764,6 +1782,7 @@ impl Definition {
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
         unlimited_hand_size::validate_definition(self)?;
+        reduced_hand_size::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2464,6 +2483,7 @@ impl Definition {
             a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && a.effect != StaticEffect::UnlimitedControllerHandSize
+                && !matches!(a.effect, StaticEffect::ReduceMaximumHandSize { .. })
                 && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
                 && !matches!(
                     a.effect,
@@ -4990,6 +5010,7 @@ pub fn catalog_schema() -> serde_json::Value {
     hand_return::extend_schema(&mut schema);
     activated_artifact_draw::extend_schema(&mut schema);
     unlimited_hand_size::extend_schema(&mut schema);
+    reduced_hand_size::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5236,6 +5257,7 @@ mod tests {
             AttackingCreatureKeywordsV1,
             OpponentCastProhibitionV1,
             UnlimitedHandSizeV1,
+            ReducedHandSizeV1,
             GroupedCreatureDamageTriggerV1,
             ControlledCreatureDamageReplacementV1,
         ];
@@ -5438,6 +5460,7 @@ mod tests {
         prohibit.capabilities = prohibit.requirements();
         definitions.push(prohibit);
         definitions.push(unlimited_hand_size::witness());
+        definitions.push(reduced_hand_size::witness());
         let mut controlled_replacement = damage.clone();
         controlled_replacement.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,

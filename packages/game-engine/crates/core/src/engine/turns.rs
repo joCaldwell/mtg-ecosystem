@@ -197,37 +197,56 @@ impl Game {
         Ok((next, owner))
     }
     fn cleanup_discard_count(&self, player: PlayerId) -> Result<usize, String> {
-        let excess = self
+        let hand_size = self
             .state
             .rules
             .objects
             .values()
             .filter(|o| o.zone == (Zone::Hand { owner: player }))
-            .count()
-            .saturating_sub(7);
-        if excess == 0 {
+            .count();
+        if hand_size == 0 {
             return Ok(0);
         }
-        // CR 402.2/514.1/611.3a-b: derive the hand limit from current
-        // battlefield control at the start of each cleanup step.
+        // CR 107.1b/109.5/402.2/514.1/611.3a-b/613.11: derive the limit
+        // from current battlefield control at the start of cleanup. The
+        // supported reductions commute, and removing the limit absorbs them.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        let mut limit = Quantity::from(7);
         for source in self
             .state
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && o.controller == player)
+            .filter(|o| o.zone == Zone::Battlefield && self.is_live(o.controller))
         {
-            if self
-                .definition(source.id.card)?
-                .static_abilities
-                .iter()
-                .any(|ability| ability.effect == StaticEffect::UnlimitedControllerHandSize)
-            {
-                return Ok(0);
+            let controlled = source.controller == player;
+            for ability in &self.definition(source.id.card)?.static_abilities {
+                if ability.functioning_zone != FunctioningZone::Battlefield {
+                    continue;
+                }
+                match &ability.effect {
+                    StaticEffect::UnlimitedControllerHandSize if controlled => return Ok(0),
+                    StaticEffect::ReduceMaximumHandSize { scope, amount }
+                        if match scope {
+                            HandSizeScope::Controller => controlled,
+                            HandSizeScope::Opponents => !controlled,
+                        } =>
+                    {
+                        if amount >= &limit {
+                            limit = Quantity::zero();
+                        } else {
+                            limit.subtract(amount);
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
-        Ok(excess)
+        let limit = limit
+            .to_string()
+            .parse::<usize>()
+            .map_err(|_| "invalid derived maximum hand size")?;
+        Ok(hand_size.saturating_sub(limit))
     }
 
     pub(super) fn enter_turn_step(&mut self) -> Result<(), String> {
