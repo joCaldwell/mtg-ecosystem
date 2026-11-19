@@ -1081,6 +1081,130 @@ fn unlimited_hand_size_tracks_current_controller_and_ends_after_paid_bounce() {
 }
 
 #[test]
+fn reduced_hand_size_applies_during_cleanup_with_unlimited_sources_and_exact_floor() {
+    let mut p = prepared();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let creature = catalog.definition_by_oracle_id(BEARS).unwrap().clone();
+    let controller_reduction = "test-hand-size-controller";
+    let opponent_reduction = "test-hand-size-opponents";
+    let unlimited = "test-hand-size-unlimited";
+    for (id, effect) in [
+        (
+            controller_reduction,
+            StaticEffect::ReduceMaximumHandSize {
+                scope: HandSizeScope::Controller,
+                amount: Quantity::from(3),
+            },
+        ),
+        (
+            opponent_reduction,
+            StaticEffect::ReduceMaximumHandSize {
+                scope: HandSizeScope::Opponents,
+                amount: Quantity::from(5),
+            },
+        ),
+        (unlimited, StaticEffect::UnlimitedControllerHandSize),
+    ] {
+        let mut source = creature.clone();
+        source.oracle_id = id.into();
+        source.name = id.into();
+        source.static_abilities.push(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect,
+        });
+        source.capabilities = source.requirements();
+        catalog.definitions.push(source);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+
+    let player = PlayerId(0);
+    let opponent = PlayerId(1);
+    let inactive = Zone::Graveyard { owner: player };
+    p.config.initial.turn_step = TurnStep::End;
+    p.config.cards[0].oracle_id = unlimited.into();
+    p.config.cards[0].zone = inactive;
+    p.config.cards.extend(
+        [
+            (8, controller_reduction, opponent, player, Zone::Battlefield),
+            (9, opponent_reduction, player, opponent, Zone::Battlefield),
+            (10, unlimited, player, player, inactive),
+            (11, FOREST, player, player, Zone::Hand { owner: player }),
+        ]
+        .map(|(id, oracle_id, owner, controller, zone)| CardSetup {
+            id: CardId(id),
+            oracle_id: oracle_id.into(),
+            owner,
+            controller,
+            zone,
+        }),
+    );
+
+    let start_cleanup = |mut fixture: Prepared| {
+        fixture.profile_digest = digest(&fixture.config).unwrap();
+        let mut game = Game::new(fixture);
+        for _ in 0..4 {
+            let Advance::AwaitingDecision(request @ Request::Priority { .. }) =
+                game.advance(Budget::new(100))
+            else {
+                panic!("expected end-step priority");
+            };
+            game.respond(request.player(), request.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        let boundary = game.advance(Budget::new(100));
+        (game, boundary)
+    };
+
+    // Unlimited persists whether its source precedes or follows the reducers.
+    for index in [0, 10] {
+        let mut fixture = p.clone();
+        fixture.config.cards[index].zone = Zone::Battlefield;
+        let (game, boundary) = start_cleanup(fixture);
+        assert_eq!(game.active_player(), Some(opponent));
+        assert!(matches!(
+            boundary,
+            Advance::AwaitingDecision(Request::Priority { .. })
+        ));
+    }
+    let (mut game, boundary) = start_cleanup(p);
+    let Advance::AwaitingDecision(Request::Discard {
+        player: discarding_player,
+        decision_id,
+        count,
+        candidates,
+    }) = boundary
+    else {
+        panic!("expected cleanup discard");
+    };
+    assert_eq!(discarding_player, player);
+    assert_eq!(count, 4);
+    assert_eq!(candidates.len(), 4);
+    game.respond(
+        player,
+        decision_id,
+        Response::Discard {
+            objects: candidates.clone(),
+        },
+    )
+    .unwrap();
+    assert!(matches!(
+        game.advance(Budget::new(100)),
+        Advance::AwaitingDecision(Request::Priority { .. })
+    ));
+    assert_eq!(game.active_player(), Some(opponent));
+    assert!(
+        candidates
+            .iter()
+            .all(|object| game.zone(game.object_id(object.card).unwrap()) == Some(inactive))
+    );
+    recover(&game);
+}
+
+#[test]
 fn land_movement_and_counting_batch_failure_is_atomic() {
     let mut game = Game::new(prepared());
     let before = game.snapshot().unwrap();

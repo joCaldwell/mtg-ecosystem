@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-const DISALLOWED_CREATURE_SUBTYPES: &[&str] = &[
+pub(super) const DISALLOWED_CREATURE_SUBTYPES: &[&str] = &[
     "Aura",
     "Book",
     "Equipment",
