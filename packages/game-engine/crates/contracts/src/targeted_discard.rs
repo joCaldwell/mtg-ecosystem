@@ -2,11 +2,30 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
+// Use an empty struct variant on input so announced X rejects extra operands.
+impl<'de> Deserialize<'de> for RandomDiscardCount {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
+        enum Count {
+            Fixed { value: Quantity },
+            AnnouncedX {},
+        }
+        Ok(match Count::deserialize(d)? {
+            Count::Fixed { value } => Self::Fixed { value },
+            Count::AnnouncedX {} => Self::AnnouncedX,
+        })
+    }
+}
+
 fn has_discard(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::DiscardTargetPlayer { .. }))
-        || p.modes.iter().any(|m| has_discard(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            Instruction::DiscardTargetPlayer { .. }
+                | Instruction::DiscardTargetPlayerAtRandom { .. }
+        )
+    }) || p.modes.iter().any(|m| has_discard(&m.program))
 }
 
 fn player_discard(p: &SpellProgram, domain: TargetDomain) -> bool {
@@ -14,6 +33,43 @@ fn player_discard(p: &SpellProgram, domain: TargetDomain) -> bool {
         target_slot: 0, count, source_block: 0,
     }] if *count > Quantity::zero())
         && matches!(p.targets.as_slice(), [t] if t.domain == domain && t.filter.is_none())
+}
+
+// CR 701.9b: only the explicitly random discard bypasses the player's choice.
+fn random_discard_family(p: &SpellProgram, x_cost: bool) -> bool {
+    use Instruction::{DiscardTargetPlayer, DiscardTargetPlayerAtRandom};
+    if p.additional_sacrifice.is_some()
+        || !p.modes.is_empty()
+        || !matches!(p.targets.as_slice(), [t] if t.filter.is_none()
+            && matches!(t.domain, TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer))
+    {
+        return false;
+    }
+    match p.instructions.as_slice() {
+        [
+            DiscardTargetPlayerAtRandom {
+                target_slot: 0,
+                source_block: 0,
+                count,
+            },
+        ] => match count {
+            RandomDiscardCount::Fixed { value } => !x_cost && *value > Quantity::zero(),
+            RandomDiscardCount::AnnouncedX => x_cost,
+        },
+        [
+            DiscardTargetPlayerAtRandom {
+                target_slot: 0,
+                source_block: 0,
+                count: RandomDiscardCount::Fixed { value },
+            },
+            DiscardTargetPlayer {
+                target_slot: 0,
+                source_block: 0,
+                count,
+            },
+        ] => !x_cost && *value == Quantity::from(1) && *count == Quantity::from(1),
+        _ => false,
+    }
 }
 
 fn enchantment_destroy(p: &SpellProgram) -> bool {
@@ -70,16 +126,16 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     let c = &d.characteristics;
     let arcane_sorcery =
         c.kind == CardKind::Sorcery && p.modes.is_empty() && c.subtypes == ["Arcane"];
+    let chosen = (c.subtypes.is_empty() || arcane_sorcery) && !d.x_mana_cost && discard_family(p);
+    let random = c.subtypes.is_empty() && random_discard_family(p, d.x_mana_cost);
     if !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
         || !c.additional_types.is_empty()
-        || !(c.subtypes.is_empty() || arcane_sorcery)
-        || d.x_mana_cost
         || !d.mana_abilities.is_empty()
         || !d.static_abilities.is_empty()
         || !d.activated.is_empty()
         || !d.triggered.is_empty()
         || !d.keywords.is_empty()
-        || !discard_family(p)
+        || !(chosen || random)
     {
         return Err("unsupported complete targeted discard spell".into());
     }
@@ -91,8 +147,9 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::{Value, json};
     let free = json!({"$ref":"#/$defs/TargetedDiscardFreeProgram"});
     let op = "discard_target_player";
+    let random = "discard_target_player_at_random";
     schema["$defs"]["TargetedDiscardFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"properties":{"op":{"const":op}}}}},
+        "instructions":{"items":{"not":{"properties":{"op":{"enum":[op,random]}}}}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     let target = |domain, filter: Value| {
@@ -144,29 +201,48 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
         "modes":{"minItems":3,"maxItems":3,"items":{"properties":{"program":{"properties":{"timing":{"const":"instant"}}}}},
             "allOf":[mode(discard(TargetDomain::AnyPlayer)),mode(destroy),mode(draw)]}
     }});
-    let family = json!({"oneOf":[discard(TargetDomain::AnyPlayer), discard(TargetDomain::OpponentPlayer), modal]});
-    schema["$defs"]["SpellProgram"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"if":{"not":free},"then":family}));
+    let random_program = |domain, x, followed_by_choice| {
+        let count = if x {
+            json!({"const":RandomDiscardCount::AnnouncedX})
+        } else if followed_by_choice {
+            json!({"const":RandomDiscardCount::Fixed{value:1.into()}})
+        } else {
+            json!({"properties":{"amount":{"const":"fixed"}}})
+        };
+        let mut ops = vec![json!({"properties":{"op":{"const":random},"count":count}})];
+        if followed_by_choice {
+            ops.push(json!({"const":Instruction::DiscardTargetPlayer{target_slot:0,count:1.into(),source_block:0}}));
+        }
+        program(
+            target(domain, json!({"type":"null"})),
+            json!({"minItems":ops.len(),"maxItems":ops.len(),"prefixItems":ops}),
+        )
+    };
+    let mut programs = vec![modal.clone()];
 
     // Kind, timing, subtype and the exact capability set are definition facts.
-    let variant = |kind: CardKind, shape: Value, mut caps: Vec<Capability>| {
+    let variant = |kind: CardKind, shape: Value, mut caps: Vec<Capability>, x: bool| {
+        let random = caps.contains(&RandomPlayerDiscardV1);
         let (timing, cast, subtypes) = if kind == CardKind::Instant {
             (SpellTiming::Instant, CastInstantV1, json!({"maxItems":0}))
         } else {
             (
                 SpellTiming::MainPhase,
                 CastSorceryV1,
-                json!({"enum":[[],["Arcane"]]}),
+                if random {
+                    json!({"maxItems":0})
+                } else {
+                    json!({"enum":[[],["Arcane"]]})
+                },
             )
         };
-        caps.extend([NormalLayoutV1, TargetPlayerDiscardV1, cast]);
+        caps.extend([NormalLayoutV1, cast]);
         let required: Vec<_> = caps
             .iter()
             .map(|cap| json!({"contains":{"const":cap}}))
             .collect();
         json!({"properties":{
+            "x_mana_cost":{"const":x},
             "spell":{"allOf":[shape,{"properties":{"timing":{"const":timing}}}]},
             "characteristics":{"properties":{"kind":{"const":kind},"subtypes":subtypes}},
             "capabilities":{"maxItems":caps.len(),"allOf":required}
@@ -176,20 +252,50 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
         CardKind::Instant,
         modal,
         vec![
+            TargetPlayerDiscardV1,
             ModalChoiceV1,
             AnyPlayerTargetV1,
             PermanentRemovalV1,
             ControllerDrawV1,
         ],
+        false,
     )];
-    for kind in [CardKind::Instant, CardKind::Sorcery] {
-        for (domain, cap) in [
-            (TargetDomain::AnyPlayer, AnyPlayerTargetV1),
-            (TargetDomain::OpponentPlayer, OpponentTargetV1),
+    for (domain, target_cap) in [
+        (TargetDomain::AnyPlayer, AnyPlayerTargetV1),
+        (TargetDomain::OpponentPlayer, OpponentTargetV1),
+    ] {
+        for (program, x, caps) in [
+            (
+                discard(domain),
+                false,
+                vec![target_cap, TargetPlayerDiscardV1],
+            ),
+            (
+                random_program(domain, false, false),
+                false,
+                vec![target_cap, RandomPlayerDiscardV1],
+            ),
+            (
+                random_program(domain, true, false),
+                true,
+                vec![target_cap, RandomPlayerDiscardV1],
+            ),
+            (
+                random_program(domain, false, true),
+                false,
+                vec![target_cap, RandomPlayerDiscardV1, TargetPlayerDiscardV1],
+            ),
         ] {
-            alternatives.push(variant(kind, discard(domain), vec![cap]));
+            for kind in [CardKind::Instant, CardKind::Sorcery] {
+                alternatives.push(variant(kind, program.clone(), caps.clone(), x));
+            }
+            programs.push(program);
         }
     }
+    schema["$defs"]["SpellProgram"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"if":{"not":free},"then":{"oneOf":programs}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":free}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         json!({"properties":{
@@ -197,12 +303,12 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
         }}),
         json!({"if":has,"then":{"oneOf":alternatives,"properties":{
             "mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},
-            "triggered":{"maxItems":0},"keywords":{"maxItems":0},"x_mana_cost":{"const":false},
+            "triggered":{"maxItems":0},"keywords":{"maxItems":0},
             "intrinsic_zone":{"type":"null"},"characteristics":{"properties":{
                 "additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},
                 "snow":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}
             }}
-        }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":TargetPlayerDiscardV1}}}}}})
+        }},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[TargetPlayerDiscardV1,RandomPlayerDiscardV1]}}}}}})
     ]);
 }
 
@@ -216,6 +322,93 @@ pub(super) fn witness() -> Definition {
     }];
     d.capabilities = d.requirements();
     d
+}
+
+#[cfg(test)]
+pub(super) fn random_witness() -> Definition {
+    let mut d = witness();
+    d.spell.as_mut().unwrap().instructions = vec![Instruction::DiscardTargetPlayerAtRandom {
+        target_slot: 0,
+        count: RandomDiscardCount::Fixed { value: 1.into() },
+        source_block: 0,
+    }];
+    d.capabilities = d.requirements();
+    d
+}
+
+#[cfg(test)]
+#[test]
+fn random_discard() {
+    use Capability::{RandomPlayerDiscardV1, TargetPlayerDiscardV1};
+    let fixed = |n: i64| RandomDiscardCount::Fixed { value: n.into() };
+    let op = |count| Instruction::DiscardTargetPlayerAtRandom {
+        target_slot: 0,
+        count,
+        source_block: 0,
+    };
+    let chosen = |n: i64| Instruction::DiscardTargetPlayer {
+        target_slot: 0,
+        count: n.into(),
+        source_block: 0,
+    };
+    for (x, instructions, valid) in [
+        (false, vec![op(fixed(2))], true),
+        (true, vec![op(RandomDiscardCount::AnnouncedX)], true),
+        (false, vec![op(fixed(1)), chosen(1)], true),
+        (false, vec![op(fixed(0))], false),
+        (false, vec![op(fixed(-1))], false),
+        (true, vec![op(fixed(1))], false),
+        (false, vec![op(RandomDiscardCount::AnnouncedX)], false),
+        (
+            true,
+            vec![op(RandomDiscardCount::AnnouncedX), chosen(1)],
+            false,
+        ),
+        (false, vec![op(fixed(2)), chosen(1)], false),
+        (false, vec![op(fixed(1)), chosen(2)], false),
+        (false, vec![chosen(1), op(fixed(1))], false),
+        (false, vec![op(fixed(1)), op(fixed(1))], false),
+    ] {
+        let mut d = random_witness();
+        d.x_mana_cost = x;
+        d.spell.as_mut().unwrap().instructions = instructions;
+        for domain in [TargetDomain::AnyPlayer, TargetDomain::OpponentPlayer] {
+            d.spell.as_mut().unwrap().targets[0].domain = domain;
+            d.capabilities = d.requirements();
+            assert_eq!(d.validate().is_ok(), valid, "{:?}", d.spell);
+            if valid {
+                assert_eq!(
+                    d.capabilities.contains(&TargetPlayerDiscardV1),
+                    d.spell.as_ref().unwrap().instructions.len() == 2
+                );
+                assert!(d.capabilities.remove(&RandomPlayerDiscardV1));
+                assert!(d.validate().is_err());
+            }
+        }
+    }
+    let mut d = random_witness();
+    d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature;
+    d.capabilities = d.requirements();
+    assert!(d.validate().is_err());
+
+    let mut d = random_witness();
+    let child = d.spell.clone().unwrap();
+    let p = d.spell.as_mut().unwrap();
+    p.targets.clear();
+    p.instructions.clear();
+    p.modes = vec![SpellMode { program: child }; 2];
+    d.capabilities = d.requirements();
+    assert!(d.validate().is_err());
+
+    let malformed = serde_json::json!({"amount":"announced_x","value":"1"});
+    assert!(serde_json::from_value::<RandomDiscardCount>(malformed).is_err());
+    for count in [fixed(2), RandomDiscardCount::AnnouncedX] {
+        let wire = serde_json::to_value(&count).unwrap();
+        assert_eq!(
+            serde_json::from_value::<RandomDiscardCount>(wire).unwrap(),
+            count
+        );
+    }
 }
 
 #[cfg(test)]

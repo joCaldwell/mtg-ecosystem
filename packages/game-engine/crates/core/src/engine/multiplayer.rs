@@ -239,6 +239,7 @@ impl Game {
         let legal_targets = self.announced_target_legality(&stack);
         self.state.rules.frame = Frame::Resolve {
             frame: Resolving {
+                random_discard: None,
                 draw_progress: None,
                 set_damage: None,
                 target_facts: self.capture_target_facts(&stack, &legal_targets)?,
@@ -562,6 +563,11 @@ impl Game {
             && self.all_live_passed()
         {
             self.begin_resolution()?;
+        }
+        if let Frame::Resolve { frame } = &mut self.state.rules.frame
+            && frame.spell.player_targets.contains(&player)
+        {
+            frame.random_discard = None;
         }
         self.revalidate_commander_departure()?;
         self.revalidate_actions_departure()?;

@@ -118,8 +118,8 @@ survive source sacrifice. Counted
 draws precede hand returns or simultaneous discards. Commander replacements
 precede return successors; discard precedes Commander SBAs. Targets choose
 private discards, clamped to hand size;
-failed draws continue. Targeted and announced-X draws share progress. X programs
-may change life or require discard. Departure never redirects attempts.
+failed draws continue. Targeted draws share progress. Random discard samples the
+target's hand without replacement using the seeded stream. Departure never redirects.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
