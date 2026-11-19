@@ -3,6 +3,8 @@ mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
+mod pain_mana;
+pub use pain_mana::disjoint_pain_mana_family;
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
@@ -209,6 +211,7 @@ pub enum Capability {
     CastTriggerV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
+    DisjointPainManaV1,
     ControllerCreaturePlusOneCounterReplacementV1,
     AttackTriggerV1,
     DamageTriggerV1,
@@ -1161,10 +1164,15 @@ pub enum ManaProduction {
     Fixed { symbols: Vec<Color> },
     AnyColor,
     CommanderColor,
+    /// Add one mana of the selected color.
+    Choice { colors: Vec<Color> },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ManaAbility {
+    /// Damage dealt by the source to the activating player after producing mana.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_damage: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ManaActivationRestriction>,
     pub costs: PermanentActivationCosts,
