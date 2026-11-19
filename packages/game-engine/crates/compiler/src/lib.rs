@@ -1852,7 +1852,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if definition.static_abilities.iter().any(|ability| {
         matches!(
             ability.effect,
-            StaticEffect::UnlimitedControllerHandSize | StaticEffect::ReduceMaximumHandSize { .. }
+            StaticEffect::UnlimitedControllerHandSize
+                | StaticEffect::ReduceMaximumHandSize { .. }
+                | StaticEffect::IncreaseMaximumHandSize { .. }
         )
     }) {
         unlimited_hand_size::validate_source(

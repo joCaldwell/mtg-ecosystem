@@ -209,7 +209,9 @@ impl Game {
         }
         // CR 107.1b/109.5/402.2/514.1/611.3a-b/613.11: derive the limit
         // from current battlefield control at the start of cleanup. The
-        // supported reductions commute, and removing the limit absorbs them.
+        // supported increases and reductions commute. Keep intermediate values
+        // signed, floor the final limit at zero, and let an unlimited source
+        // absorb all finite changes.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let mut limit = Quantity::from(7);
         for source in self
@@ -226,26 +228,28 @@ impl Game {
                 }
                 match &ability.effect {
                     StaticEffect::UnlimitedControllerHandSize if controlled => return Ok(0),
+                    StaticEffect::IncreaseMaximumHandSize { amount } if controlled => {
+                        limit.add(amount);
+                    }
                     StaticEffect::ReduceMaximumHandSize { scope, amount }
                         if match scope {
                             HandSizeScope::Controller => controlled,
                             HandSizeScope::Opponents => !controlled,
                         } =>
                     {
-                        if amount >= &limit {
-                            limit = Quantity::zero();
-                        } else {
-                            limit.subtract(amount);
-                        }
+                        limit.subtract(amount);
                     }
                     _ => {}
                 }
             }
         }
-        let limit = limit
-            .to_string()
-            .parse::<usize>()
-            .map_err(|_| "invalid derived maximum hand size")?;
+        if limit <= Quantity::zero() {
+            return Ok(hand_size);
+        }
+        // A positive exact limit outside usize exceeds any realizable hand.
+        let Ok(limit) = limit.to_string().parse::<usize>() else {
+            return Ok(0);
+        };
         Ok(hand_size.saturating_sub(limit))
     }
 
