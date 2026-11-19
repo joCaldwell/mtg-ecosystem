@@ -54,7 +54,10 @@ mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 mod self_spell_protection;
-pub use controller_library::{controller_scry_program, controller_surveil_program};
+pub use controller_library::{
+    FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
+    matches_fixed_amount, printed_cast_scry,
+};
 pub use fixed_mill::fixed_mill_program;
 pub use library_order::controller_library_order_program;
 pub use library_selection::controller_library_selection_program;
@@ -3405,6 +3408,7 @@ impl Definition {
                             | Instruction::UntapControllerLands { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::DrawDamageAmount { .. }
+                            | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }

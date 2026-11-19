@@ -930,3 +930,79 @@ fn synthetic_upkeep_damage_binds_announced_opponent_through_recovery() {
     assert_eq!(g.state.rules.players[2].life, 37.into());
     assert_eq!(g.state.rules.players[0].life, 40.into());
 }
+
+#[test]
+fn synthetic_cast_scry_uses_paid_color_and_trigger_controller() {
+    let payer = PlayerId(0);
+    let mut p = prepared(
+        &[
+            (FRETWORK, 0, 0, Zone::Battlefield),
+            (MINE, 0, 0, Zone::Hand { owner: payer }),
+        ],
+        TurnStep::PrecombatMain,
+    );
+    edit(&mut p, FRETWORK, |d| {
+        let trigger = &mut d.triggered[0];
+        trigger.condition = TriggerCondition::SpellCast {
+            caster: CasterRelation::Controller,
+            spell: TypePredicate::SpellColor { color: Color::W },
+        };
+        trigger.death_filter = None;
+        trigger.intervening_if = None;
+        trigger.program.targets.clear();
+        trigger.program.instructions = vec![Instruction::Scry {
+            amount: 2.into(),
+            source_block: 0,
+        }];
+        // The private scenario keeps the lookup ID used by prepared(), but
+        // gives this synthetic definition its own name, printing and source.
+        d.name = "Synthetic White Cast Observer".into();
+        d.source_labels = None;
+        d.provenance.printing_id = "synthetic-white-cast-observer-print".into();
+        let source = serde_json::json!({"oracle_id":d.oracle_id,"id":d.provenance.printing_id,
+            "name":d.name,"oracle_text":"Whenever you cast a white spell, scry 2."});
+        d.provenance.source_json = canonical(&source).unwrap();
+        d.provenance.source_sha256 = sha256(d.provenance.source_json.as_bytes());
+        d.provenance.abilities_json = canonical(&[cast_scry_ability_ast(Color::W, 2)]).unwrap();
+        d.provenance.ast_sha256 = sha256(format!("[{}]", d.provenance.abilities_json).as_bytes());
+    });
+    edit(&mut p, MINE, |d| d.characteristics.colors = vec![Color::W]);
+    for id in 2..=3 {
+        p.config.cards[id].zone = Zone::Battlefield;
+    }
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    answer(&mut g, Response::Cast { card: CardId(1) });
+    for id in 2..=3 {
+        let object = g.object_id(CardId(id)).unwrap();
+        answer(&mut g, Response::ActivateMana { object });
+    }
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    g.complete_test_mana();
+    placed(&mut g);
+    assert_eq!(g.state.rules.stack.len(), 2);
+    for _ in 0..4 {
+        answer(&mut g, Response::Pass);
+    }
+    let Request::Scry {
+        player, candidates, ..
+    } = settle(&mut g)
+    else {
+        panic!("expected a pending cast-trigger lookup");
+    };
+    assert_eq!(player, payer);
+    assert_eq!(candidates.len(), 2);
+    recover(&g);
+    answer(
+        &mut g,
+        Response::Scry {
+            top: vec![candidates[1]],
+            bottom: vec![candidates[0]],
+        },
+    );
+    assert!(matches!(settle(&mut g), Request::Priority { .. }));
+    assert_eq!(g.library_prefix(payer, &1.into()).unwrap(), [candidates[1]]);
+    assert_eq!(g.state.rules.stack.len(), 1);
+    recover(&g);
+}

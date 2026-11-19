@@ -32,6 +32,58 @@ for(const amount of ['0','1','2','999999999999999999999999999'])for(const order 
  for(const invalid of ['-1','01',2,null,{},''])negative(`${label}:amount:${JSON.stringify(invalid)}`,base,d=>{d.spell.instructions.find(i=>i.op==='scry').amount=invalid});
 }
 for(const amount of ['0','1','17'])for(const sorcery of [false,true])positive(`filtered:${amount}:${sorcery}`,control(amount,0,true,sorcery));
+// A synthetic color-cast trigger exercises schema capability closure independently
+// of the ordinary-spell controls. Source and AST hashes describe this exact block.
+const triggerCatalog = clone(frozen);
+const observer = clone(frozen.definitions.find(d => d.name === 'Grizzly Bears'));
+triggerCatalog.definitions = [observer];
+observer.name = 'Synthetic Cast Scry Observer';
+observer.oracle_id = 'synthetic-cast-scry-schema';
+observer.provenance.printing_id = 'synthetic-cast-scry-schema-print';
+const text = 'Whenever you cast a red spell, scry 5.';
+const source = { ...JSON.parse(observer.provenance.source_json), name:observer.name, id:observer.provenance.printing_id,
+  oracle_id:observer.oracle_id, oracle_text:text };
+const ast = [{ kind:'triggered', trigger:{ trigger:'cast', who:{player:'you'}, what:{colors:['red'],cls:'spell'} },
+  effects:[{steps:[{effect:'scry',amount:{amount:'fixed',value:5}}]}] }];
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+observer.provenance.source_json = JSON.stringify(source);
+observer.provenance.source_sha256 = sha256(observer.provenance.source_json);
+observer.provenance.abilities_json = JSON.stringify(ast);
+observer.provenance.ast_sha256 = sha256(JSON.stringify([ast]));
+delete observer.source_labels;
+const requiredTriggerCaps = ['cast_trigger_v1','triggered_ability_v1','cast_color_predicate_v1','controller_scry_v1'];
+observer.capabilities.push(...requiredTriggerCaps);
+observer.triggered = [{ functioning_zone:'battlefield', condition:{spell_cast:{caster:'controller',spell:{predicate:'spell_color',color:'R'}}},
+  program:{functioning_zone:'stack',timing:'instant',resolution:'instructions',targets:[],
+    instructions:[{op:'scry',amount:'5',source_block:0}]} }];
+positive('cast-scry:complete',triggerCatalog);
+for (const cap of requiredTriggerCaps) {
+  negative('cast-scry:missing:'+cap, triggerCatalog,d=>{d.capabilities=d.capabilities.filter(c=>c!==cap)});
+}
+negative('cast-scry:erased',triggerCatalog,d=>{delete d.triggered;d.capabilities=d.capabilities.filter(c=>!requiredTriggerCaps.includes(c))});
+const damageCatalog = clone(triggerCatalog);
+const damageObserver = damageCatalog.definitions[0];
+damageObserver.name = 'Violet Observatory';
+const damageLine = 'Whenever you cast a red spell, ~ deals 5 damage to target opponent.';
+const damageSource = {...source,name:damageObserver.name,oracle_text:damageLine.replace('~',damageObserver.name)};
+const damageAst = clone(ast);
+damageAst[0].effects[0].steps[0] = {effect:'damage',source:{ref:'self'},amount:{amount:'fixed',value:5},
+  to:{to:'player',ref:{player:'target-opponent',selectionId:'line:0:12'}}};
+damageObserver.provenance.source_json=JSON.stringify(damageSource);
+damageObserver.provenance.source_sha256=sha256(damageObserver.provenance.source_json);
+damageObserver.provenance.abilities_json=JSON.stringify(damageAst);
+damageObserver.provenance.ast_sha256=sha256(JSON.stringify([damageAst]));
+damageObserver.capabilities=damageObserver.capabilities.filter(c=>c!=='controller_scry_v1');
+damageObserver.capabilities.push('opponent_target_v1','noncombat_damage_v1');
+const damageProgram=damageObserver.triggered[0].program;
+damageProgram.instructions=[{op:'deal_damage',target_slot:0,amount:'5',source_block:0}];
+damageProgram.targets=[{slot:0,selection_id:'line:0:12',domain:'opponent_player',chooser:'controller',stage:'announcement'}];
+positive('cast-damage:complete',damageCatalog);
+for(const cap of ['cast_trigger_v1','cast_color_predicate_v1','triggered_ability_v1','opponent_target_v1','noncombat_damage_v1']) {
+  negative('cast-damage:missing:'+cap,damageCatalog,d=>{d.capabilities=d.capabilities.filter(c=>c!==cap)});
+}
+negative('cast-damage:wrong-selection',damageCatalog,d=>{d.triggered[0].program.targets[0].selection_id='line:0:11'});
+negative('cast-damage:second-instruction',damageCatalog,d=>{d.triggered[0].program.instructions.push(clone(d.triggered[0].program.instructions[0]))});
 const ordinary=control(),filtered=control('1',0,true);
 for(const [name,change] of [
  ['double',d=>d.spell.instructions.push(clone(d.spell.instructions[0]))],

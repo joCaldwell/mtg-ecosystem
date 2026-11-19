@@ -16,46 +16,7 @@ fn regex(pattern: &str) -> Regex {
         .clone()
 }
 
-// Match the archive producer's spelled-number vocabulary and canonical decimal text.
-pub(super) fn matches_fixed_amount(text: &str, amount: i64) -> bool {
-    const UNITS: [&str; 20] = [
-        "one",
-        "two",
-        "three",
-        "four",
-        "five",
-        "six",
-        "seven",
-        "eight",
-        "nine",
-        "ten",
-        "eleven",
-        "twelve",
-        "thirteen",
-        "fourteen",
-        "fifteen",
-        "sixteen",
-        "seventeen",
-        "eighteen",
-        "nineteen",
-        "twenty",
-    ];
-    const TENS: [&str; 8] = [
-        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
-    ];
-    let decimal = amount.to_string();
-    if text == decimal {
-        return true;
-    }
-    match amount as usize {
-        n @ 1..=20 => text == UNITS[n - 1],
-        50 => text == "fifty",
-        n @ 21..=99 if n % 10 != 0 => {
-            text.split_once('-') == Some((TENS[n / 10 - 2], UNITS[n % 10 - 1]))
-        }
-        _ => false,
-    }
-}
+pub(super) use mtg_contracts::matches_fixed_amount;
 
 fn normalize_punctuation(text: &str) -> String {
     text.replace('’', "'")

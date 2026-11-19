@@ -43,11 +43,269 @@ fn controller_look_program(p: &SpellProgram, surveil: bool) -> bool {
     }
 }
 
-pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
-    if d.activated.iter().any(|a| has_look(&a.program))
-        || d.triggered.iter().any(|a| has_look(&a.program))
+// Match the archive producer's spelled-number vocabulary and canonical decimal text.
+pub fn matches_fixed_amount(text: &str, amount: i64) -> bool {
+    const UNITS: [&str; 20] = [
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+    ];
+    const TENS: [&str; 8] = [
+        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+    ];
+    let decimal = amount.to_string();
+    if text == decimal {
+        return true;
+    }
+    match amount as usize {
+        n @ 1..=20 => text == UNITS[n - 1],
+        50 => text == "fifty",
+        n @ 21..=99 if n % 10 != 0 => {
+            text.split_once('-') == Some((TENS[n / 10 - 2], UNITS[n % 10 - 1]))
+        }
+        _ => false,
+    }
+}
+
+/// Fixed color-cast scry grammar, independent of the parsed operation or IR.
+pub fn printed_cast_scry(line: &str) -> Option<(Color, u32)> {
+    let (color, count) = line
+        .strip_prefix("Whenever you cast a ")?
+        .strip_suffix('.')?
+        .split_once(" spell, scry ")?;
+    let color = printed_color(color)?;
+    let n = printed_count(count)?;
+    Some((color, n))
+}
+
+fn printed_color(color: &str) -> Option<Color> {
+    Some(match color {
+        "white" => Color::W,
+        "blue" => Color::U,
+        "black" => Color::B,
+        "red" => Color::R,
+        "green" => Color::G,
+        _ => return None,
+    })
+}
+
+fn printed_count(count: &str) -> Option<u32> {
+    Some(match count.parse::<u32>() {
+        Ok(n) if matches_fixed_amount(count, i64::from(n)) => n,
+        _ => (1..100).find(|n| matches_fixed_amount(count, i64::from(*n)))?,
+    })
+}
+
+pub fn cast_scry_ability_ast(color: Color, count: u32) -> serde_json::Value {
+    let color = match color {
+        Color::W => "white",
+        Color::U => "blue",
+        Color::B => "black",
+        Color::R => "red",
+        Color::G => "green",
+        Color::C => "colorless",
+    };
+    serde_json::json!({"kind":"triggered","trigger":{"trigger":"cast","who":{"player":"you"},
+        "what":{"colors":[color],"cls":"spell"}},"effects":[{"steps":[{"effect":"scry",
+        "amount":{"amount":"fixed","value":count}}]}]})
+}
+
+/// Operands of one complete fixed controller-color cast effect.
+#[derive(Clone, Copy)]
+pub enum FixedCastEffect {
+    Scry(Color, u32),
+    OpponentDamage(Color, u32),
+}
+
+impl FixedCastEffect {
+    pub fn from_line(line: &str, name: &str) -> Option<Self> {
+        if let Some((color, n)) = printed_cast_scry(line) {
+            return Some(Self::Scry(color, n));
+        }
+        let (color, effect) = line
+            .strip_prefix("Whenever you cast a ")?
+            .split_once(" spell, ")?;
+        let (actor, count) = effect
+            .strip_suffix(" damage to target opponent.")?
+            .rsplit_once(" deals ")?;
+        if actor != name && name.split_once(',').is_none_or(|(short, _)| short != actor) {
+            return None;
+        }
+        // A canonical positive decimal is one parser token. This fixes the
+        // target position independently of the supplied selector or graph.
+        let n = count.parse::<u32>().ok()?;
+        (n > 0 && n.to_string() == count).then_some(Self::OpponentDamage(printed_color(color)?, n))
+    }
+
+    pub fn ability(self, block: usize) -> serde_json::Value {
+        let (color, n) = match self {
+            Self::Scry(color, n) | Self::OpponentDamage(color, n) => (color, n),
+        };
+        let mut ability = cast_scry_ability_ast(color, n);
+        if matches!(self, Self::OpponentDamage(..)) {
+            ability["effects"][0]["steps"][0] = serde_json::json!({
+                "effect":"damage","source":{"ref":"self"},"amount":{"amount":"fixed","value":n},
+                "to":{"to":"player","ref":{"player":"target-opponent","selectionId":format!("line:{block}:12")}}});
+        }
+        ability
+    }
+}
+
+// Source provenance and executable IR must each account for every fixed cast
+// block. The source list also fixes its ordinal among printed triggered abilities.
+fn validate_fixed_cast_source(d: &Definition) -> Result<(), String> {
+    let count = d
+        .triggered
+        .iter()
+        .filter(|a| {
+            has_look(&a.program)
+                || (matches!(
+                    a.condition,
+                    TriggerCondition::SpellCast {
+                        spell: TypePredicate::SpellColor { .. },
+                        ..
+                    }
+                ) && a
+                    .program
+                    .targets
+                    .iter()
+                    .any(|t| t.domain == TargetDomain::OpponentPlayer)
+                    && a.program
+                        .instructions
+                        .iter()
+                        .any(|i| matches!(i, Instruction::DealDamage { .. })))
+        })
+        .count();
+    let raw = &d.provenance.source_json;
+    if count == 0
+        && !raw.contains(" spell, scry ")
+        && !raw.contains(" damage to target opponent.")
+        && !raw.contains(r"\u")
     {
-        return Err("library look requires an ordinary spell source".into());
+        return Ok(());
+    }
+    let fail = || "fixed cast effect requires its printed operands and trigger block".to_owned();
+    let source: serde_json::Value = strict_read(raw)?;
+    let text = source["oracle_text"].as_str().unwrap_or("");
+    let printed: Vec<_> = text
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            FixedCastEffect::from_line(line, &d.name).map(|operands| (index, line, operands))
+        })
+        .collect();
+    if printed.len() != count {
+        return Err(fail());
+    }
+    if count == 0 {
+        return Ok(());
+    }
+    let abilities: Vec<serde_json::Value> = strict_read(&d.provenance.abilities_json)?;
+    if source["name"] != d.name
+        || source["oracle_id"] != d.oracle_id
+        || source["id"] != d.provenance.printing_id
+        || abilities.len() != text.lines().count()
+    {
+        return Err(fail());
+    }
+    for (block, line, operand) in printed {
+        if abilities[block] != operand.ability(block) {
+            return Err(fail());
+        }
+        let index = abilities[..block]
+            .iter()
+            .filter(|a| a["kind"] == "triggered")
+            .count();
+        let a = d.triggered.get(index).ok_or_else(fail)?;
+        let block = u32::try_from(block).map_err(|_| fail())?;
+        let (color, matches_effect, label) = match operand {
+            FixedCastEffect::Scry(color, n) => (
+                color,
+                matches!(a.program.instructions.as_slice(),
+                [Instruction::Scry {amount,source_block}] if *amount == Quantity::from(i64::from(n)) && *source_block == block),
+                line.to_owned(),
+            ),
+            FixedCastEffect::OpponentDamage(color, n) => {
+                let (head, effect) = line.split_once(" spell, ").ok_or_else(fail)?;
+                let (_, rest) = effect.rsplit_once(" deals ").ok_or_else(fail)?;
+                (
+                    color,
+                    matches!(a.program.instructions.as_slice(), [Instruction::DealDamage {amount,source_block,target_slot:0}]
+                    if *amount == Quantity::from(i64::from(n)) && *source_block == block)
+                        && matches!(a.program.targets.as_slice(), [target] if target.slot == 0 && target.domain == TargetDomain::OpponentPlayer && target.selection_id == format!("line:{block}:12"))
+                        && a.intervening_if.is_none()
+                        && a.death_filter.is_none(),
+                    format!("{head} spell, ~ deals {rest}"),
+                )
+            }
+        };
+        if a.condition
+            != (TriggerCondition::SpellCast {
+                caster: CasterRelation::Controller,
+                spell: TypePredicate::SpellColor { color },
+            })
+            || !matches_effect
+            || d.source_labels.as_ref().is_some_and(|l| {
+                l.triggered.get(index) != Some(&block)
+                    || l.blocks.get(block as usize).map(String::as_str) != Some(label.as_str())
+            })
+        {
+            return Err(fail());
+        }
+    }
+    Ok(())
+}
+
+fn cast_scry_conditions() -> impl Iterator<Item = TriggerCondition> {
+    [Color::W, Color::U, Color::B, Color::R, Color::G]
+        .into_iter()
+        .map(|color| TriggerCondition::SpellCast {
+            caster: CasterRelation::Controller,
+            spell: TypePredicate::SpellColor { color },
+        })
+}
+
+fn cast_scry_program(a: &TriggeredAbility) -> bool {
+    a.functioning_zone == FunctioningZone::Battlefield
+        && a.program.timing == SpellTiming::Instant
+        && a.intervening_if.is_none()
+        && a.death_filter.is_none()
+        && cast_scry_conditions().any(|condition| a.condition == condition)
+        && matches!(
+            a.program.instructions.as_slice(),
+            [Instruction::Scry { .. }]
+        )
+        && controller_scry_program(&a.program)
+}
+
+pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
+    validate_fixed_cast_source(d)?;
+    if d.activated.iter().any(|a| has_look(&a.program))
+        || d.triggered.iter().any(|a| {
+            has_look(&a.program)
+                && (d.characteristics.kind != CardKind::Creature
+                    || !d.characteristics.additional_types.is_empty()
+                    || !cast_scry_program(a))
+        })
+    {
+        return Err("library look requires an ordinary spell or a supported cast trigger".into());
     }
     if !d.spell.as_ref().is_some_and(has_look) {
         return Ok(());
@@ -121,15 +379,71 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap();
+    let cast_damage = json!({"required":["condition","program"],"properties":{
+        "condition":{"enum":cast_scry_conditions().collect::<Vec<_>>()},
+        "program":{"required":["targets","instructions"],"properties":{
+            "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"opponent_player"}}}},
+            "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"deal_damage"}}}}
+        }}
+    }});
+    let has_damage =
+        json!({"required":["triggered"],"properties":{"triggered":{"contains":cast_damage}}});
+    def.push(json!({"if":has_damage,"then":{"properties":{
+        "capabilities":{"allOf":[{"contains":{"const":Capability::CastTriggerV1}},
+            {"contains":{"const":Capability::TriggeredAbilityV1}},{"contains":{"const":Capability::CastColorPredicateV1}},
+            {"contains":{"const":Capability::NoncombatDamageV1}},{"contains":{"const":Capability::OpponentTargetV1}}]},
+        "triggered":{"items":{"if":cast_damage,"then":{"properties":{
+            "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
+            "program":{"properties":{
+                "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+                "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+                "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},
+                    "chooser":{"const":"controller"},"stage":{"const":"announcement"},"filter":{"type":"null"},
+                    "selection_id":{"pattern":"^line:(0|[1-9][0-9]*):12$"}}}},
+                "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"target_slot":{"const":0},
+                    "amount":{"pattern":"^[1-9][0-9]*$"}}}}
+            }}
+        }}}}
+    }}}));
+    // The executable grammar admits only self damage. A parser-normalized
+    // source label carries that identity without embedding a printing name.
+    def.push(json!({"if":{"required":["source_labels"],"properties":{"source_labels":{
+        "type":"object","required":["blocks"],"properties":{"blocks":{"contains":{
+            "pattern":r"^Whenever you cast a (white|blue|black|red|green) spell, ~ deals [1-9][0-9]* damage to target opponent\.$"
+        }}}
+    }}},"then":has_damage}));
+    let cast_scry = json!({
+        "required":["program"],
+        "properties":{"program":{"not":{"$ref":"#/$defs/ScryFreeProgram"}}}
+    });
+    let has_cast_scry = json!({
+        "required":["triggered"],"properties":{"triggered":{"contains":cast_scry}}
+    });
     def.push(json!({"properties":{
         "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/ScryFreeProgram"}}}},
-        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/ScryFreeProgram"}}}}
+        "triggered":{"items":{"if":cast_scry,"then":{"properties":{
+            "condition":{"enum":cast_scry_conditions().collect::<Vec<_>>()},
+            "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},
+            "death_filter":{"type":"null"},"program":{"allOf":[
+                {"$ref":"#/$defs/ControllerScryProgram"},
+                {"properties":{"timing":{"const":"instant"},"instructions":{"minItems":1,"maxItems":1}}}
+            ]}
+        }}}}
     }}));
+    def.push(json!({"if":{"required":["provenance"],"properties":{"provenance":{"properties":{
+        "source_json":{"pattern":r#"Whenever you cast a (white|blue|black|red|green) spell, scry ([0-9]+|[a-z-]+)\."#}
+    }}}},"then":has_cast_scry}));
+    def.push(json!({"if":has_cast_scry,"then":{"properties":{
+        "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0}}},
+        "capabilities":{"allOf":[{"contains":{"const":Capability::ControllerScryV1}},
+            {"contains":{"const":Capability::CastTriggerV1}},{"contains":{"const":Capability::TriggeredAbilityV1}},
+            {"contains":{"const":Capability::CastColorPredicateV1}}]}
+    }}}));
     def.push(json!({"if":has_scry,"then":{"properties":{
         "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
         "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
         "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerScryV1}}]}
-    }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}));
+    }},"else":{"if":{"not":has_cast_scry},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}}));
     def.push(json!({"if":has_scry,"then":{"allOf":[
         {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
          "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
