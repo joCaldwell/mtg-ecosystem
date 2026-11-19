@@ -42,6 +42,7 @@ mod opponent_nonland_destroy;
 mod optional_costs;
 mod pain_mana;
 mod self_reference;
+mod source_tap_damage;
 mod self_spell_protection;
 mod spell_cascade_grants;
 mod successor_tuck;
@@ -299,6 +300,9 @@ enum SourceTrigger {
         to: serde_json::Value,
     },
     Enters {
+        what: TriggerObject,
+    },
+    BecomesTapped {
         what: TriggerObject,
     },
     Dies {
@@ -1386,6 +1390,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+    let mut source_tap_trigger =
+        source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let mut draw_land_allowance =
@@ -1854,12 +1860,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        definition.triggered.push(lower_trigger(
-                            trigger,
-                            effects,
-                            condition.as_ref(),
-                            block,
-                        )?);
+                        definition.triggered.push(match source_tap_trigger.take() {
+                            Some(ability) => ability,
+                            None => lower_trigger(trigger, effects, condition.as_ref(), block)?,
+                        });
                     }
                     _ => {
                         return Err(unsupported(

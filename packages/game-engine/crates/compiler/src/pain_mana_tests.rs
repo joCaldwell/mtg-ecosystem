@@ -59,8 +59,30 @@ fn pain_mana_lowers_complete_source_and_rejects_wrong_activator_binding() {
         compile(MANIFEST, &wrong_activator),
         CompileResult::Unsupported { path, .. } if path == "binding.mana"
     ));
+    let CompileResult::Lowered { definition } = compile(MANIFEST, CITY) else {
+        panic!("the separate tap trigger and mana ability must lower together");
+    };
+    assert!(!disjoint_pain_mana_family(&definition));
+    assert_eq!(definition.mana_abilities.len(), 1);
+    assert_eq!(definition.mana_abilities[0].production, ManaProduction::AnyColor);
+    assert_eq!(definition.mana_abilities[0].self_damage, None);
+
+    let wrong_controller = crate::tests::changed_source(CITY, |record| {
+        let references = record["binding"]["references"].as_array_mut().unwrap();
+        let activator = references[4]["target"].clone();
+        references[2]["target"] = activator;
+    });
     assert!(matches!(
-        compile(MANIFEST, CITY),
-        CompileResult::Unsupported { .. }
+        compile(MANIFEST, &wrong_controller),
+        CompileResult::Unsupported { path, .. } if path == "binding.becomes-tapped"
+    ));
+    let missing_trigger = crate::tests::changed_source(CITY, |record| {
+        let result = &mut record["faces"][0]["result"];
+        result["abilities"].as_array_mut().unwrap().remove(0);
+        result["lines"].as_array_mut().unwrap().remove(0);
+    });
+    assert!(matches!(
+        compile(MANIFEST, &missing_trigger),
+        CompileResult::Invalid { path, .. } if path == "lines"
     ));
 }
