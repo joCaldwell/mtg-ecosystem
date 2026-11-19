@@ -3181,6 +3181,7 @@ impl Definition {
                     !matches!(
                         target.domain,
                         TargetDomain::AnyPlayer
+                            | TargetDomain::OpponentPlayer
                             | TargetDomain::AnyDamageTarget
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
@@ -3191,6 +3192,7 @@ impl Definition {
                     !matches!(
                         instruction,
                         Instruction::PumpSet { .. }
+                            | Instruction::DealDamage { .. }
                             | Instruction::LoseLifeDeathController { .. }
                             | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
@@ -4426,7 +4428,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 if *amount <= Quantity::zero() {
                     return Err("damage quantity must be positive".into());
                 }
-                Some((*target_slot, TargetDomain::AnyDamageTarget))
+                match p.targets.get(*target_slot as usize).map(|t| t.domain) {
+                    Some(
+                        domain @ (TargetDomain::AnyDamageTarget | TargetDomain::OpponentPlayer),
+                    ) => Some((*target_slot, domain)),
+                    _ => return Err("unbound fixed damage target".into()),
+                }
             }
             Instruction::DealDamageToController { amount, .. } => {
                 if *amount <= Quantity::zero() {

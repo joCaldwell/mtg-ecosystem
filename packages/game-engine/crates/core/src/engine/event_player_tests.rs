@@ -852,3 +852,81 @@ fn d2cb_synthetic_tapped_predicate_and_hand_recheck_after_normal_draw() {
         recover(&g);
     }
 }
+
+#[test]
+fn synthetic_upkeep_damage_binds_announced_opponent_through_recovery() {
+    let mut p = prepared(&[(ARENA, 0, 0, Zone::Battlefield)], TurnStep::Untap);
+    edit(&mut p, ARENA, |d| {
+        d.name = "Synthetic Upkeep Observer".into();
+        d.source_labels = None;
+        let program = &mut d.triggered[0].program;
+        program.targets = vec![TargetSpec {
+            slot: 0,
+            selection_id: "opponent".into(),
+            chooser: Chooser::Controller,
+            stage: EvaluationStage::Announcement,
+            domain: TargetDomain::OpponentPlayer,
+            filter: None,
+        }];
+        program.instructions = vec![Instruction::DealDamage {
+            target_slot: 0,
+            amount: 3.into(),
+            source_block: 0,
+        }];
+    });
+    let mut g = Game::new(p);
+    for _ in 0..12 {
+        if matches!(settle(&mut g), Request::PlayerTargets { .. }) {
+            break;
+        }
+        passive(&mut g);
+    }
+    let Request::PlayerTargets {
+        player,
+        candidates,
+        decision_id,
+        ..
+    } = settle(&mut g)
+    else {
+        panic!("expected trigger placement target");
+    };
+    assert_eq!(player, PlayerId(0));
+    assert_eq!(candidates, vec![PlayerId(1), PlayerId(2), PlayerId(3)]);
+    assert!(
+        g.respond(
+            player,
+            decision_id,
+            Response::PlayerTargets {
+                players: vec![player]
+            }
+        )
+        .is_err()
+    );
+    let opponent = PlayerId(2);
+    answer(
+        &mut g,
+        Response::PlayerTargets {
+            players: vec![opponent],
+        },
+    );
+    recover(&g);
+    pass_until(&mut g, |g| {
+        matches!(g.state.rules.frame, Frame::DamageEffects { .. })
+    });
+    let Frame::DamageEffects { transaction } = &g.state.rules.frame else {
+        unreachable!()
+    };
+    assert_eq!(
+        transaction.entries[0].recipient,
+        DamageRecipient::Player { player: opponent }
+    );
+    let mut wrong_target = transaction.clone();
+    wrong_target.entries[0].recipient = DamageRecipient::Player {
+        player: PlayerId(1),
+    };
+    assert!(g.validate_damage_transaction(&wrong_target).is_err());
+    recover(&g);
+    let _ = settle(&mut g);
+    assert_eq!(g.state.rules.players[2].life, 37.into());
+    assert_eq!(g.state.rules.players[0].life, 40.into());
+}

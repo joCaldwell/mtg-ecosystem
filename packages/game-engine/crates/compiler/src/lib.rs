@@ -3311,6 +3311,32 @@ fn append_spell_effects(
                     duration,
                 } => lower_prevention(program, slots, prevention, duration, source_block)?,
                 Step::Damage {
+                    optional: None,
+                    source,
+                    amount,
+                    to: DamageDestination::Player { reference },
+                } if reference.get("player").and_then(|value| value.as_str())
+                    == Some("target-opponent")
+                    && (matches!(source, DamageSource::SelfReference {})
+                        || matches!(source, DamageSource::This { noun } if noun == "creature" || noun == "enchantment")) =>
+                {
+                    let selector: PlayerSelector = serde_json::from_value(reference.clone())
+                        .map_err(|_| unsupported("damage", "invalid opponent selector"))?;
+                    if selector.of.is_some() {
+                        return Err(unsupported("damage", "unexpected opponent reference"));
+                    }
+                    Instruction::DealDamage {
+                        target_slot: bind_target(
+                            program,
+                            slots,
+                            selector.selection_id.as_deref().unwrap_or(""),
+                            TargetDomain::OpponentPlayer,
+                        )?,
+                        amount: fixed_positive_value(amount)?,
+                        source_block,
+                    }
+                }
+                Step::Damage {
                     source,
                     amount,
                     to,
