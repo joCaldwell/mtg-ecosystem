@@ -484,6 +484,20 @@ impl Game {
         self.eligible_stack_targets(domain, Some(countering))
             .contains(&target)
     }
+    // CR 101.2/101.3, 113.6 and 608.2b: protection applies when countering
+    // the source spell. Its stack target legality is evaluated separately.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn spell_cannot_be_countered(&self, entry: &StackInstance) -> Result<bool, String> {
+        Ok(entry.kind.is_spell()
+            && self
+                .definition(entry.source.card)?
+                .static_abilities
+                .iter()
+                .any(|ability| {
+                    ability.functioning_zone == FunctioningZone::Stack
+                        && ability.effect == StaticEffect::CantBeCountered
+                }))
+    }
     pub(super) fn validate_stack_targets(
         &self,
         player: PlayerId,

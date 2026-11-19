@@ -38,6 +38,7 @@ mod library_order;
 pub use hand_return::controller_hand_return_program;
 mod library_selection;
 mod nonland_exile_life;
+mod self_spell_protection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
 pub use library_order::controller_library_order_program;
@@ -341,6 +342,7 @@ pub enum Capability {
     PermanentRemovalV1,
     SacrificeV1,
     BoardWipesV1,
+    SelfSpellProtectionV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1021,6 +1023,8 @@ pub enum StaticEffect {
         per_object: Quantity,
         count: BattlefieldCount,
     },
+    /// CR 101.2/113.6: the source spell on the stack can't be countered.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     CantBeCountered,
     ModifyCreatures {
         scope: CreatureScope,
@@ -2039,9 +2043,8 @@ impl Definition {
                 StaticEffect::ReduceSelfGenericCost { .. } => {
                     Capability::CountedSelfGenericCostReductionV1
                 }
-                StaticEffect::ReduceGenericByCreatureCount | StaticEffect::CantBeCountered => {
-                    Capability::BoardWipesV1
-                }
+                StaticEffect::ReduceGenericByCreatureCount => Capability::BoardWipesV1,
+                StaticEffect::CantBeCountered => self_spell_protection::capability(self),
                 StaticEffect::DoubleDamageToPermanentOrPlayer => {
                     Capability::StaticDamageReplacementV1
                 }
@@ -2439,6 +2442,7 @@ impl Definition {
             return Err("invalid source/AST provenance".into());
         }
         nonland_exile_life::validate_definition(self)?;
+        self_spell_protection::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
             if source["oracle_text"].as_str() != Some(labels.text.as_str())
@@ -2926,6 +2930,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::ReduceSelfGenericCost { .. }
+                    | StaticEffect::CantBeCountered
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) && a.effect != StaticEffect::EntersTapped
@@ -5801,6 +5806,7 @@ pub fn catalog_schema() -> serde_json::Value {
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
+    self_spell_protection::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
     cast_origin::extend_schema(&mut schema);
@@ -6046,6 +6052,7 @@ mod tests {
             PermanentRemovalV1,
             SacrificeV1,
             BoardWipesV1,
+            SelfSpellProtectionV1,
             FlashV1,
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
@@ -6450,6 +6457,16 @@ mod tests {
             definitions.push(expanded);
         }
         definitions.push(typed_fetchland_tests::definition());
+        let protected_wipe = definitions
+            .iter()
+            .find(|d| {
+                d.static_abilities
+                    .iter()
+                    .any(|a| a.effect == StaticEffect::CantBeCountered)
+            })
+            .unwrap()
+            .clone();
+        definitions.push(self_spell_protection::witness(protected_wipe));
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)
