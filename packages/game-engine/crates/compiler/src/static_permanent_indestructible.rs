@@ -8,9 +8,10 @@ fn selector(effect: &SourceStaticEffect) -> Option<&Value> {
         return None;
     };
     if *what != json!({"ref":"each","filter":{"other":true,"cls":"permanent","control":"you"}})
-        || modifiers.as_slice() != [
-            json!({"modifier":"abilities","abilities":[{"gained":"keyword","keyword":{"keyword":"indestructible"}}]}),
-        ]
+        || modifiers.as_slice()
+            != [
+                json!({"modifier":"abilities","abilities":[{"gained":"keyword","keyword":{"keyword":"indestructible"}}]}),
+            ]
     {
         return None;
     }
@@ -37,7 +38,10 @@ pub(super) fn bind(
     };
     let path = format!("/faces/0/abilities/{block}");
     if text != "Other permanents you control have indestructible." {
-        return Err(unsupported(&path, "unsupported complete static indestructible sentence"));
+        return Err(unsupported(
+            &path,
+            "unsupported complete static indestructible sentence",
+        ));
     }
     let root = format!("card:{}", card.oracle_id);
     let source = format!("{root}/source#object");
@@ -82,35 +86,62 @@ pub(super) fn bind(
         || expected_nodes.iter().any(|expected| {
             let mut found = nodes.iter().filter(|node| node["id"] == expected["id"]);
             found.next().is_none_or(|node| {
-                expected.as_object().unwrap().iter().any(|(key, value)| node[key] != *value)
+                expected
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .any(|(key, value)| node[key] != *value)
             }) || found.next().is_some()
         })
     {
-        return Err(unsupported(&path, "unbound static indestructible source or recipient"));
+        return Err(unsupported(
+            &path,
+            "unbound static indestructible source or recipient",
+        ));
     }
     let effect_path = format!("{path}/effect/");
     let references = binding["references"]
         .as_array()
         .ok_or_else(|| unsupported(&path, "missing static grant binding references"))?
         .iter()
-        .filter(|reference| reference["path"].as_str().is_some_and(|p| p.starts_with(&effect_path)))
+        .filter(|reference| {
+            reference["path"]
+                .as_str()
+                .is_some_and(|p| p.starts_with(&effect_path))
+        })
         .collect::<Vec<_>>();
     if references.len() != 3 {
-        return Err(unsupported(&path, "unsupported static indestructible reference set"));
+        return Err(unsupported(
+            &path,
+            "unsupported static indestructible reference set",
+        ));
     }
     for (reference_path, expression, target) in [
-        (format!("{query_path}/filter/other"), json!({"ref":"self"}), source),
-        (format!("{query_path}/filter/control"), json!({"player":"you"}), you),
+        (
+            format!("{query_path}/filter/other"),
+            json!({"ref":"self"}),
+            source,
+        ),
+        (
+            format!("{query_path}/filter/control"),
+            json!({"player":"you"}),
+            you,
+        ),
         (query_path, what.clone(), query),
     ] {
-        let mut found = references.iter().filter(|reference| reference["path"] == reference_path);
+        let mut found = references
+            .iter()
+            .filter(|reference| reference["path"] == reference_path);
         if !matches!(found.next(), Some(reference)
             if reference["binding"] == "bound"
                 && reference["expression"] == expression
                 && reference["target"] == target)
             || found.next().is_some()
         {
-            return Err(unsupported(&reference_path, "unbound static indestructible selector"));
+            return Err(unsupported(
+                &reference_path,
+                "unbound static indestructible selector",
+            ));
         }
     }
     Ok(())

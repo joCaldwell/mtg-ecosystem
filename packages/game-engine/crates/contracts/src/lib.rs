@@ -2084,7 +2084,7 @@ impl Definition {
             {
                 set.insert(Capability::IndestructibleV1);
             }
-            set.insert(match a.effect {
+            let static_capability = match a.effect {
                 StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
                 StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
@@ -2128,7 +2128,8 @@ impl Definition {
                     ..
                 } => Capability::SacrificeV1,
                 StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
-            });
+            };
+            set.insert(static_capability);
         }
         set
     }
@@ -4921,10 +4922,13 @@ pub fn catalog_schema() -> serde_json::Value {
             "if":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}},
             "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
         }));
-    schema["$defs"]["StaticAbility"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":{"required":["effect"],"properties":{"effect":permanent_grant_effect}},
-        "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
-    }));
+    schema["$defs"]["StaticAbility"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "if":{"required":["effect"],"properties":{"effect":permanent_grant_effect}},
+            "then":{"properties":{"functioning_zone":{"const":"battlefield"}}}
+        }));
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{

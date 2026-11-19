@@ -156,27 +156,28 @@ impl Game {
                                 Some(&a.effect)
                             }
                             StaticEffect::ModifyCreatures { scope, .. }
-                                if creature && match scope {
-                                    CreatureScope::Source => o.id == target,
-                                    CreatureScope::Controller => {
-                                        o.controller == permanent.controller
-                                    }
-                                    CreatureScope::AttackingController => {
-                                        // CR 508.1k/506.4/611.3a: attacking is
-                                        // incarnation-bound combat membership,
-                                        // independent of tapping or readiness.
-                                        o.controller == permanent.controller
-                                            && self
-                                                .state
-                                                .rules
-                                                .combat
-                                                .iter()
-                                                .any(|attacker| attacker.attacker == target)
-                                    }
-                                    CreatureScope::Equipped | CreatureScope::Enchanted => {
-                                        o.attached_to == Some(target)
-                                    }
-                                } =>
+                                if creature
+                                    && match scope {
+                                        CreatureScope::Source => o.id == target,
+                                        CreatureScope::Controller => {
+                                            o.controller == permanent.controller
+                                        }
+                                        CreatureScope::AttackingController => {
+                                            // CR 508.1k/506.4/611.3a: attacking is
+                                            // incarnation-bound combat membership,
+                                            // independent of tapping or readiness.
+                                            o.controller == permanent.controller
+                                                && self
+                                                    .state
+                                                    .rules
+                                                    .combat
+                                                    .iter()
+                                                    .any(|attacker| attacker.attacker == target)
+                                        }
+                                        CreatureScope::Equipped | CreatureScope::Enchanted => {
+                                            o.attached_to == Some(target)
+                                        }
+                                    } =>
                             {
                                 Some(&a.effect)
                             }

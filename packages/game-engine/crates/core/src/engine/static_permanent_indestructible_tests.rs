@@ -6,9 +6,8 @@ use super::*;
 
 #[test]
 fn avacyn_paid_static_indestructible_ends_on_departure() {
-    let raw = include_str!(
-        "../../../../tests/fixtures/ramos/216cb26e-8da9-478b-bfbc-8030f7adee72.json"
-    );
+    let raw =
+        include_str!("../../../../tests/fixtures/ramos/216cb26e-8da9-478b-bfbc-8030f7adee72.json");
     assert_eq!(
         sha256(raw.trim_end().as_bytes()),
         "1e3889b435b776572907a40d9ad5f67ecf15a29ee4806ece95f04b6fa7c1af0e"
@@ -41,10 +40,14 @@ fn avacyn_paid_static_indestructible_ends_on_departure() {
             .contains(&Capability::StaticPermanentIndestructibleGrantV1)
     );
     let avacyn = definition.oracle_id.clone();
-    let mut catalog = Catalog::read(include_str!("../../../../tests/fixtures/expected-wipes-ir.json"))
-        .unwrap();
+    let mut catalog = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-wipes-ir.json"
+    ))
+    .unwrap();
     catalog.definitions.push(*definition);
-    catalog.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     catalog.validate().unwrap();
 
     let active = PlayerId(0);
