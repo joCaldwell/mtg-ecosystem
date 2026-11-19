@@ -7,7 +7,10 @@ const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest-cu
 fn lowered(raw: &str) -> Box<Definition> {
     match compile(MANIFEST, raw) {
         CompileResult::Lowered { definition } => definition,
-        result => panic!("{result:?}"),
+        result => {
+            let source: Value = serde_json::from_str(raw).unwrap();
+            panic!("{}: {result:?}", source["source"]["name"]);
+        }
     }
 }
 
@@ -32,6 +35,8 @@ fn synthetic_damage() -> String {
             let id = format!("card:{}{base}", r["oracleIdentity"].as_str().unwrap());
             let binding = &mut r["binding"];
             binding["nodes"][1]["manaCost"] = json!("{X}{R}");
+            binding["referencesBound"] = json!(true);
+            binding["engineFeatures"] = json!([]);
             binding["nodes"].as_array_mut().unwrap().push(json!({
                 "id":format!("{id}#announced-x"),"path":base,"node":"announced-number",
                 "scope":format!("{id}#ability"),"chooser":format!("{id}#you"),
