@@ -3,6 +3,8 @@ mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
+mod opponent_mana;
+pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod typed_land_search;
@@ -236,6 +238,7 @@ pub enum Capability {
     FlashV1,
     CastArtifactV1,
     PermanentManaV1,
+    OpponentLandManaV1,
     CompositeActivationCostV1,
     CastEnchantmentV1,
     AuraControlV1,
@@ -1164,6 +1167,8 @@ pub enum ManaProduction {
     Fixed { symbols: Vec<Color> },
     AnyColor,
     CommanderColor,
+    /// Add one mana of a color an opponent's land could produce.
+    OpponentLandColors,
     /// Add one mana of the selected color.
     Choice { colors: Vec<Color> },
 }
@@ -1816,6 +1821,9 @@ impl Definition {
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
         }
+        if opponent_land_mana_family(self) {
+            set.insert(Capability::OpponentLandManaV1);
+        }
         if disjoint_pain_mana_family(self) {
             set.extend([Capability::DisjointPainManaV1, Capability::NoncombatDamageV1]);
         }
@@ -2379,6 +2387,14 @@ impl Definition {
             {
                 return Err("invalid source label provenance".into());
             }
+        }
+        if self
+            .mana_abilities
+            .iter()
+            .any(|ability| ability.production == ManaProduction::OpponentLandColors)
+            && !opponent_land_mana_family(self)
+        {
+            return Err("unsupported complete opponent-land mana family".into());
         }
         let has_disjoint_operands = self.mana_abilities.iter().any(|ability| {
             ability.self_damage.is_some()
@@ -5697,6 +5713,7 @@ pub fn catalog_schema() -> serde_json::Value {
     counted_costs::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
+    opponent_mana::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
@@ -5941,6 +5958,7 @@ mod tests {
             TargetPlayerDrawV1,
             CastArtifactV1,
             PermanentManaV1,
+            OpponentLandManaV1,
             CompositeActivationCostV1,
             AttachmentsV1,
             PermanentRemovalV1,
@@ -6139,6 +6157,7 @@ mod tests {
         definitions.push(conditional_lands::tests::land());
         definitions.push(conditional_lands::tests::optional_land());
         definitions.push(cycling::witness());
+        definitions.push(opponent_mana::witness());
         definitions.push(pain_mana::witness());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
