@@ -31,14 +31,23 @@ class StorageTests(unittest.TestCase):
         return storage.prune_incremental(self.root, 0, apply, self.lock, allow_uninspectable=True)
 
     def test_dry_run_and_budget_then_apply_preserves_executable(self):
+        dev = self.root / 'target/engine-dev/quick'
+        incremental = dev / 'incremental'
+        incremental.mkdir(parents=True)
+        (incremental / 'cache').write_bytes(b'x' * 8192)
+        executable = dev / 'mtg-sim'
+        executable.write_bytes(b'preserve development executable')
         self.assertEqual(storage.incremental_plan(self.root, 1024**2), [])
         report = self.prune()
         self.assertGreater(report['candidate_bytes'], 0)
         self.assertTrue(self.cache.exists())
+        self.assertTrue(incremental.exists())
         report = self.prune(True)
         self.assertGreater(report['reclaimed_bytes'], 0)
         self.assertFalse(self.cache.exists())
+        self.assertFalse(incremental.exists())
         self.assertEqual(self.binary.read_bytes(), b'preserve executable')
+        self.assertEqual(executable.read_bytes(), b'preserve development executable')
 
     def test_unregistered_nested_path_rejected(self):
         with self.assertRaises(ValueError):
