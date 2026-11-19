@@ -14,6 +14,8 @@ pub fn engine_build_input(path: &str) -> bool {
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+mod activated_artifact_draw;
+pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod targeted_counted_draw;
@@ -166,23 +168,23 @@ impl Characteristics {
 /// Rule-bearing subtype boundaries from CR 205.3g–k, 301.5–7, 303.4/7,
 /// 709.5, 714–720. Other subtype labels do not themselves supply abilities.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+const UNSUPPORTED_RULES_SUBTYPES: &[&str] = &[
+    "Saga",
+    "Class",
+    "Case",
+    "Vehicle",
+    "Curse",
+    "Spacecraft",
+    "Attraction",
+    "Room",
+    "Contraption",
+    "Fortification",
+    "Role",
+    "Adventure",
+    "Omen",
+];
 pub fn unsupported_rules_subtype(subtype: &str) -> bool {
-    matches!(
-        subtype,
-        "Saga"
-            | "Class"
-            | "Case"
-            | "Vehicle"
-            | "Curse"
-            | "Spacecraft"
-            | "Attraction"
-            | "Room"
-            | "Contraption"
-            | "Fortification"
-            | "Role"
-            | "Adventure"
-            | "Omen"
-    )
+    UNSUPPORTED_RULES_SUBTYPES.contains(&subtype)
 }
 
 #[derive(
@@ -236,6 +238,7 @@ pub enum Capability {
     TapSourceUntapCreatureV1,
     ActivatedSpellCounterV1,
     ActivatedPermanentOwnerHandV1,
+    ActivatedArtifactDrawV1,
     OwnerHandMoveV1,
     PermanentOwnerHandMoveV1,
     CastSorceryV1,
@@ -1597,6 +1600,9 @@ impl Definition {
         }
         for ability in &self.activated {
             set.insert(Capability::ActivatedAbilityV1);
+            if activated_artifact_draw_ability(ability) {
+                set.insert(Capability::ActivatedArtifactDrawV1);
+            }
             if has_untap(&ability.program) {
                 set.insert(Capability::TapSourceUntapCreatureV1);
             }
@@ -2100,6 +2106,11 @@ impl Definition {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if activated_artifact_draw_ability(ability) {
+                activated_artifact_draw::validate_source(self)?;
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if has_untap(&ability.program) {
                 if c.kind != CardKind::Creature || !tap_source_untap_ability(ability) {
                     return Err("tap-source untap requires a creature, pure source tap and one creature target".into());
@@ -4968,6 +4979,7 @@ pub fn catalog_schema() -> serde_json::Value {
     controller_counted_draw::extend_schema(&mut schema);
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
+    activated_artifact_draw::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5118,6 +5130,7 @@ mod tests {
             TapSourceUntapCreatureV1,
             ActivatedSpellCounterV1,
             ActivatedPermanentOwnerHandV1,
+            ActivatedArtifactDrawV1,
             OwnerHandMoveV1,
             PermanentOwnerHandMoveV1,
             CastSorceryV1,
@@ -5313,6 +5326,7 @@ mod tests {
         definitions.push(tap_source_untap_tests::tap_source_untap());
         definitions.push(activated_spell_counter_tests::activated_counter());
         definitions.push(activated_permanent_return_tests::activated_return());
+        definitions.push(activated_artifact_draw::witness());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.

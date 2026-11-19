@@ -149,6 +149,7 @@ supported haste. Mana, tap and additional sacrifice costs retain separate guards
 Mana-cost activations announce, offer their mana window and require exact spending;
 costs without mana offer no mana opportunity. Failed payment removes the proposal
 and optionally reverses only its receipt-recorded mana activations.
+With `ActivatedArtifactDrawV1`, the activator pays fixed mana and taps the artifact, then draws one card on resolution.
 Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
 wait for the complete invocation. Additional costs never change mana value.
 
