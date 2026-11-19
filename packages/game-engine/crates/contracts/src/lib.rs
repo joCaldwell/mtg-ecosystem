@@ -32,10 +32,10 @@ mod activated_artifact_draw;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
+mod announced_x_draw;
 mod targeted_counted_draw;
 mod targeted_discard;
 pub use targeted_counted_draw::targeted_counted_draw_program;
-pub use targeted_discard::target_player_discard_program;
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
@@ -60,7 +60,9 @@ mod optional_costs;
 mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
+mod flash_end_step_draw;
 mod hand_size_adjustments;
+mod paid_counted_draw;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -357,13 +359,14 @@ pub enum Capability {
     TypedLandSearchV1,
     CreatureAnthemV1,
     TargetPlayerDrawV1,
-    TargetPlayerDiscardV1,
     AttachmentsV1,
     PermanentRemovalV1,
     SacrificeV1,
     BoardWipesV1,
     SelfSpellProtectionV1,
+    AnnouncedXDrawV1,
     TargetedCountedDrawV1,
+    TargetPlayerDiscardV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -811,11 +814,6 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
-    TargetPlayerDiscardCards {
-        target_slot: u32,
-        count: Quantity,
-        source_block: u32,
-    },
     TargetPlayerSacrificeCreature {
         target_slot: u32,
         source_block: u32,
@@ -838,6 +836,19 @@ pub enum Instruction {
         count: Quantity,
         source_block: u32,
     },
+    DrawAnnouncedX {
+        #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
+        #[schemars(with = "LifeRecipient")]
+        recipient: LifeRecipient,
+        source_block: u32,
+    },
+    ChangeLifeAnnouncedX {
+        #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
+        #[schemars(with = "LifeRecipient")]
+        recipient: LifeRecipient,
+        gain: bool,
+        source_block: u32,
+    },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
     /// one card, including when their library is empty.
     OptionalDrawCards {
@@ -845,6 +856,14 @@ pub enum Instruction {
     },
     /// Draw once per unit of the triggering actual damage amount (CR 121.2).
     DrawDamageAmount {
+        source_block: u32,
+    },
+    DiscardTargetPlayer {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        count: Quantity,
+        #[schemars(range(max = 0))]
         source_block: u32,
     },
     DiscardCards {
@@ -935,13 +954,15 @@ impl Instruction {
             Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
-            Self::TargetPlayerDiscardCards { source_block, .. } => *source_block,
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
-            Self::DrawCards { source_block, .. } => *source_block,
+            Self::DrawAnnouncedX { source_block, .. }
+            | Self::ChangeLifeAnnouncedX { source_block, .. }
+            | Self::DrawCards { source_block, .. } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
-            Self::DiscardCards { source_block, .. } => *source_block,
+            Self::DiscardTargetPlayer { source_block, .. }
+            | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterStackObject { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. } => *source_block,
@@ -1909,9 +1930,7 @@ impl Definition {
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
         }
-        if self.x_mana_cost {
-            set.insert(Capability::BoardWipesV1);
-        }
+
         match self.characteristics.kind {
             CardKind::Land => {
                 set.insert(Capability::LandPlayV1);
@@ -2195,8 +2214,9 @@ impl Definition {
         u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         controller_library::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
-        targeted_discard::validate_definition(self)?;
+        announced_x_draw::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
+        targeted_discard::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -2487,7 +2507,7 @@ impl Definition {
                         Instruction::DamageSet {
                             amount: WipeAmount::AnnouncedX,
                             ..
-                        }
+                        } | Instruction::DrawAnnouncedX { .. }
                     )
                 })
             })
@@ -2637,6 +2657,7 @@ impl Definition {
             && !(sacrifice && c.kind == CardKind::Enchantment)
             && !typed_land_search::activation_definition(self)
             && !cycling::definition(self)
+            && !paid_counted_draw::definition_matches(self)
         {
             return Err("activated programs require supported creature characteristics".into());
         }
@@ -2666,6 +2687,11 @@ impl Definition {
             if matches!(&ability.cost, ActivationCost::Composite { costs } if costs.remove_source_plus_one_counters.is_some())
             {
                 return Err("counter removal requires mana ability".into());
+            }
+            if paid_counted_draw::ability_matches(ability) {
+                // The complete source is checked by hand_return::validate_definition.
+                validate_instruction_program(&ability.program)?;
+                continue;
             }
             if activated_artifact_draw_ability(ability) {
                 activated_artifact_draw::validate_source(self)?;
@@ -3052,6 +3078,7 @@ impl Definition {
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
+                            | Instruction::DrawControllerCards { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::DiscardCards { .. }
@@ -3760,6 +3787,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         && !controller_draw_discard_program(p)
         && !controller_counted_draw_program(p)
         && !hand_return::controller_draw_land_allowance_program(p)
+        && !flash_end_step_draw::trigger_program(p)
+        && !paid_counted_draw::program_matches(p)
     {
         return Err("unsupported complete counted controller draw program".into());
     }
@@ -4242,12 +4271,6 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
-            Instruction::TargetPlayerDiscardCards { target_slot, .. } => {
-                if !target_player_discard_program(p) {
-                    return Err("invalid targeted discard program".into());
-                }
-                Some((*target_slot, TargetDomain::AnyPlayer))
-            }
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
             }
@@ -4351,6 +4374,14 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     _ => return Err("unsupported mill recipient".into()),
                 }
             }
+            Instruction::DrawAnnouncedX { recipient, .. }
+            | Instruction::ChangeLifeAnnouncedX { recipient, .. } => match recipient {
+                LifeRecipient::Controller => None,
+                LifeRecipient::Target { target_slot } => {
+                    Some((*target_slot, TargetDomain::AnyPlayer))
+                }
+                _ => return Err("invalid announced X recipient".into()),
+            },
             Instruction::DrawCards { recipient, .. } => match recipient {
                 Some(LifeRecipient::EachOpponent) => {
                     return Err("unsupported each-opponent draw".into());
@@ -4360,6 +4391,16 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 _ => None,
             },
+            Instruction::DiscardTargetPlayer { target_slot, .. } => {
+                // The complete discard family already verified this player target.
+                Some((
+                    *target_slot,
+                    p.targets
+                        .get(*target_slot as usize)
+                        .ok_or("unbound discard target")?
+                        .domain,
+                ))
+            }
             Instruction::DiscardCards { count, .. } => {
                 if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
                     return Err("unsupported draw/discard cardinality".into());
@@ -4656,6 +4697,10 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
+            Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
+            Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
+            Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
             Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
                 Capability::TargetedCountedDrawV1
             }
@@ -4682,7 +4727,6 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::MoveTriggeredSuccessor { .. } => {
                 Capability::TriggeredSuccessorLibraryTuckV1
             }
-            Instruction::TargetPlayerDiscardCards { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::TargetPlayerSacrificeCreature { .. } => {
                 Capability::TargetPlayerSacrificeCreatureV1
             }
@@ -4691,7 +4735,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::ControllerDrawV1
             }
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
-                if controller_counted_draw_program(program) {
+                if controller_counted_draw_program(program)
+                    || controller_counted_draw::standalone_controller_draw(program).is_some()
+                {
                     Capability::ControllerCountedDrawV1
                 } else if controller_draw_discard_program(program) {
                     Capability::ControllerDrawDiscardV1
@@ -6002,8 +6048,9 @@ pub fn catalog_schema() -> serde_json::Value {
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
-    targeted_discard::extend_schema(&mut schema);
+    announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
+    targeted_discard::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -6018,6 +6065,8 @@ pub fn catalog_schema() -> serde_json::Value {
     activated_artifact_draw::extend_schema(&mut schema);
     unlimited_hand_size::extend_schema(&mut schema);
     hand_size_adjustments::extend_schema(&mut schema);
+    flash_end_step_draw::extend_schema(&mut schema);
+    paid_counted_draw::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -6255,8 +6304,8 @@ mod tests {
             TypedLandSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
-            TargetPlayerDiscardV1,
             TargetedCountedDrawV1,
+            TargetPlayerDiscardV1,
             CastArtifactV1,
             PermanentManaV1,
             OpponentLandManaV1,
@@ -6267,6 +6316,7 @@ mod tests {
             SacrificeV1,
             BoardWipesV1,
             SelfSpellProtectionV1,
+            AnnouncedXDrawV1,
             FlashV1,
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
@@ -6513,8 +6563,9 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
-        definitions.push(targeted_discard::witness());
+        definitions.push(announced_x_draw::witness());
         definitions.push(targeted_counted_draw::witness());
+        definitions.push(targeted_discard::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
@@ -6540,6 +6591,7 @@ mod tests {
         definitions.push(activated_spell_counter_tests::activated_counter());
         definitions.push(activated_permanent_return_tests::activated_return());
         definitions.push(activated_artifact_draw::witness());
+        definitions.extend(paid_counted_draw::witnesses());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         definitions.push(basic_land_split_tests::split_search());
         definitions.push(typed_land_search_tests::typed_search());

@@ -1156,8 +1156,11 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::GrantKeywords { .. }
                     | Instruction::GrantKeywordsSet { .. }
                     | Instruction::OptionalDrawCards { .. }
+                    | Instruction::DiscardTargetPlayer { .. }
                     | Instruction::DrawControllerCards { .. }
                     | Instruction::PutHandOnLibrary { .. }
+                    | Instruction::DrawAnnouncedX { .. }
+                    | Instruction::ChangeLifeAnnouncedX { .. }
                     | Instruction::DrawDamageAmount { .. }
                     | Instruction::DealDamageToController { .. }
                     | Instruction::SacrificeCreature { .. }
@@ -1181,7 +1184,6 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::AttachEquipment { .. }
                     | Instruction::ReturnAuraFromGraveyard { .. }
                     | Instruction::GrantLandPlaysThisTurn { .. }
-                    | Instruction::TargetPlayerDiscardCards { .. }
                     | Instruction::DestroySet { .. }
                     | Instruction::MoveTriggeredSuccessor { .. }
                     | Instruction::SearchBasicLandsSplit { .. }

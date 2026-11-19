@@ -36,13 +36,23 @@ pub(crate) fn controller_draw_land_allowance_program(p: &SpellProgram) -> bool {
         )
 }
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
-    if d.activated.iter().any(|a| has_hand_program(&a.program))
-        || d.triggered.iter().any(|a| has_hand_program(&a.program))
+    if (d.activated.iter().any(|a| has_hand_program(&a.program))
+        && !paid_counted_draw::definition_matches(d))
+        || (d.triggered.iter().any(|a| has_hand_program(&a.program))
+            && !flash_end_step_draw::definition_matches(d))
     {
-        return Err("counted controller programs require an ordinary spell".into());
+        return Err("unsupported complete counted controller ability source".into());
     }
     if !d.spell.as_ref().is_some_and(has_hand_program) {
         return Ok(());
+    }
+    if !d.spell.as_ref().is_some_and(|p| {
+        controller_hand_return_program(p)
+            || controller_draw_discard_program(p)
+            || controller_counted_draw_program(p)
+            || controller_draw_land_allowance_program(p)
+    }) {
+        return Err("unsupported complete controller draw/hand return spell".into());
     }
     let c = &d.characteristics;
     if !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
@@ -79,11 +89,17 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     }});
     s["$defs"]["ControllerHandReturnProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"put_hand_on_library"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}],"items":false}}});
     s["$defs"]["HandReturnFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":["draw_controller_cards","put_hand_on_library","grant_land_plays_this_turn"]}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}});
-    s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"}]}}));
+    s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"},{"$ref":"#/$defs/FlashEndStepDrawProgram"},{"$ref":"#/$defs/PaidCountedDrawProgram"}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/HandReturnFreeProgram"}}}});
     let family = json!({"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"}]});
     let defs = s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap();
-    defs.push(json!({"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}},"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}}));
+    defs.push(json!({"allOf":[{"anyOf":[
+        {"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}},
+        {"$ref":"#/$defs/PaidCountedDrawDefinition"}
+    ]},{"anyOf":[
+        {"properties":{"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}},
+        {"$ref":"#/$defs/FlashEndStepDrawDefinition"}
+    ]}]}));
     defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1,Capability::LifeLossV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1]}}}}}}));
     // LifeLoss is an independent required capability only for the exact tail.
     let loses_life = json!({"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"lose_life"}}}}}}}});
@@ -113,7 +129,13 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
             Capability::ControllerDrawLandAllowanceV1,
         ),
     ] {
-        defs.push(json!({"if":{"required":["spell"],"properties":{"spell":{"type":"object","$ref":format!("#/$defs/{program}")}}},"then":{"properties":{"capabilities":{"contains":{"const":cap}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}}));
+        let ordinary = json!({"required":["spell"],"properties":{"spell":{"type":"object","$ref":format!("#/$defs/{program}")}}});
+        let family = if cap == Capability::ControllerCountedDrawV1 {
+            json!({"anyOf":[ordinary,{"$ref":"#/$defs/FlashEndStepDrawDefinition"},{"$ref":"#/$defs/PaidCountedDrawDefinition"}]})
+        } else {
+            ordinary
+        };
+        defs.push(json!({"if":family,"then":{"properties":{"capabilities":{"contains":{"const":cap}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}}));
     }
     defs.push(json!({"if":has,"then":{"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},"then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},"else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}}}));
 }

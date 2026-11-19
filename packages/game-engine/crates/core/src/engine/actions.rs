@@ -238,6 +238,41 @@ impl Game {
             },
         }
     }
+    fn discard_spec<'a>(
+        &self,
+        frame: &Resolving,
+        instruction: &'a Instruction,
+    ) -> Result<(PlayerId, &'a Quantity, u32), String> {
+        match instruction {
+            Instruction::DiscardCards {
+                recipient,
+                count,
+                source_block,
+            } => Ok((
+                self.resolution_player(frame, recipient.as_ref())?,
+                count,
+                *source_block,
+            )),
+            Instruction::DiscardTargetPlayer {
+                target_slot,
+                count,
+                source_block,
+            } => {
+                // A sole illegal target ends resolution before instruction dispatch.
+                let slot = *target_slot as usize;
+                if frame.legal_targets.get(slot) != Some(&true) {
+                    return Err("missing legal discard target".into());
+                }
+                let player = *frame
+                    .spell
+                    .player_targets
+                    .get(slot)
+                    .ok_or("missing discard player target")?;
+                Ok((player, count, *source_block))
+            }
+            _ => Err("expected discard instruction".into()),
+        }
+    }
     pub(super) fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
@@ -941,6 +976,31 @@ impl Game {
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
+            Instruction::ChangeLifeAnnouncedX {
+                recipient,
+                gain,
+                source_block,
+            } => {
+                let amount = frame.spell.x.clone().ok_or("missing announced X")?;
+                if amount == Quantity::zero() {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Life { actual: None });
+                }
+                let op = if gain {
+                    Instruction::GainLife {
+                        recipient,
+                        amount,
+                        source_block,
+                    }
+                } else {
+                    Instruction::LoseLife {
+                        recipient,
+                        amount,
+                        source_block,
+                    }
+                };
+                self.execute_damage_life_instruction(frame, op)
+            }
             op @ (Instruction::DealDamage { .. }
             | Instruction::DealDamageToController { .. }
             | Instruction::GainLife { .. }
@@ -1052,7 +1112,9 @@ impl Game {
                 }
                 self.draw_multiple(frame)
             }
-            Instruction::DrawDamageAmount { .. } => self.draw_multiple(frame),
+            Instruction::DrawDamageAmount { .. } | Instruction::DrawAnnouncedX { .. } => {
+                self.draw_multiple(frame)
+            }
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1072,150 +1134,43 @@ impl Game {
                 };
                 Ok(())
             }
-            Instruction::DiscardCards {
-                recipient,
-                count,
-                source_block,
-            } => {
-                let player = self.resolution_player(&frame, recipient.as_ref())?;
-                self.begin_discard(frame, player, count, source_block)
-            }
-            Instruction::TargetPlayerDiscardCards {
-                target_slot,
-                count,
-                source_block,
-            } => {
-                let slot = target_slot as usize;
-                let player = *frame
-                    .spell
-                    .player_targets
-                    .get(slot)
-                    .ok_or("missing discard target")?;
-                if frame.legal_targets.get(slot) != Some(&true) {
+            op @ (Instruction::DiscardCards { .. } | Instruction::DiscardTargetPlayer { .. }) => {
+                let (player, count, source_block) = self.discard_spec(&frame, &op)?;
+                if count.is_negative() {
+                    return Err("negative discard count".into());
+                }
+                if !self.is_live(player) {
                     return self.finish_instruction(
                         frame,
                         InstructionOutcome::PlayerActionSkipped { player },
                     );
                 }
-                self.begin_discard(frame, player, count, source_block)
+                let actual_count = self.bounded_hand_count(player, count);
+                if actual_count == 0 {
+                    self.finish_instruction(
+                        frame,
+                        InstructionOutcome::Discarded {
+                            player,
+                            movements: vec![],
+                        },
+                    )
+                } else {
+                    self.state.rules.frame = Frame::ResolutionChoice {
+                        frame,
+                        choice: ResolutionChoice::Discard {
+                            player,
+                            count: actual_count,
+                            source_block,
+                        },
+                    };
+                    Ok(())
+                }
             }
             Instruction::CounterStackObject {
                 target_slot,
                 source_block,
             } => self.resolve_counter_instruction(frame, target_slot, source_block),
             _ => Err("unexpected action instruction".into()),
-        }
-    }
-    fn begin_discard(
-        &mut self,
-        frame: Resolving,
-        player: PlayerId,
-        count: Quantity,
-        source_block: u32,
-    ) -> Result<(), String> {
-        if count.is_negative() {
-            return Err("negative discard count".into());
-        }
-        if !self.is_live(player) {
-            return self
-                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
-        }
-        let actual_count = self.bounded_hand_count(player, &count);
-        if actual_count == 0 {
-            self.finish_instruction(
-                frame,
-                InstructionOutcome::Discarded {
-                    player,
-                    movements: vec![],
-                },
-            )
-        } else {
-            self.state.rules.frame = Frame::ResolutionChoice {
-                frame,
-                choice: ResolutionChoice::Discard {
-                    player,
-                    count: actual_count,
-                    source_block,
-                },
-            };
-            Ok(())
-        }
-    }
-    /// One ordinary draw attempt, shared by mandatory and accepted optional
-    /// draws. The existing Commander continuation owns the remaining attempt;
-    /// recovery must not offer the optional choice again.
-    pub(super) fn draw_one(
-        &mut self,
-        frame: Resolving,
-        player: PlayerId,
-        source_block: u32,
-    ) -> Result<(), String> {
-        if !self.is_live(player) {
-            return self
-                .finish_draw_attempt(frame, InstructionOutcome::PlayerActionSkipped { player });
-        }
-        if let Some(card) = self
-            .state
-            .rules
-            .libraries
-            .get(&player)
-            .and_then(|cards| cards.first())
-            .copied()
-        {
-            let object = self
-                .object_id(card)
-                .ok_or("missing instruction draw source")?;
-            if self.state.rules.commanders.history(card).is_some() {
-                self.state.rules.frame = Frame::CommanderReturn {
-                    object,
-                    destination: Zone::Hand { owner: player },
-                    continuation: Box::new(CommanderContinuation::ResolutionDraw {
-                        frame,
-                        player,
-                        source_block,
-                    }),
-                };
-                Ok(())
-            } else {
-                let movement = self.move_object_for(
-                    object,
-                    Zone::Hand { owner: player },
-                    BatchCause::Instruction {
-                        stack_id: frame.spell.id,
-                        player,
-                        source: frame.spell.source,
-                        cursor: frame.cursor,
-                        source_block,
-                    },
-                )?;
-                self.finish_draw_attempt(
-                    frame,
-                    InstructionOutcome::Drawn {
-                        player,
-                        movement: Some(movement),
-                        failed: false,
-                    },
-                )
-            }
-        } else {
-            self.commit(
-                ProposedEvent::FailedDraw { player },
-                BatchCause::Instruction {
-                    stack_id: frame.spell.id,
-                    player,
-                    source: frame.spell.source,
-                    cursor: frame.cursor,
-                    source_block,
-                },
-            )?;
-            self.finish_draw_attempt(
-                frame,
-                InstructionOutcome::Drawn {
-                    player,
-                    movement: None,
-                    failed: true,
-                },
-            )
         }
     }
     fn counted_draw_spec(
@@ -1233,6 +1188,20 @@ impl Game {
                     return Err("negative counted draw amount".into());
                 }
                 (count.clone(), *source_block)
+            }
+            Instruction::DrawAnnouncedX {
+                recipient,
+                source_block,
+            } => {
+                if let LifeRecipient::Target { target_slot } = recipient
+                    && frame.legal_targets.get(*target_slot as usize) != Some(&true)
+                {
+                    return Err("missing legal announced-X draw target".into());
+                }
+                (
+                    frame.spell.x.clone().ok_or("missing announced X")?,
+                    *source_block,
+                )
             }
             Instruction::DrawDamageAmount { source_block } => {
                 (self.damage_draw_amount(frame)?, *source_block)
@@ -1698,35 +1667,17 @@ impl Game {
                         count,
                         source_block,
                     },
-                    instruction @ (Instruction::DiscardCards {
-                        count: expected,
-                        source_block: expected_block,
-                        ..
-                    }
-                    | Instruction::TargetPlayerDiscardCards {
-                        count: expected,
-                        source_block: expected_block,
-                        ..
+                    op,
+                ) => self
+                    .discard_spec(frame, op)
+                    .is_ok_and(|(actor, expected, block)| {
+                        actor == *player
+                            && *count > 0
+                            && (!self.is_live(*player)
+                                || *count == self.bounded_hand_count(*player, expected))
+                            && Quantity::from(*count as i64) <= *expected
+                            && *source_block == block
                     }),
-                ) => {
-                    let bound = match instruction {
-                        Instruction::DiscardCards { recipient, .. } => self
-                            .resolution_player(frame, recipient.as_ref())
-                            .is_ok_and(|actor| actor == *player),
-                        Instruction::TargetPlayerDiscardCards { target_slot, .. } => {
-                            let slot = *target_slot as usize;
-                            frame.legal_targets.get(slot) == Some(&true)
-                                && frame.spell.player_targets.get(slot) == Some(player)
-                        }
-                        _ => unreachable!(),
-                    };
-                    bound
-                        && *count > 0
-                        && (!self.is_live(*player)
-                            || *count == self.bounded_hand_count(*player, expected))
-                        && Quantity::from(*count as i64) <= *expected
-                        && *source_block == *expected_block
-                }
                 _ => self.valid_staples_choice(frame, choice, instruction),
             };
             if !valid {

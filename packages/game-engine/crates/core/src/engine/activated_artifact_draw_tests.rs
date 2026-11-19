@@ -4,22 +4,6 @@
 use super::*;
 
 fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
-    let mut catalog = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
-    ))
-    .unwrap();
-    // Reuse the fixture's structural artifact fields and validated provenance.
-    // The new identity and activation are synthetic.
-    let mut artifact = catalog
-        .definitions
-        .iter()
-        .find(|definition| definition.name == "Arcane Signet")
-        .unwrap()
-        .clone();
-    artifact.oracle_id = "synthetic-paid-artifact-draw".into();
-    artifact.name = "Archive Flywheel".into();
-    artifact.source_labels = None;
-    artifact.mana_abilities.clear();
     let draw = Instruction::DrawCards {
         recipient: None,
         count: 1.into(),
@@ -36,13 +20,50 @@ fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
             },
         ]);
     }
+    let (catalog, artifact) = artifact_draw(cost, false, Vec::new(), instructions);
+    assert!(
+        artifact
+            .capabilities
+            .contains(&Capability::ActivatedArtifactDrawV1)
+    );
+    assert_eq!(
+        artifact
+            .capabilities
+            .contains(&Capability::ControllerDiscardV1),
+        discard
+    );
+    prepared_artifact(catalog, artifact, discard, usize::from(discard))
+}
+
+fn artifact_draw(
+    cost: &ManaCost,
+    sacrifice: bool,
+    mana_abilities: Vec<ManaAbility>,
+    instructions: Vec<Instruction>,
+) -> (Catalog, Definition) {
+    let catalog = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-wipes-ir.json"
+    ))
+    .unwrap();
+    // Reuse the fixture's structural artifact fields and validated provenance.
+    // The new identity and abilities are synthetic.
+    let mut artifact = catalog
+        .definitions
+        .iter()
+        .find(|definition| definition.name == "Arcane Signet")
+        .unwrap()
+        .clone();
+    artifact.oracle_id = "synthetic-paid-artifact-draw".into();
+    artifact.name = "Archive Flywheel".into();
+    artifact.source_labels = None;
+    artifact.mana_abilities = mana_abilities;
     artifact.activated = vec![ActivatedAbility {
         functioning_zone: FunctioningZone::Battlefield,
         cost: ActivationCost::Composite {
             costs: PermanentActivationCosts {
                 tap: true,
                 mana: Some(cost.clone()),
-                sacrifice: false,
+                sacrifice,
                 remove_source_plus_one_counters: None,
             },
         },
@@ -58,17 +79,15 @@ fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
         },
     }];
     artifact.capabilities = artifact.requirements();
-    assert!(
-        artifact
-            .capabilities
-            .contains(&Capability::ActivatedArtifactDrawV1)
-    );
-    assert_eq!(
-        artifact
-            .capabilities
-            .contains(&Capability::ControllerDiscardV1),
-        discard
-    );
+    (catalog, artifact)
+}
+
+fn prepared_artifact(
+    mut catalog: Catalog,
+    artifact: Definition,
+    existing_hand_card: bool,
+    extra_library_cards: usize,
+) -> Prepared {
     let oracle_id = artifact.oracle_id.clone();
     catalog.definitions.push(artifact);
     catalog
@@ -109,17 +128,22 @@ fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
             zone: Zone::Library { owner },
         });
     }
-    if discard {
-        let owner = PlayerId(0);
-        for zone in [Zone::Hand { owner }, Zone::Library { owner }] {
-            config.cards.push(CardSetup {
-                id: CardId(config.cards.len() as u32),
-                oracle_id: FOREST.into(),
-                owner,
-                controller: owner,
-                zone,
-            });
-        }
+    let owner = PlayerId(0);
+    let extra_zones = existing_hand_card
+        .then_some(Zone::Hand { owner })
+        .into_iter()
+        .chain(std::iter::repeat_n(
+            Zone::Library { owner },
+            extra_library_cards,
+        ));
+    for zone in extra_zones {
+        config.cards.push(CardSetup {
+            id: CardId(config.cards.len() as u32),
+            oracle_id: FOREST.into(),
+            owner,
+            controller: owner,
+            zone,
+        });
     }
     Prepared {
         catalog_digest: digest(&catalog).unwrap(),
@@ -128,6 +152,123 @@ fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
         config,
         match_config: None,
     }
+}
+
+#[test]
+fn paid_counted_draw() {
+    let cost = activation_cost();
+    let (catalog, artifact) = artifact_draw(
+        &cost,
+        true,
+        vec![ManaAbility {
+            costs: PermanentActivationCosts {
+                tap: true,
+                mana: None,
+                sacrifice: false,
+            },
+            production: ManaProduction::Fixed {
+                symbols: vec![Color::C; 3],
+            },
+            source_block: 0,
+        }],
+        vec![Instruction::DrawControllerCards {
+            count: 3.into(),
+            source_block: 1,
+        }],
+    );
+    let mut game = Game::new(prepared_artifact(catalog, artifact, false, 2));
+    let activator = PlayerId(0);
+    let owner = PlayerId(1);
+    let source = object(&game, 0);
+    let q = 1;
+    let mut expected_libraries = game.state.rules.libraries.clone();
+    let expected_draws = expected_libraries
+        .get_mut(&activator)
+        .unwrap()
+        .drain(..3)
+        .collect::<Vec<_>>();
+
+    answer(
+        &mut game,
+        q,
+        Response::ActivateAbility {
+            object: source,
+            ability: 0,
+        },
+    );
+    let mana_request = request(&mut game, q);
+    assert!(matches!(mana_request, Request::Mana { .. }));
+    let before_illegal_mana = game.state.clone();
+    assert!(
+        game.respond(
+            activator,
+            mana_request.decision_id(),
+            Response::ActivateMana { object: source },
+        )
+        .is_err()
+    );
+    assert_eq!(game.state, before_illegal_mana);
+    for id in 1..=3 {
+        let land = object(&game, id);
+        answer(&mut game, q, Response::ActivateMana { object: land });
+    }
+    assert!(!game.current(source).unwrap().tapped);
+    answer(&mut game, q, Response::FinishMana { undo_mana: false });
+    assert!(matches!(request(&mut game, q), Request::SpendMana { .. }));
+    answer(
+        &mut game,
+        q,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::U, 3.into())]),
+        },
+    );
+    assert!(matches!(request(&mut game, q), Request::Priority { .. }));
+    assert_eq!(game.mana(activator, Color::U), Some(0.into()));
+    let invocation = game.top().unwrap();
+    assert_eq!(invocation.paid.as_ref(), Some(&cost));
+    assert_eq!(invocation.controller, activator);
+    let stack_id = invocation.id;
+    assert!(game.current(source).is_err());
+    let successor = game.current(object(&game, 0)).unwrap();
+    assert_eq!(successor.zone, Zone::Graveyard { owner });
+    assert!(game.events().iter().any(|event| matches!(
+        event,
+        Event::Committed { actual: EventOutcome::Tapped { object }, .. } if *object == source
+    )));
+    assert_eq!(game.state.rules.libraries[&activator].len(), 4);
+    recover(&game);
+
+    resolve(&mut game, q, |_| {});
+    assert_eq!(game.state.rules.libraries, expected_libraries);
+    assert_eq!(game.action_hand(activator).len(), 3);
+    assert!(game.action_hand(owner).is_empty());
+    let cause = BatchCause::Instruction {
+        stack_id,
+        player: activator,
+        source,
+        cursor: 0,
+        source_block: 1,
+    };
+    let draws = game
+        .trace()
+        .records
+        .iter()
+        .filter_map(|record| match &record.record {
+            EvidenceRecord::Batch { batch } if batch.cause == cause => {
+                let [draw] = &batch.occurrences[..] else {
+                    panic!("expected a single draw occurrence");
+                };
+                let EventOutcome::Moved { movement } = &draw.actual else {
+                    panic!("expected a card to move");
+                };
+                assert_eq!(movement.from, Zone::Library { owner: activator });
+                assert_eq!(movement.destination, Zone::Hand { owner: activator });
+                Some(movement.previous.card)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(draws, expected_draws);
 }
 
 fn activation_cost() -> ManaCost {

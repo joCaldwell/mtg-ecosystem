@@ -1205,6 +1205,175 @@ fn start_cleanup(mut fixture: Prepared) -> (Game, Advance) {
 }
 
 #[test]
+fn flash_end_step_draw() {
+    let controller = PlayerId(0);
+    let opponent = PlayerId(1);
+    let mut fixture = prepared();
+    let catalog = Arc::make_mut(&mut fixture.catalog);
+    // Private board fixture. Compilation and source fidelity have their own witness.
+    let mut source = catalog.definition_by_oracle_id(BEARS).unwrap().clone();
+    source.oracle_id = "test-flash-end-step-draw".into();
+    source.name = source.oracle_id.clone();
+    source.source_labels = None;
+    source.characteristics.legendary = true;
+    source.keywords = vec![KeywordAbility::Flash];
+    source.spell.as_mut().unwrap().timing = SpellTiming::Instant;
+    source.static_abilities = vec![StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::ReduceMaximumHandSize {
+            scope: HandSizeScope::Opponents,
+            amount: 7.into(),
+        },
+    }];
+    source.triggered = vec![TriggeredAbility {
+        death_filter: None,
+        functioning_zone: FunctioningZone::Battlefield,
+        condition: TriggerCondition::StepBegan {
+            step: BeginningStep::End,
+            turn_relation: TurnRelation::Controller,
+        },
+        intervening_if: None,
+        program: SpellProgram {
+            additional_sacrifice: None,
+            timing: SpellTiming::Instant,
+            resolution: SpellResolution::Instructions,
+            functioning_zone: FunctioningZone::Stack,
+            targets: vec![],
+            instructions: vec![Instruction::DrawControllerCards {
+                count: 7.into(),
+                source_block: 1,
+            }],
+            modes: vec![],
+        },
+    }];
+    source.capabilities = source.requirements();
+    fixture.config.cards[0].oracle_id = source.oracle_id.clone();
+    catalog.definitions.push(source);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    fixture.catalog_digest = digest(catalog).unwrap();
+
+    for card in &mut fixture.config.cards[1..4] {
+        card.zone = Zone::Library { owner: controller };
+    }
+    fixture.config.cards.extend((8..12).map(|id| CardSetup {
+        id: CardId(id),
+        oracle_id: FOREST.into(),
+        owner: controller,
+        controller,
+        zone: Zone::Library { owner: controller },
+    }));
+    fixture.profile_digest = digest(&fixture.config).unwrap();
+
+    let mut game = Game::new(fixture);
+    let libraries = game.state.rules.libraries.clone();
+    let pass_priority = |game: &mut Game| {
+        let Advance::AwaitingDecision(request @ Request::Priority { .. }) =
+            game.advance(Budget::new(100))
+        else {
+            panic!("expected priority");
+        };
+        game.respond(request.player(), request.decision_id(), Response::Pass)
+            .unwrap();
+    };
+    assert_eq!(game.state.rules.turn.step, TurnStep::PostcombatMain);
+    for _ in 0..4 {
+        pass_priority(&mut game);
+    }
+    assert!(matches!(
+        game.advance(Budget::new(100)),
+        Advance::AwaitingDecision(Request::Priority { player, .. }) if player == controller
+    ));
+    assert!(matches!(
+        game.state.rules.stack.as_slice(),
+        [StackInstance {
+            controller: player,
+            kind: StackKind::Triggered {
+                match_condition: None,
+                witness: TriggerEventWitness::StepBegan { turn, active: Some(active), .. },
+                ..
+            },
+            ..
+        }] if *player == controller && *active == controller
+            && turn.number == 1 && turn.step == TurnStep::End
+    ));
+    for _ in 0..4 {
+        pass_priority(&mut game);
+    }
+    for _ in 0..100 {
+        if matches!(game.state.rules.frame, Frame::Resolve { .. }) {
+            break;
+        }
+        assert!(matches!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+    }
+    assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
+    for completed in 1..=7 {
+        assert!(matches!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+        let Frame::Resolve { frame } = &game.state.rules.frame else {
+            panic!("counted draw left resolution after attempt {completed}");
+        };
+        let library = &libraries[&controller];
+        let drawn = game.object_id(library[completed - 1]).unwrap();
+        assert_eq!(game.zone(drawn), Some(Zone::Hand { owner: controller }));
+        assert_eq!(
+            game.state.rules.libraries[&controller],
+            library[completed..]
+        );
+        if completed == 7 {
+            assert_eq!(frame.draw_progress, None);
+            assert!(matches!(
+                frame.outcomes.as_slice(),
+                [InstructionOutcome::DrawAttempts { player, attempted, failed }]
+                    if *player == controller && *attempted == 7.into() && *failed == 0.into()
+            ));
+        } else {
+            let progress = frame.draw_progress.as_ref().unwrap();
+            assert_eq!(progress.source_block, 1);
+            assert_eq!(progress.completed, Quantity::from(completed as i64));
+            assert_eq!(progress.remaining, Quantity::from(7 - completed as i64));
+        }
+        if completed == 3 {
+            recover(&game);
+        }
+    }
+    for player in [opponent, PlayerId(2), PlayerId(3)] {
+        assert_eq!(game.state.rules.libraries[&player], libraries[&player]);
+        assert!(game.action_hand(player).is_empty());
+    }
+
+    for _ in 0..64 {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::new(100)) else {
+            panic!("expected turn decision");
+        };
+        let response = match &request {
+            Request::Discard { player, count, .. } => {
+                assert_eq!(*player, opponent);
+                assert_eq!(*count, 1);
+                assert_eq!(game.state.rules.turn.step, TurnStep::Cleanup);
+                assert_eq!(game.action_hand(controller).len(), 7);
+                assert_eq!(game.state.rules.next_trigger_id, 1);
+                return;
+            }
+            Request::Priority { .. } => Response::Pass,
+            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+            other => panic!("unexpected turn decision {other:?}"),
+        };
+        game.respond(request.player(), request.decision_id(), response)
+            .unwrap();
+    }
+    panic!("missing opponent cleanup");
+}
+
+#[test]
 fn increased_hand_size_applies_during_cleanup_with_exact_signed_totals() {
     let mut p = prepared();
     let catalog = Arc::make_mut(&mut p.catalog);

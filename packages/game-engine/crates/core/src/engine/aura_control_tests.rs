@@ -1136,6 +1136,10 @@ mod controller_counted_draw_tests;
 
 #[path = "draw_land_allowance_tests.rs"]
 mod draw_land_allowance_tests;
+
+#[cfg(test)]
+#[path = "announced_x_draw_tests.rs"]
+mod announced_x_draw_tests;
 #[path = "targeted_counted_draw_tests.rs"]
 mod targeted_counted_draw_tests;
 
@@ -1156,3 +1160,5 @@ mod temporary_double_strike_tests;
 
 #[path = "activated_artifact_draw_tests.rs"]
 mod activated_artifact_draw_tests;
+#[path = "targeted_discard_tests.rs"]
+mod targeted_discard_tests;

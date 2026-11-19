@@ -27,7 +27,6 @@ fn paid(g: &mut Game, q: u64, target: Option<PlayerId>) {
     loop {
         let r = request(g, q);
         let response = match &r {
-            Request::Modes { .. } => Response::Modes { mode: 1 },
             Request::PlayerTargets { candidates, .. } => {
                 assert_eq!(
                     candidates,
@@ -377,96 +376,4 @@ fn fixed_mill_atomic_rollback_and_authenticated_completed_prefix() {
             finish(g, q);
         },
     );
-}
-
-#[test]
-fn synthetic_target_player_discard_uses_announced_hand() {
-    for (seat, depart) in [(0, false), (1, false), (1, true)] {
-        let mut p = prepared(&[
-            ("Tome Scour", 0, 0, true),
-            ("Island", 0, 0, false),
-            ("Island", seat, seat, true),
-            ("Island", seat, seat, true),
-        ]);
-        let catalog = Arc::make_mut(&mut p.catalog);
-        let d = catalog
-            .definitions
-            .iter_mut()
-            .find(|d| d.oracle_id == p.config.cards[0].oracle_id)
-            .unwrap();
-        d.spell.as_mut().unwrap().instructions = vec![Instruction::TargetPlayerDiscardCards {
-            target_slot: 0,
-            count: 3.into(),
-            source_block: 0,
-        }];
-        if seat == 1 && !depart {
-            d.source_labels = None;
-            let program = d.spell.as_mut().unwrap();
-            let discard = program.clone();
-            let mut draw = program.clone();
-            draw.targets.clear();
-            draw.instructions = vec![Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            }];
-            program.targets.clear();
-            program.instructions.clear();
-            program.modes = vec![SpellMode { program: draw }, SpellMode { program: discard }];
-        }
-        d.capabilities = d.requirements();
-        d.validate().unwrap();
-        p.catalog_digest = digest(catalog).unwrap();
-        both(p, |g, q| {
-            let target = PlayerId(seat);
-            paid(g, q, Some(target));
-            let caster_hand = g.action_hand(PlayerId(0));
-            let target_hand = g.action_hand(target);
-            loop {
-                let r = request(g, q);
-                if let Request::ResolveDiscard {
-                    player,
-                    count,
-                    candidates,
-                    ..
-                } = &r
-                {
-                    assert_eq!(*player, target);
-                    assert_eq!(*count, 2);
-                    assert_eq!(candidates, &target_hand);
-                    recover(g);
-                    assert!(
-                        g.respond(
-                            *player,
-                            r.decision_id(),
-                            Response::ResolveDiscard {
-                                objects: candidates[..1].to_vec(),
-                            }
-                        )
-                        .is_err()
-                    );
-                    if depart {
-                        g.concede(target).unwrap();
-                    } else {
-                        g.respond(
-                            *player,
-                            r.decision_id(),
-                            Response::ResolveDiscard {
-                                objects: candidates.clone(),
-                            },
-                        )
-                        .unwrap();
-                    }
-                    break;
-                }
-                assert!(!g.state.rules.stack.is_empty());
-                answer(g, q, pass(&r));
-            }
-            finish(g, q);
-            assert!(g.action_hand(target).is_empty());
-            if seat != 0 {
-                assert_eq!(g.action_hand(PlayerId(0)), caster_hand);
-            }
-        });
-    }
 }

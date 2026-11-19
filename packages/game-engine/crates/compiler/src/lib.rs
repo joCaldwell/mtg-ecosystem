@@ -8,6 +8,7 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 mod activated_artifact_draw;
+mod announced_x_draw;
 mod cast_origin;
 pub mod catalog;
 mod controller_counted_draw;
@@ -42,6 +43,7 @@ mod normalization;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_costs;
+mod paid_counted_draw;
 mod pain_mana;
 mod self_reference;
 mod self_spell_protection;
@@ -49,19 +51,21 @@ mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
-mod target_player_discard;
 use optional_costs::KickedCondition;
 mod conditional_lands;
 mod cycling;
 #[cfg(test)]
 mod cycling_tests;
 mod targeted_counted_draw;
+mod targeted_discard;
+#[cfg(test)]
+mod targeted_discard_tests;
 mod type_line;
 mod typed_fetchland;
 mod typed_land_search;
 mod unlimited_hand_size;
 pub use catalog::*;
-use normalization::source_lines;
+use normalization::{matches_fixed_amount, source_lines};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
@@ -932,6 +936,7 @@ struct Count {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "amount", rename_all = "kebab-case", deny_unknown_fields)]
 enum DrawAmount {
+    X {},
     Fixed { value: u32 },
     ThatMuch {},
 }
@@ -1339,6 +1344,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+    let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
     // CR 207.2c: labels carry no rules meaning. All underlying fields must
     // still decode and lower, including conditions, costs and player relations.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1400,19 +1406,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
     cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
-    let mut bound_target_discards = BTreeSet::new();
-    for (block, (line, ability)) in result.lines.iter().zip(&original).enumerate() {
+    for (line, ability) in result.lines.iter().zip(&original) {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
         let b: serde_json::Value = decode(ability.get(), "abilities")?;
         if a != b || line.text.is_empty() {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
-        bound_target_discards.extend(target_player_discard::validate_bindings(
-            &b,
-            &binding,
-            &r.oracle_identity,
-            block,
-        )?);
     }
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -1430,6 +1429,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
+        && let [Ability::Spell { .. }] = abilities.as_slice()
+    {
+        targeted_discard::validate(&source, &result, &binding)?
+    } else {
+        None
+    };
     let control_target = abilities.iter().find_map(|a| match a {
         Ability::Static {
             effect: SourceStaticEffect::Control { what, .. },
@@ -1894,10 +1900,19 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        definition.triggered.push(match source_tap_trigger.take() {
-                            Some(ability) => ability,
-                            None => lower_trigger(trigger, effects, condition.as_ref(), block)?,
-                        });
+                        let ability = if let Some(ability) = source_tap_trigger.take() {
+                            ability
+                        } else if flash_end_step_draw {
+                            unlimited_hand_size::lower_end_step_draw(
+                                trigger,
+                                effects,
+                                condition.as_ref(),
+                                block,
+                            )?
+                        } else {
+                            lower_trigger(trigger, effects, condition.as_ref(), block)?
+                        };
+                        definition.triggered.push(ability);
                     }
                     _ => {
                         return Err(unsupported(
@@ -1983,6 +1998,32 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     program.instructions.extend(instructions);
                     continue;
                 }
+                if effects.iter().flat_map(|s| &s.steps).any(|step| {
+                    matches!(
+                        step,
+                        Step::Draw {
+                            amount: DrawAmount::X {},
+                            ..
+                        }
+                    )
+                }) {
+                    if !definition.x_mana_cost || abilities.len() != 1 {
+                        return Err(unsupported(
+                            "effects.draw",
+                            "requires standalone announced X spell",
+                        ));
+                    }
+                    announced_x_draw::lower(
+                        result.abilities.get(),
+                        &result.lines[0].text,
+                        &binding,
+                        &definition.oracle_id,
+                        &source.mana_cost,
+                        &mut program,
+                        &mut slots,
+                    )?;
+                    continue;
+                }
                 if abilities.len() == 1
                     && targeted_counted_draw::lower(effects, &mut program, &mut slots)?
                 {
@@ -2015,7 +2056,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     continue;
                 }
-                if target_player_discard::operation(effects).is_none()
+                if discard_target.is_none()
                     && let Some((draw, count)) = draw_discard::coalesce(effects)?
                 {
                     if abilities.len() != 1
@@ -2048,7 +2089,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 // Separate source blocks introduce independent occurrences (CR115.3).
                 // Reusing a selection ID across blocks must not alias targets.
                 slots.clear();
-                optional_costs::append(&mut program, effects, block, &mut slots)?;
+                if let Some(domain) = discard_target {
+                    if program.additional_sacrifice.is_some()
+                        || !program.optional_additional_costs.is_empty()
+                    {
+                        return Err(unsupported("discard", "requires ordinary spell costs"));
+                    }
+                    append_spell_effects(
+                        &mut program,
+                        effects,
+                        block,
+                        &mut slots,
+                        PlayerBinding::DiscardTarget(domain),
+                    )?;
+                } else {
+                    optional_costs::append(&mut program, effects, block, &mut slots)?;
+                }
             }
             definition.spell = Some(program);
         }
@@ -2132,21 +2188,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         definition.characteristics.kind,
         CardKind::Instant | CardKind::Sorcery
     ) && binding["nodes"].as_array().is_some_and(|nodes| {
-        nodes.iter().any(|n| {
-            n["node"] == "event"
-                && n["operation"] == "discard"
-                && n["id"]
-                    .as_str()
-                    .is_none_or(|id| !bound_target_discards.contains(id))
+        nodes
+            .iter()
+            .any(|n| n["node"] == "event" && n["operation"] == "discard")
+    }) && discard_target.is_none()
+        && !definition.spell.as_ref().is_some_and(|p| {
+            controller_draw_discard_program(p)
+                || matches!(
+                    p.instructions.as_slice(),
+                    [
+                        Instruction::DrawAnnouncedX { .. },
+                        Instruction::DiscardCards { .. }
+                    ]
+                )
         })
-    }) && !definition
-        .spell
-        .as_ref()
-        .is_some_and(controller_draw_discard_program)
     {
         return Err(unsupported(
             "binding",
-            "ordinary discard binding requires a complete supported discard source",
+            "ordinary discard binding requires a complete supported discard spell",
         ));
     }
     if definition
@@ -2203,6 +2262,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             result.abilities.get(),
         )?;
     }
+    paid_counted_draw::validate_source(&definition, &labels, &binding, result.abilities.get())?;
     if definition.static_abilities.iter().any(|ability| {
         matches!(
             ability.effect,
@@ -2388,6 +2448,7 @@ fn bind_target(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PlayerBinding {
     Unbound,
+    DiscardTarget(TargetDomain),
     EventPlayer,
     DamageRecipient,
     DeathController,
@@ -2399,29 +2460,6 @@ fn append_spell_effects(
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
 ) -> Result<(), Failure> {
-    if let Some((selection_id, count)) = target_player_discard::operation(effects) {
-        if player_binding != PlayerBinding::Unbound
-            || program.additional_sacrifice.is_some()
-            || !program.optional_additional_costs.is_empty()
-            || !program.instructions.is_empty()
-            || !program.modes.is_empty()
-            || !program.targets.is_empty()
-        {
-            return Err(unsupported(
-                "effects.discard",
-                "requires a complete ordinary program",
-            ));
-        }
-        let target_slot = bind_target(program, slots, selection_id, TargetDomain::AnyPlayer)?;
-        program
-            .instructions
-            .push(Instruction::TargetPlayerDiscardCards {
-                target_slot,
-                count: i64::from(count).into(),
-                source_block: source_block(block)?,
-            });
-        return Ok(());
-    }
     if let Some((draw, count)) = hand_return::coalesce(effects)? {
         if block != 0
             || !program.instructions.is_empty()
@@ -3290,6 +3328,19 @@ fn append_spell_effects(
                     )?,
                     source_block,
                 },
+                Step::Discard { who, what }
+                    if let PlayerBinding::DiscardTarget(domain) = player_binding =>
+                {
+                    let id = who
+                        .selection_id
+                        .as_deref()
+                        .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
+                    Instruction::DiscardTargetPlayer {
+                        target_slot: bind_target(program, slots, id, domain)?,
+                        count: fixed_positive(&what.count)?,
+                        source_block,
+                    }
+                }
                 Step::Discard { who, what }
                     if player_binding == PlayerBinding::DamageRecipient
                         && matches!(who.player.as_str(), "that-player" | "you")
@@ -5156,6 +5207,7 @@ fn lower_permanent_costs(
                     && *what
                         == serde_json::json!({"ref":"this","noun":match kind {
                             CardKind::Artifact => "artifact",
+                            CardKind::Enchantment => "enchantment",
                             CardKind::Land => "land",
                             _ => "creature",
                         }}) =>
@@ -5250,6 +5302,9 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
+    if let Some(ability) = paid_counted_draw::lower(costs, effects, block, kind)? {
+        return Ok(ability);
+    }
     if let Some(ability) = activated_artifact_draw::lower_two_draws(costs, effects, block, kind)? {
         return Ok(ability);
     }
