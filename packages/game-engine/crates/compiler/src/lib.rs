@@ -34,6 +34,7 @@ mod library_order_tests;
 mod library_selection;
 #[cfg(test)]
 mod library_selection_tests;
+mod nonland_exile_life;
 mod normalization;
 mod opponent_mana;
 mod optional_costs;
@@ -1378,6 +1379,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+    nonland_exile_life::validate_binding(&source, &result, &binding)?;
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
