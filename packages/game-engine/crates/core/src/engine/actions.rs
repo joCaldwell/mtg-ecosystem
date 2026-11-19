@@ -944,6 +944,7 @@ impl Game {
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
             op @ (Instruction::DealDamage { .. }
+            | Instruction::DealDamageToController { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
             Instruction::SacrificeCreature {

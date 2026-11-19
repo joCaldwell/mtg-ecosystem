@@ -118,6 +118,10 @@ pub enum TriggerEventWitness {
     TokenEntered {
         object: ObjectId,
     },
+    Tapped {
+        object: ObjectId,
+        controller: PlayerId,
+    },
     StepBegan {
         turn: TurnState,
         owner: PlayerId,
@@ -132,7 +136,7 @@ impl TriggerEventWitness {
             } else {
                 m.previous
             }),
-            Self::TokenEntered { object } => Some(*object),
+            Self::TokenEntered { object } | Self::Tapped { object, .. } => Some(*object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::StepBegan { .. } | Self::SpellCast { .. } | Self::GroupedDamageDealt { .. } => {
@@ -347,6 +351,25 @@ impl Game {
     pub(super) fn stack_limit(&self) -> usize {
         capacities::STACK_LIMIT
     }
+    // CR 603.2c/603.10/701.26a: observe the source after a committed tap.
+    // Entry tapped, an attempted tap of a tapped object, and mana reversal
+    // have no tap occurrence. The player who caused the tap is irrelevant.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn source_tap_witness(&self, object: ObjectId) -> Result<Option<TriggerEventWitness>, String> {
+        let current = self.current(object)?;
+        Ok((current.zone == Zone::Battlefield
+            && current.tapped
+            && self
+                .definition(object.card)?
+                .triggered
+                .iter()
+                .any(|ability| ability.condition == TriggerCondition::SelfBecomesTapped))
+        .then_some(TriggerEventWitness::Tapped {
+            object,
+            controller: current.controller,
+        }))
+    }
+
     // CR 603.2c/603.3a/603.10a: one match per actual occurrence, with
     // pre-event lookback for dies and post-event observers for enters. An
     // atomic simultaneous group shares one observer view, including sources
@@ -452,15 +475,27 @@ impl Game {
                 // attacking never fabricate occurrences. Capture pre-event
                 // attacker facts, not mutable later combat membership.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                EventOutcome::AttackersDeclared { attacks } => attacks
-                    .iter()
-                    .map(|(attacker, defender)| {
-                        Ok(TriggerEventWitness::CreatureAttacked {
-                            attacker: Box::new(before.object_before(*attacker)?),
+                EventOutcome::AttackersDeclared { attacks } => {
+                    let mut witnesses = Vec::new();
+                    for (attacker, defender) in attacks {
+                        let prior = before.object_before(*attacker)?;
+                        // The declaration leaf applies its taps internally
+                        // (508.1f). Vigilance leaves the source untapped.
+                        if !prior.tapped
+                            && let Some(tap) = self.source_tap_witness(*attacker)?
+                        {
+                            witnesses.push(tap);
+                        }
+                        witnesses.push(TriggerEventWitness::CreatureAttacked {
+                            attacker: Box::new(prior),
                             defender_player_id: *defender,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, String>>()?,
+                        });
+                    }
+                    witnesses
+                }
+                EventOutcome::Tapped { object } => {
+                    self.source_tap_witness(*object)?.into_iter().collect()
+                }
                 EventOutcome::TokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })
@@ -549,6 +584,7 @@ impl Game {
                         TriggerEventWitness::StepBegan { .. }
                             | TriggerEventWitness::CreatureAttacked { .. }
                             | TriggerEventWitness::DamageDealt { .. }
+                            | TriggerEventWitness::Tapped { .. }
                     )
                 {
                     self.collect_trigger_witness(
@@ -669,6 +705,7 @@ impl Game {
             .objects
             .values()
             .filter(|o| o.zone == Zone::Battlefield || matches!(&witness, TriggerEventWitness::SpellCast {cast} if o.zone == Zone::Stack && o.id == cast.spell.object))
+            .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
         {
             for (ability, definition) in observers
                 .definition(object.id.card)?
@@ -736,6 +773,9 @@ impl Game {
                                 .is_ok_and(|s| s.controller != object.controller)
                     }
                     TriggerCondition::SelfDies => creature && dies && Some(object.id) == subject,
+                    TriggerCondition::SelfBecomesTapped => {
+                        matches!(&witness, TriggerEventWitness::Tapped { object: tapped, .. } if *tapped == object.id)
+                    }
                     TriggerCondition::SelfMoved { .. } => {
                         self_graveyard_successor(&witness, object.id, object.controller).is_some()
                             && creature
@@ -1599,6 +1639,15 @@ impl Game {
                     && *condition == TriggerCondition::OtherCreatureEntersBattlefield
                     && *object != source
             }
+            TriggerEventWitness::Tapped {
+                object,
+                controller: at_tap,
+            } => {
+                *condition == TriggerCondition::SelfBecomesTapped
+                    && *object == source
+                    && *at_tap == controller
+                    && death_controller.is_none()
+            }
             TriggerEventWitness::Moved { movement: m } => {
                 self.state.rules.cards.contains_key(&m.previous.card)
                     && m.successor.card == m.previous.card
@@ -1610,6 +1659,7 @@ impl Game {
                         | TriggerCondition::SpellCastWithOrigin { .. }
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
+                        | TriggerCondition::SelfBecomesTapped
                         | TriggerCondition::GroupedDamageDealt { .. } => false,
                         TriggerCondition::SelfMoved { .. } => {
                             death_controller.is_none()

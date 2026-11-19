@@ -1135,6 +1135,12 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
     // Keep the complete reviewed vocabulary explicit: future operators require
     // auditing this lifetime proof rather than disappearing through a wildcard.
     for d in &c.definitions {
+        assert!(
+            d.triggered
+                .iter()
+                .all(|a| a.condition != TriggerCondition::SelfBecomesTapped),
+            "source tap trigger outside historical staples proof"
+        );
         for p in d
             .spell
             .iter()
@@ -1153,6 +1159,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::DrawControllerCards { .. }
                     | Instruction::PutHandOnLibrary { .. }
                     | Instruction::DrawDamageAmount { .. }
+                    | Instruction::DealDamageToController { .. }
                     | Instruction::SacrificeCreature { .. }
                     | Instruction::MoveSet { .. }
                     | Instruction::PumpSet { .. }
