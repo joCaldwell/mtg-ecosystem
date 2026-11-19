@@ -29,6 +29,7 @@ mod activated_permanent_tap_tests;
 mod activated_spell_counter_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
+mod random_discard;
 mod removal;
 #[cfg(test)]
 mod removal_information_tests;
@@ -610,6 +611,13 @@ impl Prepared {
     }
     pub fn admit(catalog: Catalog, config: ScenarioConfig) -> Result<Self, String> {
         catalog.validate()?;
+        if catalog.definitions.iter().any(|definition| {
+            definition
+                .capabilities
+                .contains(&Capability::RandomPlayerDiscardV1)
+        }) {
+            return Err("random discard requires a seeded match".into());
+        }
         // Admission-only exact fixture/pin table. It never selects runtime rules.
         let allowed = [
             (
@@ -926,6 +934,8 @@ struct DrawProgress {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Resolving {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    random_discard: Option<random_discard::RandomDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     draw_progress: Option<DrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

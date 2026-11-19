@@ -44,6 +44,14 @@ pub(super) fn sample_shuffle_word(word: u32, upper: u32) -> Option<u32> {
     if !(2..=99).contains(&upper) {
         return None;
     }
+    sample_bounded_word(word, upper)
+}
+/// A single trial for a nontrivial range. Reject the incomplete final interval
+/// so every accepted index has the same number of preimages.
+pub(super) fn sample_bounded_word(word: u32, upper: u32) -> Option<u32> {
+    if upper < 2 {
+        return None;
+    }
     let limit = (1u64 << 32) - ((1u64 << 32) % u64::from(upper));
     (u64::from(word) < limit).then_some(word % upper)
 }
