@@ -3,6 +3,8 @@ mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
+mod pain_mana;
+pub use pain_mana::disjoint_pain_mana_family;
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
@@ -209,6 +211,7 @@ pub enum Capability {
     CastTriggerV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
+    DisjointPainManaV1,
     ControllerCreaturePlusOneCounterReplacementV1,
     AttackTriggerV1,
     DamageTriggerV1,
@@ -1161,10 +1164,15 @@ pub enum ManaProduction {
     Fixed { symbols: Vec<Color> },
     AnyColor,
     CommanderColor,
+    /// Add one mana of the selected color.
+    Choice { colors: Vec<Color> },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ManaAbility {
+    /// Damage dealt by the source to the activating player after producing mana.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_damage: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ManaActivationRestriction>,
     pub costs: PermanentActivationCosts,
@@ -1808,6 +1816,9 @@ impl Definition {
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
         }
+        if disjoint_pain_mana_family(self) {
+            set.extend([Capability::DisjointPainManaV1, Capability::NoncombatDamageV1]);
+        }
         if self
             .mana_abilities
             .iter()
@@ -2369,7 +2380,14 @@ impl Definition {
                 return Err("invalid source label provenance".into());
             }
         }
-        if self.mana_abilities.len() > 1 {
+        let has_disjoint_operands = self.mana_abilities.iter().any(|ability| {
+            ability.self_damage.is_some()
+                || matches!(&ability.production, ManaProduction::Choice { .. })
+        });
+        if has_disjoint_operands && !disjoint_pain_mana_family(self) {
+            return Err("unsupported complete disjoint pain-mana family".into());
+        }
+        if !has_disjoint_operands && self.mana_abilities.len() > 1 {
             return Err("finite profile supports one mana ability per source".into());
         }
         for a in &self.mana_abilities {
@@ -5679,6 +5697,7 @@ pub fn catalog_schema() -> serde_json::Value {
     counted_costs::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
+    pain_mana::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
@@ -5938,6 +5957,7 @@ mod tests {
             CastTriggerV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
+            DisjointPainManaV1,
             ControllerCreaturePlusOneCounterReplacementV1,
             AttackTriggerV1,
             DamageTriggerV1,
@@ -6119,6 +6139,7 @@ mod tests {
         definitions.push(conditional_lands::tests::land());
         definitions.push(conditional_lands::tests::optional_land());
         definitions.push(cycling::witness());
+        definitions.push(pain_mana::witness());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
             CounterPlacementModification::Add { amount: 7.into() },

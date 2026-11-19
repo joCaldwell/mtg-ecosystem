@@ -227,6 +227,7 @@ fn temporary_permanent_keyword_contract_definition_contexts_reject() {
             1 => d.x_mana_cost = true,
             2 => d.keywords.push(KeywordAbility::Flash),
             3 => d.mana_abilities.push(ManaAbility {
+                self_damage: None,
                 costs: PermanentActivationCosts {
                     tap: true,
                     mana: None,
