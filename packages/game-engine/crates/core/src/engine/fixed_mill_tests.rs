@@ -27,6 +27,7 @@ fn paid(g: &mut Game, q: u64, target: Option<PlayerId>) {
     loop {
         let r = request(g, q);
         let response = match &r {
+            Request::Modes { .. } => Response::Modes { mode: 1 },
             Request::PlayerTargets { candidates, .. } => {
                 assert_eq!(
                     candidates,
@@ -398,6 +399,21 @@ fn synthetic_target_player_discard_uses_announced_hand() {
             count: 3.into(),
             source_block: 0,
         }];
+        if seat == 1 && !depart {
+            d.source_labels = None;
+            let program = d.spell.as_mut().unwrap();
+            let discard = program.clone();
+            let mut draw = program.clone();
+            draw.targets.clear();
+            draw.instructions = vec![Instruction::DrawCards {
+                recipient: None,
+                count: 1.into(),
+                source_block: 0,
+            }];
+            program.targets.clear();
+            program.instructions.clear();
+            program.modes = vec![SpellMode { program: draw }, SpellMode { program: discard }];
+        }
         d.capabilities = d.requirements();
         d.validate().unwrap();
         p.catalog_digest = digest(catalog).unwrap();

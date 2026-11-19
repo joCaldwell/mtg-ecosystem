@@ -31,7 +31,7 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 ### M2 Complete land and ramp infrastructure
 
 Land/search/fetch/cycling and mana families have focused witnesses. Current source
-`936bc6bd` compiles **53/85 definitions;32 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`04e4dc5a` compiles **54/85 definitions;31 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
@@ -50,7 +50,7 @@ unspent-mana replacement and private choices.
 ### M6 Complete card advantage and flexible choices
 
 Complete Aragorn, Whirlwind, Temur Ascendancy, Rhystic payments, distributed Abzan
-counters, Esper discard, Quandrix choose-two/graveyard targets, Conflux colored
+counters, Quandrix choose-two/graveyard targets, Conflux colored
 search. Urban Evolution has a focused land-permission witness.
 
 ### M7 Complete protection and board interaction
