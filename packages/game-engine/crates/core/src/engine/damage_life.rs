@@ -470,6 +470,83 @@ impl Game {
         Ok((slot, amount, block, target))
     }
 
+    fn commit_opponent_life(
+        &mut self,
+        frame: &Resolving,
+        amount: &Quantity,
+        source_block: u32,
+        gain: bool,
+    ) -> Result<Option<CommittedBatch>, String> {
+        let occurrences = self
+            .opponents(frame.spell.controller)
+            .into_iter()
+            .map(|player| {
+                if gain {
+                    ProposedEvent::GainLife {
+                        player,
+                        amount: amount.clone(),
+                    }
+                } else {
+                    ProposedEvent::LoseLife {
+                        player,
+                        amount: amount.clone(),
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        if occurrences.is_empty() {
+            return Ok(None);
+        }
+        self.commit_batch(
+            Self::staple_cause(frame, source_block),
+            EventGroup::Simultaneous { occurrences },
+        )
+        .map(Some)
+    }
+
+    // CR 119.3/119.9, 608.2c/h, 704.4. Both commits belong to one staged
+    // resolution step, so failure of the gain also rolls back the losses.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn drain_opponents(
+        &mut self,
+        frame: Resolving,
+        amount: OpponentDrainAmount,
+        source_block: u32,
+    ) -> Result<(), String> {
+        let amount = match amount {
+            OpponentDrainAmount::Fixed { value } => value,
+            OpponentDrainAmount::AnnouncedX => {
+                frame.spell.x.clone().ok_or("missing announced X")?
+            }
+        };
+        if amount == Quantity::zero() {
+            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
+        }
+        let Some(losses) = self.commit_opponent_life(&frame, &amount, source_block, false)? else {
+            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
+        };
+        let mut total = Quantity::zero();
+        for occurrence in &losses.occurrences {
+            let EventOutcome::LifeLost { amount, .. } = &occurrence.actual else {
+                return Err("missing opponent life loss outcome".into());
+            };
+            total.add(amount);
+        }
+        let player = frame.spell.controller;
+        let actual = if total > Quantity::zero() && self.is_live(player) {
+            Some(self.commit(
+                ProposedEvent::GainLife {
+                    player,
+                    amount: total,
+                },
+                losses.cause,
+            )?)
+        } else {
+            None
+        };
+        self.finish_instruction(frame, InstructionOutcome::Life { actual })
+    }
+
     // CR 608.2b-c/704.4: execute the ordered program without an intervening
     // SBA check. A self-targeted Soul Feast may reach zero then recover before
     // the next priority checkpoint; an all-target-illegal spell never starts.
@@ -552,7 +629,9 @@ impl Game {
             } => {
                 let player = match recipient {
                     LifeRecipient::EachOpponent => {
-                        return self.sacrifice_life(frame, amount, source_block, gain);
+                        let _ = self.commit_opponent_life(&frame, &amount, source_block, gain)?;
+                        return self
+                            .finish_instruction(frame, InstructionOutcome::Life { actual: None });
                     }
                     LifeRecipient::EventPlayer => {
                         let Some(actor) = frame.spell.kind.event_player()? else {

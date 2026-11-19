@@ -369,40 +369,6 @@ impl Game {
         }
         self.prepare_noncombat_set_damage(frame, amount, block, targets)
     }
-    pub(super) fn sacrifice_life(
-        &mut self,
-        frame: Resolving,
-        amount: Quantity,
-        block: u32,
-        gain: bool,
-    ) -> Result<(), String> {
-        let children = self
-            .opponents(frame.spell.controller)
-            .into_iter()
-            .map(|player| {
-                if gain {
-                    ProposedEvent::GainLife {
-                        player,
-                        amount: amount.clone(),
-                    }
-                } else {
-                    ProposedEvent::LoseLife {
-                        player,
-                        amount: amount.clone(),
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-        if !children.is_empty() {
-            self.commit_batch(
-                Self::sacrifice_cause(&frame, block),
-                EventGroup::Simultaneous {
-                    occurrences: children,
-                },
-            )?;
-        }
-        self.finish_instruction(frame, InstructionOutcome::Life { actual: None })
-    }
 }
 impl Game {
     pub(super) fn validate_sacrifice_state(&self) -> Result<(), String> {
