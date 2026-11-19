@@ -35,8 +35,8 @@ mod each_player_draw;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
-mod group_discard;
 mod graveyard_battlefield_return;
+mod group_discard;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
