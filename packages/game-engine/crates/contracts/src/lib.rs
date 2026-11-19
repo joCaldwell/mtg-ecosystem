@@ -42,6 +42,7 @@ pub use archives::*;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
 mod paid_counted_draw;
+mod power_entry_draw;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -278,6 +279,7 @@ pub enum Capability {
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
+    PowerFilteredCreatureEntryV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -1092,6 +1094,12 @@ pub enum TriggerCondition {
     SelfEntersBattlefield,
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
+    /// CR 603.6a/603.10: read the entering creature's derived battlefield power
+    /// and controller immediately after the completed entry event.
+    ControlledCreatureEntersWithPower {
+        minimum_power: Quantity,
+        other: bool,
+    },
     /// The disjoint union of this creature and all other creatures dying.
     AnyCreatureDies,
     SelfDies,
@@ -1261,17 +1269,21 @@ impl TriggerCondition {
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
             Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
+            Self::ControlledCreatureEntersWithPower { .. } => {
+                "controlled_creature_enters_with_power"
+            }
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
             Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCondition {
     ControllerHandEmpty,
     SourceStatus { status: TapStatus },
+    ControllerHasCreatureWithPower { minimum_power: Quantity },
 }
 /// CR 110.5: only battlefield permanents have tapped/untapped status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1729,6 +1741,9 @@ impl Definition {
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
+                TriggerCondition::ControlledCreatureEntersWithPower { .. } => {
+                    Capability::PowerFilteredCreatureEntryV1
+                }
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
                 TriggerCondition::SelfAuraToGraveyard => Capability::AttachmentsV1,
@@ -1810,6 +1825,7 @@ impl Definition {
         hand_return::validate_definition(self)?;
         unlimited_hand_size::validate_definition(self)?;
         hand_size_adjustments::validate_definition(self)?;
+        power_entry_draw::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2471,7 +2487,12 @@ impl Definition {
                 || !p.modes.is_empty()
                 || (ability.intervening_if.is_some()
                     && ability.condition != TriggerCondition::SelfDies
-                    && !matches!(ability.condition, TriggerCondition::StepBegan { .. }))
+                    && !matches!(ability.condition, TriggerCondition::StepBegan { .. })
+                    && !(ability.condition == TriggerCondition::SelfEntersBattlefield
+                        && matches!(
+                            ability.intervening_if,
+                            Some(InterveningCondition::ControllerHasCreatureWithPower { .. })
+                        )))
                 || (matches!(
                     ability.intervening_if,
                     Some(InterveningCondition::SourceStatus { .. })
@@ -5067,6 +5088,7 @@ pub fn catalog_schema() -> serde_json::Value {
     hand_size_adjustments::extend_schema(&mut schema);
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
+    power_entry_draw::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5249,6 +5271,7 @@ mod tests {
             TriggeredAbilityV1,
             SelfEntersBattlefieldV1,
             OtherCreatureEntersBattlefieldV1,
+            PowerFilteredCreatureEntryV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -5405,6 +5428,7 @@ mod tests {
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
         definitions.push(announced_x_draw::witness());
+        definitions.push(power_entry_draw::witness());
         definitions.push(targeted_counted_draw::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
