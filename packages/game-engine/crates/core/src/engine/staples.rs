@@ -27,6 +27,10 @@ impl Game {
             Instruction::DrawCards {
                 recipient: Some(LifeRecipient::Target { target_slot }),
                 ..
+            }
+            | Instruction::DrawAnnouncedX {
+                recipient: LifeRecipient::Target { target_slot },
+                ..
             } => frame
                 .spell
                 .player_targets
@@ -47,6 +51,10 @@ impl Game {
             } => Err("unsupported each-opponent draw".into()),
             Instruction::DrawCards {
                 recipient: None | Some(LifeRecipient::Controller),
+                ..
+            }
+            | Instruction::DrawAnnouncedX {
+                recipient: LifeRecipient::Controller,
                 ..
             }
             | Instruction::OptionalDrawCards { .. }

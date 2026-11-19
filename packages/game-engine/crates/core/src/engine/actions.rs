@@ -902,6 +902,31 @@ impl Game {
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
+            Instruction::ChangeLifeAnnouncedX {
+                recipient,
+                gain,
+                source_block,
+            } => {
+                let amount = frame.spell.x.clone().ok_or("missing announced X")?;
+                if amount == Quantity::zero() {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Life { actual: None });
+                }
+                let op = if gain {
+                    Instruction::GainLife {
+                        recipient,
+                        amount,
+                        source_block,
+                    }
+                } else {
+                    Instruction::LoseLife {
+                        recipient,
+                        amount,
+                        source_block,
+                    }
+                };
+                self.execute_damage_life_instruction(frame, op)
+            }
             op @ (Instruction::DealDamage { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
@@ -1005,7 +1030,9 @@ impl Game {
                 };
                 self.draw_one(frame, player, source_block)
             }
-            Instruction::DrawDamageAmount { .. } => self.draw_multiple(frame),
+            Instruction::DrawDamageAmount { .. } | Instruction::DrawAnnouncedX { .. } => {
+                self.draw_multiple(frame)
+            }
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1160,6 +1187,20 @@ impl Game {
                     return Err("negative counted draw amount".into());
                 }
                 (count.clone(), *source_block)
+            }
+            Instruction::DrawAnnouncedX {
+                recipient,
+                source_block,
+            } => {
+                if let LifeRecipient::Target { target_slot } = recipient
+                    && frame.legal_targets.get(*target_slot as usize) != Some(&true)
+                {
+                    return Err("missing legal announced-X draw target".into());
+                }
+                (
+                    frame.spell.x.clone().ok_or("missing announced X")?,
+                    *source_block,
+                )
             }
             Instruction::DrawDamageAmount { source_block } => {
                 (self.damage_draw_amount(frame)?, *source_block)
