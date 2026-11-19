@@ -830,7 +830,7 @@ impl Game {
         }
         Ok(())
     }
-    fn apnap_players(&self) -> Vec<PlayerId> {
+    pub(super) fn apnap_players(&self) -> Vec<PlayerId> {
         let anchor = self.state.rules.turn_owner.0;
         (0..4)
             .map(|offset| PlayerId((anchor + offset) % 4))

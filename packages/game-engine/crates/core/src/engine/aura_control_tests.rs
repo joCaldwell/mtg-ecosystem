@@ -1148,6 +1148,8 @@ mod temporary_double_strike_tests;
 
 #[path = "activated_artifact_draw_tests.rs"]
 mod activated_artifact_draw_tests;
+#[path = "group_discard_tests.rs"]
+mod group_discard_tests;
 #[path = "random_discard_tests.rs"]
 mod random_discard_tests;
 #[path = "targeted_discard_tests.rs"]

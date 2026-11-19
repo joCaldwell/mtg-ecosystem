@@ -27,6 +27,7 @@ mod activated_permanent_return_tests;
 mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;
+mod group_discard;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
 mod random_discard;
@@ -934,6 +935,8 @@ struct DrawProgress {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Resolving {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    group_discard: Option<group_discard::GroupDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     random_discard: Option<random_discard::RandomDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
