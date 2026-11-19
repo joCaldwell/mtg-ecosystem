@@ -20,6 +20,7 @@ mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
 mod targeted_counted_draw;
+mod targeted_discard;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
 mod draw_discard;
@@ -317,6 +318,7 @@ pub enum Capability {
     BoardWipesV1,
     AnnouncedXDrawV1,
     TargetedCountedDrawV1,
+    TargetPlayerDiscardV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -767,6 +769,14 @@ pub enum Instruction {
     DrawDamageAmount {
         source_block: u32,
     },
+    DiscardTargetPlayer {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        count: Quantity,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     DiscardCards {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recipient: Option<ActionRecipient>,
@@ -848,7 +858,8 @@ impl Instruction {
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
-            Self::DiscardCards { source_block, .. } => *source_block,
+            Self::DiscardTargetPlayer { source_block, .. }
+            | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterStackObject { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
@@ -1820,6 +1831,7 @@ impl Definition {
         fixed_mill::validate_definition(self)?;
         announced_x_draw::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
+        targeted_discard::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -3692,6 +3704,16 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 _ => None,
             },
+            Instruction::DiscardTargetPlayer { target_slot, .. } => {
+                // The complete discard family already verified this player target.
+                Some((
+                    *target_slot,
+                    p.targets
+                        .get(*target_slot as usize)
+                        .ok_or("unbound discard target")?
+                        .domain,
+                ))
+            }
             Instruction::DiscardCards { count, .. } => {
                 if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
                     return Err("unsupported draw/discard cardinality".into());
@@ -3952,6 +3974,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
             Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
+            Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
             Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
             Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
@@ -5078,6 +5101,7 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_mill::extend_schema(&mut schema);
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
+    targeted_discard::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -5310,6 +5334,7 @@ mod tests {
             CreatureAnthemV1,
             TargetPlayerDrawV1,
             TargetedCountedDrawV1,
+            TargetPlayerDiscardV1,
             CastArtifactV1,
             PermanentManaV1,
             CompositeActivationCostV1,
@@ -5430,6 +5455,7 @@ mod tests {
         definitions.push(announced_x_draw::witness());
         definitions.push(power_entry_draw::witness());
         definitions.push(targeted_counted_draw::witness());
+        definitions.push(targeted_discard::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());

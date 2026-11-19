@@ -230,6 +230,41 @@ impl Game {
             },
         }
     }
+    fn discard_spec<'a>(
+        &self,
+        frame: &Resolving,
+        instruction: &'a Instruction,
+    ) -> Result<(PlayerId, &'a Quantity, u32), String> {
+        match instruction {
+            Instruction::DiscardCards {
+                recipient,
+                count,
+                source_block,
+            } => Ok((
+                self.resolution_player(frame, recipient.as_ref())?,
+                count,
+                *source_block,
+            )),
+            Instruction::DiscardTargetPlayer {
+                target_slot,
+                count,
+                source_block,
+            } => {
+                // A sole illegal target ends resolution before instruction dispatch.
+                let slot = *target_slot as usize;
+                if frame.legal_targets.get(slot) != Some(&true) {
+                    return Err("missing legal discard target".into());
+                }
+                let player = *frame
+                    .spell
+                    .player_targets
+                    .get(slot)
+                    .ok_or("missing discard player target")?;
+                Ok((player, count, *source_block))
+            }
+            _ => Err("expected discard instruction".into()),
+        }
+    }
     pub(super) fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
@@ -1052,12 +1087,8 @@ impl Game {
                 };
                 Ok(())
             }
-            Instruction::DiscardCards {
-                recipient,
-                count,
-                source_block,
-            } => {
-                let player = self.resolution_player(&frame, recipient.as_ref())?;
+            op @ (Instruction::DiscardCards { .. } | Instruction::DiscardTargetPlayer { .. }) => {
+                let (player, count, source_block) = self.discard_spec(&frame, &op)?;
                 if count.is_negative() {
                     return Err("negative discard count".into());
                 }
@@ -1067,7 +1098,7 @@ impl Game {
                         InstructionOutcome::PlayerActionSkipped { player },
                     );
                 }
-                let actual_count = self.bounded_hand_count(player, &count);
+                let actual_count = self.bounded_hand_count(player, count);
                 if actual_count == 0 {
                     self.finish_instruction(
                         frame,
@@ -1612,20 +1643,17 @@ impl Game {
                         count,
                         source_block,
                     },
-                    Instruction::DiscardCards {
-                        recipient,
-                        count: expected,
-                        source_block: expected_block,
-                    },
-                ) => {
-                    self.resolution_player(frame, recipient.as_ref())
-                        .is_ok_and(|actor| actor == *player)
-                        && *count > 0
-                        && (!self.is_live(*player)
-                            || *count == self.bounded_hand_count(*player, expected))
-                        && Quantity::from(*count as i64) <= *expected
-                        && *source_block == *expected_block
-                }
+                    op,
+                ) => self
+                    .discard_spec(frame, op)
+                    .is_ok_and(|(actor, expected, block)| {
+                        actor == *player
+                            && *count > 0
+                            && (!self.is_live(*player)
+                                || *count == self.bounded_hand_count(*player, expected))
+                            && Quantity::from(*count as i64) <= *expected
+                            && *source_block == block
+                    }),
                 _ => self.valid_staples_choice(frame, choice, instruction),
             };
             if !valid {
