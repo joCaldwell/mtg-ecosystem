@@ -63,29 +63,18 @@ missing libraries require compatible setup, not copied bare executables.
 
 ## Choose focused checks
 
-Apply the [verification article](https://claude.dev/blog/how-the-claude-code-team-thinks-about-verification/)
-through diff-triggered checks, strong behavioral oracles and bounded feedback.
-Before editing, state the observable result, affected risks, exact selectors and
-omissions in the working conversation. Run cheap checks first, then changed
-behavior, meaningful negatives and adjacent regressions. Confirm tests executed;
-empty/skipped selections prove nothing. Package-required checks still apply.
+Build first. Run the cheapest compile check that covers the diff and one directly
+affected witness when useful. Docs-only changes need the docs guard and
+`git diff --check`. Follow affected package requirements. Defer broad regressions,
+property matrices, end-to-end qualification and extra reviews unless requested or
+needed to diagnose a failure. Confirm the selector executed; skipped and unrun
+checks are omissions.
 
-| Diff trigger | Evidence needed |
-| --- | --- |
-| Documentation only | Links/budget and `git diff --check`; reuse compiled evidence |
-| Parser/compiler/rules | Exact frozen-source positive/rejection; affected runtime invariants |
-| Snapshot/IR/protocol/journal | Strict shapes, capability/build fences, recovery/round-trip, atomic rejection |
-| Auth/storage/private data | Ownership/isolation, failure atomicity, absence of secrets in public outputs |
-| SDK/host/browser integration | One bounded real API/browser path through changed boundary, plus affected package checks |
-| Optimization/refactor | Deterministic differential comparison against retained baseline/reference; approved differences explicit |
-| Verification tooling | Affected harness self-tests and failure/cancellation paths; retain live safety guards |
-
-Prefer shared invariant/property cases over copied per-card matrices: replay
-agreement, conservation, privacy, stale-command atomicity and retry idempotence.
-Use bounded deterministic inputs/seeds and retain counterexamples. Baselines are
-oracles only for preserved behavior, never authority for known rules bugs.
-For new checks, demonstrate detection with a known failure, baseline reproduction
-or controlled mutation when feasible; assertions must not merely mirror code.
+Choose a witness for the changed boundary. Use exact frozen source for rules and
+compiler changes, affected harness tests for verification tooling, and a targeted
+shape, isolation, atomic rejection or recovery test for changes to those contracts.
+Prefer shared invariant cases to per-card matrices. Retain counterexamples, and
+use baselines only for behavior that should be preserved.
 
 Live attempts require a done criterion and deadline before starting. A bounded
 witness qualifies only its exercised path, never a full game. Preserve explicit
@@ -96,10 +85,9 @@ Run once on stable inputs. Reuse receipts only after comparing tested source,
 tests, fixtures, dependencies, configuration and relevant producer identities;
 record the bridge and omissions. Changed shared inputs invalidate dependents.
 Docs, review, commit/push and unrelated merges alone do not require native reruns.
-Review immutable commits using base-branch instructions; proposed check/test
-changes cannot justify weakening their own expectations. Use one focused review
-when needed; subsequent rounds address fixes and previous findings, not fresh
-whole-project reviews or stacked reviewers.
+Review immutable commits using base-branch instructions. Preserve test expectations
+unless the contract changes. Skip automatic review agents; when review is needed,
+focus it on the diff and any unresolved findings.
 
 After three unsuccessful repair rounds for the same failure, retain reproduction
 and attempted fixes, stop that loop and escalate the blocked claim to Josh;
@@ -113,20 +101,21 @@ Engine commands (prefix with `sh scripts/engine-env.sh`):
 
 | Command | Executes | Omits |
 | --- | --- | --- |
-| `npm run check:engine` | Live guards, archive agreement, formatting, workspace all-target check, contracts/compiler library tests | Harness self-tests, core/sim/server runtime, integration/doc tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
+| `npm run check:engine` | Live guards, formatting, locked workspace library check | Binaries (`mtg-sim`, `mtg-server`), other non-library targets, archive agreement, all tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
+| `npm run check:engine:fast` | Live guards, archive agreement, formatting, workspace all-target check, contracts/compiler library tests | Harness self-tests, other Rust tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
 | `npm run check:engine:source` | Live guards/archive agreement; no Cargo/lock | Harness self-tests, native/executable runtime |
 | `npm run check:engine:contracts` | Live guards/source/schema/catalog preflight and invalid-shape/version negatives | Harness self-tests, runtime Node/demo, Rust tests/lints; cold cache may compile release mtg-sim |
 | `npm run check:engine:tooling` | Harness self-tests/live guards; no Cargo/lock | Engine behavior/native/executable/SDK acceptance |
 | `npm run check:engine:full` | Formatting, Clippy, workspace tests, harness tests, complete Node contracts/demo | SDK, ignored diagnostics, separate release/profile/replay/offline-retention |
 
-`--fast`, `--source`, `--contracts`, `--tooling`, `--full` are exclusive; `--plan`
-executes nothing. Live guards check structure/docs; native modes admit cache
-under lock. Harness suites cover environment, dependencies/artifacts, storage,
+`--quick` (default), `--fast`, `--source`, `--contracts`, `--tooling`, `--full`
+are exclusive. `--plan` executes nothing. Live guards check structure/docs;
+native modes admit cache under lock. Harness suites cover environment, dependencies/artifacts, storage,
 retention, worktrees and executable preservation using tiny fixtures/fake workers.
-Run tooling when its inputs change; full includes it. Python suites need explicit
+Run affected harness tests when their inputs change. Python suites need explicit
 filenames (discovery misses hyphens). Node wrapper rejects empty/skipped/TODO-only
-selections; archive selector must track renames. Rust tests use opt-level 2 with
-assertions/overflow checks. Default checks do not qualify runtime/consumers.
+selections; archive selector must track renames. Standard Rust tests use opt-level 2
+with assertions and overflow checks. Use package checks for changed binary targets.
 
 ## Cargo coordination and cache integration
 
@@ -136,8 +125,12 @@ Cargo calls: never acquire twice. Explicit multi-phase acceptance may also use
 `full-gate.lock`. Standalone Cargo (create lock parent first; verify selector):
 
 ```sh
-sh scripts/engine-env.sh flock "$HOME/.local/share/mtg-ecosystem/engine-verification/cargo.lock" cargo test --locked -p mtg-core FILTER
+sh scripts/engine-env.sh flock "$HOME/.local/share/mtg-ecosystem/engine-verification/cargo.lock" cargo test --locked --profile quick -p mtg-core FILTER
 ```
+
+The quick test profile uses opt-level 0 and line tables, retaining assertions
+and overflow checks. Use the standard test profile for runtime-heavy runs and
+keep receipts tied to their producer profile.
 
 Do source/docs work while busy; never edit measured source or duplicate builds.
 Launcher/cache helper selects CARGO_TARGET_DIR and defaults CARGO_INCREMENTAL=0;
@@ -149,9 +142,9 @@ owns budgets, freshness and protected historical caches.
 
 Deliver one complete mechanic family through shared systems and exact witnesses,
 never card-name dispatch. Keep follow-on admission/policy/consumer qualification
-separate unless correctness requires it. Aim for a checked checkpoint within
-30 minutes; otherwise report elapsed/remaining work and possible split. Never
-weaken guards or claims to meet time targets. Use existing runners/receipts.
+separate unless correctness requires it. Aim for a focused checkpoint within
+30 minutes. Publish provisional draft PRs with exact passed, failed and deferred
+checks when qualification is incomplete. Preserve guards and failure evidence.
 
 Commit/push coherent focused work; stage owned files only, never force-push or
 merge incidentally. Disable signing locally, including scratch Git fixtures.

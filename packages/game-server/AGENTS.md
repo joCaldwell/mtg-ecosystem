@@ -26,7 +26,8 @@ types; no handwritten response/observation replacements. Core rules remain deter
   lobby/account service or new profile admission follows from protocol scaffolding.
 
 Use pinned tools and shared Cargo lock from [development](../../docs/game-engine-development.md).
-Default engine check compiles server targets but omits server runtime tests.
+The default engine check covers the server library. For executable changes run
+`cargo check --locked -p mtg-server --bin mtg-server`.
 Choose affected `cargo test --locked -p mtg-server FILTER` / production Clippy,
 then relevant isolated SDK checks. Confirm selectors execute tests. SDK generation
 never starts Cargo; [SDK manual](sdk/AGENTS.md) governs its local lock/install.

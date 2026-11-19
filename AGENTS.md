@@ -33,13 +33,14 @@ ask only if it cannot be inferred. Read its manual before editing code.
   users' data; public MCP tools, shared URLs and token formats evolve additively
   or through deprecation. Internals may be rewritten freely. Product sign-in
   does not grant a Rust seat. Never use the legacy solo playtester as game-client guidance.
-- All agents and delegates follow [focused verification](docs/game-engine-development.md#choose-focused-checks):
-  select checks from the diff, reuse unchanged-input evidence, bound live attempts,
-  and stop repeating unproductive repair/review loops. Package manuals own commands.
+- Build first. Use the cheapest relevant compile check and one directly affected
+  witness when useful. Defer broad qualification and extra reviews unless requested
+  or needed to diagnose a failure. Follow [focused verification](docs/game-engine-development.md#choose-focused-checks)
+  for evidence and omissions. Package manuals own commands.
   Active Card IR schema is 1; capabilities and exact build/catalog identity fence support.
 - Follow the [agent workflow](docs/game-engine-development.md#enter-a-task). Configure
   `git config --local commit.gpgsign false` for autonomous engine checkpoints;
-  commit and push coherent checked work. Never force-push shared branches or merge incidentally.
+  commit and push coherent checkpoints. Never force-push shared branches or merge incidentally.
 - Preserve unrelated changes, source/evidence/worktrees and meaningful failures.
   Downloaded/generated outputs (`generated/`, `.scryfall-cache/`, `target/`,
   `dist/`, backend `data/`/`.dev/`) stay ignored. Ignored is not disposable:
@@ -72,5 +73,5 @@ need in its PR.
 Use existing pinned tools through `sh scripts/engine-env.sh`; bootstrap only when
 dependencies are missing/broken. Application packages use their local locks and
 `--workspaces=false --ignore-scripts`, never a shared root reinstall. Run focused
-owning checks and `git diff --check`. Publish coherent checked work with exact
-checks/omissions and overlap in a draft PR; do not merge incidentally.
+owning checks and `git diff --check`. Publish in a draft PR with exact checks,
+omissions and overlap. Mark work provisional when qualification is deferred.
