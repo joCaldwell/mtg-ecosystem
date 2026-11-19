@@ -46,9 +46,19 @@ impl<'a> Bindings<'a> {
     }
 
     pub(super) fn reference(&mut self, path: &str, expression: &Value, target: &str, rule: &str) {
+        self.reference_rules(path, expression, target, &[rule]);
+    }
+
+    pub(super) fn reference_rules(
+        &mut self,
+        path: &str,
+        expression: &Value,
+        target: &str,
+        rules: &[&str],
+    ) {
         self.references
             .push(json!({"path":path,"expression":expression,
-            "binding":"bound","target":target,"rules":[rule]}));
+            "binding":"bound","target":target,"rules":rules}));
     }
 
     pub(super) fn target(
