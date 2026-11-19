@@ -445,10 +445,18 @@ fn lower_type_predicate(
         return Err(unsupported("trigger.what", "unsupported spell class/depth"));
     }
     if let Some(colors) = &f.colors {
-        if !root || class != Some("spell") || colors.len() != 1 || f.types.is_some()
-            || f.non_types.is_some() || f.all_of.is_some() || f.any_of.is_some()
+        if !root
+            || class != Some("spell")
+            || colors.len() != 1
+            || f.types.is_some()
+            || f.non_types.is_some()
+            || f.all_of.is_some()
+            || f.any_of.is_some()
         {
-            return Err(unsupported("trigger.what.colors", "expected one standalone spell color"));
+            return Err(unsupported(
+                "trigger.what.colors",
+                "expected one standalone spell color",
+            ));
         }
         let color = match colors[0].as_str() {
             "white" => Color::W,
@@ -3831,10 +3839,20 @@ fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
             match secondary.as_str() {
                 "artifact" => vec![CardKind::Artifact],
                 "enchantment" => vec![CardKind::Enchantment],
-                _ => return Err(unsupported("effects.token.types", "unsupported secondary type")),
+                _ => {
+                    return Err(unsupported(
+                        "effects.token.types",
+                        "unsupported secondary type",
+                    ));
+                }
             }
         }
-        _ => return Err(unsupported("effects.token.types", "unsupported token types")),
+        _ => {
+            return Err(unsupported(
+                "effects.token.types",
+                "unsupported token types",
+            ));
+        }
     };
     let colors = token
         .colors
@@ -5650,7 +5668,8 @@ mod tests {
             "types":["artifact","creature"], "supertypes":[], "subtypes":["Latticekin"],
             "colors":[], "keywords":[], "power":{"amount":"fixed","value":3},
             "toughness":{"amount":"fixed","value":7}
-        })).unwrap();
+        }))
+        .unwrap();
         let token = lower_creature_token(&source).unwrap();
         assert!(token.characteristics().has_type(CardKind::Artifact));
         source.types.reverse();
@@ -5659,7 +5678,10 @@ mod tests {
         let single = lower_creature_token(&source).unwrap();
         let bytes = serde_json::to_value(&single).unwrap();
         assert!(bytes.get("additional_types").is_none());
-        assert_eq!(serde_json::from_value::<CreatureToken>(bytes).unwrap(), single);
+        assert_eq!(
+            serde_json::from_value::<CreatureToken>(bytes).unwrap(),
+            single
+        );
         assert!(!single.characteristics().has_type(CardKind::Artifact));
         source.types.push("land".into());
         assert!(lower_creature_token(&source).is_err());
@@ -10474,13 +10496,15 @@ mod temporary_double_strike_tests;
 #[cfg(test)]
 #[test]
 fn synthetic_cast_color_uses_spell_characteristics() {
-    let filter: SourceTypeFilter = serde_json::from_str(r#"{"cls":"spell","colors":["blue"]}"#).unwrap();
+    let filter: SourceTypeFilter =
+        serde_json::from_str(r#"{"cls":"spell","colors":["blue"]}"#).unwrap();
     let predicate = lower_type_predicate(&filter, Some("spell"), true, 0).unwrap();
     let mut spell: Characteristics = serde_json::from_value(serde_json::json!({
         "kind":"instant", "subtypes":[], "basic":false, "legendary":false,
         "mana_cost":{"generic":"0","colored":[]}, "colors":["R"], "color_identity":["R","U"],
         "power":null, "toughness":null
-    })).unwrap();
+    }))
+    .unwrap();
     assert!(!predicate.matches(&spell));
     spell.colors.push(Color::U);
     assert!(predicate.matches(&spell));

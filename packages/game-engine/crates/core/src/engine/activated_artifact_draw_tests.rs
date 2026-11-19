@@ -161,10 +161,13 @@ fn paid_counted_draw() {
         &cost,
         true,
         vec![ManaAbility {
+            restriction: None,
+            self_damage: None,
             costs: PermanentActivationCosts {
                 tap: true,
                 mana: None,
                 sacrifice: false,
+                remove_source_plus_one_counters: None,
             },
             production: ManaProduction::Fixed {
                 symbols: vec![Color::C; 3],

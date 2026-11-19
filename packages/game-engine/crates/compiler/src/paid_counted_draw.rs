@@ -327,6 +327,7 @@ mod tests {
                     mana: Some(cost),
                     tap,
                     sacrifice,
+                    remove_source_plus_one_counters: None,
                 },
             }
         } else {

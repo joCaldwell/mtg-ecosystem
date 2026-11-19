@@ -567,9 +567,10 @@ impl CreatureToken {
         if !matches!(
             self.additional_types.as_slice(),
             [] | [CardKind::Artifact] | [CardKind::Enchantment]
-        )
-            || (!self.additional_types.is_empty() && self.subtypes.iter().any(|s|
-                unsupported_rules_subtype(s) || matches!(s.as_str(), "Aura" | "Equipment")))
+        ) || (!self.additional_types.is_empty()
+            && self.subtypes.iter().any(|s| {
+                unsupported_rules_subtype(s) || matches!(s.as_str(), "Aura" | "Equipment")
+            }))
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
@@ -1527,7 +1528,9 @@ impl<'de> Deserialize<'de> for CastOriginZone {
 #[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TypePredicate {
     #[schemars(skip)]
-    SpellColor { color: Color },
+    SpellColor {
+        color: Color,
+    },
     // An empty struct also enforces serde unknown-field rejection here.
     Any {},
     Type {
@@ -2138,7 +2141,10 @@ impl Definition {
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SelfSpellCast => Capability::CascadeV1,
-                TriggerCondition::SpellCast { spell: TypePredicate::SpellColor { .. }, .. } => {
+                TriggerCondition::SpellCast {
+                    spell: TypePredicate::SpellColor { .. },
+                    ..
+                } => {
                     set.insert(Capability::CastColorPredicateV1);
                     Capability::CastTriggerV1
                 }
@@ -2980,7 +2986,9 @@ impl Definition {
             }
             if let TriggerCondition::SpellCast { spell, .. } = &ability.condition {
                 match spell {
-                    TypePredicate::SpellColor { color: Color::C } => return Err("invalid spell color".into()),
+                    TypePredicate::SpellColor { color: Color::C } => {
+                        return Err("invalid spell color".into());
+                    }
                     TypePredicate::SpellColor { .. } => (),
                     _ => spell.validate()?,
                 }
@@ -5058,6 +5066,39 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
     ]);
 }
+fn extend_multitype_token_schema(schema: &mut serde_json::Value) {
+    use serde_json::json;
+    let additional_types =
+        json!({"required":["additional_types"],"properties":{"additional_types":{"minItems":1}}});
+    let excluded_subtypes: Vec<_> = UNSUPPORTED_RULES_SUBTYPES
+        .iter()
+        .copied()
+        .chain(["Aura", "Equipment"])
+        .collect();
+    schema["$defs"]["CreatureToken"]["allOf"] = json!([{
+        "if":additional_types,"then":{"properties":{"subtypes":{"items":{"not":{"enum":excluded_subtypes}}}}}
+    }]);
+    let free = json!({"$ref":"#/$defs/SingleTypeTokenProgram"});
+    schema["$defs"]["SingleTypeTokenProgram"] = json!({"properties":{
+        "instructions":{"items":{"not":{"required":["token"],"properties":{"token":additional_types}}}},
+        "modes":{"items":{"properties":{"program":free}}}
+    }});
+    let no_multitype = json!({"properties":{"program":free}});
+    let cap = json!({"contains":{"const":Capability::MultiTypeCreatureTokensV1}});
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "if":{"allOf":[
+                {"properties":{"spell":{"anyOf":[{"type":"null"},free]}}},
+                {"properties":{"activated":{"items":no_multitype}}},
+                {"properties":{"triggered":{"items":no_multitype}}}
+            ]},
+            "then":{"properties":{"capabilities":{"not":cap}}},
+            "else":{"properties":{"capabilities":cap}}
+        }));
+}
+
 pub fn catalog_schema() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
     counter_placement_schema(&mut schema);
@@ -5078,8 +5119,8 @@ pub fn catalog_schema() -> serde_json::Value {
 
     // CR 702.12/702.6: preserve the bounded Equipment modifier and the
     // separate battlefield grant to other controlled permanents.
-    schema["$defs"]["CreatureToken"]["properties"]["additional_types"] =
-        serde_json::json!({"type":"array","maxItems":1,"items":{"enum":["artifact","enchantment"]}});
+    schema["$defs"]["CreatureToken"]["properties"]["additional_types"] = serde_json::json!({"type":"array","maxItems":1,"items":{"enum":["artifact","enchantment"]}});
+    extend_multitype_token_schema(&mut schema);
     schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let permanent_grant_effect = serde_json::json!({
@@ -6451,9 +6492,14 @@ mod tests {
             .collect::<Vec<_>>();
         let mut creator = definitions
             .iter()
-            .find(|d| d.spell.as_ref().is_some_and(|p| {
-                matches!(p.instructions.first(), Some(Instruction::CreateCreatureTokens { .. }))
-            }))
+            .find(|d| {
+                d.spell.as_ref().is_some_and(|p| {
+                    matches!(
+                        p.instructions.first(),
+                        Some(Instruction::CreateCreatureTokens { .. })
+                    )
+                })
+            })
             .unwrap()
             .clone();
         creator.source_labels = None;
@@ -6541,6 +6587,13 @@ mod tests {
             },
         }];
         origin_draw.capabilities = origin_draw.requirements();
+        let mut color_cast = origin_draw.clone();
+        color_cast.triggered[0].condition = TriggerCondition::SpellCast {
+            caster: CasterRelation::Controller,
+            spell: TypePredicate::SpellColor { color: Color::U },
+        };
+        color_cast.capabilities = color_cast.requirements();
+        definitions.push(color_cast);
         definitions.push(origin_draw);
         counted.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Stack,

@@ -277,6 +277,7 @@ pub(super) fn witnesses() -> [Definition; 4] {
             mana: Some(paid_mana.clone()),
             tap: true,
             sacrifice: true,
+            remove_source_plus_one_counters: None,
         },
     };
     ability.program.instructions = vec![Instruction::DrawControllerCards {
@@ -284,10 +285,13 @@ pub(super) fn witnesses() -> [Definition; 4] {
         source_block: 1,
     }];
     artifact.mana_abilities = vec![ManaAbility {
+        restriction: None,
+        self_damage: None,
         costs: PermanentActivationCosts {
             mana: None,
             tap: true,
             sacrifice: false,
+            remove_source_plus_one_counters: None,
         },
         production: ManaProduction::Fixed {
             symbols: vec![Color::C, Color::C],
@@ -346,6 +350,7 @@ pub(super) fn witnesses() -> [Definition; 4] {
             tap: false,
             mana: Some(paid_mana),
             sacrifice: true,
+            remove_source_plus_one_counters: None,
         },
     };
     enchantment.capabilities = enchantment.requirements();
