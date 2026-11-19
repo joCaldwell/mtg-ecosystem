@@ -110,14 +110,14 @@ This is not drawing (CR 121.5). Tucked Commanders receive the owner's pre-moveme
 hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositions reject.
 
 Top-order/optional-shuffle/draw privately orders an incarnation-preserving prefix,
-offers a boolean, then draws. Shuffles include empty/singleton
-libraries; declines consume no randomness. `ControllerCountedDrawV1` fences standalone
-nonnegative controller draws: sequential attempts without clamping, optionally followed
-by fixed positive controller life loss (`LifeLossV1`). Legacy one/two-card source IR stays unchanged. Counted draws precede whole-hand returns
-or simultaneous discards. Returns create successors after Commander replacements;
-discard precedes Commander SBAs. Short hands clamp; failed draws never interrupt
-resolution. `TargetedCountedDrawV1` uses the same progress for one announced player; departure never redirects remaining attempts.
-These families add no source, mana or priority authority.
+offers a shuffle, then draws. Even empty libraries shuffle; declines consume no
+randomness. `ControllerCountedDrawV1` uses sequential unclamped attempts with
+optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
+opponent hand-size reductions can draw at their controller's end step. Counted
+draws precede whole-hand returns or simultaneous discards. Commander replacements
+precede return successors; discard precedes Commander SBAs. Short hands clamp;
+failed draws continue. `TargetedCountedDrawV1` shares progress for one announced
+player; departure never redirects attempts or grants new authority.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.

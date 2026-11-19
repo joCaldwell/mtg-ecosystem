@@ -21,6 +21,9 @@ pub(super) fn validate_definition(definition: &Definition) -> Result<(), String>
     let Some((amount, optional_keyword, error)) = adjustment else {
         return Ok(());
     };
+    if flash_end_step_draw::definition_matches(definition) {
+        return Ok(());
+    }
     let characteristics = &definition.characteristics;
     if !matches!(
         definition.static_abilities.as_slice(),
@@ -108,6 +111,42 @@ fn extend_adjustment_schema(
             "if":adjustment_ability,
             "then":{"properties":{"functioning_zone":{"const":FunctioningZone::Battlefield}}}
         }));
+    let ordinary = json!({"required":["spell","static_abilities"],"properties":{
+        "static_abilities":{"minItems":1,"maxItems":1,"items":adjustment_ability},
+        "x_mana_cost":{"const":false},
+        "characteristics":{"properties":{
+            "kind":{"const":CardKind::Creature},"additional_types":{"maxItems":0},
+            "basic":{"const":false},"legendary":{"const":false},"snow":{"const":false},
+            "subtypes":{"items":{"not":{"enum":disallowed_subtypes}}},
+            "power":{"type":"string"},"toughness":{"type":"string","pattern":"^[1-9][0-9]*$"},
+            "mana_cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}}},
+            "colors":{"items":{"not":{"const":Color::C}}},
+            "color_identity":{"items":{"not":{"const":Color::C}}}
+        }},
+        "intrinsic_zone":{"type":"null"},
+        "spell":{"type":"object","properties":{
+            "timing":{"const":SpellTiming::MainPhase},
+            "resolution":{"const":SpellResolution::Permanent},
+            "functioning_zone":{"const":FunctioningZone::Stack},
+            "additional_sacrifice":{"type":"null"},
+            "instructions":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0}
+        }},
+        "mana_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0}
+    },"oneOf":[
+        {"properties":{
+            "keywords":{"maxItems":0},"capabilities":capabilities(&base_capabilities)
+        }},
+        {"required":["keywords"],"properties":{
+            "keywords":{"const":[keyword]},
+            "capabilities":capabilities(&keyword_capabilities),
+            "static_abilities":{"items":keyword_ability_constraint}
+        }}
+    ]});
+    let family = if capability == ReducedHandSizeV1 {
+        json!({"oneOf":[ordinary,{"$ref":"#/$defs/FlashEndStepDrawDefinition"}]})
+    } else {
+        ordinary
+    };
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()
@@ -120,37 +159,7 @@ fn extend_adjustment_schema(
                     "capabilities":{"contains":{"const":capability}}
                 }}
             ]},
-            "then":{"required":["spell","static_abilities"],"properties":{
-                "static_abilities":{"minItems":1,"maxItems":1,"items":adjustment_ability},
-                "x_mana_cost":{"const":false},
-                "characteristics":{"properties":{
-                    "kind":{"const":CardKind::Creature},"additional_types":{"maxItems":0},
-                    "basic":{"const":false},"legendary":{"const":false},"snow":{"const":false},
-                    "subtypes":{"items":{"not":{"enum":disallowed_subtypes}}},
-                    "power":{"type":"string"},"toughness":{"type":"string","pattern":"^[1-9][0-9]*$"},
-                    "mana_cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}}},
-                    "colors":{"items":{"not":{"const":Color::C}}},
-                    "color_identity":{"items":{"not":{"const":Color::C}}}
-                }},
-                "intrinsic_zone":{"type":"null"},
-                "spell":{"type":"object","properties":{
-                    "timing":{"const":SpellTiming::MainPhase},
-                    "resolution":{"const":SpellResolution::Permanent},
-                    "functioning_zone":{"const":FunctioningZone::Stack},
-                    "additional_sacrifice":{"type":"null"},
-                    "instructions":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0}
-                }},
-                "mana_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0}
-            },"oneOf":[
-                {"properties":{
-                    "keywords":{"maxItems":0},"capabilities":capabilities(&base_capabilities)
-                }},
-                {"required":["keywords"],"properties":{
-                    "keywords":{"const":[keyword]},
-                    "capabilities":capabilities(&keyword_capabilities),
-                    "static_abilities":{"items":keyword_ability_constraint}
-                }}
-            ]}
+            "then":family
         }));
 }
 

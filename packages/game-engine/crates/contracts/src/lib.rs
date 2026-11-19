@@ -38,6 +38,7 @@ use std::{collections::BTreeSet, fmt, str::FromStr};
 
 mod archives;
 pub use archives::*;
+mod flash_end_step_draw;
 mod hand_size_adjustments;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
@@ -2474,6 +2475,7 @@ impl Definition {
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
+                            | Instruction::DrawControllerCards { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::DiscardCards { .. }
@@ -3082,6 +3084,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
         && !controller_counted_draw_program(p)
+        && !flash_end_step_draw::trigger_program(p)
     {
         return Err("unsupported complete controller draw/hand return".into());
     }
@@ -3920,7 +3923,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
-                if controller_counted_draw_program(program) {
+                if controller_counted_draw_program(program)
+                    || controller_counted_draw::standalone_controller_draw(program).is_some()
+                {
                     Capability::ControllerCountedDrawV1
                 } else if controller_draw_discard_program(program) {
                     Capability::ControllerDrawDiscardV1
@@ -5024,6 +5029,7 @@ pub fn catalog_schema() -> serde_json::Value {
     activated_artifact_draw::extend_schema(&mut schema);
     unlimited_hand_size::extend_schema(&mut schema);
     hand_size_adjustments::extend_schema(&mut schema);
+    flash_end_step_draw::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
