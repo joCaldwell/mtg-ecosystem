@@ -43,6 +43,20 @@ function freeze(value: unknown): void {
 // Mourning Thrull, and Cloudshift. Reference rules are from the 2026-09-25 CR:
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 describe("whole-card reference binding", () => {
+  it("binds only the explicit source of the watched replacement move", () => {
+    const subjects: ObjectRef[] = [{ ref: "self" }, target(), { ref: "it" }];
+    const graph = analyzeCardBindings(fromAbilities(subjects.map(what => ({
+      kind: "static", effect: { static: "replacement", replacement: {
+        event: { event: "move-zone", what, to: { zone: "exile" } }, occurrence: "each",
+        replace: { replacement: "skip" }
+      } }
+    }))));
+    const subject = (index: number) => `/abilities/${index}/effect/replacement/event/what`;
+    assert.equal(targetOf(graph, subject(0)), "card:fixture-id/source#object");
+    for (const index of [1, 2]) assert.equal(binding(graph, subject(index)).binding, "unresolved");
+    assert.equal(graph.fullyBound, false);
+  });
+
   it("binds you differently for resolving spells, activations, triggers, and static abilities", () => {
     const graph = analyzeCardBindings(input("Draw a card.\n{T}: Draw a card.\nWhenever this creature deals damage, you gain that much life.\nCreatures you control get +1/+1."));
     assert.equal(graph.fullyBound, true, JSON.stringify(graph.diagnostics));
