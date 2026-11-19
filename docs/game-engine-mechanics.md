@@ -253,8 +253,8 @@ exclusions reject any matching type; sacrifice subtype lists are conjunctive.
 
 Compensation uses the exact target's current or last relevant public appearance,
 not its successor: controller, power and mana value can differ from ownership.
-A token has mana value zero. Optional targeted triggers select targets on stack
-placement and optionality on resolution; no legal target removes the trigger.
+Tokens have zero mana value. Entry returns target at trigger placement; optional
+returns choose at resolution. No legal target removes the trigger.
 
 Sacrifice moves a controller's own permanent to its owner's graveyard and is not
 destruction. Choose/pay sacrifices after targets. “Sacrifice a creature” may use

@@ -82,6 +82,38 @@ impl<'a> Bindings<'a> {
         );
     }
 
+    pub(super) fn event(
+        &mut self,
+        base: &str,
+        path: &str,
+        operation: &str,
+        input: &str,
+        optional: bool,
+    ) {
+        let mut fields = json!({"scope":self.id(base,"ability"),"operation":operation,
+            "inputs":[input],"availability":"when-performed","rules":["608.2c"]});
+        if optional {
+            fields["optional"] = json!(true);
+            fields["decider"] = json!(self.id(base, "you"));
+        }
+        self.node(path, "event", "event", fields);
+    }
+
+    pub(super) fn result(
+        &mut self,
+        path: &str,
+        kind: &str,
+        identity: &str,
+        description: Option<&Value>,
+    ) {
+        let mut fields = json!({"event":self.id(path,"event"),"result":kind,"cardinality":"one",
+            "availability":"if-produced","identity":identity,"rules":["608.2h"]});
+        if let Some(description) = description {
+            fields["description"] = description.clone();
+        }
+        self.node(path, kind, "event-result", fields);
+    }
+
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
         let same_members = |actual: &Value, expected: &[Value]| {
             actual.as_array().is_some_and(|items| {

@@ -23,6 +23,7 @@ mod controller_scry_tests;
 #[cfg(test)]
 mod controller_surveil_tests;
 pub mod coverage;
+mod creature_entry_return;
 mod diagnostics;
 mod draw_discard;
 #[cfg(test)]
@@ -1964,6 +1965,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .validate()
         .map_err(|e| unsupported("definition", e))?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
+    creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
     {
@@ -4632,24 +4634,42 @@ fn lower_trigger(
         instructions: vec![],
         modes: vec![],
     };
-    append_spell_effects(
-        &mut program,
-        effects,
-        block,
-        &mut BTreeMap::new(),
-        if matches!(
-            condition,
-            TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
-        ) {
-            PlayerBinding::EventPlayer
-        } else if matches!(condition, TriggerCondition::DamageDealt { .. }) {
-            PlayerBinding::DamageRecipient
-        } else if condition == TriggerCondition::OpponentCreatureDies {
-            PlayerBinding::DeathController
-        } else {
-            PlayerBinding::Unbound
-        },
-    )?;
+    if let (SourceTrigger::Enters { what: subject }, [Sentence { bindings, steps }]) =
+        (trigger, effects)
+        && is_source_creature(subject)
+        && intervening.is_none()
+        && bindings.is_empty()
+        && let [Step::ReturnToHand { what, to, optional }] = steps.as_slice()
+        && to == "owner"
+    {
+        let slot = bind_permanent_target(&mut program, &mut BTreeMap::new(), what)?;
+        program
+            .instructions
+            .push(Instruction::ReturnEntryTargetCreature {
+                target_slot: slot,
+                optional: optional.unwrap_or(false),
+                source_block: source_block(block)?,
+            });
+    } else {
+        append_spell_effects(
+            &mut program,
+            effects,
+            block,
+            &mut BTreeMap::new(),
+            if matches!(
+                condition,
+                TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
+            ) {
+                PlayerBinding::EventPlayer
+            } else if matches!(condition, TriggerCondition::DamageDealt { .. }) {
+                PlayerBinding::DamageRecipient
+            } else if condition == TriggerCondition::OpponentCreatureDies {
+                PlayerBinding::DeathController
+            } else {
+                PlayerBinding::Unbound
+            },
+        )?;
+    }
     let intervening_if = match intervening {
         None => None,
         Some(SourceCondition::Control {
