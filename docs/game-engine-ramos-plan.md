@@ -31,7 +31,7 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 ### M2 Complete land and ramp infrastructure
 
 Land/ramp witnesses are retained.
-`bee70dee` compiles **56/85 definitions;29 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`93755057` compiles **56/85 definitions;29 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
