@@ -31,7 +31,7 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 ### M2 Complete land and ramp infrastructure
 
 Land/search/fetch/cycling and mana families have focused witnesses. Current source
-`403f5d2d` compiles **55/85 definitions;30 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`ec659db7` compiles **55/85 definitions;30 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
