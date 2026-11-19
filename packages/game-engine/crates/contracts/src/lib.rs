@@ -37,6 +37,7 @@ mod targeted_counted_draw;
 mod targeted_discard;
 mod targeted_game_loss;
 pub use targeted_counted_draw::targeted_counted_draw_program;
+pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
@@ -862,7 +863,7 @@ pub enum Instruction {
     LoseGameTargetPlayer {
         #[schemars(range(max = 0))]
         target_slot: u32,
-        #[schemars(range(max = 0))]
+        #[schemars(range(max = 1))]
         source_block: u32,
     },
     TargetPlayerSacrificeCreature {
@@ -2804,6 +2805,11 @@ impl Definition {
             }
             if paid_counted_draw::ability_matches(ability) {
                 // The complete source is checked by hand_return::validate_definition.
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
+            if artifact_loss_activation(ability) {
+                // The complete artifact and source-bound operands were checked above.
                 validate_instruction_program(&ability.program)?;
                 continue;
             }

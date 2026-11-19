@@ -57,6 +57,7 @@ mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
 use optional_costs::KickedCondition;
+mod artifact_loss;
 mod conditional_lands;
 mod cycling;
 #[cfg(test)]
@@ -674,6 +675,9 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    LoseGame {
+        who: PlayerSelector,
+    },
     AdditionalLandPlays {
         allowance: serde_json::Value,
         duration: SourceDuration,
@@ -1469,6 +1473,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let (color_stats, color_mana) =
@@ -1947,7 +1952,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             labels.activated.push(source_block(block)?);
                             definition
                                 .activated
-                                .push(lower_activation(costs, effects, block, kind)?);
+                                .push(if let Some(loss) = artifact_loss.take() {
+                                    loss
+                                } else {
+                                    lower_activation(costs, effects, block, kind)?
+                                });
                         }
                     }
                     Ability::Triggered {
