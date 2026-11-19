@@ -1138,3 +1138,6 @@ mod temporary_vigilance_tests;
 
 #[path = "temporary_double_strike_tests.rs"]
 mod temporary_double_strike_tests;
+
+#[path = "activated_artifact_draw_tests.rs"]
+mod activated_artifact_draw_tests;

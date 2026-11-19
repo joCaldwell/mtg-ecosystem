@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
+mod activated_artifact_draw;
 pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -1831,6 +1832,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &binding,
             &definition.oracle_id,
             &canonical_abilities,
+        )?;
+    }
+    if definition
+        .activated
+        .iter()
+        .any(mtg_contracts::activated_artifact_draw_ability)
+    {
+        activated_artifact_draw::validate_source(
+            &binding,
+            &definition.oracle_id,
+            result.abilities.get(),
         )?;
     }
     definition.capabilities = definition.requirements();
