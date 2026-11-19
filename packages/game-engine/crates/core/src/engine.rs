@@ -3082,7 +3082,7 @@ impl Game {
                 if tap_only {
                     // CR602.2b/601.2c,h: target announcement precedes tap
                     // payment; a tap-only cost grants no mana payment window.
-                    self.complete_targeted_activation(cast, input.decision_id)?;
+                    self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
                     self.state.rules.frame = self.announcement_mana_frame(cast)?;
                 }
