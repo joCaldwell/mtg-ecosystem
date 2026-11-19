@@ -143,3 +143,55 @@ pub(super) fn instruction(
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Read the pre-existing frozen inputs in place. Negative controls alter
+    // only the in-memory reference graph and recompute its integrity digest.
+    #[test]
+    fn source_death_nonland_destruction_requires_whole_binding() {
+        let manifest = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+        let record =
+            include_str!("../../../tests/fixtures/ramos/70dbe8a9-505d-41c2-9b5b-a991d13ab459.json");
+        let CompileResult::Lowered { definition } = compile(manifest, record) else {
+            panic!("expected complete source-death destruction");
+        };
+        let [trigger] = definition.triggered.as_slice() else {
+            panic!("expected one trigger");
+        };
+        assert_eq!(trigger.condition, TriggerCondition::SelfDies);
+        assert_eq!(
+            trigger.program.instructions,
+            [Instruction::DestroySet {
+                set: ObjectSet::NonlandPermanents,
+                regeneration_forbidden: true,
+                source_block: 1
+            }]
+        );
+        for operation in ["timing", "identity", "extra"] {
+            let changed = crate::tests::changed_source(record, |r| {
+                let nodes = r["binding"]["nodes"].as_array_mut().unwrap();
+                match operation {
+                    "timing" => {
+                        let selector = nodes.iter_mut().find(|n| n["node"] == "selection").unwrap();
+                        selector["timing"] = json!("announcement");
+                    }
+                    "identity" => {
+                        let successor = nodes
+                            .iter_mut()
+                            .find(|n| n["identity"] == "zone-successors")
+                            .unwrap();
+                        successor["identity"] = json!("same-objects");
+                    }
+                    _ => nodes.push(nodes.last().unwrap().clone()),
+                }
+            });
+            assert!(matches!(
+                compile(manifest, &changed),
+                CompileResult::Unsupported { .. }
+            ));
+        }
+    }
+}
