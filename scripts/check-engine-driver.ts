@@ -136,6 +136,13 @@ const omittedSelfTests = "Verifier harness self-tests (run --tooling or --full).
 // Development coverage is deliberately smaller than historical acceptance.
 // No default phase launches the simulator, release build, demo or profile matrix.
 export const engineCheckPlans = {
+  quick: {
+    needsCargo: true,
+    phases: [cachePreflight, ...liveGuards, format,
+      { label: "rust-lib-check", command: "cargo", args: ["check", "--workspace", "--lib", "--locked"] }],
+    coverage: "Live structure/documentation guards and cache preflight, Rust formatting, workspace library compilation check.",
+    omitted: `${omittedSelfTests} Archived-source parser agreement; compilation of binaries (including mtg-sim and mtg-server), tests and other non-library targets; all tests and Clippy; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
+  },
   source: {
     needsCargo: false,
     phases: [...liveGuards, archive],
@@ -175,7 +182,7 @@ export const engineCheckPlans = {
 export type CheckMode = keyof typeof engineCheckPlans;
 
 export function parseCheckArguments(args: string[]) {
-  let mode: CheckMode = "fast";
+  let mode: CheckMode = "quick";
   let selected = false;
   let planOnly = false;
   let help = false;

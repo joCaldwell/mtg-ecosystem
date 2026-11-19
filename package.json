@@ -10,6 +10,7 @@
     "engine:bootstrap": "sh scripts/engine-bootstrap.sh",
     "engine:doctor": "sh scripts/engine-env.sh node scripts/engine-doctor.ts",
     "check:engine": "sh scripts/engine-env.sh node scripts/check-engine.ts",
+    "check:engine:fast": "sh scripts/engine-env.sh node scripts/check-engine.ts --fast",
     "check:engine:source": "sh scripts/engine-env.sh node scripts/check-engine.ts --source",
     "check:engine:tooling": "sh scripts/engine-env.sh node scripts/check-engine.ts --tooling",
     "check:engine:contracts": "sh scripts/engine-env.sh node scripts/check-engine.ts --contracts",
