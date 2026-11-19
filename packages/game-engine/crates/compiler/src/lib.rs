@@ -1221,6 +1221,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         "/faces/0/abilities",
     )?;
     let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
+    let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
     // CR 207.2c: labels carry no rules meaning. All underlying fields must
     // still decode and lower, including conditions, costs and player relations.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1583,12 +1584,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        definition.triggered.push(lower_trigger(
-                            trigger,
-                            effects,
-                            condition.as_ref(),
-                            block,
-                        )?);
+                        let ability = if flash_end_step_draw {
+                            unlimited_hand_size::lower_end_step_draw(
+                                trigger,
+                                effects,
+                                condition.as_ref(),
+                                block,
+                            )?
+                        } else {
+                            lower_trigger(trigger, effects, condition.as_ref(), block)?
+                        };
+                        definition.triggered.push(ability);
                     }
                     _ => {
                         return Err(unsupported(
