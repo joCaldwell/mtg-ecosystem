@@ -123,7 +123,10 @@ a durable Cancelled/Rejected command.
 ## Durable ownership and retries
 
 One worker owns one private match directory, exclusive OS lock and SQLite
-connection. Directories are mode 0700 and private files 0600. SQLite uses WAL,
+writer connection. After verified Ready, bounded broker Resume reads use a separate
+strict read-only connection and fresh committed snapshot, independent of rules IPC.
+Generation/bootstrap, private-file identity and pinned process liveness fence each
+read; fatal replies, stop and recovery revoke it. Only new verified Ready reopens it. Directories are mode 0700 and private files 0600. SQLite uses WAL,
 synchronous FULL, foreign keys, a bounded database and generation fencing.
 Private parents must pre-exist durably; creation syncs the parent directory.
 The selected local model trusts the owning OS user and excludes concurrent
