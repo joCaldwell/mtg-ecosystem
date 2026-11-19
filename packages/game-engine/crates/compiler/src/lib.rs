@@ -4627,6 +4627,9 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
+    if let Some(ability) = activated_artifact_draw::lower_two_draws(costs, effects, block, kind)? {
+        return Ok(ability);
+    }
     if effects.iter().any(|s| !s.bindings.is_empty()) {
         return Err(unsupported(
             "bindings",
