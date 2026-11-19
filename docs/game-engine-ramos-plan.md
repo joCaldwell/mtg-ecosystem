@@ -30,10 +30,9 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-Typed search, Cinder entry, intrinsic mana, shocks, fetch costs, cycling and opponent
-mana have focused witnesses. Audit `df70b8c4`:50 definitions lower,35 remain Unsupported.
-[Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) owns proof.
-Exact-deck and consumer admission remain open.
+Land/search/fetch/cycling and mana families have focused witnesses. Current source
+`936bc6bd` compiles **53/85 definitions;32 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
 
@@ -45,7 +44,7 @@ values.
 ### M5 Add color and mana engines
 
 Complete Leyline opening action/layers/hybrid costs, Prismatic Omen, Lantern grants,
-Faeburrow dynamic quantities, Selvala allocation/draw and Omnath Phyrexian payment,
+Selvala allocation/draw and Omnath Phyrexian payment,
 unspent-mana replacement and private choices.
 
 ### M6 Complete card advantage and flexible choices
@@ -56,8 +55,8 @@ search. Urban Evolution has a focused land-permission witness.
 
 ### M7 Complete protection and board interaction
 
-Anguished Unmaking, Void Rend and Ruinous Ultimatum have focused witnesses.
-Complete Child, Avacyn, Exterminatus, Farewell and Akroma's Will.
+Anguished Unmaking, Void Rend, Ruinous Ultimatum and Avacyn have focused witnesses.
+Complete Child, Exterminatus, Farewell and Akroma's Will.
 
 ### M8 Add spell and permanent copies
 

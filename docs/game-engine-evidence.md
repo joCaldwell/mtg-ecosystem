@@ -228,8 +228,8 @@ Cycling source `abdf634f`:4 focused Rust functions,51 schema probes; audit39/46/
 `generated/ramos/cycling-combined/integration.json` retains current exports; broader
 regressions, remaining test drafts and consumer admission are deferred.
 
-Mana/removal source `df70b8c4`:audit50/35/0,41/30,IR1. Nine focused functions
-across retained producers cover pain mana/undo, Enigma tuck, opponent mana, Vega,
-exile/life, counter protection, opponent wipe and extra land permission. Exact
-producer boundaries, binaries and failures: `generated/ramos/mana-successor-dev/integration.json`.
-Broader runtime, schema matrices and deck/consumer admission are deferred.
+Mana/removal source `936bc6bd`:audit53/32/0,42/30,IR1. Fifteen focused functions
+across retained producers cover mana/undo, successor tuck, cast-origin draw,
+removal/protection, land allowance and fresh-main draw unions. Exact source
+boundaries, binaries and failures: `generated/ramos/mana-successor-dev/integration.json`.
+Broader runtime/schema matrices and deck/consumer admission are deferred.
