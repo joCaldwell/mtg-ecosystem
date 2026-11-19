@@ -9,6 +9,7 @@
     "check:docs": "python3 scripts/check-docs.py",
     "engine:bootstrap": "sh scripts/engine-bootstrap.sh",
     "engine:doctor": "sh scripts/engine-env.sh node scripts/engine-doctor.ts",
+    "engine:dev": "sh scripts/engine-dev.sh",
     "check:engine": "sh scripts/engine-env.sh node scripts/check-engine.ts",
     "check:engine:fast": "sh scripts/engine-env.sh node scripts/check-engine.ts --fast",
     "check:engine:source": "sh scripts/engine-env.sh node scripts/check-engine.ts --source",

@@ -54,8 +54,8 @@ Inventory visits Git-registered worktrees and standard external stores, reports
 symlinks without following them and reads no arbitrary home/secret files. Allocated
 rows deduplicate hard links internally, but summing rows can double count inodes.
 
-`prune-cargo` proposes all selected worktree host/target debug/release incremental
-directories when their aggregate exceeds **2 GiB** (`--max-bytes 0` proposes all).
+`prune-cargo` proposes worktree debug/release and `engine:dev` incremental
+directories above **2 GiB** in aggregate (`--max-bytes 0` proposes all).
 It never invokes Cargo or removes deps/build/final executables, source or evidence.
 Apply checks registration, tracked-file exclusion, containment, ancestor/internal
 symlinks, shared Cargo lock and same-user Linux `/proc` cwd/exe/open descriptors.
