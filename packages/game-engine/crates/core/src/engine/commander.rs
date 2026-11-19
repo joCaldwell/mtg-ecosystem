@@ -646,9 +646,14 @@ impl Game {
                             .instructions
                             .get(frame.cursor as usize)
                         {
-                            Some(Instruction::DrawControllerCards {
-                                source_block: b, ..
-                            }) => b == source_block && frame.draw_progress.is_some(),
+                            Some(
+                                Instruction::DrawControllerCards {
+                                    source_block: b, ..
+                                }
+                                | Instruction::DrawEachPlayer {
+                                    source_block: b, ..
+                                },
+                            ) => b == source_block && frame.draw_progress.is_some(),
                             Some(Instruction::DrawCards {
                                 count,
                                 source_block: b,

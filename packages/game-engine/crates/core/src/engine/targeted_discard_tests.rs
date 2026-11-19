@@ -57,7 +57,7 @@ fn discard_setup() -> Prepared {
     prepared
 }
 
-fn public_answer(g: &mut Game, seat: PlayerId, response: PlayerResponse) {
+pub(super) fn public_answer(g: &mut Game, seat: PlayerId, response: PlayerResponse) {
     let r = request(g, 1);
     assert_eq!(r.player(), seat);
     let QueryValue::Decision(Some(choice)) =
