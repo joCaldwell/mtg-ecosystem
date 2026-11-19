@@ -251,7 +251,7 @@ impl Game {
             .ok()?
             .source_labels
             .as_ref()?;
-        if matches!(request, PlayerRequest::Modes { .. }) {
+        if entry.kind.is_spell() && matches!(request, PlayerRequest::Modes { .. }) {
             context.modes = labels
                 .spell_modes
                 .iter()

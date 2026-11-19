@@ -1325,6 +1325,44 @@ pub struct SpellProgram {
 pub struct SpellMode {
     pub program: SpellProgram,
 }
+fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
+    if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
+        || !p.modes.is_empty()
+    {
+        return false;
+    }
+    match (p.targets.as_slice(), p.instructions.as_slice()) {
+        (
+            [],
+            [
+                Instruction::DrawCards {
+                    count,
+                    recipient: None,
+                    ..
+                },
+            ],
+        ) => *count == Quantity::from(1),
+        (
+            [target],
+            [
+                Instruction::DealDamage {
+                    target_slot: 0,
+                    amount,
+                    ..
+                },
+            ],
+        ) => {
+            target.slot == 0
+                && target.domain == TargetDomain::AnyDamageTarget
+                && target.stage == EvaluationStage::Announcement
+                && target.chooser == Chooser::Controller
+                && target.filter.is_none()
+                && *amount > Quantity::zero()
+        }
+        _ => false,
+    }
+}
 fn single_sacrifice() -> u32 {
     1
 }
@@ -2815,11 +2853,17 @@ impl Definition {
                     || p.functioning_zone != FunctioningZone::Stack
                     || p.timing != SpellTiming::Instant
                     || p.resolution != SpellResolution::Instructions
-                    || !p.targets.is_empty()
-                    || !p.modes.is_empty()
                     || p.additional_sacrifice.is_some()
                     || !p.optional_additional_costs.is_empty()
-                    || !matches!(p.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1))
+                    || if p.modes.is_empty() {
+                        !p.targets.is_empty() || !fixed_artifact_sacrifice_effect(p)
+                    } else {
+                        u32::try_from(p.modes.len()).is_err()
+                            || !p
+                                .modes
+                                .iter()
+                                .all(|m| fixed_artifact_sacrifice_effect(&m.program))
+                    }
                 {
                     return Err("unsupported fixed artifact sacrifice activation".into());
                 }
@@ -5157,6 +5201,19 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
             "required":["count"],"properties":{"count":{"minimum":2}}
         }}
     }}});
+    let draw = json!({"properties":{"targets":{"maxItems":0}, "instructions":{"minItems":1,"maxItems":1,
+        "items":{"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}}}});
+    let damage = json!({"properties":{
+        "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+            "slot":{"const":0},"domain":{"const":"any_damage_target"},"stage":{"const":"announcement"},
+            "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"minLength":1}}}},
+        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
+            "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}}}
+    }});
+    let child = json!({"anyOf":[draw,damage],"properties":{
+        "modes":{"maxItems":0},"timing":{"const":"instant"},
+        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}
+    }});
     let ability = json!({"if":counted,"then":{"properties":{
         "functioning_zone":{"const":"battlefield"},
         "cost":{"properties":{"sacrifice_permanent":{"properties":{
@@ -5164,12 +5221,12 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
             "mana":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"},"colored":{"items":{"enum":["W","U","B","R","G"]}}}}
         }}}},
         "program":{"properties":{"functioning_zone":{"const":"stack"},"timing":{"const":"instant"},
-            "resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},
-            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}
-            }}}
-        }}
+            "resolution":{"const":"instructions"},"additional_sacrifice":{"type":"null"},
+            "optional_additional_costs":{"maxItems":0}},
+            "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
+            "then":{"properties":{"modes":{"minItems":2,"maxItems":u32::MAX,"items":{"properties":{"program":child}}}}},
+            "else":draw
+        }
     }}});
     let contains_cap = json!({"contains":{"const":Capability::FixedArtifactSacrificeCostV1}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({

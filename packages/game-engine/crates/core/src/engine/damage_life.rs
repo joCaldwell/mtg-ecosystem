@@ -280,11 +280,11 @@ impl Game {
         if cast.origin.is_spell() {
             self.state.rules.frame = self.announcement_mana_frame(cast)?;
         } else {
-            self.complete_targeted_activation(cast, input.decision_id)?;
+            self.continue_activation_after_targets(cast, input.decision_id)?;
         }
         Ok(())
     }
-    pub(super) fn complete_targeted_activation(
+    pub(super) fn continue_activation_after_targets(
         &mut self,
         cast: Casting,
         decision_id: u64,

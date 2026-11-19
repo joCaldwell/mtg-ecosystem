@@ -259,11 +259,7 @@ impl Game {
             return Ok(None);
         }
         let top = self.top()?;
-        let root = self
-            .definition(top.source.card)?
-            .spell
-            .as_ref()
-            .ok_or("modal root missing")?;
+        let root = self.root_program_for(top)?;
         let candidates = root
             .modes
             .iter()
@@ -318,7 +314,17 @@ impl Game {
             player: input.player,
             mode,
         })?;
-        self.state.rules.frame = self.spell_announcement_frame(cast)?;
+        if cast.origin.is_spell() {
+            self.state.rules.frame = self.spell_announcement_frame(cast)?;
+        } else {
+            match self.program()?.targets.first().map(|t| t.domain) {
+                Some(TargetDomain::AnyDamageTarget) => {
+                    self.state.rules.frame = Frame::EntityTargets { cast }
+                }
+                None => self.continue_activation_after_targets(cast, input.decision_id)?,
+                Some(_) => return Err("unsupported activated mode target".into()),
+            }
+        }
         Ok(())
     }
     // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone
@@ -434,12 +440,9 @@ impl Game {
     pub(super) fn validate_choices_state(&self) -> Result<(), String> {
         if let Frame::Modes { cast } = &self.state.rules.frame {
             let top = self.top()?;
-            let root = self
-                .definition(top.source.card)?
-                .spell
-                .as_ref()
-                .ok_or("missing modal announcement definition")?;
-            if !cast.origin.is_spell()
+            let root = self.root_program_for(top)?;
+            if top.kind.is_spell() != cast.origin.is_spell()
+                || cast.stack_id != top.id
                 || root.modes.is_empty()
                 || top.mode.is_some()
                 || top.paid.is_some()
@@ -464,19 +467,14 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_mode_binding(&self, entry: &StackInstance) -> Result<(), String> {
-        let root = match entry.kind {
-            StackKind::Spell => self
-                .definition(entry.source.card)?
-                .spell
-                .as_ref()
-                .ok_or("missing mode root")?,
-            _ => {
-                if entry.mode.is_some() {
-                    return Err("nonspell selected mode".into());
-                }
-                return Ok(());
-            }
-        };
+        if matches!(entry.kind, StackKind::Triggered { .. }) {
+            return if entry.mode.is_none() {
+                Ok(())
+            } else {
+                Err("unexpected triggered mode".into())
+            };
+        }
+        let root = self.root_program_for(entry)?;
         if root.modes.is_empty() {
             if entry.mode.is_some() {
                 return Err("nonmodal spell selected mode".into());
