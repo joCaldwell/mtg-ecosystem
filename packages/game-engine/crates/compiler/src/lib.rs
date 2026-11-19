@@ -36,6 +36,7 @@ mod each_player_draw;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod graveyard_battlefield_return;
 mod group_discard;
 mod hand_return;
 #[cfg(test)]
@@ -2394,6 +2395,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
+    graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
@@ -3212,16 +3214,25 @@ fn append_spell_effects(
                         }
                     }
                 }
-                Step::ReturnToHand { what, to, optional } if to == "your" => {
-                    let id = what["selectionId"].as_str().unwrap_or("");
-                    if *what
-                        != serde_json::json!({"ref":"target","filter":{"types":["creature"],"cls":"card","zone":{"zone":"graveyard","owner":"your"}},"count":{"amount":"fixed","value":1},"selectionId":id})
-                    {
-                        return Err(unsupported(
-                            "effects.return",
-                            "unsupported graveyard target",
-                        ));
+                Step::MoveZone {
+                    what,
+                    to,
+                    tapped: None,
+                    order: None,
+                } if *to == serde_json::json!({"zone":"battlefield"}) => {
+                    let id = graveyard_battlefield_return::creature_target(what)?;
+                    Instruction::ReturnOwnGraveyardCreatureToBattlefield {
+                        target_slot: bind_target(
+                            program,
+                            slots,
+                            id,
+                            TargetDomain::OwnGraveyardCreatureCard,
+                        )?,
+                        source_block,
                     }
+                }
+                Step::ReturnToHand { what, to, optional } if to == "your" => {
+                    let id = graveyard_battlefield_return::creature_target(what)?;
                     Instruction::ReturnOwnGraveyardCreatureToHand {
                         target_slot: bind_target(
                             program,
@@ -5578,6 +5589,7 @@ fn lower_activation(
         }
         [SourceCost::Sacrifice { what }] if what["ref"] == "filter" => {
             ActivationCost::SacrificePermanent {
+                count: 1,
                 filter: lower_sacrifice_filter(what)?,
                 mana: None,
             }
@@ -5593,6 +5605,7 @@ fn lower_activation(
             )?
             .mana;
             ActivationCost::SacrificePermanent {
+                count: 1,
                 filter: lower_sacrifice_filter(what)?,
                 mana,
             }

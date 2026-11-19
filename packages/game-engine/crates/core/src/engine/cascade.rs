@@ -211,7 +211,7 @@ impl Game {
             // nonmana additionals still use their ordinary payment authority.
             // No unrestricted 601.2g mana window is granted.
             cast.spending = Some(BTreeMap::new());
-            Ok(if self.invocation_sacrifice_filter(stack).is_some() {
+            Ok(if self.invocation_sacrifice(stack).is_some() {
                 Frame::SacrificeCost { cast }
             } else {
                 Frame::Payment { cast }

@@ -899,6 +899,8 @@ struct StackInstance {
     death_controller: Option<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sacrificed: Option<ObjectBefore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sacrificed_set: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -930,8 +932,8 @@ struct StackInstance {
 #[serde(deny_unknown_fields)]
 struct Casting {
     completion: CastCompletion,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    sacrifice: Option<ObjectId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sacrifices: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
     origin: AnnouncementOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2513,8 +2515,11 @@ impl Game {
         self.program_for(self.top()?)
     }
     fn program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
+        self.selected_program(self.root_program_for(stack)?, stack.mode)
+    }
+    fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
         let definition = self.definition(stack.source.card)?;
-        let root = match &stack.kind {
+        match &stack.kind {
             StackKind::Spell => definition
                 .spell
                 .as_ref()
@@ -2535,8 +2540,7 @@ impl Game {
                 .get(*ability as usize)
                 .map(|ability| &ability.program)
                 .ok_or_else(|| "missing activated program".to_string()),
-        }?;
-        self.selected_program(root, stack.mode)
+        }
     }
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
         if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
@@ -3078,7 +3082,7 @@ impl Game {
                 if tap_only {
                     // CR602.2b/601.2c,h: target announcement precedes tap
                     // payment; a tap-only cost grants no mana payment window.
-                    self.complete_targeted_activation(cast, input.decision_id)?;
+                    self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
                     self.state.rules.frame = self.announcement_mana_frame(cast)?;
                 }
@@ -3330,7 +3334,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 47,
+            snapshot_version: 50,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3372,7 +3376,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 47
+        if s.snapshot_version != 50
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3582,7 +3586,9 @@ impl Game {
             | Frame::SacrificeCost { cast }
             | Frame::Payment { cast } => {
                 let top = self.top()?;
-                if cast.origin.is_spell() != top.kind.is_spell()
+                if (!cast.sacrifices.is_empty()
+                    && !matches!(s.rules.frame, Frame::SacrificeCost { .. }))
+                    || cast.origin.is_spell() != top.kind.is_spell()
                     || cast.stack_id != top.id
                     || cast.original_object.card != top.source.card
                     || if cast.origin.is_spell() {

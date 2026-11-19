@@ -26,12 +26,17 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    pub(super) fn invocation_sacrifice_filter(
-        &self,
+    pub(super) fn invocation_sacrifice<'a>(
+        &'a self,
         entry: &StackInstance,
-    ) -> Option<SacrificeFilter> {
+    ) -> Option<(&'a SacrificeFilter, u32)> {
         match entry.kind {
-            StackKind::Spell => self.program_for(entry).ok()?.additional_sacrifice.clone(),
+            StackKind::Spell => self
+                .program_for(entry)
+                .ok()?
+                .additional_sacrifice
+                .as_ref()
+                .map(|f| (f, 1)),
             StackKind::Activated { ability, .. } => match &self
                 .definition(entry.source.card)
                 .ok()?
@@ -39,25 +44,60 @@ impl Game {
                 .get(ability as usize)?
                 .cost
             {
-                ActivationCost::SacrificePermanent { filter, .. } => Some(filter.clone()),
+                ActivationCost::SacrificePermanent { filter, count, .. } => Some((filter, *count)),
                 _ => None,
             },
             _ => None,
         }
+    }
+
+    /// Present each unordered payment exactly once. An offered object must
+    /// leave enough higher identities to finish the selected prefix.
+    fn next_sacrifices(
+        &self,
+        stack: &StackInstance,
+        prefix: &[ObjectId],
+    ) -> Result<Vec<ObjectId>, String> {
+        let (filter, count) = self
+            .invocation_sacrifice(stack)
+            .ok_or("missing sacrifice cost")?;
+        let mut eligible = self.sacrifice_candidates(stack.controller, filter);
+        // Never allocate from a declared count. Only the actual permanents
+        // bound selection work, including on narrower hosts.
+        let Ok(count) = usize::try_from(count) else {
+            return Ok(vec![]);
+        };
+        if count > eligible.len()
+            || prefix.len() >= count
+            || !prefix.windows(2).all(|w| w[0] < w[1])
+            || !prefix.iter().all(|id| eligible.binary_search(id).is_ok())
+        {
+            return Ok(vec![]);
+        }
+        if let Some(last) = prefix.last() {
+            eligible.retain(|id| id > last);
+        }
+        let needed_after = count - prefix.len() - 1;
+        eligible.truncate(eligible.len().saturating_sub(needed_after));
+        Ok(eligible)
     }
     pub(super) fn check_sacrifice_payment(
         &self,
         stack: &StackInstance,
         cast: &Casting,
     ) -> Result<(), String> {
-        if let Some(f) = self.invocation_sacrifice_filter(stack) {
-            if cast
-                .sacrifice
-                .is_none_or(|o| !self.sacrifice_candidates(stack.controller, &f).contains(&o))
+        if let Some((filter, count)) = self.invocation_sacrifice(stack) {
+            let eligible = self.sacrifice_candidates(stack.controller, filter);
+            if u32::try_from(cast.sacrifices.len()) != Ok(count)
+                || !cast.sacrifices.windows(2).all(|w| w[0] < w[1])
+                || !cast
+                    .sacrifices
+                    .iter()
+                    .all(|id| eligible.binary_search(id).is_ok())
             {
                 return Err("sacrifice cost is not payable".into());
             }
-        } else if cast.sacrifice.is_some() {
+        } else if !cast.sacrifices.is_empty() {
             return Err("unexpected sacrifice cost selection".into());
         }
         Ok(())
@@ -65,8 +105,31 @@ impl Game {
     pub(super) fn pay_sacrifice_cost(
         &mut self,
         stack: &StackInstance,
-        selected: Option<ObjectId>,
+        selected: &[ObjectId],
     ) -> Result<(), String> {
+        if selected.len() > 1 {
+            let occurrences = selected
+                .iter()
+                .map(|&object| ProposedEvent::Sacrifice {
+                    object,
+                    player: stack.controller,
+                })
+                .collect();
+            self.commit_batch(
+                BatchCause::Payment {
+                    stack_id: stack.id,
+                    player: stack.controller,
+                },
+                EventGroup::Simultaneous { occurrences },
+            )?;
+            self.state
+                .rules
+                .stack
+                .last_mut()
+                .ok_or("missing sacrifice invocation")?
+                .sacrificed_set = selected.to_vec();
+            return Ok(());
+        }
         let self_cost = match stack.kind {
             StackKind::Activated { ability, .. } => {
                 self.definition(stack.source.card)?.activated[ability as usize].cost
@@ -74,7 +137,10 @@ impl Game {
             }
             _ => false,
         };
-        let selected = selected.or(self_cost.then_some(stack.source));
+        let selected = selected
+            .first()
+            .copied()
+            .or(self_cost.then_some(stack.source));
         if let Some(object) = selected {
             let fact = self.object_before(object)?;
             self.commit(
@@ -99,12 +165,9 @@ impl Game {
     pub(super) fn sacrifice_request(&self) -> Result<Option<Request>, String> {
         let decision_id = self.state.rules.revision;
         Ok(match &self.state.rules.frame {
-            Frame::SacrificeCost { .. } => {
+            Frame::SacrificeCost { cast } => {
                 let stack = self.top()?;
-                let f = self
-                    .invocation_sacrifice_filter(stack)
-                    .ok_or("missing sacrifice filter")?;
-                let candidates = self.sacrifice_candidates(stack.controller, &f);
+                let candidates = self.next_sacrifices(stack, &cast.sacrifices)?;
                 (!candidates.is_empty()).then_some(Request::SacrificeCost {
                     decision_id,
                     player: stack.controller,
@@ -168,13 +231,7 @@ impl Game {
         match self.state.rules.frame.clone() {
             Frame::SacrificeCost { mut cast } => {
                 let stack = self.top()?.clone();
-                let filter = self
-                    .invocation_sacrifice_filter(&stack)
-                    .ok_or("missing cost")?;
-                if self
-                    .sacrifice_candidates(stack.controller, &filter)
-                    .is_empty()
-                {
+                if self.next_sacrifices(&stack, &cast.sacrifices)?.is_empty() {
                     let undo = cast.undo_mana;
                     return self.reverse_cast(cast, "sacrifice no longer payable", undo);
                 }
@@ -188,7 +245,12 @@ impl Game {
                 let Response::SacrificeCost { object } = input.response else {
                     return Err("cost response invariant".into());
                 };
-                cast.sacrifice = Some(object);
+                cast.sacrifices.push(object);
+                let (_, count) = self.invocation_sacrifice(&stack).ok_or("missing cost")?;
+                if u32::try_from(cast.sacrifices.len()) != Ok(count) {
+                    self.state.rules.frame = Frame::SacrificeCost { cast };
+                    return Ok(());
+                }
                 self.payment_step(cast)
             }
             Frame::OptionalDamage { frame } => {
@@ -265,6 +327,30 @@ impl Game {
             }
             _ => Err("sacrifice frame invariant".into()),
         }
+    }
+    // A departure can invalidate a privately selected prefix before payment.
+    // Cancel the unpaid activation when the complete cost is impossible,
+    // otherwise reoffer the whole selection if the old prefix cannot finish.
+    pub(super) fn revalidate_sacrifice_departure(&mut self) -> Result<(), String> {
+        let Frame::SacrificeCost { cast } = &self.state.rules.frame else {
+            return Ok(());
+        };
+        let stack = self.top()?;
+        let Some((_, count)) = self.invocation_sacrifice(stack) else {
+            return Err("missing sacrifice cost".into());
+        };
+        if count <= 1 || !self.next_sacrifices(stack, &cast.sacrifices)?.is_empty() {
+            return Ok(());
+        }
+        let mut cast = cast.clone();
+        if self.next_sacrifices(stack, &[])?.is_empty() {
+            let undo = cast.undo_mana;
+            return self.reverse_cast(cast, "departure made artifact sacrifice unpayable", undo);
+        }
+        cast.sacrifices.clear();
+        self.state.rules.pending = None;
+        self.state.rules.frame = Frame::SacrificeCost { cast };
+        Ok(())
     }
     fn sacrifice_cause(frame: &Resolving, source_block: u32) -> BatchCause {
         BatchCause::Instruction {
@@ -383,24 +469,36 @@ impl Game {
                         .get(&f.object.card)
                         .is_none_or(|c| c.owner != f.owner)
                     || (!matches!(e.kind, StackKind::Activated { .. })
-                        && self.invocation_sacrifice_filter(e).is_none())
+                        && self.invocation_sacrifice(e).is_none())
                 {
                     return Err("snapshot sacrificed cost facts invariant".into());
                 }
                 self.validate_characteristic_identity(f.object, &f.characteristics)?;
             }
-            if e.paid.is_some()
-                && self.invocation_sacrifice_filter(e).is_some()
-                && e.sacrificed.is_none()
-            {
+            let count = self.invocation_sacrifice(e).map_or(0, |(_, count)| count);
+            if e.paid.is_some() && count == 1 && e.sacrificed.is_none() {
                 return Err("snapshot missing sacrifice cost facts".into());
+            }
+            let expected = if count > 1 && e.paid.is_some() {
+                count
+            } else {
+                0
+            };
+            if u32::try_from(e.sacrificed_set.len()) != Ok(expected)
+                || count > 1 && e.sacrificed.is_some()
+                || !e.sacrificed_set.windows(2).all(|w| w[0] < w[1])
+            {
+                return Err("snapshot fixed sacrifice cost facts".into());
             }
         }
         match &self.state.rules.frame {
             Frame::SacrificeCost { cast } => {
-                if self.invocation_sacrifice_filter(self.top()?).is_none()
+                if self.invocation_sacrifice(self.top()?).is_none()
                     || cast.spending.is_none()
-                    || cast.sacrifice.is_some()
+                    || (!cast.sacrifices.is_empty()
+                        && self
+                            .next_sacrifices(self.top()?, &cast.sacrifices)?
+                            .is_empty())
                 {
                     return Err("snapshot sacrifice cost frame invariant".into());
                 }

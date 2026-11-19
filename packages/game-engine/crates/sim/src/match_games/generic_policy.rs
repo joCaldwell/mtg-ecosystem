@@ -1679,7 +1679,14 @@ impl Strategy<'_> {
                 costs.sacrifice,
                 costs.mana.clone().unwrap_or_else(zero_cost),
             ),
-            ActivationCost::SacrificePermanent { filter, mana } => {
+            ActivationCost::SacrificePermanent {
+                count,
+                filter,
+                mana,
+            } => {
+                if *count != 1 {
+                    return None;
+                }
                 if !self
                     .sacrifice_objects(v, filter)
                     .iter()

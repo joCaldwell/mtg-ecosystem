@@ -1246,6 +1246,7 @@ impl Game {
                         x: None,
                         death_controller: trigger.death_controller,
                         sacrificed: None,
+                        sacrificed_set: vec![],
                         mode: None,
                         effect_source_handles: vec![],
                         source_facts: Some(trigger.source_facts.clone()),

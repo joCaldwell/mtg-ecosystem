@@ -144,6 +144,7 @@ impl Game {
                 .then(Quantity::zero),
             death_controller: None,
             sacrificed: None,
+            sacrificed_set: vec![],
             mode: None,
             effect_source_handles,
             source_facts: Some(self.object_before(source)?),
@@ -164,7 +165,7 @@ impl Game {
         });
         let cast = Casting {
             completion,
-            sacrifice: None,
+            sacrifices: vec![],
             origin: AnnouncementOrigin::Spell,
             spending: None,
             stack_id: id,

@@ -138,6 +138,15 @@ impl<'a> Bindings<'a> {
         })
     }
 
+    pub(super) fn validate_ordered(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        if binding["nodes"].as_array() != Some(&self.nodes)
+            || binding["references"].as_array() != Some(&self.references)
+        {
+            return Err(unsupported("binding", message));
+        }
+        self.validate(binding, message)
+    }
+
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
         self.validate_with_features(binding, &[], message)
     }
