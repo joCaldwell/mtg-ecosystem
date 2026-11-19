@@ -429,6 +429,18 @@ impl Game {
             return self
                 .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
         }
+        self.return_target_to_owner_hand(frame, target, block)
+    }
+    pub(super) fn return_target_to_owner_hand(
+        &mut self,
+        frame: Resolving,
+        target: ObjectId,
+        block: u32,
+    ) -> Result<(), String> {
+        if self.current(target).is_err() {
+            return self
+                .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
+        }
         let owner = self.state.rules.cards[&target.card].owner;
         // CR903.9b offers the owner the hand-move replacement from ANY zone.
         // Declining leaves an ordinary hand card (still the physical Commander).
@@ -800,7 +812,12 @@ impl Game {
                     target,
                     source_block,
                 },
-                Instruction::DestroyPermanent {
+                Instruction::ReturnEntryTargetCreature {
+                    target_slot,
+                    optional: true,
+                    source_block: b,
+                }
+                | Instruction::DestroyPermanent {
                     target_slot,
                     optional: true,
                     source_block: b,

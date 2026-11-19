@@ -570,28 +570,43 @@ impl Game {
                         return self.validate_resolving(frame);
                     }
                     let program = self.program_for(&frame.spell)?;
-                    let (slot, expected_destination, expected_block) =
-                        match program.instructions.get(frame.cursor as usize) {
-                            Some(Instruction::ReturnOwnGraveyardCreatureToHand {
+                    let instruction = program.instructions.get(frame.cursor as usize);
+                    let (slot, expected_destination, expected_block) = match instruction {
+                        Some(Instruction::ReturnOwnGraveyardCreatureToHand {
+                            target_slot,
+                            source_block,
+                            ..
+                        }) => (*target_slot, Zone::Hand { owner }, *source_block),
+                        Some(
+                            Instruction::ReturnEntryTargetCreature {
                                 target_slot,
                                 source_block,
                                 ..
-                            }) => (*target_slot, Zone::Hand { owner }, *source_block),
-                            Some(Instruction::ReturnToOwnerHand {
-                                target_slot,
-                                source_block,
-                            }) => (*target_slot, Zone::Hand { owner }, *source_block),
-                            Some(Instruction::PutOnTopOwnerLibrary {
-                                target_slot,
-                                source_block,
-                            }) => (*target_slot, Zone::Library { owner }, *source_block),
-                            _ => {
-                                return Err(
-                                    "snapshot commander instruction continuation invariant".into(),
-                                );
                             }
-                        };
-                    if !self.object_target_legal(&frame.spell, *object)
+                            | Instruction::ReturnToOwnerHand {
+                                target_slot,
+                                source_block,
+                            },
+                        ) => (*target_slot, Zone::Hand { owner }, *source_block),
+                        Some(Instruction::PutOnTopOwnerLibrary {
+                            target_slot,
+                            source_block,
+                        }) => (*target_slot, Zone::Library { owner }, *source_block),
+                        _ => {
+                            return Err(
+                                "snapshot commander instruction continuation invariant".into()
+                            );
+                        }
+                    };
+                    let valid_target = if matches!(
+                        instruction,
+                        Some(Instruction::ReturnEntryTargetCreature { .. })
+                    ) {
+                        current.zone == Zone::Battlefield
+                    } else {
+                        self.object_target_legal(&frame.spell, *object)
+                    };
+                    if !valid_target
                         || *destination != expected_destination
                         || *source_block != expected_block
                         || frame.stack_id != frame.spell.id
