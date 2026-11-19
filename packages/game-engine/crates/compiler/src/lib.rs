@@ -37,6 +37,7 @@ mod library_selection_tests;
 mod nonland_exile_life;
 mod normalization;
 mod opponent_mana;
+mod opponent_nonland_destroy;
 mod optional_costs;
 mod pain_mana;
 mod self_reference;
@@ -1381,6 +1382,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
+    let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
@@ -1538,6 +1540,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery if opponent_nonland_destroy.is_some() => {
+            definition.spell = opponent_nonland_destroy;
+        }
         CardKind::Land | CardKind::Creature | CardKind::Artifact | CardKind::Enchantment => {
             if kind == CardKind::Land && basic && !abilities.is_empty() {
                 return Err(unsupported(

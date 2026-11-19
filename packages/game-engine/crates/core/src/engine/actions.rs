@@ -899,6 +899,7 @@ impl Game {
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
             i @ (Instruction::MoveSet { .. }
+            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
