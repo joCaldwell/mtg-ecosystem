@@ -2594,6 +2594,7 @@ impl Game {
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::OwnGraveyardCard
                     )
                 }) =>
             {
@@ -2840,6 +2841,7 @@ impl Game {
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::BlockingBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::OwnGraveyardCard
                     )
                 }) || objects.len() != self.program()?.targets.len()
                     || objects

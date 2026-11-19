@@ -225,7 +225,8 @@ impl Game {
                     | TargetDomain::BattlefieldPermanent
                     | TargetDomain::BattlefieldCreature
                     | TargetDomain::BlockingBattlefieldCreature
-                    | TargetDomain::OwnGraveyardCreatureCard,
+                    | TargetDomain::OwnGraveyardCreatureCard
+                    | TargetDomain::OwnGraveyardCard,
                 ) => Frame::Targets { cast },
             },
         )
