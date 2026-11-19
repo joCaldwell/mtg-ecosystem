@@ -333,6 +333,8 @@ use cascade::{CascadeProgress, CastCompletion, CastPermission};
 mod cast_origin_tests;
 #[cfg(test)]
 mod casting_foundation_tests;
+#[cfg(test)]
+mod distinct_permanent_colors_tests;
 mod hand_return;
 mod intrinsic_mana;
 mod library_order;
