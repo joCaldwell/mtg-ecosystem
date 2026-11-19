@@ -29,8 +29,10 @@ fn prepared() -> Prepared {
         .iter()
         .find(|archive| archive.manifest_sha256 == manifest.manifest_sha256)
         .unwrap();
-    let mut catalog =
-        Catalog::read(include_str!("../../../../tests/fixtures/expected-mana-ir.json")).unwrap();
+    let mut catalog = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-mana-ir.json"
+    ))
+    .unwrap();
     let mut config = ScenarioConfig::turns_permanents();
     config.initial.turn_step = TurnStep::PrecombatMain;
     config.profile = "distinct-permanent-colors-private-witness".into();
@@ -51,7 +53,9 @@ fn prepared() -> Prepared {
     ] {
         let oracle_id = if let Some(raw) = raw {
             assert!(
-                archive.record_sha256.contains(&sha256(raw.trim_end().as_bytes()))
+                archive
+                    .record_sha256
+                    .contains(&sha256(raw.trim_end().as_bytes()))
             );
             let result = mtg_compiler::compile(MANIFEST, raw);
             let mtg_compiler::CompileResult::Lowered { definition } = result else {
@@ -59,7 +63,9 @@ fn prepared() -> Prepared {
             };
             if raw == ELDER {
                 assert!(
-                    definition.capabilities.contains(&Capability::DistinctPermanentColorsV1)
+                    definition
+                        .capabilities
+                        .contains(&Capability::DistinctPermanentColorsV1)
                 );
                 let labels = definition.source_labels.as_ref().unwrap();
                 assert_eq!(labels.statics, [1]);
@@ -79,7 +85,9 @@ fn prepared() -> Prepared {
             zone,
         });
     }
-    catalog.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     catalog.validate().unwrap();
     Prepared {
         catalog_digest: digest(&catalog).unwrap(),
@@ -134,8 +142,15 @@ fn faeburrow_elder_distinct_permanent_colors_fund_paid_spell() {
         .filter_map(|event| match event {
             Event::Committed {
                 proposed: ProposedEvent::AddMana { source, .. },
-                actual: EventOutcome::ManaAdded { player, color, amount },
-            } if *source == elder && *player == ACTIVE && *amount == Quantity::from(1) => Some(*color),
+                actual:
+                    EventOutcome::ManaAdded {
+                        player,
+                        color,
+                        amount,
+                    },
+            } if *source == elder && *player == ACTIVE && *amount == Quantity::from(1) => {
+                Some(*color)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();

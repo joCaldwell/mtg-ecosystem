@@ -1949,7 +1949,10 @@ impl Definition {
             set.insert(Capability::OpponentLandManaV1);
         }
         if self.mana_abilities.iter().any(|ability| {
-            matches!(ability.production, ManaProduction::EachPermanentColor { .. })
+            matches!(
+                ability.production,
+                ManaProduction::EachPermanentColor { .. }
+            )
         }) {
             set.insert(Capability::DistinctPermanentColorsV1);
         }
@@ -3238,9 +3241,9 @@ impl Definition {
             CardKind::Creature => {
                 if c.basic
                     || c.power.is_none()
-                    || c.toughness.as_ref().is_none_or(|n| {
-                        n <= &Quantity::zero() && !has_distinct_permanent_colors
-                    })
+                    || c.toughness
+                        .as_ref()
+                        .is_none_or(|n| n <= &Quantity::zero() && !has_distinct_permanent_colors)
                     || self.intrinsic_zone.is_some()
                 {
                     return Err("unsupported creature characteristics".into());

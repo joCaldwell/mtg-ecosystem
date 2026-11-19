@@ -43,7 +43,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
                 ManaProduction::AnyColor => c.kind == CardKind::Artifact,
                 ManaProduction::CommanderColor
                 | ManaProduction::OpponentLandColors
-                | ManaProduction::Choice { .. } => false,
+                | ManaProduction::Choice { .. }
+                | ManaProduction::EachPermanentColor { .. } => false,
             }
     });
     if !valid_kind

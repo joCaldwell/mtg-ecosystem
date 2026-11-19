@@ -3,7 +3,8 @@
 use super::*;
 use serde_json::{Value, json};
 
-const MANA_LINE: &str = "{T}: For each color among permanents you control, add one mana of that color.";
+const MANA_LINE: &str =
+    "{T}: For each color among permanents you control, add one mana of that color.";
 
 pub(super) fn lower(
     abilities: &[Ability],
@@ -15,20 +16,40 @@ pub(super) fn lower(
         let Ability::Activated { effects, .. } = ability else {
             return false;
         };
-        effects.iter().flat_map(|sentence| &sentence.steps).any(|step| {
-            matches!(step, Step::AddMana { mana: SourceMana::EachColorAmong { .. }, .. })
-        })
+        effects
+            .iter()
+            .flat_map(|sentence| &sentence.steps)
+            .any(|step| {
+                matches!(
+                    step,
+                    Step::AddMana {
+                        mana: SourceMana::EachColorAmong { .. },
+                        ..
+                    }
+                )
+            })
     });
     if !has_color_mana
-        && !parsed.lines.iter().any(|line| normalization::literal_spelling(&line.text) == MANA_LINE)
+        && !parsed
+            .lines
+            .iter()
+            .any(|line| normalization::literal_spelling(&line.text) == MANA_LINE)
     {
         return Ok(None);
     }
 
-    let bad = || unsupported("mana.family", "unsupported complete distinct permanent colors source");
+    let bad = || {
+        unsupported(
+            "mana.family",
+            "unsupported complete distinct permanent colors source",
+        )
+    };
     let [
         Ability::Keywords { .. },
-        Ability::Static { effect: SourceStaticEffect::Modify { modifiers, .. }, .. },
+        Ability::Static {
+            effect: SourceStaticEffect::Modify { modifiers, .. },
+            ..
+        },
         Ability::Activated { costs, .. },
     ] = abilities
     else {
@@ -38,8 +59,8 @@ pub(super) fn lower(
         return Err(bad());
     };
     let stat = |field: &str| {
-        let value: SignedAmount = serde_json::from_value(modifier[field].clone())
-            .map_err(|_| bad())?;
+        let value: SignedAmount =
+            serde_json::from_value(modifier[field].clone()).map_err(|_| bad())?;
         if value.sign != 1 {
             return Err(bad());
         }
@@ -88,7 +109,12 @@ pub(super) fn lower(
     )))
 }
 
-fn validate_binding(binding: &Value, card: &Source, among: &Value, what: &Value) -> Result<(), Failure> {
+fn validate_binding(
+    binding: &Value,
+    card: &Source,
+    among: &Value,
+    what: &Value,
+) -> Result<(), Failure> {
     let root = format!("card:{}", card.oracle_id);
     let source = format!("{root}/source#object");
     let face = format!("{root}/faces/0#face");
@@ -145,7 +171,8 @@ fn validate_binding(binding: &Value, card: &Source, among: &Value, what: &Value)
     // Exact self-reference plus the complete selector above make that scope
     // unambiguous: the affected object is the source and "you" is its controller
     // (CR 109.5, 611.3). Only these two known unresolved references are consumed.
-    let diagnostic = "A dynamic characteristic value needs a distinct affected-object binding for each match.";
+    let diagnostic =
+        "A dynamic characteristic value needs a distinct affected-object binding for each match.";
     let expected = json!({
         "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,
         "identity":card.oracle_id,

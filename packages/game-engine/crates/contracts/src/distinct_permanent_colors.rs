@@ -3,7 +3,10 @@ use serde_json::{Value, json};
 
 pub(super) fn validate_definition(definition: &Definition) -> Result<bool, String> {
     let has_mana = definition.mana_abilities.iter().any(|ability| {
-        matches!(ability.production, ManaProduction::EachPermanentColor { .. })
+        matches!(
+            ability.production,
+            ManaProduction::EachPermanentColor { .. }
+        )
     });
     let has_stats = definition.static_abilities.iter().any(|ability| {
         matches!(
@@ -15,25 +18,29 @@ pub(super) fn validate_definition(definition: &Definition) -> Result<bool, Strin
         return Ok(false);
     }
     let bad = || "unsupported complete distinct permanent colors family".to_owned();
-    let [ManaAbility {
-        costs,
-        production: ManaProduction::EachPermanentColor { scope: mana_scope },
-        restriction: None,
-        self_damage: None,
-        source_block: 2,
-    }] = definition.mana_abilities.as_slice()
+    let [
+        ManaAbility {
+            costs,
+            production: ManaProduction::EachPermanentColor { scope: mana_scope },
+            restriction: None,
+            self_damage: None,
+            source_block: 2,
+        },
+    ] = definition.mana_abilities.as_slice()
     else {
         return Err(bad());
     };
-    let [StaticAbility {
-        functioning_zone: FunctioningZone::Battlefield,
-        effect:
-            StaticEffect::ModifySourceByDistinctPermanentColors {
-                scope,
-                power_per_color,
-                toughness_per_color,
-            },
-    }] = definition.static_abilities.as_slice()
+    let [
+        StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect:
+                StaticEffect::ModifySourceByDistinctPermanentColors {
+                    scope,
+                    power_per_color,
+                    toughness_per_color,
+                },
+        },
+    ] = definition.static_abilities.as_slice()
     else {
         return Err(bad());
     };
