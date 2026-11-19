@@ -34,6 +34,7 @@ pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
 mod library_selection;
+mod nonland_exile_life;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
 pub use library_order::controller_library_order_program;
@@ -2386,6 +2387,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        nonland_exile_life::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
             if source["oracle_text"].as_str() != Some(labels.text.as_str())
@@ -5733,6 +5735,7 @@ pub fn catalog_schema() -> serde_json::Value {
     controller_counted_draw::extend_schema(&mut schema);
     draw_discard::extend_schema(&mut schema);
     hand_return::extend_schema(&mut schema);
+    nonland_exile_life::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
     schema

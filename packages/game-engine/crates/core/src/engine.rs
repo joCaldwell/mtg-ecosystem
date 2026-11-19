@@ -31,6 +31,8 @@ mod activated_permanent_tap_tests;
 mod activated_spell_counter_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
+#[cfg(test)]
+mod nonland_exile_life_tests;
 mod removal;
 #[cfg(test)]
 mod removal_information_tests;
