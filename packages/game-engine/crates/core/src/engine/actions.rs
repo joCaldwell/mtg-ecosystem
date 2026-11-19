@@ -983,6 +983,7 @@ impl Game {
             op @ (Instruction::DestroyTargetCreature { .. }
             | Instruction::DestroyAllCreatures { .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+            | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
             | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),

@@ -1172,3 +1172,6 @@ mod targeted_discard_tests;
 
 #[path = "creature_entry_return_tests.rs"]
 mod creature_entry_return_tests;
+
+#[path = "graveyard_battlefield_return_tests.rs"]
+mod graveyard_battlefield_return_tests;

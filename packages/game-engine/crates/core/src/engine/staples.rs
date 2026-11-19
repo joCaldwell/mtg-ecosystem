@@ -365,6 +365,24 @@ impl Game {
             Instruction::DestroyAllCreatures { source_block } => {
                 self.move_board_set(frame, ObjectSet::Creatures, SetMove::Destroy, source_block)
             }
+            Instruction::ReturnOwnGraveyardCreatureToBattlefield {
+                target_slot,
+                source_block,
+            } => {
+                let target = frame.spell.targets[target_slot as usize];
+                if frame.legal_targets.get(target_slot as usize) != Some(&true)
+                    || !self.object_target_legal(&frame.spell, target)
+                {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
+                }
+                let movement = self.move_object_for(
+                    target,
+                    Zone::Battlefield,
+                    Self::staple_cause(&frame, source_block),
+                )?;
+                self.finish_instruction(frame, InstructionOutcome::Moved { movement })
+            }
             Instruction::ReturnOwnGraveyardCreatureToHand {
                 target_slot,
                 optional,
