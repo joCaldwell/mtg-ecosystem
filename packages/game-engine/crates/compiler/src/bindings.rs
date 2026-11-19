@@ -126,6 +126,16 @@ impl<'a> Bindings<'a> {
             "counts":{"obligations":count,"bound":count,"unresolved":0},
             "referencesBound":false,"fullyBound":false,"engineFeatures":[]
         })
+
+    }
+
+    pub(super) fn validate_ordered(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        if binding["nodes"].as_array() != Some(&self.nodes)
+            || binding["references"].as_array() != Some(&self.references)
+        {
+            return Err(unsupported("binding", message));
+        }
+        self.validate(binding, message)
     }
 
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
