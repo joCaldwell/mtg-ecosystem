@@ -39,6 +39,7 @@ mod targeted_counted_draw;
 mod targeted_discard;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
+mod counter_spell_controller_mill;
 mod draw_discard;
 mod fixed_mill;
 mod graveyard_battlefield_return;
@@ -321,6 +322,7 @@ pub enum Capability {
     StackSpellTargetV1,
     StackAbilityTargetV1,
     CounterStackObjectV1,
+    CounterSpellControllerMillV1,
     TapSourceCostV1,
     PayLifeCostV1,
     ManaActivationCostV1,
@@ -997,6 +999,16 @@ pub enum Instruction {
         count: Quantity,
         source_block: u32,
     },
+    /// CR 608.2b/c/h, 701.6 and 701.17. Mill the target spell's controller
+    /// even if the legal target cannot be countered.
+    CounterSpellAndMillController {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        count: Quantity,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     CounterStackObject {
         target_slot: u32,
         source_block: u32,
@@ -1101,7 +1113,8 @@ impl Instruction {
             | Self::DiscardTargetPlayer { source_block, .. }
             | Self::DiscardTargetPlayerAtRandom { source_block, .. }
             | Self::DiscardCards { source_block, .. } => *source_block,
-            Self::CounterStackObject { source_block, .. } => *source_block,
+            Self::CounterSpellAndMillController { source_block, .. }
+            | Self::CounterStackObject { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
@@ -2387,6 +2400,7 @@ impl Definition {
         u32::try_from(self.triggered.len()).map_err(|_| "trigger ability index limit")?;
         u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         controller_library::validate_definition(self)?;
+        counter_spell_controller_mill::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
         announced_x_draw::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
@@ -4485,6 +4499,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
             }
+            Instruction::CounterSpellAndMillController { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::StackSpell))
+            }
             Instruction::CounterStackObject { target_slot, .. } => {
                 let domain = p
                     .targets
@@ -4861,6 +4878,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         set.insert(Capability::AnnouncedXEffectsV1);
     }
     for instruction in &program.instructions {
+        if matches!(
+            instruction,
+            Instruction::CounterSpellAndMillController { .. }
+        ) {
+            set.insert(Capability::CounterStackObjectV1);
+        }
         if matches!(instruction, Instruction::DealDamageAnnouncedX { .. }) {
             set.insert(Capability::NoncombatDamageV1);
         }
@@ -5023,6 +5046,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 } else {
                     Capability::ControllerDiscardV1
                 }
+            }
+            Instruction::CounterSpellAndMillController { .. } => {
+                Capability::CounterSpellControllerMillV1
             }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
@@ -6344,6 +6370,7 @@ pub fn catalog_schema() -> serde_json::Value {
     pain_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
+    counter_spell_controller_mill::extend_schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
@@ -6565,6 +6592,7 @@ mod tests {
             StackSpellTargetV1,
             StackAbilityTargetV1,
             CounterStackObjectV1,
+            CounterSpellControllerMillV1,
             TapSourceCostV1,
             PayLifeCostV1,
             ManaActivationCostV1,
@@ -6918,6 +6946,7 @@ mod tests {
         ]));
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
+        definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
