@@ -39,10 +39,13 @@ mod normalization;
 mod paid_counted_draw;
 mod self_reference;
 mod targeted_counted_draw;
+mod targeted_discard;
+#[cfg(test)]
+mod targeted_discard_tests;
 mod type_line;
 mod unlimited_hand_size;
 pub use catalog::*;
-use normalization::source_lines;
+use normalization::{matches_fixed_amount, source_lines};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
@@ -1265,6 +1268,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let discard_target = if matches!(types.kind, CardKind::Instant | CardKind::Sorcery)
+        && let [Ability::Spell { .. }] = abilities.as_slice()
+    {
+        targeted_discard::validate(&source, &result, &binding)?
+    } else {
+        None
+    };
     let control_target = abilities.iter().find_map(|a| match a {
         Ability::Static {
             effect: SourceStaticEffect::Control { what, .. },
@@ -1713,7 +1723,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     continue;
                 }
-                if let Some((draw, count)) = draw_discard::coalesce(effects)? {
+                if discard_target.is_none()
+                    && let Some((draw, count)) = draw_discard::coalesce(effects)?
+                {
                     if abilities.len() != 1
                         || block != 0
                         || !program.instructions.is_empty()
@@ -1747,7 +1759,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     effects,
                     block,
                     &mut slots,
-                    PlayerBinding::Unbound,
+                    discard_target.map_or(PlayerBinding::Unbound, PlayerBinding::DiscardTarget),
                 )?;
             }
             definition.spell = Some(program);
@@ -1820,19 +1832,21 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         nodes
             .iter()
             .any(|n| n["node"] == "event" && n["operation"] == "discard")
-    }) && !definition.spell.as_ref().is_some_and(|p| {
-        controller_draw_discard_program(p)
-            || matches!(
-                p.instructions.as_slice(),
-                [
-                    Instruction::DrawAnnouncedX { .. },
-                    Instruction::DiscardCards { .. }
-                ]
-            )
-    }) {
+    }) && discard_target.is_none()
+        && !definition.spell.as_ref().is_some_and(|p| {
+            controller_draw_discard_program(p)
+                || matches!(
+                    p.instructions.as_slice(),
+                    [
+                        Instruction::DrawAnnouncedX { .. },
+                        Instruction::DiscardCards { .. }
+                    ]
+                )
+        })
+    {
         return Err(unsupported(
             "binding",
-            "ordinary discard binding requires the complete draw/discard source",
+            "ordinary discard binding requires a complete supported discard spell",
         ));
     }
     if definition
@@ -2074,6 +2088,7 @@ fn bind_target(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PlayerBinding {
     Unbound,
+    DiscardTarget(TargetDomain),
     EventPlayer,
     DamageRecipient,
     DeathController,
@@ -2832,6 +2847,19 @@ fn append_spell_effects(
                     )?,
                     source_block,
                 },
+                Step::Discard { who, what }
+                    if let PlayerBinding::DiscardTarget(domain) = player_binding =>
+                {
+                    let id = who
+                        .selection_id
+                        .as_deref()
+                        .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
+                    Instruction::DiscardTargetPlayer {
+                        target_slot: bind_target(program, slots, id, domain)?,
+                        count: fixed_positive(&what.count)?,
+                        source_block,
+                    }
+                }
                 Step::Discard { who, what }
                     if player_binding == PlayerBinding::DamageRecipient
                         && matches!(who.player.as_str(), "that-player" | "you")
