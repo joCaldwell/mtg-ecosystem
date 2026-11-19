@@ -40,6 +40,7 @@ pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
 mod draw_discard;
 mod fixed_mill;
+mod group_discard;
 mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
@@ -377,6 +378,7 @@ pub enum Capability {
     TargetedCountedDrawV1,
     TargetPlayerDiscardV1,
     RandomPlayerDiscardV1,
+    GroupHandDiscardV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -484,6 +486,13 @@ pub enum DrawEachCount {
         value: Quantity,
     },
     AnnouncedX,
+}
+/// The affected seats are evaluated relative to the invocation controller at resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupDiscardScope {
+    EachPlayer,
+    EachOpponent,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -937,6 +946,13 @@ pub enum Instruction {
     DrawDamageAmount {
         source_block: u32,
     },
+    DiscardPlayerSet {
+        scope: GroupDiscardScope,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        count: Quantity,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     DiscardTargetPlayer {
         #[schemars(range(max = 0))]
         target_slot: u32,
@@ -1051,7 +1067,8 @@ impl Instruction {
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
-            Self::DiscardTargetPlayer { source_block, .. }
+            Self::DiscardPlayerSet { source_block, .. }
+            | Self::DiscardTargetPlayer { source_block, .. }
             | Self::DiscardTargetPlayerAtRandom { source_block, .. }
             | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterStackObject { source_block, .. } => *source_block,
@@ -2343,6 +2360,7 @@ impl Definition {
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
         each_player_draw::validate_definition(self)?;
+        group_discard::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -3220,6 +3238,7 @@ impl Definition {
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnEntryTargetCreature { .. }
+                            | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
@@ -4552,6 +4571,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 _ => None,
             },
+            Instruction::DiscardPlayerSet { .. } => None,
             Instruction::DiscardTargetPlayer { target_slot, .. }
             | Instruction::DiscardTargetPlayerAtRandom { target_slot, .. } => {
                 // The complete discard family already verified this player target.
@@ -4882,6 +4902,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
             Instruction::DrawEachPlayer { .. } => Capability::EachPlayerDrawV1,
+            Instruction::DiscardPlayerSet { .. } => Capability::GroupHandDiscardV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
@@ -6273,6 +6294,7 @@ pub fn catalog_schema() -> serde_json::Value {
     targeted_counted_draw::extend_schema(&mut schema);
     targeted_discard::extend_schema(&mut schema);
     each_player_draw::extend_schema(&mut schema);
+    group_discard::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -6544,6 +6566,7 @@ mod tests {
             TargetedCountedDrawV1,
             TargetPlayerDiscardV1,
             RandomPlayerDiscardV1,
+            GroupHandDiscardV1,
             CastArtifactV1,
             PermanentManaV1,
             OpponentLandManaV1,
@@ -6844,6 +6867,7 @@ mod tests {
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
         definitions.push(targeted_discard::random_witness());
+        definitions.push(group_discard::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
