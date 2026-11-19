@@ -275,11 +275,15 @@ fn activation_it_requires_a_first_top_level_source_sacrifice() {
     later_sentence.insert(
         0,
         Sentence {
+            condition: None,
+            condition_kind: None,
             bindings: vec![],
             steps: vec![draw],
         },
     );
     let nested = vec![Sentence {
+        condition: None,
+        condition_kind: None,
         bindings: vec![],
         steps: vec![Step::Modal {
             count: ModeCount { exactly: 1 },
@@ -328,6 +332,8 @@ fn activation_it_requires_a_first_top_level_source_sacrifice() {
         noun: "creature".into(),
     };
     let nested = vec![Sentence {
+        condition: None,
+        condition_kind: None,
         bindings: vec![],
         steps: vec![Step::Modal {
             count: ModeCount { exactly: 1 },

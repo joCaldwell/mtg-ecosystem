@@ -70,6 +70,7 @@ fn indestructible_string_only_and_no_token_or_continuous_grant() {
     );
     assert!(strict_read::<KeywordAbility>("{\"indestructible\":null}").is_err());
     let token = CreatureToken {
+        additional_types: vec![],
         colors: vec![],
         subtypes: vec!["Myr".into()],
         power: 0.into(),

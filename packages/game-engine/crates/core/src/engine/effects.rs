@@ -51,6 +51,18 @@ pub struct ResolvedEffect {
     pub expires_in_cleanup_of_turn: u64,
     pub kind: ResolvedEffectKind,
 }
+impl ResolvedEffect {
+    pub(super) fn additional_land_plays(&self, player: PlayerId, turn: u64) -> Option<&Quantity> {
+        match &self.kind {
+            ResolvedEffectKind::AdditionalLandPlays { count }
+                if self.origin.controller == player && self.expires_in_cleanup_of_turn == turn =>
+            {
+                Some(count)
+            }
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
@@ -80,6 +92,9 @@ pub enum ResolvedEffectKind {
         toughness: Quantity,
     },
     PreventCombatDamage,
+    AdditionalLandPlays {
+        count: Quantity,
+    },
     PreventNextDamage {
         target: TargetEntity,
         remaining: Quantity,
@@ -143,7 +158,13 @@ pub(super) struct DamageTransaction {
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum DamageContinuation {
     Combat,
-    Instruction { frame: Box<Resolving> },
+    Instruction {
+        frame: Box<Resolving>,
+    },
+    Mana {
+        activation: Box<ManaActivation>,
+        departed: bool,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -161,11 +182,45 @@ impl DamageRecipient {
     }
 }
 impl Game {
+    fn characteristics_before_power_toughness(
+        &self,
+        object: ObjectId,
+    ) -> Result<&Characteristics, String> {
+        // The admitted layers leave color unchanged. Read the same earlier
+        // characteristics as full derivation, including instantiated tokens.
+        Ok(&self.definition(object.card)?.characteristics)
+    }
+
+    pub(super) fn permanent_colors(
+        &self,
+        scope: PermanentColorScope,
+        controller: PlayerId,
+    ) -> Result<BTreeSet<Color>, String> {
+        // CR 105.1–2/110.1: multicolored permanents contribute each color.
+        // Neither color identity nor the mana a permanent can produce is a color.
+        let mut colors = BTreeSet::new();
+        for permanent in self.state.rules.objects.values().filter(|object| {
+            object.zone == Zone::Battlefield
+                && match scope {
+                    PermanentColorScope::Controller => object.controller == controller,
+                }
+        }) {
+            colors.extend(
+                self.characteristics_before_power_toughness(permanent.id)?
+                    .colors
+                    .iter()
+                    .copied()
+                    .filter(|color| *color != Color::C),
+            );
+        }
+        Ok(colors)
+    }
+
     pub(super) fn derived_characteristics(
         &self,
         object: ObjectId,
     ) -> Result<Characteristics, String> {
-        let mut c = self.definition(object.card)?.characteristics.clone();
+        let mut c = self.characteristics_before_power_toughness(object)?.clone();
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
             if let Some(p) = c.power.as_mut() {
@@ -181,6 +236,27 @@ impl Game {
             && let Ok(o) = self.current(object)
             && o.zone == Zone::Battlefield
         {
+            for ability in &self.definition(object.card)?.static_abilities {
+                if let StaticEffect::ModifySourceByDistinctPermanentColors {
+                    scope,
+                    power_per_color,
+                    toughness_per_color,
+                } = &ability.effect
+                {
+                    let colors = self.permanent_colors(*scope, o.controller)?;
+                    let count = Quantity::from(colors.len() as i64);
+                    for (stat, per_color) in [
+                        (&mut c.power, power_per_color),
+                        (&mut c.toughness, toughness_per_color),
+                    ] {
+                        let mut bonus = per_color.clone();
+                        bonus.multiply(&count);
+                        stat.as_mut()
+                            .ok_or("missing source power or toughness")?
+                            .add(&bonus);
+                    }
+                }
+            }
             for source in self
                 .state
                 .rules
@@ -200,7 +276,7 @@ impl Game {
             }
         }
         if self.target_is_creature(object) {
-            for a in self.creature_modifications(object) {
+            for a in self.static_modifications(object) {
                 if let StaticEffect::ModifyCreatures {
                     power, toughness, ..
                 } = a
@@ -369,6 +445,13 @@ impl Game {
             Instruction::PreventCombatDamage { source_block, .. } => {
                 (ResolvedEffectKind::PreventCombatDamage, source_block)
             }
+            Instruction::GrantLandPlaysThisTurn {
+                count,
+                source_block,
+            } => (
+                ResolvedEffectKind::AdditionalLandPlays { count },
+                source_block,
+            ),
             Instruction::PreventNextDamage {
                 target_slot,
                 amount,
@@ -634,7 +717,7 @@ impl Game {
             },
         )
     }
-    fn begin_damage(
+    pub(super) fn begin_damage(
         &mut self,
         kind: DamageKind,
         mut entries: Vec<PreparedDamage>,
@@ -958,10 +1041,21 @@ impl Game {
             )?;
         } else {
             let tx = self.damage_transaction()?.clone();
+            let first_trigger = self.state.rules.next_trigger_id;
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match *tx.continuation {
                 DamageContinuation::Combat => self.grant_turn_priority()?,
+                DamageContinuation::Mana {
+                    activation,
+                    departed,
+                } => self.finish_mana_damage(
+                    *activation,
+                    tx.applications,
+                    actual,
+                    first_trigger,
+                    departed,
+                )?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
                     *frame,
                     InstructionOutcome::Damage {
@@ -1140,6 +1234,17 @@ impl Game {
                         Instruction::PreventCombatDamage { source_block, .. },
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == effect.origin.source_block,
+                    (
+                        Instruction::GrantLandPlaysThisTurn {
+                            count,
+                            source_block,
+                        },
+                        ResolvedEffectKind::AdditionalLandPlays { count: granted },
+                    ) => {
+                        frame.spell.kind.is_spell()
+                            && count == granted
+                            && *source_block == effect.origin.source_block
+                    }
                     (
                         Instruction::PreventNextDamage {
                             target_slot,
@@ -1563,6 +1668,17 @@ impl Game {
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == e.origin.source_block && e.target_handles.is_empty(),
                     (
+                        Instruction::GrantLandPlaysThisTurn {
+                            count,
+                            source_block,
+                        },
+                        ResolvedEffectKind::AdditionalLandPlays { count: granted },
+                    ) => {
+                        count == granted
+                            && *source_block == e.origin.source_block
+                            && e.target_handles.is_empty()
+                    }
+                    (
                         Instruction::PreventNextDamage {
                             amount,
                             source_block,
@@ -1757,6 +1873,12 @@ pub enum VisibleEffect {
     PreventCombatDamage {
         handle: EffectHandle,
         origin: VisibleEffectSource,
+        expires_in_cleanup_of_turn: u64,
+    },
+    AdditionalLandPlays {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        count: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
     PreventNextDamage {
@@ -1996,6 +2118,14 @@ impl Game {
                 origin,
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
+            ResolvedEffectKind::AdditionalLandPlays { count } => {
+                VisibleEffect::AdditionalLandPlays {
+                    handle,
+                    origin,
+                    count: count.clone(),
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
             ResolvedEffectKind::PreventNextDamage { target, remaining } => {
                 VisibleEffect::PreventNextDamage {
                     handle,
@@ -2272,14 +2402,19 @@ impl Game {
                         !d.source.keywords[..n].contains(k)
                             && (expected_keywords.contains(k)
                                 || (battlefield && self.prepared.catalog.definitions.iter().any(|definition| {
-                                    // Noncreatures require a complete permanent grant program;
-                                    // arbitrary scalar instructions and life tails prove nothing.
-                                    (creature && (definition.static_abilities.iter().any(|a| matches!(&a.effect,
+                                    // Include only grant shapes validated for the source's type.
+                                    (*k == KeywordAbility::Indestructible
+                                        && definition.static_abilities.iter().any(|a|
+                                            a.effect == StaticEffect::GrantOtherControlledPermanentsIndestructible))
+                                        || (creature && (definition.static_abilities.iter().any(|a| matches!(&a.effect,
                                         StaticEffect::ModifyCreatures { keywords, .. } if keywords.contains(k)))
                                         || definition.spell.as_ref().is_some_and(|program|
                                             program.instructions.iter().any(|instruction| matches!(instruction,
                                                 Instruction::GrantKeywords { keywords, .. }
-                                                | Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(k))))))
+                                                | Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(k))))
+                                        || definition.activated.iter()
+                                            .filter_map(mtg_contracts::sacrifice_source_creature_set_keyword_ability)
+                                            .any(|program| program.keywords.contains(k))))
                                         || definition.spell.as_ref()
                                             .and_then(temporary_permanent_set_keyword_program)
                                             .is_some_and(|program| program.keywords.contains(k))
@@ -2335,6 +2470,13 @@ impl Game {
                     }
                 }
             }
+            (
+                DamageKind::Noncombat,
+                DamageContinuation::Mana {
+                    activation,
+                    departed,
+                },
+            ) => self.validate_mana_damage(tx, activation, *departed)?,
             (DamageKind::Noncombat, DamageContinuation::Instruction { frame }) => {
                 self.validate_resolving(frame)?;
                 let instruction = self
@@ -2350,18 +2492,31 @@ impl Game {
                     let (target_slot, amount, source_block, recipient) = match instruction {
                         Instruction::DealDamage { .. }
                         | Instruction::DealDamageAnnouncedX { .. } => {
-                            self.directed_damage_operands(&frame.spell, instruction)?
+                            let (slot, amount, block, target) =
+                                self.directed_damage_operands(&frame.spell, instruction)?;
+                            (Some(slot), amount, block, target)
                         }
                         Instruction::DamageTargetController {
                             target_slot,
                             amount,
                             source_block,
                         } => (
-                            *target_slot,
+                            Some(*target_slot),
                             amount,
                             *source_block,
                             TargetEntity::Player {
                                 player: self.removal_target_controller(frame, *target_slot)?,
+                            },
+                        ),
+                        Instruction::DealDamageToController {
+                            amount,
+                            source_block,
+                        } => (
+                            None,
+                            amount,
+                            *source_block,
+                            TargetEntity::Player {
+                                player: frame.spell.controller,
                             },
                         ),
                         _ => return Err("damage continuation not damage instruction".into()),
@@ -2378,7 +2533,9 @@ impl Game {
                         || tx.cause != expected
                         || d.original_amount != *amount
                         || recipient != d.recipient.entity()
-                        || frame.legal_targets.get(target_slot as usize) != Some(&true)
+                        || target_slot.is_some_and(|slot| {
+                            frame.legal_targets.get(slot as usize) != Some(&true)
+                        })
                         || d.controller != frame.spell.controller
                         || !self.prepared_damage_source_matches(d, self.source_facts(&frame.spell)?)
                     {

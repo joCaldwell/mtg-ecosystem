@@ -10,7 +10,15 @@ pub(super) fn lower(
     block: usize,
     kind: CardKind,
 ) -> Result<Option<ActivatedAbility>, Failure> {
-    let [Sentence { bindings, steps }] = effects else {
+    let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
+    else {
         return Ok(None);
     };
     let [
@@ -50,6 +58,7 @@ pub(super) fn lower(
         cost,
         program: SpellProgram {
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
@@ -318,6 +327,7 @@ mod tests {
                     mana: Some(cost),
                     tap,
                     sacrifice,
+                    remove_source_plus_one_counters: None,
                 },
             }
         } else {

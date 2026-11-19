@@ -303,22 +303,101 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
     for r in summary.reasons.iter_mut().skip(30) {
         r.examples.clear();
     }
-    fs::create_dir_all(out).map_err(io)?;
-    fs::write(out.join("records.tsv"), tsv).map_err(io)?;
-    fs::write(
-        out.join("summary.json"),
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(&summary).expect("serializable summary")
-        ),
-    )
-    .map_err(io)?;
+    let json = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&summary).expect("serializable summary")
+    );
+    publish_receipts(out, &tsv, &json).map_err(io)?;
     Ok(summary)
+}
+
+fn publish_receipts(out: &Path, records: &str, summary: &str) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    let files = [("records.tsv", records), ("summary.json", summary)];
+    match fs::symlink_metadata(out) {
+        Ok(meta) if meta.is_dir() && fs::read_dir(out)?.next().is_none() => {}
+        Ok(meta) => {
+            if meta.is_dir()
+                && files.iter().all(|(name, contents)| {
+                    let path = out.join(name);
+                    fs::symlink_metadata(&path).is_ok_and(|m| m.is_file())
+                        && fs::read(path).is_ok_and(|bytes| bytes == contents.as_bytes())
+                })
+            {
+                return Ok(());
+            }
+            return Err(Error::new(
+                ErrorKind::AlreadyExists,
+                format!(
+                    "coverage output {} is occupied; choose a fresh directory",
+                    out.display()
+                ),
+            ));
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+
+    let parent = out
+        .parent()
+        .ok_or_else(|| Error::other("missing output parent"))?;
+    fs::create_dir_all(parent)?;
+    let stage = loop {
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!(".coverage-stage-{}-{id}", std::process::id()));
+        if path == out {
+            continue;
+        }
+        match fs::create_dir(&path) {
+            Ok(()) => break path,
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    };
+    // Sibling directories share a filesystem. A competing complete publication
+    // makes the destination nonempty, so rename cannot overwrite its contents.
+    let result = (|| {
+        for (name, contents) in files {
+            fs::write(stage.join(name), contents)?;
+        }
+        fs::rename(&stage, out)
+    })();
+    if result.is_err() {
+        fs::remove_dir_all(stage)?;
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn receipt_publication_preserves_prior_and_unrelated_output() {
+        let dir = std::env::temp_dir().join(format!("coverage-publication-{}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let out = dir.join("output");
+        publish_receipts(&out, "first records", "first summary").unwrap();
+        publish_receipts(&out, "first records", "first summary").unwrap();
+        assert!(publish_receipts(&out, "second records", "second summary").is_err());
+        assert_eq!(
+            fs::read_to_string(out.join("records.tsv")).unwrap(),
+            "first records"
+        );
+        assert_eq!(
+            fs::read_to_string(out.join("summary.json")).unwrap(),
+            "first summary"
+        );
+        fs::remove_file(out.join("records.tsv")).unwrap();
+        fs::write(out.join("notes"), "keep").unwrap();
+        assert!(publish_receipts(&out, "second records", "second summary").is_err());
+        assert!(!out.join("records.tsv").exists());
+        assert_eq!(fs::read_to_string(out.join("notes")).unwrap(), "keep");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn excluded_archive_rows_are_unparsed_not_malformed_compiler_records() {
         let row = serde_json::json!({"status":"excluded", "reason":"no-eligible-paper-printing"});

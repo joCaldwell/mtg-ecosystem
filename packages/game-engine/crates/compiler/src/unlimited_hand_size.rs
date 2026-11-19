@@ -91,7 +91,14 @@ pub(super) fn lower_end_step_draw(
     if intervening.is_none()
         && matches!(trigger, SourceTrigger::Phase { phase, whose }
             if phase == "end-step" && whose.as_str() == Some("your"))
-        && let [Sentence { bindings, steps }] = effects
+        && let [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::Draw {
@@ -112,6 +119,7 @@ pub(super) fn lower_end_step_draw(
             intervening_if: None,
             program: SpellProgram {
                 additional_sacrifice: None,
+                optional_additional_costs: vec![],
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
@@ -459,6 +467,8 @@ fn flash_end_step_draw() {
         whose: json!(whose),
     };
     let draw = |value, optional| Sentence {
+        condition: None,
+        condition_kind: None,
         bindings: vec![],
         steps: vec![Step::Draw {
             who: PlayerSelector {

@@ -48,6 +48,8 @@ fn attachment_timestamp_is_initial(timestamp: &u64) -> bool {
 }
 state_layout! {
     rules {
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        mana_ability_uses: BTreeSet<mana_permanents::ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         tokens: BTreeMap<CardId, tokens::TokenIdentity>,
         // Deterministic conservative charge for inputs and potential detailed
@@ -94,6 +96,7 @@ state_layout! {
         turn_owner: PlayerId,
         turn: TurnState,
         original_seating: Vec<PlayerId>,
+        cast_history: [triggers::TurnCastHistory; 4],
         commanders: CommanderLedger,
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
         commander_returns: BTreeSet<ObjectId>,

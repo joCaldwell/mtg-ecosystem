@@ -68,6 +68,7 @@ struct WorkCache {
     effects: Option<Vec<EffectKey>>,
     triggers: Option<Vec<TriggerId>>,
     modes: Option<Option<Vec<u32>>>,
+    counter_placement: Option<Vec<CounterPlacementEffectKey>>,
     damage: Option<Vec<DamageEffectCandidate>>,
     allocation: Option<Option<Vec<DamageAllocationCandidate>>>,
 }
@@ -108,6 +109,10 @@ impl WorkCache {
             );
         }
         Ok(self.modes.as_ref().and_then(|ids| ids.as_deref()))
+    }
+    fn counter_placement(&mut self, game: &Game) -> &[CounterPlacementEffectKey] {
+        self.counter_placement
+            .get_or_insert_with(|| game.counter_placement_candidates())
     }
     fn damage(&mut self, game: &Game) -> Result<&[DamageEffectCandidate], QueryRejection> {
         if self.damage.is_none() {
@@ -439,6 +444,17 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        if let Some(PlayerRequest::CounterPlacementEffect { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(key) = cache
+                .counter_placement(self)
+                .get(cursor - base - effect_count)
+        {
+            candidates.push(
+                self.visible_counter_candidate(viewer, key)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
         if let Some(PlayerRequest::DamageEffect { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(pair) = cache.damage(self)?.get(cursor - base - effect_count)
@@ -487,6 +503,11 @@ impl Game {
                 cache.allocation(self)?.map_or(0, |ids| ids.len())
             } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
                 cache.modes(self)?.map_or(0, |ids| ids.len())
+            } else if matches!(
+                b.decision,
+                Some(PlayerRequest::CounterPlacementEffect { .. })
+            ) {
+                cache.counter_placement(self).len()
             } else if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
                 cache.damage(self)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
@@ -541,7 +562,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 28,
+                    observation_version: 30,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -605,6 +626,18 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
+                if let Some(PlayerRequest::CounterPlacementEffect { candidates, .. }) = request {
+                    let keys = cache.counter_placement(self);
+                    if let Some(key) = keys.get(*cursor as usize) {
+                        candidates.push(
+                            self.visible_counter_candidate(*viewer, key)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= keys.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::DamageEffect { candidates, .. }) = request {
@@ -764,6 +797,12 @@ impl Game {
                             | PlayerResponse::SpendMana { .. }
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
+                        (Frame::ManaSourceChoice { .. }, PlayerResponse::ManaColor { .. }) => true,
+                        (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
+                        (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
+                        (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
+                            true
+                        }
                         (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
                         (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
                         (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
@@ -790,12 +829,17 @@ impl Game {
                         | (
                             Frame::ResolutionChoice { .. },
                             PlayerResponse::SearchLands { .. }
+                            | PlayerResponse::SearchLandBattlefield { .. }
                             | PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::OptionalRecursion { .. }
                             | PlayerResponse::Sacrifice { .. }
                             | PlayerResponse::ResolveDiscard { .. },
                         )
                         | (Frame::LegendRule { .. }, PlayerResponse::LegendRule { .. })
+                        | (
+                            Frame::CounterPlacement { .. },
+                            PlayerResponse::CounterPlacementEffect { .. },
+                        )
                         | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
                         | (Frame::SpendMana { .. }, PlayerResponse::SpendMana { .. })
                         | (Frame::CommanderReturn { .. }, PlayerResponse::CommanderReturn { .. })
@@ -997,7 +1041,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 28,
+                            observation_version: 30,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1112,6 +1156,9 @@ impl Game {
                     0
                 }
             }
+            Some(PlayerRequest::CounterPlacementEffect { .. }) => {
+                self.counter_placement_candidates().len() as u64
+            }
             Some(PlayerRequest::DamageEffect { .. }) => self
                 .damage_effect_group()?
                 .map_or(0, |(_, _, p)| p.len() as u64),
@@ -1154,6 +1201,7 @@ impl Game {
                     | PlayerRequest::Scry { .. }
                     | PlayerRequest::Surveil { .. }
                     | PlayerRequest::Modes { .. }
+                    | PlayerRequest::CounterPlacementEffect { .. }
                     | PlayerRequest::DamageEffect { .. }
                     | PlayerRequest::DamageAllocation { .. },
                 ) => std::cmp::max(1, self.request_extra_units(*viewer)?),

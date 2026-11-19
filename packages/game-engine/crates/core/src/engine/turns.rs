@@ -83,11 +83,25 @@ impl Game {
                 TurnStep::PrecombatMain | TurnStep::PostcombatMain
             )
     }
-    // CR 305.1-3: playing a land is a special action, once per turn, during
-    // the active player's main phase with priority and an empty stack.
+    // CR 305.2: compare the total allowance with lands already played. The
+    // controller and turn were frozen when each continuous effect resolved.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn has_land_play_allowance(&self, player: PlayerId) -> bool {
+        let turn = &self.state.rules.turn;
+        let mut allowance = Quantity::from(1);
+        for effect in &self.state.rules.effects {
+            if let Some(count) = effect.additional_land_plays(player, turn.number) {
+                allowance.add(count);
+            }
+        }
+        allowance > Quantity::from(i64::from(turn.lands_played))
+    }
+
+    // CR 305.1-3: playing a land is a special action during the active
+    // player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        if !self.main_phase_action(player) || self.state.rules.turn.lands_played != 0 {
+        if !self.main_phase_action(player) || !self.has_land_play_allowance(player) {
             return Err(
                 "land play requires unused active-player main-phase land play and empty stack"
                     .into(),
@@ -117,6 +131,15 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_land_play(player, card)?;
         let object = self.object_id(card).ok_or("missing land source")?;
+        if self.begin_land_entry(
+            EntryOrigin::LandPlay {
+                player,
+                decision_id,
+            },
+            vec![object],
+        )? {
+            return Ok(());
+        }
         self.commit_batch(
             BatchCause::LandPlay {
                 player,

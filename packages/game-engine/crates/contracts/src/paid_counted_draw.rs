@@ -74,6 +74,7 @@ pub(super) fn definition_matches(d: &Definition) -> bool {
                 && p.resolution == SpellResolution::Permanent
                 && p.functioning_zone == FunctioningZone::Stack
                 && p.additional_sacrifice.is_none()
+                && p.optional_additional_costs.is_empty()
                 && p.instructions.is_empty()
                 && p.targets.is_empty()
                 && p.modes.is_empty()
@@ -128,7 +129,7 @@ pub(super) fn extend_schema(s: &mut Value) {
     }});
     let defs = &mut s["$defs"];
     defs["PaidCountedDrawProgram"] = json!({"properties":{
-        "additional_sacrifice":{"type":"null"},"targets":{"maxItems":0},"modes":{"maxItems":0},
+        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"targets":{"maxItems":0},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},
         "resolution":{"const":"instructions"},
         "instructions":{"minItems":1,"maxItems":1,"items":{
@@ -209,7 +210,7 @@ pub(super) fn extend_schema(s: &mut Value) {
         "static_abilities":{"maxItems":0},"intrinsic_zone":{"type":"null"},
         "spell":{"type":"object","properties":{
             "functioning_zone":{"const":"stack"},"timing":{"const":"main_phase"},
-            "resolution":{"const":"permanent"},"additional_sacrifice":{"type":"null"},
+            "resolution":{"const":"permanent"},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
             "targets":{"maxItems":0},"instructions":{"maxItems":0},"modes":{"maxItems":0}
         }}
     }}}));
@@ -276,6 +277,7 @@ pub(super) fn witnesses() -> [Definition; 4] {
             mana: Some(paid_mana.clone()),
             tap: true,
             sacrifice: true,
+            remove_source_plus_one_counters: None,
         },
     };
     ability.program.instructions = vec![Instruction::DrawControllerCards {
@@ -283,10 +285,13 @@ pub(super) fn witnesses() -> [Definition; 4] {
         source_block: 1,
     }];
     artifact.mana_abilities = vec![ManaAbility {
+        restriction: None,
+        self_damage: None,
         costs: PermanentActivationCosts {
             mana: None,
             tap: true,
             sacrifice: false,
+            remove_source_plus_one_counters: None,
         },
         production: ManaProduction::Fixed {
             symbols: vec![Color::C, Color::C],
@@ -345,6 +350,7 @@ pub(super) fn witnesses() -> [Definition; 4] {
             tap: false,
             mana: Some(paid_mana),
             sacrifice: true,
+            remove_source_plus_one_counters: None,
         },
     };
     enchantment.capabilities = enchantment.requirements();

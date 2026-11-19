@@ -318,40 +318,7 @@ impl Game {
             player: input.player,
             mode,
         })?;
-        self.begin_cast_x_or_targets(cast)
-    }
-
-    // CR 601.2b-c: choose the mode and announce X before binding that mode's targets.
-    pub(super) fn begin_cast_x_or_targets(&mut self, cast: Casting) -> Result<(), String> {
-        if self.definition(cast.original_object.card)?.x_mana_cost {
-            self.state.rules.frame = Frame::AnnounceX { cast };
-            Ok(())
-        } else {
-            self.begin_cast_targets(cast)
-        }
-    }
-
-    pub(super) fn begin_cast_targets(&mut self, cast: Casting) -> Result<(), String> {
-        let p = self.program()?;
-        self.state.rules.frame = if p.targets.is_empty() {
-            Frame::Mana { cast }
-        } else {
-            match p.targets[0].domain {
-                TargetDomain::AnyDamageTarget => Frame::EntityTargets { cast },
-                TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
-                    Frame::PlayerTargets { cast }
-                }
-                TargetDomain::ControlledBattlefieldCreature
-                | TargetDomain::ControlledBattlefieldPermanent
-                | TargetDomain::BattlefieldPermanent
-                | TargetDomain::BattlefieldCreature
-                | TargetDomain::BlockingBattlefieldCreature
-                | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                    Frame::StackTargets { cast }
-                }
-            }
-        };
+        self.state.rules.frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
     // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone
@@ -442,14 +409,8 @@ impl Game {
         let StackKind::Triggered { ability, .. } = &stack.kind else {
             return Ok(None);
         };
-        let Some(condition) = self
-            .definition(stack.source.card)?
-            .triggered
-            .get(*ability as usize)
-            .ok_or("missing conditional trigger")?
-            .intervening_if
-            .as_ref()
-        else {
+        let definition = self.effective_trigger(stack.source, *ability)?;
+        let Some(condition) = definition.intervening_if.as_ref() else {
             return Ok(None);
         };
         let check = self.check_intervening(
@@ -490,8 +451,12 @@ impl Game {
         for entry in &self.state.rules.stack {
             self.validate_mode_binding(entry)?;
         }
-        if let Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } =
-            &self.state.rules.frame
+        if let Frame::Resolve { frame }
+        | Frame::ResolutionChoice { frame, .. }
+        | Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        } = &self.state.rules.frame
         {
             self.validate_mode_binding(&frame.spell)?;
             self.validate_condition_cache(frame)?;
@@ -527,14 +492,14 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
-        let expected = match frame.spell.kind {
-            StackKind::Triggered { ability, .. } => self
-                .definition(frame.spell.source.card)?
-                .triggered
-                .get(ability as usize)
-                .ok_or("missing conditional program")?
-                .intervening_if
-                .as_ref(),
+        let definition = match frame.spell.kind {
+            StackKind::Triggered { ability, .. } => {
+                Some(self.effective_trigger(frame.spell.source, ability)?)
+            }
+            _ => None,
+        };
+        let expected = match &definition {
+            Some(definition) => definition.intervening_if.as_ref(),
             _ => None,
         };
         match (expected, &frame.condition_check) {
@@ -557,17 +522,12 @@ impl Game {
     pub(super) fn validate_match_condition(
         &self,
         source: ObjectId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         controller: PlayerId,
         check: Option<&InterveningCheck>,
     ) -> Result<(), String> {
-        let expected = self
-            .definition(source.card)?
-            .triggered
-            .get(ability as usize)
-            .ok_or("missing match condition definition")?
-            .intervening_if
-            .as_ref();
+        let definition = self.effective_trigger(source, ability)?;
+        let expected = definition.intervening_if.as_ref();
         match (expected, check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))

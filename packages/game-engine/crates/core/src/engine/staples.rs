@@ -9,7 +9,166 @@ pub struct VisibleSearchLand {
     pub handle: ObjectHandle,
     pub oracle_id: String,
 }
+// Derived authority only; never serialized alongside a resolution choice.
+struct LandSearch<'a> {
+    typed: Option<&'a TypedLandSearch>,
+    maximum: u32,
+    split: bool,
+    source_block: u32,
+}
+impl<'a> LandSearch<'a> {
+    fn instruction(instruction: &'a Instruction) -> Option<Self> {
+        let (typed, maximum, split, source_block) = match instruction {
+            Instruction::SearchBasicLands {
+                maximum,
+                source_block,
+            } => (None, *maximum, false, *source_block),
+            Instruction::SearchBasicLandsSplit { source_block } => (None, 2, true, *source_block),
+            Instruction::SearchTypedLands {
+                search,
+                source_block,
+            } => {
+                // Only the offered count is physically bounded. The exact IR
+                // quantity remains unchanged, including arbitrarily large maxima.
+                let bound = capacities::OWNED_LIMIT as u32;
+                let maximum = if search.maximum >= Quantity::from(i64::from(bound)) {
+                    bound
+                } else {
+                    search.maximum.to_string().parse().ok()?
+                };
+                (Some(search), maximum, false, *source_block)
+            }
+            _ => return None,
+        };
+        Some(Self {
+            typed,
+            maximum,
+            split,
+            source_block,
+        })
+    }
+    fn accepts(&self, c: &Characteristics) -> bool {
+        self.typed
+            .map_or_else(|| c.kind == CardKind::Land && c.basic, |s| s.accepts(c))
+    }
+    fn force_tapped(&self) -> bool {
+        self.typed.is_none_or(|s| s.force_tapped)
+    }
+}
 impl Game {
+    fn land_search_for(&self, frame: &Resolving) -> Option<LandSearch<'_>> {
+        LandSearch::instruction(
+            self.program_for(&frame.spell)
+                .ok()?
+                .instructions
+                .get(frame.cursor as usize)?,
+        )
+    }
+    fn active_land_search(&self) -> Option<LandSearch<'_>> {
+        if let Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        } = &self.state.rules.frame
+        {
+            return self.land_search_for(frame);
+        }
+        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
+            return None;
+        };
+        if !matches!(
+            choice,
+            ResolutionChoice::Search { .. }
+                | ResolutionChoice::SearchSplit { .. }
+                | ResolutionChoice::Shuffle { .. }
+        ) {
+            return None;
+        }
+        self.land_search_for(frame)
+    }
+    pub(super) fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
+        if let Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        } = &self.state.rules.frame
+        {
+            if frame.spell.controller != player {
+                return Err("wrong entry search controller".into());
+            }
+            return self.entry_search_force_tapped(frame);
+        }
+        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
+            return Err("no searched land entry".into());
+        };
+        if frame.spell.controller != player
+            || !matches!(
+                choice,
+                ResolutionChoice::Search { .. } | ResolutionChoice::SearchSplit { .. }
+            )
+        {
+            return Err("wrong searched land entry controller or phase".into());
+        }
+        Ok(self
+            .land_search_for(frame)
+            .ok_or("not land search instruction")?
+            .force_tapped())
+    }
+    pub(super) fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String> {
+        let search = self
+            .land_search_for(frame)
+            .ok_or("not an entry search instruction")?;
+        if search.split {
+            return Err("split search is not optional entry producer".into());
+        }
+        Ok(search.source_block)
+    }
+    pub(super) fn entry_search_force_tapped(&self, frame: &Resolving) -> Result<bool, String> {
+        self.entry_search_block(frame)?;
+        Ok(self
+            .land_search_for(frame)
+            .ok_or("missing entry search")?
+            .force_tapped())
+    }
+    pub(super) fn validate_entry_search(
+        &self,
+        frame: &Resolving,
+        objects: &[ObjectId],
+    ) -> Result<(), String> {
+        self.entry_search_block(frame)?;
+        let search = self.land_search_for(frame).ok_or("missing entry search")?;
+        let player = frame.spell.controller;
+        if !self.is_live(player)
+            || objects.len() > search.maximum as usize
+            || objects.iter().any(|o| {
+                self.current(*o).is_err()
+                    || self.zone(*o) != Some(Zone::Library { owner: player })
+                    || !self
+                        .definition(o.card)
+                        .is_ok_and(|d| search.accepts(&d.characteristics))
+            })
+        {
+            return Err("invalid complete entry search selection".into());
+        }
+        Ok(())
+    }
+    pub(super) fn resume_entry_search(&mut self, frame: Resolving) -> Result<(), String> {
+        let source_block = self.entry_search_block(&frame)?;
+        let player = frame.spell.controller;
+        let index = self
+            .state
+            .rules
+            .libraries
+            .get(&player)
+            .map_or(0, |l| l.len().saturating_sub(1)) as u32;
+        self.state.rules.frame = Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::Shuffle {
+                player,
+                index,
+                source_block,
+            },
+        };
+        Ok(())
+    }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         let instruction = self
             .program_for(&frame.spell)?
@@ -59,6 +218,7 @@ impl Game {
             }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::DrawControllerCards { .. }
+            | Instruction::DrawCardsIfAdditionalCost { .. }
             | Instruction::DrawDamageAmount { .. } => Ok(frame.spell.controller),
             _ => Err("not draw instruction".into()),
         }
@@ -112,6 +272,7 @@ impl Game {
         }
     }
     pub(super) fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
+        let descriptor = self.active_land_search();
         // CardId order is physical order, never library order (CR 401.2).
         let mut cards = self
             .state
@@ -121,7 +282,10 @@ impl Game {
             .filter(|o| {
                 o.zone == (Zone::Library { owner: player })
                     && self.definition(o.id.card).is_ok_and(|d| {
-                        d.characteristics.kind == CardKind::Land && d.characteristics.basic
+                        descriptor.as_ref().map_or_else(
+                            || d.characteristics.kind == CardKind::Land && d.characteristics.basic,
+                            |s| s.accepts(&d.characteristics),
+                        )
                     })
             })
             .map(|o| o.id)
@@ -168,7 +332,7 @@ impl Game {
         Ok(object)
     }
 
-    fn staple_cause(frame: &Resolving, source_block: u32) -> BatchCause {
+    pub(super) fn staple_cause(frame: &Resolving, source_block: u32) -> BatchCause {
         BatchCause::Instruction {
             stack_id: frame.spell.id,
             player: frame.spell.controller,
@@ -227,10 +391,16 @@ impl Game {
                     self.recur_creature(frame, target, source_block)
                 }
             }
-            Instruction::SearchBasicLands {
-                maximum,
-                source_block,
-            } => {
+            op @ (Instruction::SearchBasicLands { .. }
+            | Instruction::SearchBasicLandsSplit { .. }
+            | Instruction::SearchTypedLands { .. }) => {
+                let descriptor =
+                    LandSearch::instruction(&op).ok_or("invalid land search instruction")?;
+                let (maximum, source_block, split) = (
+                    descriptor.maximum,
+                    descriptor.source_block,
+                    descriptor.split,
+                );
                 if !self.is_live(frame.spell.controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -239,6 +409,7 @@ impl Game {
                     choice: ResolutionChoice::Search {
                         player: frame.spell.controller,
                         maximum,
+                        split,
                         source_block,
                     },
                     frame,
@@ -301,6 +472,25 @@ impl Game {
         };
         match (choice, response) {
             (
+                ResolutionChoice::SearchSplit {
+                    player: p, objects, ..
+                },
+                Response::SearchLandBattlefield { object },
+            ) => Some(
+                if *p == player
+                    && self.is_live(player)
+                    && objects.len() == 2
+                    && objects.contains(object)
+                    && objects
+                        .iter()
+                        .all(|o| self.search_lands(player).contains(o))
+                {
+                    Ok(())
+                } else {
+                    Err("invalid revealed land partition".into())
+                },
+            ),
+            (
                 ResolutionChoice::Search {
                     player: p, maximum, ..
                 },
@@ -308,6 +498,9 @@ impl Game {
             ) => Some(
                 if *p == player
                     && self.is_live(player)
+                    && self
+                        .active_land_search()
+                        .is_some_and(|s| s.maximum == *maximum)
                     && objects.len() <= *maximum as usize
                     && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
                     && objects
@@ -336,7 +529,8 @@ impl Game {
         choice: ResolutionChoice,
     ) -> Result<(), String> {
         let player = match choice {
-            ResolutionChoice::Search { player, .. }
+            ResolutionChoice::SearchSplit { player, .. }
+            | ResolutionChoice::Search { player, .. }
             | ResolutionChoice::Shuffle { player, .. }
             | ResolutionChoice::OptionalRecursion { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. } => player,
@@ -378,7 +572,11 @@ impl Game {
                 };
                 Ok(())
             }
-            ResolutionChoice::Search { source_block, .. } => {
+            ResolutionChoice::Search {
+                source_block,
+                split,
+                ..
+            } => {
                 let input = self
                     .state
                     .rules
@@ -390,8 +588,37 @@ impl Game {
                 let Response::SearchLands { mut objects } = input.response else {
                     return Err("search response invariant".into());
                 };
+                if split {
+                    objects.sort();
+                    self.commit(
+                        ProposedEvent::RevealSearchLands {
+                            player,
+                            objects: objects.clone(),
+                        },
+                        Self::staple_cause(&frame, source_block),
+                    )?;
+                    self.state.rules.frame = Frame::ResolutionChoice {
+                        frame,
+                        choice: ResolutionChoice::SearchSplit {
+                            player,
+                            objects,
+                            source_block,
+                        },
+                    };
+                    return Ok(());
+                }
                 // All found cards enter together; response order is not semantic.
                 objects.sort();
+                if !objects.is_empty()
+                    && self.begin_land_entry(
+                        EntryOrigin::Search {
+                            frame: frame.clone(),
+                        },
+                        objects.clone(),
+                    )?
+                {
+                    return Ok(());
+                }
                 if !objects.is_empty() {
                     self.commit_batch(
                         Self::staple_cause(&frame, source_block),
@@ -399,6 +626,65 @@ impl Game {
                             occurrences: objects
                                 .into_iter()
                                 .map(|object| ProposedEvent::SearchLandEntry { object, player })
+                                .collect(),
+                        },
+                    )?;
+                }
+                let index = self
+                    .state
+                    .rules
+                    .libraries
+                    .get(&player)
+                    .map_or(0, |l| l.len().saturating_sub(1)) as u32;
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::Shuffle {
+                        player,
+                        index,
+                        source_block,
+                    },
+                };
+                Ok(())
+            }
+            ResolutionChoice::SearchSplit {
+                objects,
+                source_block,
+                ..
+            } => {
+                let battlefield = if objects.len() == 2 {
+                    let input = self
+                        .state
+                        .rules
+                        .pending
+                        .take()
+                        .ok_or("missing partition input")?;
+                    self.validate_staples_response(input.player, &input.response)
+                        .ok_or("wrong partition response")??;
+                    let Response::SearchLandBattlefield { object } = input.response else {
+                        return Err("partition response invariant".into());
+                    };
+                    Some(object)
+                } else {
+                    objects.first().copied()
+                };
+                if let Some(battlefield) = battlefield {
+                    // CR 608.2c, 121.5: partition by identity; the hand move is
+                    // not a draw. Both moves share the common-prior event group.
+                    self.commit_batch(
+                        Self::staple_cause(&frame, source_block),
+                        EventGroup::Simultaneous {
+                            occurrences: objects
+                                .into_iter()
+                                .map(|object| {
+                                    if object == battlefield {
+                                        ProposedEvent::SearchLandEntry { object, player }
+                                    } else {
+                                        ProposedEvent::Move {
+                                            object,
+                                            destination: Zone::Hand { owner: player },
+                                        }
+                                    }
+                                })
                                 .collect(),
                         },
                     )?;
@@ -477,11 +763,10 @@ impl Game {
         if index == 0 || index as usize >= library.len() {
             return Err("shuffle range".into());
         }
-        // The setup sampler covers ranges 2..=99, the largest Commander library
-        // (100 cards less the commander). Fail loudly rather than retry forever
-        // if a future card ever lets a library grow past that bound.
-        if library.len() > 99 {
-            return Err("shuffle library exceeds the reviewed 99-card sampler range".into());
+        // A tucked commander can bring the physical library to all 100 owned
+        // cards. The shared sampler uses that common bound, not setup's 99.
+        if library.len() > capacities::OWNED_LIMIT {
+            return Err("shuffle library exceeds the physical-card sampler range".into());
         }
         let random = &mut self
             .state
@@ -547,13 +832,34 @@ impl Game {
                 ResolutionChoice::Search {
                     player,
                     maximum,
+                    split,
                     source_block,
                 },
-                Instruction::SearchBasicLands {
-                    maximum: m,
-                    source_block: b,
+                instruction,
+            ) => {
+                *player == frame.spell.controller
+                    && LandSearch::instruction(instruction).is_some_and(|s| {
+                        *split == s.split
+                            && *maximum == s.maximum
+                            && *source_block == s.source_block
+                    })
+            }
+            (
+                ResolutionChoice::SearchSplit {
+                    player,
+                    objects,
+                    source_block,
                 },
-            ) => *player == frame.spell.controller && maximum == m && source_block == b,
+                Instruction::SearchBasicLandsSplit { source_block: b },
+            ) => {
+                *player == frame.spell.controller
+                    && source_block == b
+                    && objects.len() <= 2
+                    && objects.windows(2).all(|w| w[0] < w[1])
+                    && objects
+                        .iter()
+                        .all(|o| self.search_lands(*player).contains(o))
+            }
             (
                 ResolutionChoice::Shuffle {
                     player,
@@ -561,6 +867,10 @@ impl Game {
                     source_block,
                 },
                 Instruction::SearchBasicLands {
+                    source_block: b, ..
+                }
+                | Instruction::SearchBasicLandsSplit { source_block: b }
+                | Instruction::SearchTypedLands {
                     source_block: b, ..
                 }
                 | Instruction::OptionalShuffleLibrary { source_block: b },

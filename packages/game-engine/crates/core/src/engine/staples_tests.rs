@@ -1135,6 +1135,12 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
     // Keep the complete reviewed vocabulary explicit: future operators require
     // auditing this lifetime proof rather than disappearing through a wildcard.
     for d in &c.definitions {
+        assert!(
+            d.triggered
+                .iter()
+                .all(|a| a.condition != TriggerCondition::SelfBecomesTapped),
+            "source tap trigger outside historical staples proof"
+        );
         for p in d
             .spell
             .iter()
@@ -1146,7 +1152,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     // The frozen staples catalog predates optional draws and
                     // event-player sacrifice and untapping. Untap can reuse
                     // producers; keep it outside this frozen lifetime proof.
-                    Instruction::GrantKeywords { .. }
+                    Instruction::Cascade { .. }
+                    | Instruction::GrantKeywords { .. }
                     | Instruction::GrantKeywordsSet { .. }
                     | Instruction::OptionalDrawCards { .. }
                     | Instruction::DiscardTargetPlayer { .. }
@@ -1159,6 +1166,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::DealDamageAnnouncedX { .. }
                     | Instruction::MillAnnouncedX { .. }
                     | Instruction::DrawDamageAmount { .. }
+                    | Instruction::DealDamageToController { .. }
                     | Instruction::SacrificeCreature { .. }
                     | Instruction::MoveSet { .. }
                     | Instruction::PumpSet { .. }
@@ -1178,10 +1186,16 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::CreateTokensFor { .. }
                     | Instruction::DamageTargetController { .. }
                     | Instruction::AttachEquipment { .. }
-                    | Instruction::ReturnAuraFromGraveyard { .. } => {
+                    | Instruction::ReturnAuraFromGraveyard { .. }
+                    | Instruction::GrantLandPlaysThisTurn { .. }
+                    | Instruction::DestroySet { .. }
+                    | Instruction::MoveTriggeredSuccessor { .. }
+                    | Instruction::SearchBasicLandsSplit { .. }
+                    | Instruction::SearchTypedLands { .. } => {
                         panic!("attachment outside historical staples proof")
                     }
                     Instruction::CreateCreatureTokens { .. }
+                    | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                     | Instruction::PutPlusOneCounters { .. }
                     | Instruction::ModifyPowerToughness { .. }
                     | Instruction::PreventCombatDamage { .. }
@@ -1189,6 +1203,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::ReturnToOwnerHand { .. }
                     | Instruction::PutOnTopOwnerLibrary { .. }
                     | Instruction::TargetPlayerSacrificeCreature { .. }
+                    | Instruction::DrawCardsIfAdditionalCost { .. }
                     | Instruction::DrawCards { .. }
                     | Instruction::DiscardCards { .. }
                     | Instruction::CounterStackObject { .. }
@@ -1254,14 +1269,21 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             for a in &d.static_abilities {
                 match &a.effect {
                     StaticEffect::ControlEnchantedPermanent
+                    | StaticEffect::GrantSpellCascade { .. }
+                    | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::UnlimitedControllerHandSize
                     | StaticEffect::ReduceMaximumHandSize { .. }
                     | StaticEffect::IncreaseMaximumHandSize { .. }
                     | StaticEffect::EntersTapped
+                    | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::OpponentsCantCastDuringControllerTurn
+                    | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                     | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+                    | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::ReduceGenericByCreatureCount
                     | StaticEffect::CantBeCountered
+                    | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
                     | StaticEffect::ModifyCreatures { .. } => {
                         panic!("grants outside historical staples proof")
                     }
@@ -1413,3 +1435,24 @@ fn concession_keeps_legal_pending_graveyard_target() {
         assert_eq!(g.state.rules.stack.len(), 1);
     }
 }
+
+#[path = "ramos_split_tests.rs"]
+mod ramos_split_tests;
+
+#[path = "ramos_m1_tests.rs"]
+mod ramos_m1_tests;
+
+#[path = "counter_placement_tests.rs"]
+mod counter_placement_tests;
+
+#[path = "typed_land_search_tests.rs"]
+mod typed_land_search_tests;
+
+#[path = "conditional_lands_tests.rs"]
+mod conditional_lands_tests;
+
+#[path = "typed_fetchland_tests.rs"]
+mod typed_fetchland_tests;
+
+#[path = "cycling_tests.rs"]
+mod cycling_tests;

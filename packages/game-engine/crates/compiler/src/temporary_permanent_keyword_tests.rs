@@ -452,3 +452,18 @@ fn temporary_permanent_keyword_compiler_rejects_rehashed_binding_near_misses() {
         rejects(&raw);
     }
 }
+
+#[test]
+fn temporary_permanent_keyword_rejects_unconsumed_conditions() {
+    for sentence in 0..2 {
+        for field in ["condition", "conditionKind"] {
+            rejects(&changed(|a| {
+                a["effects"][sentence][field] = if field == "conditionKind" {
+                    json!("if")
+                } else {
+                    json!({"condition":"kicked","what":{"ref":"this","noun":"spell"},"comparison":{"op":"ge","value":{"amount":"fixed","value":1}}})
+                };
+            }));
+        }
+    }
+}

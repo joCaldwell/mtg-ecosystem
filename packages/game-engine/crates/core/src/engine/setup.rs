@@ -40,8 +40,10 @@ pub struct MatchRandom {
     pub stream: u64,
     pub word_position: RngPosition,
 }
+// Generic physical-card bound includes a tucked commander. Setup still checks
+// its own 99-card starting library; callers never infer that as a sampler limit.
 pub(super) fn sample_shuffle_word(word: u32, upper: u32) -> Option<u32> {
-    if !(2..=99).contains(&upper) {
+    if !(2..=capacities::OWNED_LIMIT as u32).contains(&upper) {
         return None;
     }
     sample_bounded_word(word, upper)

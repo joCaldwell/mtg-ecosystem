@@ -8,7 +8,9 @@ pub(super) enum StackKind {
     Triggered {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_condition: Option<InterveningCheck>,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<CascadeGrantProvenance>,
         source_handles: Vec<ObjectHandle>,
         trigger_id: TriggerId,
         event: TriggerOccurrenceId,
@@ -70,6 +72,12 @@ pub(super) enum ResolutionChoice {
     Search {
         player: PlayerId,
         maximum: u32,
+        split: bool,
+        source_block: u32,
+    },
+    SearchSplit {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
         source_block: u32,
     },
     Shuffle {
@@ -274,7 +282,7 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    fn validate_activation(
+    pub(super) fn validate_activation(
         &self,
         player: PlayerId,
         object: ObjectId,
@@ -286,17 +294,28 @@ impl Game {
             .activated
             .get(ability as usize)
             .ok_or("unknown activated ability")?;
-        if source.zone != Zone::Battlefield
-            || source.controller != player
-            || !self.is_live(player)
-            || ability.functioning_zone != FunctioningZone::Battlefield
+        if !self.is_live(player)
+            || match ability.functioning_zone {
+                FunctioningZone::Battlefield => {
+                    source.zone != Zone::Battlefield || source.controller != player
+                }
+                FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
+                FunctioningZone::Stack => true,
+            }
         {
             return Err("invalid activated ability source/permission".into());
         }
         if ability.program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("equip requires sorcery timing".into());
         }
+        if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {
+            self.validate_tap_life_sacrifice_source(player, object, life)?;
+        }
         let tap = ability.cost == ActivationCost::TapSource
+            || matches!(
+                ability.cost,
+                ActivationCost::TapPayLifeSacrificeSource { .. }
+            )
             || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap);
         if tap
             && (source.tapped
@@ -382,6 +401,15 @@ impl Game {
                 maximum: *maximum,
                 candidates: self.search_lands(*player),
             }),
+            ResolutionChoice::SearchSplit {
+                player, objects, ..
+            } if self.is_live(*player) && objects.len() == 2 => {
+                Some(Request::SearchLandBattlefield {
+                    decision_id,
+                    player: *player,
+                    candidates: objects.clone(),
+                })
+            }
             ResolutionChoice::OptionalShuffle { player, .. }
             | ResolutionChoice::OptionalEffect { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. }
@@ -649,7 +677,7 @@ impl Game {
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
                     .player_targets = players;
-                self.state.rules.frame = Frame::Mana { cast };
+                self.state.rules.frame = self.announcement_mana_frame(cast)?;
             }
             Frame::ResolutionChoice { frame, choice } => {
                 if let ResolutionChoice::HandReturn {
@@ -712,6 +740,7 @@ impl Game {
                     choice,
                     ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
                         | ResolutionChoice::OptionalDraw { .. }
@@ -728,6 +757,7 @@ impl Game {
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
                         | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
@@ -762,6 +792,7 @@ impl Game {
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. }
                     | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
@@ -876,6 +907,7 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,
                 source_block,
@@ -919,6 +951,7 @@ impl Game {
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
             i @ (Instruction::MoveSet { .. }
+            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
@@ -950,12 +983,18 @@ impl Game {
             op @ (Instruction::DestroyTargetCreature { .. }
             | Instruction::DestroyAllCreatures { .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
-            | Instruction::SearchBasicLands { .. }) => self.execute_staples_instruction(frame, op),
+            | Instruction::SearchBasicLands { .. }
+            | Instruction::SearchBasicLandsSplit { .. }
+            | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
             op @ (Instruction::CreateCreatureTokens { .. }
-            | Instruction::PutPlusOneCounters { .. }) => self.execute_token_instruction(frame, op),
+            | Instruction::PutPlusOneCounters { .. }
+            | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
+                self.execute_token_instruction(frame, op)
+            }
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::PreventCombatDamage { .. }
+            | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
             Instruction::ChangeLifeAnnouncedX {
                 recipient,
@@ -983,6 +1022,7 @@ impl Game {
                 self.execute_damage_life_instruction(frame, op)
             }
             op @ (Instruction::DealDamage { .. }
+            | Instruction::DealDamageToController { .. }
             | Instruction::DealDamageAnnouncedX { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
@@ -1086,6 +1126,13 @@ impl Game {
                 };
                 self.draw_one(frame, player, source_block)
             }
+            Instruction::DrawCardsIfAdditionalCost { cost_identity, .. } => {
+                if !self.additional_cost_was_selected(&frame.spell, &cost_identity)? {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                self.draw_multiple(frame)
+            }
             Instruction::DrawDamageAmount { .. } | Instruction::DrawAnnouncedX { .. } => {
                 self.draw_multiple(frame)
             }
@@ -1148,9 +1195,6 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
-    /// One ordinary draw attempt, shared by mandatory and accepted optional
-    /// draws. The existing Commander continuation owns the remaining attempt;
-    /// recovery must not offer the optional choice again.
     pub(super) fn draw_one(
         &mut self,
         frame: Resolving,
@@ -1258,6 +1302,16 @@ impl Game {
             Instruction::DrawDamageAmount { source_block } => {
                 (self.damage_draw_amount(frame)?, *source_block)
             }
+            Instruction::DrawCardsIfAdditionalCost {
+                cost_identity,
+                count,
+                source_block,
+            } => {
+                if !self.additional_cost_was_selected(&frame.spell, cost_identity)? {
+                    return Ok(None);
+                }
+                (count.clone(), *source_block)
+            }
             Instruction::DrawCards {
                 count,
                 source_block,
@@ -1278,6 +1332,21 @@ impl Game {
     /// CR 120.4b/603.2c: "that many" is the positive final member of this
     /// invocation's actual damage witness, never printed power or life changes.
     pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
+        if let Some(Instruction::DrawCardsIfAdditionalCost {
+            cost_identity,
+            count,
+            ..
+        }) = self
+            .program_for(&frame.spell)?
+            .instructions
+            .get(frame.cursor as usize)
+        {
+            return if self.additional_cost_was_selected(&frame.spell, cost_identity)? {
+                Ok(count.clone())
+            } else {
+                Err("unselected optional-cost draw progress".into())
+            };
+        }
         match &frame.spell.kind {
             StackKind::Triggered {
                 witness: TriggerEventWitness::DamageDealt { damage, .. },
@@ -1456,24 +1525,7 @@ impl Game {
         entry: &StackInstance,
         resolved: bool,
     ) -> Result<(), String> {
-        if self
-            .state
-            .rules
-            .stack
-            .last()
-            .is_some_and(|top| top.id == entry.id)
-        {
-            self.state.rules.stack.pop();
-        } else if self.is_live(entry.controller)
-            || self
-                .state
-                .rules
-                .stack
-                .iter()
-                .any(|item| item.id == entry.id)
-        {
-            return Err("ability completion binding invariant".into());
-        }
+        self.remove_resolved_entry(entry)?;
         if matches!(entry.kind, StackKind::Triggered { .. }) {
             self.record_event(Event::TriggeredAbilityCompleted {
                 stack_id: entry.id,
@@ -1491,6 +1543,27 @@ impl Game {
             .ok_or("no live player after ability")?;
         self.stabilize()
     }
+    pub(super) fn remove_resolved_entry(&mut self, entry: &StackInstance) -> Result<(), String> {
+        if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == entry.id) {
+            let child = self.resolution_child(entry.id);
+            if self.state.rules.stack[index] != *entry
+                || match child {
+                    None => index + 1 != self.state.rules.stack.len(),
+                    Some(child) => {
+                        index + 2 != self.state.rules.stack.len()
+                            || self.top()?.id != child
+                            || self.top()?.paid.is_none()
+                    }
+                }
+            {
+                return Err("exact resolving owner completion invariant".into());
+            }
+            self.state.rules.stack.remove(index);
+        } else if self.invocation_lives(entry) {
+            return Err("missing live resolving owner".into());
+        }
+        Ok(())
+    }
     pub(super) fn invocation_lives(&self, entry: &StackInstance) -> bool {
         if entry.kind.is_spell() {
             self.state
@@ -1503,7 +1576,16 @@ impl Game {
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
+        self.validate_resolving_owned(frame, None)
+    }
+    pub(super) fn validate_resolving_owned(
+        &self,
+        frame: &Resolving,
+        child: Option<StackId>,
+    ) -> Result<(), String> {
         self.validate_trigger_entry(&frame.spell)?;
+        self.validate_cost_lock(&frame.spell)?;
+        self.validate_additional_cost_entry(&frame.spell)?;
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
@@ -1530,8 +1612,24 @@ impl Game {
             .iter()
             .any(|item| item.id == entry.id)
         {
-            if self.top()? != entry {
-                return Err("snapshot resolving top binding".into());
+            let position = self
+                .state
+                .rules
+                .stack
+                .iter()
+                .position(|s| s.id == entry.id)
+                .ok_or("missing resolving entry")?;
+            if self.state.rules.stack.get(position) != Some(entry)
+                || match child {
+                    None => position + 1 != self.state.rules.stack.len(),
+                    Some(child) => {
+                        position + 2 != self.state.rules.stack.len()
+                            || self.top()?.id != child
+                            || child <= entry.id
+                    }
+                }
+            {
+                return Err("snapshot resolving owner/child binding".into());
             }
         } else if self.invocation_lives(entry) {
             return Err("snapshot detached invocation invariant".into());

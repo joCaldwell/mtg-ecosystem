@@ -35,6 +35,7 @@ interface Context {
   triggerObject?: { event: "cast" | "activate"; candidate: Candidate };
   /** A scope whose capture/antecedent rules are not implemented. */
   barrier?: string;
+  replacementSubjectPath?: string;
   /** The object(s) an enclosing effect gives abilities to: a bound object or
    * group, an object it creates, or a player. */
   recipient?: { candidate: Candidate } | { created: true } | { unresolved: true };
@@ -662,7 +663,12 @@ class Analyzer {
     if (["alternative-cost", "replacement", "play-permission", "play-permission-choice"].includes(String(value.static))) {
       const barrier = "This pre-entry or alternative-payment scope needs a would-be controller/caster binding.";
       this.diagnostic("unsupported-scope", path, barrier, ["109.5", "614.12"]);
-      this.walkChildren(value, path, { ...context, barrier });
+      // CR 201.5, 614.1: the watched move precedes the replacement. Its
+      // explicit source is known even while replacement-event captures are not.
+      const event = value.static === "replacement" && isRecord(value.replacement) ? value.replacement.event : undefined;
+      const replacementSubjectPath = !context.barrier && isRecord(event) && event.event === "move-zone"
+        ? child(child(child(path, "replacement"), "event"), "what") : undefined;
+      this.walkChildren(value, path, { ...context, barrier, replacementSubjectPath });
       return;
     }
     if (["move-zone", "put-counters", "transform", "convert", "attach", "unattach", "create-token"].includes(String(value.effect)) && value.who == null)
@@ -940,7 +946,7 @@ class Analyzer {
       this.unresolved(expression, path, "unsupported-scope", "Collective selection restrictions need a selected-group scope and legality binding; per-candidate eligibility alone is insufficient.", ["201.2b", "601.2c", "608.2d"]);
       return undefined;
     }
-    if (context.barrier) {
+    if (context.barrier && !(path === context.replacementSubjectPath && expression.ref === "self" && Object.keys(expression).length === 1)) {
       this.unresolved(expression, path, "unsupported-scope", context.barrier, ["201.5", "607"]);
       return undefined;
     }

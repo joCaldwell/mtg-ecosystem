@@ -110,22 +110,26 @@ pub(super) fn plan(
         {
             continue;
         }
-        let (production, cost) = if let Some(a) = d.mana_abilities.first() {
-            (a.production.clone(), a.costs.mana.clone())
-        } else if d.characteristics.kind == CardKind::Land && d.characteristics.basic {
-            (
+        let (production, cost) = match d.mana_abilities.as_slice() {
+            [ability] if ability.self_damage.is_none() => {
+                (ability.production.clone(), ability.costs.mana.clone())
+            }
+            [] if d.characteristics.kind == CardKind::Land && d.characteristics.basic => (
                 ManaProduction::Fixed {
                     symbols: vec![*d.characteristics.color_identity.first()?],
                 },
                 None,
-            )
-        } else {
-            continue;
+            ),
+            // This planner has no branch or damage-cost model.
+            _ => continue,
         };
         let colors = match &production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
             ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
             ManaProduction::CommanderColor => identity.clone(),
+            ManaProduction::Choice { .. }
+            | ManaProduction::OpponentLandColors
+            | ManaProduction::EachPermanentColor { .. } => continue,
         };
         if colors.is_empty() {
             continue;
@@ -162,6 +166,7 @@ mod tests {
         let card = |name: &str, zone: Zone| {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
             mtg_core::VisibleObject {
+                mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
                 keywords: vec![],
@@ -187,10 +192,11 @@ mod tests {
             keywords: vec![],
         });
         let mut observation = Observation {
-            observation_version: 16,
+            observation_version: 25,
             decision_context: None,
             decision: None,
             view: mtg_core::PermittedView {
+                known_library_positions: vec![],
                 sacrifice_choices: vec![],
                 setup: None,
                 effects: vec![],

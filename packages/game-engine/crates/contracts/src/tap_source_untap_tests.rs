@@ -131,6 +131,7 @@ fn source_tap_untap_rejects_unreviewed_costs_filters_programs_and_source_kinds()
             "composite-tap" => {
                 a.cost = ActivationCost::Composite {
                     costs: PermanentActivationCosts {
+                        remove_source_plus_one_counters: None,
                         tap: true,
                         sacrifice: false,
                         mana: Some(ManaCost {

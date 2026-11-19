@@ -1,5 +1,6 @@
 mod advance_report;
 mod capacities;
+mod costs;
 #[cfg(test)]
 mod data_rules_tests;
 mod search;
@@ -20,6 +21,7 @@ mod state_digest;
 pub use advance_report::*;
 pub use match_admission::*;
 mod commander_policy;
+mod optional_costs;
 pub use commander_policy::policy_digest;
 #[cfg(test)]
 mod activated_permanent_return_tests;
@@ -27,6 +29,10 @@ mod activated_permanent_return_tests;
 mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;
+#[cfg(test)]
+mod nonland_exile_life_tests;
+#[cfg(test)]
+mod opponent_nonland_destroy_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
 mod random_discard;
@@ -59,9 +65,13 @@ mod attachments_tests;
 mod aura_control_tests;
 #[cfg(test)]
 mod blocking_target_tests;
+mod counter_placement;
 #[cfg(test)]
 mod four_colors_tests;
+mod land_entry;
 mod staples;
+pub use counter_placement::*;
+use land_entry::{EntryOrigin, PreparedEntryAuthority};
 mod tokens;
 pub use staples::VisibleSearchLand;
 pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
@@ -298,10 +308,12 @@ mod grouped_damage_trigger_tests;
 mod opponent_damage_trigger_tests;
 #[cfg(test)]
 mod optional_draw_tests;
+mod spell_cascade_grants;
 #[cfg(test)]
 mod step_trigger_tests;
 #[cfg(test)]
 mod trigger_tests;
+pub use spell_cascade_grants::{CascadeGrantProvenance, EffectiveTriggerAbility};
 mod triggers;
 pub use triggers::{
     CastOccurrence, CastOccurrenceId, GroupedDamageMember, TriggerEventWitness, TriggerId,
@@ -313,18 +325,34 @@ pub use history::History;
 mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
+mod cascade;
+#[cfg(test)]
+mod cascade_tests;
 mod casting;
+use cascade::{CascadeProgress, CastCompletion, CastPermission};
+#[cfg(test)]
+mod cast_origin_tests;
+#[cfg(test)]
+mod casting_foundation_tests;
+#[cfg(test)]
+mod distinct_permanent_colors_tests;
 mod hand_return;
+mod intrinsic_mana;
 mod library_order;
+mod library_position_memory;
 mod library_selection;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
 mod mill;
+mod opponent_mana;
 mod scry;
+mod successor_tuck;
+#[cfg(test)]
+mod successor_tuck_tests;
 mod surveil;
 pub use mana_permanents::PermanentManaUndo;
-use mana_permanents::{ManaActivation, zero_mana_cost};
+use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
 mod stack_costs;
 use stack_costs::AnnouncementOrigin;
 #[cfg(test)]
@@ -857,6 +885,12 @@ struct Object {
 #[serde(deny_unknown_fields)]
 struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    cost_lock: Option<costs::CostLock>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_additional_costs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    alternative_cost: Option<cascade::AlternativeCost>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     death_controller: Option<PlayerId>,
@@ -892,6 +926,7 @@ struct StackInstance {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Casting {
+    completion: CastCompletion,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sacrifice: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
@@ -953,10 +988,28 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    LandEntry {
+        origin: EntryOrigin,
+        objects: Vec<ObjectId>,
+        choices: Vec<bool>,
+    },
+    /// CR305.6/605.3: select an intrinsic ability before activation or costs.
+    ManaSourceChoice {
+        player: PlayerId,
+        source: ObjectId,
+        scope: ManaSourceScope,
+        resume: Box<Frame>,
+    },
+    Cascade {
+        progress: Box<CascadeProgress>,
+    },
     LegendRule {
         resume: Box<Frame>,
         groups: Vec<Vec<ObjectId>>,
         kept: Vec<ObjectId>,
+    },
+    AdditionalCosts {
+        cast: Casting,
     },
     AnnounceX {
         cast: Casting,
@@ -983,6 +1036,9 @@ enum Frame {
     },
     Modes {
         cast: Casting,
+    },
+    CounterPlacement {
+        transaction: CounterPlacementTransaction,
     },
     DamageEffects {
         transaction: DamageTransaction,
@@ -1059,6 +1115,9 @@ enum Frame {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    AdditionalCosts {
+        selected: Vec<String>,
+    },
     HandReturn {
         objects: Vec<ObjectId>,
     },
@@ -1095,6 +1154,9 @@ pub enum Response {
     SearchLands {
         objects: Vec<ObjectId>,
     },
+    SearchLandBattlefield {
+        object: ObjectId,
+    },
     OptionalEffect {
         perform: bool,
     },
@@ -1112,6 +1174,9 @@ pub enum Response {
     },
     Modes {
         mode: u32,
+    },
+    CounterPlacementEffect {
+        effect: CounterPlacementEffectKey,
     },
     DamageEffect {
         effect: EffectKey,
@@ -1189,6 +1254,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    AdditionalCosts {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<mtg_contracts::OptionalAdditionalManaCost>,
+    },
     HandReturn {
         decision_id: u64,
         player: PlayerId,
@@ -1243,6 +1313,11 @@ pub enum Request {
         player: PlayerId,
         colors: Vec<Color>,
     },
+    SearchLandBattlefield {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
     SearchLands {
         decision_id: u64,
         player: PlayerId,
@@ -1283,6 +1358,12 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         candidates: Vec<u32>,
+    },
+    CounterPlacementEffect {
+        decision_id: u64,
+        player: PlayerId,
+        recipient: ObjectId,
+        candidates: Vec<CounterPlacementEffectKey>,
     },
     DamageEffect {
         decision_id: u64,
@@ -1391,15 +1472,18 @@ impl Request {
             | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
-            Self::AnnounceX { decision_id, .. }
+            Self::AdditionalCosts { decision_id, .. }
+            | Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::SearchLandBattlefield { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
             | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
+            | Self::CounterPlacementEffect { decision_id, .. }
             | Self::DamageEffect { decision_id, .. }
             | Self::OrderTriggers { decision_id, .. }
             | Self::EntityTargets { decision_id, .. }
@@ -1428,15 +1512,18 @@ impl Request {
             | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
-            Self::AnnounceX { player, .. }
+            Self::AdditionalCosts { player, .. }
+            | Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::SearchLandBattlefield { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
             | Self::BottomOpening { player, .. }
             | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
+            | Self::CounterPlacementEffect { player, .. }
             | Self::DamageEffect { player, .. }
             | Self::OrderTriggers { player, .. }
             | Self::EntityTargets { player, .. }
@@ -1462,6 +1549,10 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    RevealSearchLands {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
+    },
     HandReturn {
         player: PlayerId,
         count: Quantity,
@@ -1537,6 +1628,9 @@ pub enum ProposedEvent {
         count: u32,
         token: Box<mtg_contracts::CreatureToken>,
     },
+    ApplyCounterPlacementEffect {
+        effect: CounterPlacementEffectKey,
+    },
     PutPlusOneCounters {
         object: ObjectId,
         amount: Quantity,
@@ -1595,6 +1689,11 @@ pub enum ProposedEvent {
     },
     PutOnTopOwnerLibrary {
         object: ObjectId,
+    },
+    PutInLibraryAtPosition {
+        object: ObjectId,
+        player: PlayerId,
+        position: LibraryPosition,
     },
     Lose {
         player: PlayerId,
@@ -1674,6 +1773,13 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    CounterPlacementModified {
+        application: CounterPlacementApplication,
+    },
+    SearchLandsRevealed {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
+    },
     HandReturned {
         player: PlayerId,
         movements: Vec<MoveOutcome>,
@@ -1974,7 +2080,7 @@ pub enum Event {
     TriggerConditionChecked {
         source: ObjectId,
         controller: PlayerId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         stage: InterveningStage,
         check: InterveningCheck,
     },
@@ -1987,7 +2093,9 @@ pub enum Event {
         trigger_id: TriggerId,
         source: ObjectId,
         player: PlayerId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<CascadeGrantProvenance>,
         occurrence: TriggerOccurrenceId,
         witness: TriggerEventWitness,
         source_facts: Box<ObjectBefore>,
@@ -2172,6 +2280,7 @@ impl Game {
             .collect();
         let state = State {
             rules: RulesState {
+                mana_ability_uses: BTreeSet::new(),
                 tokens: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
@@ -2212,6 +2321,7 @@ impl Game {
                     lands_played: 0,
                 },
                 original_seating: (0..4).map(PlayerId).collect(),
+                cast_history: [triggers::TurnCastHistory::default(); 4],
                 commanders: CommanderLedger::new(),
                 commander_returns: BTreeSet::new(),
                 control_effects: vec![],
@@ -2266,13 +2376,17 @@ impl Game {
     }
     fn history_charge(&self) -> usize {
         // Charge actual retained allocations, independently of trace mode.
-        self.state
-            .knowledge
-            .visibility
-            .iter()
-            .fold(self.state.rules.retained_auxiliary_charge, |n, k| {
-                n.saturating_add(k.history.retention_charge())
-            })
+        self.state.knowledge.visibility.iter().fold(
+            self.state
+                .rules
+                .retained_auxiliary_charge
+                .saturating_add(self.cost_lock_charge())
+                .saturating_add(self.cascade_charge())
+                .saturating_add(self.mana_continuation_charge())
+                .saturating_add(self.land_entry_charge())
+                .saturating_add(self.grant_payload_charge()),
+            |n, k| n.saturating_add(k.history.retention_charge()),
+        )
     }
     fn check_history_capacity(&mut self) -> Result<(), String> {
         let requested = self.history_charge();
@@ -2330,7 +2444,11 @@ impl Game {
         let o = self.current(object)?;
         let d = self.definition(object.card)?;
         if o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
-            return Ok(self.mana_colors(o.controller, &d.mana_abilities[0].production));
+            let mut colors = Vec::new();
+            for ability in &d.mana_abilities {
+                colors.extend(self.mana_colors(o.controller, &ability.production)?);
+            }
+            return Ok(colors);
         }
         if o.zone != Zone::Battlefield || d.intrinsic_zone != Some(FunctioningZone::Battlefield) {
             return Ok(vec![]);
@@ -2391,11 +2509,17 @@ impl Game {
                 .spell
                 .as_ref()
                 .ok_or_else(|| "missing spell program".to_string()),
-            StackKind::Triggered { ability, .. } => definition
-                .triggered
-                .get(*ability as usize)
-                .map(|a| &a.program)
-                .ok_or_else(|| "missing triggered program".to_string()),
+            StackKind::Triggered { ability, .. } => match *ability {
+                EffectiveTriggerAbility::Intrinsic { index } => definition
+                    .triggered
+                    .get(index as usize)
+                    .map(|a| &a.program)
+                    .ok_or_else(|| "missing triggered program".to_string()),
+                EffectiveTriggerAbility::Granted {
+                    grant_source,
+                    static_ability_index,
+                } => self.grant_program(grant_source, static_ability_index),
+            },
             StackKind::Activated { ability, .. } => definition
                 .activated
                 .get(*ability as usize)
@@ -2417,6 +2541,9 @@ impl Game {
         if let Some(req) = self.modes_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
+        if let Some(req) = self.counter_placement_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
         if let Some(req) = self.damage_effect_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
@@ -2427,6 +2554,9 @@ impl Game {
             return Ok((req.player() == viewer).then_some(req));
         }
         if let Some(req) = self.combat_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
+        if let Some(req) = self.cascade_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.rules.frame {
@@ -2500,6 +2630,21 @@ impl Game {
             | Frame::OptionalDamage { .. } => {
                 return Ok(self.sacrifice_request()?.filter(|r| r.player() == viewer));
             }
+            Frame::LandEntry { .. } => {
+                return self
+                    .land_entry_request()
+                    .map(|r| r.filter(|r| r.player() == viewer));
+            }
+            Frame::ManaSourceChoice {
+                player,
+                source,
+                scope,
+                ..
+            } => Request::ManaColor {
+                decision_id: self.state.rules.revision,
+                player: *player,
+                colors: self.mana_source_colors(*player, *source, *scope)?,
+            },
             Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
             Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
@@ -2516,6 +2661,11 @@ impl Game {
             Frame::Priority => Request::Priority {
                 decision_id: self.state.rules.revision,
                 player: self.state.rules.priority,
+            },
+            Frame::AdditionalCosts { .. } => Request::AdditionalCosts {
+                decision_id: self.state.rules.revision,
+                player: self.top()?.controller,
+                candidates: self.program()?.optional_additional_costs.clone(),
             },
             Frame::AnnounceX { .. } => Request::AnnounceX {
                 decision_id: self.state.rules.revision,
@@ -2544,8 +2694,21 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
+            return self.validate_land_entry_response(player, response);
+        }
+        if let Frame::Cascade { progress } = &self.state.rules.frame {
+            return self.validate_cascade_response(progress, player, response);
+        }
         if matches!(self.state.rules.frame, Frame::LegendRule { .. }) {
             return self.validate_legend_response(player, response);
+        }
+        if let Frame::AdditionalCosts { .. } = self.state.rules.frame {
+            return if let Response::AdditionalCosts { selected } = response {
+                self.validate_additional_cost_selection(player, selected)
+            } else {
+                Err("invalid optional cost announcement".into())
+            };
         }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
@@ -2572,6 +2735,11 @@ impl Game {
             validation.state.rules.frame = *resume.clone();
             return validation.validate_response(player, response);
         }
+        if let (Frame::CounterPlacement { .. }, Response::CounterPlacementEffect { effect }) =
+            (&self.state.rules.frame, response)
+        {
+            return self.validate_counter_placement_response(player, effect);
+        }
         if let (Frame::DamageEffects { .. }, Response::DamageEffect { effect, damage }) =
             (&self.state.rules.frame, response)
         {
@@ -2588,6 +2756,25 @@ impl Game {
         }
         if let Some(result) = self.validate_actions_response(player, response) {
             return result;
+        }
+        if let Frame::ManaSourceChoice {
+            player: chooser,
+            source,
+            scope,
+            ..
+        } = &self.state.rules.frame
+        {
+            return match response {
+                Response::ManaColor { color }
+                    if *chooser == player
+                        && self
+                            .mana_source_colors(player, *source, *scope)?
+                            .contains(color) =>
+                {
+                    Ok(())
+                }
+                _ => Err("invalid mana source choice".into()),
+            };
         }
         if let Frame::ManaAbility { activation } = &self.state.rules.frame {
             return self.validate_permanent_mana_response(activation, player, response);
@@ -2628,40 +2815,7 @@ impl Game {
                 Ok(())
             }
             (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
-                self.validate_cast_permission(player)?;
-                let o = self.state.rules.objects.get(card).ok_or("invalid cast")?;
-                if !(o.zone == (Zone::Hand { owner: player })
-                    || (o.zone == (Zone::Command { owner: player })
-                        && self.state.rules.commanders.history(*card).is_some()))
-                    || self.state.rules.cards[card].owner != player
-                    || self.definition(*card)?.spell.is_none()
-                {
-                    return Err("invalid or unsupported cast".into());
-                }
-                let program = self
-                    .definition(*card)?
-                    .spell
-                    .as_ref()
-                    .ok_or("missing cast program")?;
-                // CR 702.8a / 601.2: intrinsic flash lowers to instant timing;
-                // catalog validation binds that permission to the whole spell.
-                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                if program.timing == SpellTiming::MainPhase && (!self.main_phase_action(player)) {
-                    return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
-                }
-                // Restrict targeted proposals to spells with an eligible target;
-                // the target-stage request never waits for an impossible choice.
-                if program
-                    .additional_sacrifice
-                    .as_ref()
-                    .is_some_and(|f| self.sacrifice_candidates(player, f).is_empty())
-                {
-                    return Err("no payable sacrifice cost".into());
-                }
-                if !self.has_target_domain(program, player) {
-                    return Err("no legal target for this proposal".into());
-                }
-                Ok(())
+                self.validate_priority_spell_cast(player, *card)
             }
             (
                 Frame::Targets { .. } | Frame::TriggerTargets { .. },
@@ -2827,14 +2981,18 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.rules.frame.clone() {
+            Frame::LandEntry { .. } => self.land_entry_step()?,
+            Frame::Cascade { progress } => self.cascade_step(*progress)?,
             Frame::LegendRule { .. } => self.legend_step()?,
             Frame::SacrificeCost { .. }
             | Frame::ForcedSacrifice { .. }
             | Frame::OptionalDamage { .. } => self.sacrifice_step()?,
             Frame::Setup => self.setup_step()?,
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
+            Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
+            Frame::CounterPlacement { .. } => self.counter_placement_step()?,
             Frame::DamageEffects { .. } => self.damage_effect_step()?,
             Frame::Priority => {
                 let input = self
@@ -2854,95 +3012,11 @@ impl Game {
                         if self.is_permanent_mana(object) {
                             self.begin_permanent_mana(&input, object, Frame::Priority)?;
                         } else {
-                            self.activate_intrinsic_mana(&input, object)?;
-                            self.state.rules.passes.clear();
-                            self.stabilize()?;
+                            self.begin_intrinsic_mana(&input, object, Frame::Priority)?;
                         }
                     }
                     Response::Cast { card } => {
-                        self.validate_cast_permission(input.player)?;
-                        self.check_stack_capacity(1)?;
-                        let cast_from = self
-                            .state
-                            .rules
-                            .objects
-                            .get(&card)
-                            .ok_or("missing cast source")?
-                            .zone;
-                        let total_cost = self.casting_cost(card, input.player, cast_from)?;
-                        let original_object = self
-                            .state
-                            .rules
-                            .objects
-                            .get(&card)
-                            .ok_or("missing cast source")?
-                            .id;
-                        let id = StackId(self.state.rules.next_stack_id);
-                        self.state.rules.next_stack_id = self
-                            .state
-                            .rules
-                            .next_stack_id
-                            .checked_add(1)
-                            .ok_or("stack ID resource limit")?;
-                        self.record_event(Event::SpellProposed { card, stack_id: id })?;
-                        let source = self
-                            .move_object_for(
-                                original_object,
-                                Zone::Stack,
-                                BatchCause::Casting {
-                                    stack_id: id,
-                                    player: input.player,
-                                    source: original_object,
-                                },
-                            )?
-                            .successor;
-                        let effect_source_handles =
-                            { self.capture_trigger_source_handles(source)? };
-                        self.state.rules.stack.push(StackInstance {
-                            x: None,
-                            death_controller: None,
-                            sacrificed: None,
-                            mode: None,
-                            effect_source_handles,
-                            source_facts: { Some(self.object_before(source)?) },
-                            entity_targets: vec![],
-                            announced_entity_targets: vec![],
-                            stack_targets: vec![],
-                            announced_stack_targets: vec![],
-                            kind: StackKind::Spell,
-                            player_targets: vec![],
-                            id,
-                            source,
-                            controller: input.player,
-                            targets: vec![],
-                            announced_targets: vec![vec![]; 4],
-                            paid: None,
-                            total_cost,
-                            cast_from,
-                        });
-                        let cast = Casting {
-                            sacrifice: None,
-                            origin: AnnouncementOrigin::Spell,
-                            spending: None,
-                            stack_id: id,
-                            original_object,
-                            prior_passes: self.state.rules.passes.clone(),
-                            mana_activations: vec![],
-                            undo_mana: false,
-                        };
-                        if !self
-                            .definition(card)?
-                            .spell
-                            .as_ref()
-                            .ok_or("missing spell")?
-                            .modes
-                            .is_empty()
-                        {
-                            self.state.rules.frame = Frame::Modes { cast };
-                        } else {
-                            self.begin_cast_x_or_targets(cast)?;
-                        }
-                        self.state.rules.passes.clear();
+                        self.announce_priority_spell(input.player, card)?;
                     }
                     Response::Pass => {
                         self.record_event(Event::PriorityPassed {
@@ -2996,7 +3070,7 @@ impl Game {
                     // payment; a tap-only cost grants no mana payment window.
                     self.complete_targeted_activation(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = Frame::Mana { cast };
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
                 }
             }
             Frame::Mana { mut cast } => {
@@ -3011,9 +3085,7 @@ impl Game {
                         if self.is_permanent_mana(object) {
                             self.begin_permanent_mana(&input, object, Frame::Mana { cast })?;
                         } else {
-                            let receipt = self.activate_intrinsic_mana(&input, object)?;
-                            cast.mana_activations.push(receipt);
-                            self.state.rules.frame = Frame::Mana { cast };
+                            self.begin_intrinsic_mana(&input, object, Frame::Mana { cast })?;
                         }
                     }
                     Response::FinishMana { undo_mana } => {
@@ -3023,6 +3095,12 @@ impl Game {
                     _ => return Err("mana response/frame invariant".into()),
                 }
             }
+            Frame::ManaSourceChoice {
+                player,
+                source,
+                scope,
+                resume,
+            } => self.mana_source_choice_step(player, source, scope, *resume)?,
             Frame::ManaAbility { activation } => self.permanent_mana_step(*activation)?,
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
@@ -3046,6 +3124,12 @@ impl Game {
                     self.finish_spell(&stack, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
+                        Instruction::Cascade { source_block, .. } => {
+                            return self.begin_cascade(frame, *source_block);
+                        }
+                        Instruction::MoveTriggeredSuccessor { .. } => {
+                            return self.resolve_successor_tuck(frame);
+                        }
                         Instruction::ReturnToOwnerHand {
                             target_slot,
                             source_block,
@@ -3236,7 +3320,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 44,
+            snapshot_version: 45,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3278,7 +3362,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 44
+        if s.snapshot_version != 45
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3316,12 +3400,17 @@ impl Game {
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
         let s = &self.state;
+        // Cleanup can remove land allowances before the next turn resets usage.
+        // Replay proves the land count at the boundaries where it was incremented.
         if s.rules.players.len() != 4
             || s.knowledge.visibility.len() != 4
             || s.rules.turn_owner.0 >= 4
             || s.rules.turn.number == 0
-            || s.rules.turn.lands_played > 1
             || s.rules.active.is_some_and(|p| !self.is_live(p))
+            || s.rules
+                .cast_history
+                .iter()
+                .any(|h| h.exile_cast && !h.any_cast)
             || s.rules.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.rules.priority.0 >= 4
             || (!self.is_live(s.rules.priority) && !matches!(s.rules.frame, Frame::Draw))
@@ -3370,11 +3459,15 @@ impl Game {
         self.validate_attachment_state()?;
         self.validate_control_state()?;
         self.validate_tokens_state()?;
+        self.validate_counter_placement_state()?;
+        self.validate_mana_uses()?;
         self.validate_trigger_state()?;
+        self.validate_library_position_memory()?;
         self.validate_effect_state()?;
         self.validate_choices_state()?;
         self.validate_commander_state()?;
         self.validate_actions_state()?;
+        self.validate_cascade_state()?;
         for p in &s.rules.players {
             if (p.status == PlayerStatus::Left) != p.last_known.is_some()
                 || p.last_known
@@ -3427,6 +3520,7 @@ impl Game {
                 && (matches!(
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::TriggerTargets { .. }
+                        | Frame::AdditionalCosts { .. }
                         | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
@@ -3462,10 +3556,12 @@ impl Game {
         {
             return Err("snapshot stack/zone invariant".into());
         }
+        self.validate_land_entry_state()?;
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.rules.frame)?;
         match self.underlying_mana_frame(&s.rules.frame) {
-            Frame::AnnounceX { cast }
+            Frame::AdditionalCosts { cast }
+            | Frame::AnnounceX { cast }
             | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
             | Frame::Targets { cast }
@@ -3498,7 +3594,8 @@ impl Game {
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame),
-                        Frame::AnnounceX { .. }
+                        Frame::AdditionalCosts { .. }
+                            | Frame::AnnounceX { .. }
                             | Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
                             | Frame::Targets { .. }
@@ -3514,7 +3611,8 @@ impl Game {
                 }
                 if matches!(
                     self.underlying_mana_frame(&s.rules.frame),
-                    Frame::AnnounceX { .. }
+                    Frame::AdditionalCosts { .. }
+                        | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
@@ -3945,6 +4043,8 @@ mod tests {
 
 #[cfg(test)]
 mod indestructible_tests;
+#[cfg(test)]
+mod static_permanent_indestructible_tests;
 
 #[cfg(test)]
 mod equipped_indestructible_tests;

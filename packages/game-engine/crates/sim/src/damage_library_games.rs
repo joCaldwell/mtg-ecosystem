@@ -129,6 +129,10 @@ impl Strategy {
             .as_ref()
             .ok_or("missing lifecycle decision")?;
         Ok(match request {
+            PlayerRequest::CounterPlacementEffect { .. } => {
+                return Err("counter placement replacement choices outside this policy".into());
+            }
+
             PlayerRequest::HandReturn { .. }
             | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
@@ -139,6 +143,9 @@ impl Strategy {
             PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
                 keep: candidates.last().ok_or("empty legend choices")?.clone(),
             },
+            PlayerRequest::AdditionalCosts { .. } => {
+                return Err("optional casting costs outside this completion policy".into());
+            }
             PlayerRequest::AnnounceX { .. } => {
                 return Err("X request unsupported by this completion policy".into());
             }
@@ -147,6 +154,7 @@ impl Strategy {
             }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request unsupported by this completion policy".into());

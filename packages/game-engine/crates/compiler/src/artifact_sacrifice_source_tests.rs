@@ -102,6 +102,7 @@ fn complete_shrapnel_blast_lowers_artifact_cost_and_fixed_self_damage_without_om
     assert_eq!(
         d.spell,
         Some(SpellProgram {
+            optional_additional_costs: vec![],
             additional_sacrifice: Some(SacrificeFilter {
                 types: vec![CardKind::Artifact],
                 subtypes: vec![]

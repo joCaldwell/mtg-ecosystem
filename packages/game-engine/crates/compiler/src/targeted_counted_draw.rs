@@ -8,7 +8,15 @@ pub(super) fn lower(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
 ) -> Result<bool, Failure> {
-    let [Sentence { bindings, steps }] = effects else {
+    let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
+    else {
         return Ok(false);
     };
     let [
@@ -24,6 +32,9 @@ pub(super) fn lower(
     // Keep the existing unrolled lowering for one and two draws.
     if *value <= 2 || who.player != "target-player" || !bindings.is_empty() {
         return Ok(false);
+    }
+    if program.additional_sacrifice.is_some() || !program.optional_additional_costs.is_empty() {
+        return Err(unsupported("counted draw", "requires ordinary spell costs"));
     }
     let recipient = life_recipient(program, slots, who, false)?;
     program.instructions.push(Instruction::DrawCards {

@@ -510,7 +510,7 @@ fn absent_active_turn_finishes_before_next_live_turn_and_queued_winner_precedes_
 fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
     let mut game = Game::new(prepared());
     let own = observe(&game, PlayerId(0));
-    assert_eq!(own.observation_version, 28);
+    assert_eq!(own.observation_version, 30);
     let token = own.decision.unwrap().token().clone();
     let hand = game
         .handle_for(PlayerId(0), game.object_id(CardId(1)).unwrap())
@@ -1235,6 +1235,7 @@ fn flash_end_step_draw() {
         intervening_if: None,
         program: SpellProgram {
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
