@@ -1145,6 +1145,8 @@ mod power_entry_draw_tests;
 mod announced_x_draw_tests;
 #[path = "announced_x_effects_tests.rs"]
 mod announced_x_effects_tests;
+#[path = "opponent_life_drain_tests.rs"]
+mod opponent_life_drain_tests;
 #[path = "targeted_counted_draw_tests.rs"]
 mod targeted_counted_draw_tests;
 
