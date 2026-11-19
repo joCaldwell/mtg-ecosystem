@@ -6,7 +6,7 @@ pub(super) fn coalesce(effects: &[Sentence]) -> Result<Option<(Quantity, Quantit
     if !effects
         .iter()
         .flat_map(|s| &s.steps)
-        .any(|s| matches!(s, Step::Discard { .. }))
+        .any(|s| matches!(s, Step::Discard(_)))
     {
         return Ok(None);
     }
@@ -33,10 +33,10 @@ pub(super) fn coalesce(effects: &[Sentence]) -> Result<Option<(Quantity, Quantit
             amount: DrawAmount::Fixed { value },
             optional: false,
         },
-        Step::Discard {
+        Step::Discard(DiscardStep::Chosen {
             who: discarder,
             what,
-        },
+        }),
     ] = steps.as_slice()
     else {
         return Err(fail());

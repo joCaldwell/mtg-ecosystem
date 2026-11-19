@@ -372,6 +372,7 @@ pub enum Capability {
     AnnouncedXEffectsV1,
     TargetedCountedDrawV1,
     TargetPlayerDiscardV1,
+    RandomPlayerDiscardV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -461,6 +462,15 @@ pub enum WipeAmount {
     Fixed { value: Quantity },
     AnnouncedX,
     CreatureCount,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RandomDiscardCount {
+    Fixed {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        value: Quantity,
+    },
+    AnnouncedX,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -911,6 +921,13 @@ pub enum Instruction {
         #[schemars(range(max = 0))]
         source_block: u32,
     },
+    DiscardTargetPlayerAtRandom {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        count: RandomDiscardCount,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     DiscardCards {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         recipient: Option<ActionRecipient>,
@@ -1009,6 +1026,7 @@ impl Instruction {
             Self::OptionalDrawCards { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardTargetPlayer { source_block, .. }
+            | Self::DiscardTargetPlayerAtRandom { source_block, .. }
             | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterStackObject { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
@@ -2589,6 +2607,9 @@ impl Definition {
                             i,
                             Instruction::DamageSet {
                                 amount: WipeAmount::AnnouncedX,
+                                ..
+                            } | Instruction::DiscardTargetPlayerAtRandom {
+                                count: RandomDiscardCount::AnnouncedX,
                                 ..
                             }
                         )
@@ -4497,7 +4518,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 _ => None,
             },
-            Instruction::DiscardTargetPlayer { target_slot, .. } => {
+            Instruction::DiscardTargetPlayer { target_slot, .. }
+            | Instruction::DiscardTargetPlayerAtRandom { target_slot, .. } => {
                 // The complete discard family already verified this player target.
                 Some((
                     *target_slot,
@@ -4826,6 +4848,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
+            Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
             Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
             Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
@@ -6481,6 +6504,7 @@ mod tests {
             TargetPlayerDrawV1,
             TargetedCountedDrawV1,
             TargetPlayerDiscardV1,
+            RandomPlayerDiscardV1,
             CastArtifactV1,
             PermanentManaV1,
             OpponentLandManaV1,
@@ -6777,6 +6801,7 @@ mod tests {
         definitions.push(power_entry_draw::witness());
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
+        definitions.push(targeted_discard::random_witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());

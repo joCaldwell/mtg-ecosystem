@@ -1157,6 +1157,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::GrantKeywordsSet { .. }
                     | Instruction::OptionalDrawCards { .. }
                     | Instruction::DiscardTargetPlayer { .. }
+                    | Instruction::DiscardTargetPlayerAtRandom { .. }
                     | Instruction::DrawControllerCards { .. }
                     | Instruction::PutHandOnLibrary { .. }
                     | Instruction::DrawAnnouncedX { .. }

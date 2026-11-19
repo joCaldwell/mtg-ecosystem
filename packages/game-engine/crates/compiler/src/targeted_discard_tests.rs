@@ -268,3 +268,143 @@ fn archive_witnesses(path: std::ffi::OsString) {
         }
     }
 }
+
+#[test]
+fn random_discard() {
+    let synthetic = changed_source(&synthetic_single(), |r| {
+        let text = "Target player discards a card at random.";
+        r["source"]["oracle_text"] = json!(text);
+        let result = &mut r["faces"][0]["result"];
+        result["lines"][0]["text"] = json!(text);
+        result["abilities"][0]["effects"][0]["steps"][0]["random"] = json!(true);
+        result["lines"][0]["ability"] = result["abilities"][0].clone();
+    });
+    let random = |count| Instruction::DiscardTargetPlayerAtRandom {
+        target_slot: 0,
+        source_block: 0,
+        count,
+    };
+    let fixed = |n: i64| RandomDiscardCount::Fixed { value: n.into() };
+    assert_eq!(
+        lowered(&synthetic).spell.unwrap().instructions,
+        [random(fixed(1))]
+    );
+    for case in 0..8 {
+        let bad = changed_source(&synthetic, |r| {
+            let result = &mut r["faces"][0]["result"];
+            let step = &mut result["abilities"][0]["effects"][0]["steps"][0];
+            match case {
+                0 => {
+                    step.as_object_mut().unwrap().remove("random");
+                }
+                1 => step["random"] = json!(false),
+                2 => step["random"] = Value::Null,
+                3 => step["what"]["upTo"] = json!(true),
+                4 => step["who"]["count"] = json!({"amount":"fixed","value":1}),
+                5 => r["binding"]["references"][0]["target"] = json!("another player"),
+                6 => r["source"]["mana_cost"] = json!("{X}{B}"),
+                _ => {
+                    let text = "Target player discards a card.";
+                    result["lines"][0]["text"] = json!(text);
+                    r["source"]["oracle_text"] = json!(text);
+                }
+            }
+            let result = &mut r["faces"][0]["result"];
+            result["lines"][0]["ability"] = result["abilities"][0].clone();
+        });
+        assert!(
+            !matches!(compile(MANIFEST, &bad), CompileResult::Lowered { .. }),
+            "case {case}"
+        );
+    }
+    let Some(path) = std::env::var_os("MTG_RANDOM_DISCARD_ARCHIVE_PROBE") else {
+        return;
+    };
+    let pins = [
+        (
+            5790,
+            "d3585fefc164be392ec66bb2d7862400ce9143e1c48a34fad869ad8b17a105fe",
+        ),
+        (
+            18241,
+            "d34c738a1f8cc5d89a489e10a61071a6af48f41ae165b2be8dbcb13d2b15c8aa",
+        ),
+        (
+            23084,
+            "51eba19037e55f546977cc1760fd0a43e5854896f65b8fca909425945e11d2f4",
+        ),
+        (
+            26398,
+            "911a2740664dee606a852eef8655135e7d3e32f3e1c5da714c6217ee81c262eb",
+        ),
+        (
+            29178,
+            "72294dd965311099f3647f57ad8cb0e66ab9ee03863a3fe5f70a6a1b844a711f",
+        ),
+        (
+            37752,
+            "1c9caa1cbb82f877a5b8114c2e19c9d3670d9d51acdf43ede17ed423e454dac2",
+        ),
+    ];
+    let rows = std::fs::read_to_string(path).unwrap();
+    assert_eq!(rows.lines().count(), pins.len());
+    for (raw, (row, hash)) in rows.lines().zip(pins) {
+        assert_eq!(sha256(raw.as_bytes()), hash);
+        let d = lowered(raw);
+        assert_eq!(d.provenance.source_index, row - 2);
+        let x = matches!(row, 5790 | 18241);
+        assert_eq!(d.x_mana_cost, x);
+        let mut expected = vec![random(if x {
+            RandomDiscardCount::AnnouncedX
+        } else if row == 23084 {
+            fixed(2)
+        } else {
+            fixed(1)
+        })];
+        let (domain, cap) = if matches!(row, 29178 | 37752) {
+            (TargetDomain::OpponentPlayer, Capability::OpponentTargetV1)
+        } else {
+            (TargetDomain::AnyPlayer, Capability::AnyPlayerTargetV1)
+        };
+        let mut caps = BTreeSet::from([
+            Capability::CastSorceryV1,
+            Capability::NormalLayoutV1,
+            Capability::RandomPlayerDiscardV1,
+            cap,
+        ]);
+        if row == 29178 {
+            expected.push(Instruction::DiscardTargetPlayer {
+                target_slot: 0,
+                count: 1.into(),
+                source_block: 0,
+            });
+            caps.insert(Capability::TargetPlayerDiscardV1);
+        }
+        let p = d.spell.unwrap();
+        assert_eq!(p.instructions, expected);
+        assert_eq!(d.capabilities, caps);
+        assert_eq!(
+            p.targets,
+            [TargetSpec {
+                slot: 0,
+                selection_id: "line:0:0".into(),
+                domain,
+                filter: None,
+                chooser: Chooser::Controller,
+                stage: EvaluationStage::Announcement
+            }]
+        );
+        if x || row == 29178 {
+            let bad = changed_source(raw, |r| {
+                // The count must reference this cast's announced X. The second
+                // discard must use the first discard's announced player.
+                let index = if x { 1 } else { 2 };
+                r["binding"]["references"][index]["target"] = json!("foreign binding");
+            });
+            assert!(!matches!(
+                compile(MANIFEST, &bad),
+                CompileResult::Lowered { .. }
+            ));
+        }
+    }
+}
