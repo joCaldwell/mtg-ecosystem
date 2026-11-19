@@ -29,7 +29,12 @@ pub(super) fn lower(
         return Ok(None);
     }
 
-    let bad = || unsupported("mana.family", "unsupported complete disjoint pain-mana source");
+    let bad = || {
+        unsupported(
+            "mana.family",
+            "unsupported complete disjoint pain-mana source",
+        )
+    };
     // Exact pure source kinds; no intrinsic subtype/explicit ability mixture,
     // creature readiness, third branch, unrelated static or triggered clauses.
     let noun = match card.type_line.as_str() {
@@ -151,7 +156,12 @@ pub(super) fn lower(
 }
 
 fn bind(binding: &Value, identity: &str, card: &Source, noun: &str) -> Result<(), Failure> {
-    let bad = || unsupported("binding.mana", "incomplete disjoint pain-mana binding closure");
+    let bad = || {
+        unsupported(
+            "binding.mana",
+            "incomplete disjoint pain-mana binding closure",
+        )
+    };
     let root = format!("card:{identity}");
     let source = format!("{root}/source#object");
     let face = format!("{root}/faces/0#face");

@@ -1171,11 +1171,15 @@ pub struct PermanentActivationCosts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
-    Fixed { symbols: Vec<Color> },
+    Fixed {
+        symbols: Vec<Color>,
+    },
     AnyColor,
     CommanderColor,
     /// Add one mana of the selected color.
-    Choice { colors: Vec<Color> },
+    Choice {
+        colors: Vec<Color>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1832,7 +1836,10 @@ impl Definition {
             set.insert(Capability::PermanentManaV1);
         }
         if disjoint_pain_mana_family(self) {
-            set.extend([Capability::DisjointPainManaV1, Capability::NoncombatDamageV1]);
+            set.extend([
+                Capability::DisjointPainManaV1,
+                Capability::NoncombatDamageV1,
+            ]);
         }
         if self
             .mana_abilities
@@ -2283,8 +2290,14 @@ impl Definition {
         {
             return Err("cascade is only a self-cast triggered program".into());
         }
-        if self.spell.as_ref().is_some_and(successor_tuck::contains_move)
-            || self.activated.iter().any(|a| successor_tuck::contains_move(&a.program))
+        if self
+            .spell
+            .as_ref()
+            .is_some_and(successor_tuck::contains_move)
+            || self
+                .activated
+                .iter()
+                .any(|a| successor_tuck::contains_move(&a.program))
         {
             return Err("successor movement requires its matching self-move trigger".into());
         }
@@ -4436,7 +4449,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
-            Instruction::MoveTriggeredSuccessor { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
+            Instruction::MoveTriggeredSuccessor { .. } => {
+                Capability::TriggeredSuccessorLibraryTuckV1
+            }
             Instruction::TargetPlayerSacrificeCreature { .. } => {
                 Capability::TargetPlayerSacrificeCreatureV1
             }

@@ -143,7 +143,9 @@ pub(super) struct DamageTransaction {
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum DamageContinuation {
     Combat,
-    Instruction { frame: Box<Resolving> },
+    Instruction {
+        frame: Box<Resolving>,
+    },
     Mana {
         activation: Box<ManaActivation>,
         departed: bool,

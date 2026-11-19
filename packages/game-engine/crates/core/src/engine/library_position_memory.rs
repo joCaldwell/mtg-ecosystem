@@ -67,7 +67,8 @@ impl Game {
                 .ok_or("remembered card absent from its library")?;
             rows.push(KnownLibraryPosition {
                 library_owner: owner,
-                position: u32::try_from(index + 1).map_err(|_| "library position resource limit")?,
+                position: u32::try_from(index + 1)
+                    .map_err(|_| "library position resource limit")?,
                 oracle_id: self
                     .state
                     .rules

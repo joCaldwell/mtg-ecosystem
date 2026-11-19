@@ -65,7 +65,9 @@ impl Game {
             || a.stage != ManaStage::Payment
             || !a.receipts.is_empty()
             || definition.mana_abilities.get(branch.index as usize) != Some(&a.ability)
-            || !self.mana_colors(a.player, &a.ability.production).contains(&branch.color)
+            || !self
+                .mana_colors(a.player, &a.ability.production)
+                .contains(&branch.color)
             || a.ability.self_damage.as_ref() != Some(&damage.original_amount)
             || tx.cause != a.cause()
             || !tx.allocation_groups.is_empty()
@@ -110,7 +112,9 @@ impl Game {
         departed: bool,
     ) -> Result<(), String> {
         let EventOutcome::DamageCommitted {
-            results, life_gains, ..
+            results,
+            life_gains,
+            ..
         } = actual
         else {
             return Err("missing actual mana damage outcome".into());
@@ -135,9 +139,11 @@ impl Game {
         }
         let mut shields = vec![];
         for application in applications {
-            if let (EffectKey::Resolved { id }, Some(before), Some(after)) =
-                (application.effect, application.budget_before, application.budget_after)
-            {
+            if let (EffectKey::Resolved { id }, Some(before), Some(after)) = (
+                application.effect,
+                application.budget_before,
+                application.budget_after,
+            ) {
                 shields.push(ManaDamageShield {
                     effect: id,
                     before,

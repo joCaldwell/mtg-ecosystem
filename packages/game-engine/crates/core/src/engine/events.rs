@@ -825,7 +825,10 @@ impl Game {
                 })
                 .flat_map(|damage| damage.shields.iter().map(|shield| shield.effect))
                 .collect::<BTreeSet<_>>();
-            self.state.rules.effects.iter()
+            self.state
+                .rules
+                .effects
+                .iter()
                 .filter(|effect| reversed_shields.contains(&effect.id))
                 .cloned()
                 .collect()

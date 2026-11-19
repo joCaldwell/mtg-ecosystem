@@ -85,7 +85,10 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     schema["$defs"]["TriggeredAbility"]
         .as_object_mut()
         .unwrap()
-        .entry("allOf").or_insert_with(|| json!([])).as_array_mut().unwrap()
+        .entry("allOf")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .unwrap()
         .push(json!({
             "if":{"properties":{"condition":moved},"required":["condition"]},
             "then":{"properties":{
@@ -114,7 +117,10 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     schema["$defs"]["Definition"]
         .as_object_mut()
         .unwrap()
-        .entry("allOf").or_insert_with(|| json!([])).as_array_mut().unwrap()
+        .entry("allOf")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .unwrap()
         .push(json!({
             "properties":{"spell":free,"activated":{"items":{"properties":{"program":free}}}},
             "if":{"required":["triggered"],"properties":{"triggered":{"contains":{
@@ -162,7 +168,11 @@ pub(super) fn witness(mut d: Definition) -> Definition {
 #[test]
 fn successor_tuck_positive_position_and_trigger_scope() {
     let catalog = Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json")).unwrap();
-    let creature = catalog.definitions.into_iter().find(|d| d.name == "Grizzly Bears").unwrap();
+    let creature = catalog
+        .definitions
+        .into_iter()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
     let mut d = witness(creature);
     d.validate().unwrap();
     let op = &d.triggered[0].program.instructions[0];

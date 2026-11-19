@@ -557,7 +557,8 @@ impl Game {
                     source_block,
                 } => {
                     if self.is_successor_tuck(frame)? {
-                        let (expected, _, expected_block) = self.successor_tuck_instruction(frame)?;
+                        let (expected, _, expected_block) =
+                            self.successor_tuck_instruction(frame)?;
                         if *object != expected
                             || *source_block != expected_block
                             || *destination != (Zone::Library { owner })

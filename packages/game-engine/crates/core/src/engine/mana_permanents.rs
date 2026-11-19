@@ -231,7 +231,8 @@ impl Game {
                 Frame::ManaAbility { activation } => activation,
                 Frame::DamageEffects { transaction }
                 | Frame::DamageAllocation { transaction, .. } => {
-                    let DamageContinuation::Mana { activation, .. } = transaction.continuation.as_ref()
+                    let DamageContinuation::Mana { activation, .. } =
+                        transaction.continuation.as_ref()
                     else {
                         break;
                     };
@@ -244,9 +245,8 @@ impl Game {
                 | Frame::SpendMana { cast }
                 | Frame::SacrificeCost { cast }
                 | Frame::Payment { cast } => {
-                    charge = charge.saturating_add(Self::mana_receipt_charge(
-                        &cast.mana_activations,
-                    ));
+                    charge =
+                        charge.saturating_add(Self::mana_receipt_charge(&cast.mana_activations));
                     break;
                 }
                 _ => break,
@@ -264,7 +264,11 @@ impl Game {
 
     fn mana_receipt_charge(receipts: &[ManaActivationUndo]) -> usize {
         receipts.iter().fold(0usize, |charge, receipt| {
-            if receipt.permanent.as_ref().is_some_and(|r| r.branch.is_some()) {
+            if receipt
+                .permanent
+                .as_ref()
+                .is_some_and(|r| r.branch.is_some())
+            {
                 charge.saturating_add(stored_history::payload_charge(receipt))
             } else {
                 charge
@@ -413,7 +417,9 @@ impl Game {
         };
         if input.player != player
             || !self.mana_resume_player(&resume, player)
-            || !self.mana_source_colors(player, source, scope)?.contains(&color)
+            || !self
+                .mana_source_colors(player, source, scope)?
+                .contains(&color)
         {
             return Err("invalid mana source choice".into());
         }
@@ -755,10 +761,7 @@ impl Game {
             });
         }
         if !children.is_empty() {
-            self.commit_batch(
-                cause,
-                EventGroup::Ordered { children },
-            )?;
+            self.commit_batch(cause, EventGroup::Ordered { children })?;
         }
         if let Some(amount) = a.ability.self_damage.clone() {
             return self.begin_mana_damage(a, amount);

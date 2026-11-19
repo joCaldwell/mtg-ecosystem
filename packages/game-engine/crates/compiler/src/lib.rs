@@ -1303,7 +1303,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         "/faces/0/abilities",
     )?;
     let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
-    let disjoint_mana = pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+    let disjoint_mana =
+        pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     // CR 207.2c: labels carry no rules meaning. All underlying fields must
     // still decode and lower, including conditions, costs and player relations.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1471,7 +1472,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         ..SourceLabels::default()
     };
     let mana_abilities = disjoint_mana.map(Vec::from).unwrap_or_default();
-    labels.mana.extend(mana_abilities.iter().map(|a| a.source_block));
+    labels
+        .mana
+        .extend(mana_abilities.iter().map(|a| a.source_block));
     let mut definition = Definition {
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),

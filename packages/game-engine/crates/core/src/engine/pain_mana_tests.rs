@@ -105,8 +105,7 @@ fn pain_mana_paid_choice_nested_undo_and_recovery() {
     assert_eq!(game.state.rules.stack.len(), 1);
     assert!(game.top().unwrap().paid.is_none());
     check(&game);
-    let PlayerRequest::DamageEffect { candidates, .. } =
-        observation(&game, 0).decision.unwrap()
+    let PlayerRequest::DamageEffect { candidates, .. } = observation(&game, 0).decision.unwrap()
     else {
         panic!("expected a real damage-effect order choice");
     };
@@ -144,11 +143,8 @@ fn pain_mana_paid_choice_nested_undo_and_recovery() {
     assert_eq!(shield(&keep), 0.into());
     assert!(keep.current(source).unwrap().tapped);
 
-    let restored = Game::restore(
-        game.prepared.as_ref().clone(),
-        &game.snapshot().unwrap(),
-    )
-    .unwrap();
+    let restored =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, game.state);
     game = restored;
     public(&mut game, PlayerResponse::FinishMana { undo_mana: true });

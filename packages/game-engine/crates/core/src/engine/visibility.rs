@@ -1800,14 +1800,12 @@ impl Game {
                 source,
                 scope,
                 ..
-            } if *player == viewer => {
-                Ok(Some(PlayerRequest::ManaColor {
-                    token,
-                    player: viewer,
-                    colors: self.mana_source_colors(*player, *source, *scope)?,
-                    mana_ability_source: Some(self.handle_for(viewer, *source)?),
-                }))
-            }
+            } if *player == viewer => Ok(Some(PlayerRequest::ManaColor {
+                token,
+                player: viewer,
+                colors: self.mana_source_colors(*player, *source, *scope)?,
+                mana_ability_source: Some(self.handle_for(viewer, *source)?),
+            })),
             Frame::ManaAbility { activation } if activation.player == viewer => {
                 Ok(Some(match self.permanent_mana_request(activation)? {
                     Request::Mana { cost, .. } => PlayerRequest::Mana {

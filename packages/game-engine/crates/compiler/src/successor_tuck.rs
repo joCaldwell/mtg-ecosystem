@@ -6,7 +6,10 @@ use serde_json::{Value, json};
 use std::num::NonZeroU32;
 
 fn unsupported_shape() -> Failure {
-    unsupported("trigger.successor", "requires the complete controller graveyard-to-library successor program")
+    unsupported(
+        "trigger.successor",
+        "requires the complete controller graveyard-to-library successor program",
+    )
 }
 
 pub(super) fn lower(
@@ -16,10 +19,26 @@ pub(super) fn lower(
     to: &Value,
     block: u32,
 ) -> Result<TriggeredAbility, Failure> {
-    let [Sentence { bindings, steps, condition: None, condition_kind: None }] = effects else {
+    let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
+    else {
         return Err(unsupported_shape());
     };
-    let [Step::MoveZone { what, to: library, order: None, tapped: None }] = steps.as_slice() else {
+    let [
+        Step::MoveZone {
+            what,
+            to: library,
+            order: None,
+            tapped: None,
+        },
+    ] = steps.as_slice()
+    else {
         return Err(unsupported_shape());
     };
     let depth = library["depth"]
@@ -85,27 +104,47 @@ pub(super) fn bind(
     if !abilities.iter().any(self_move) {
         return Ok(());
     }
-    let bad = || unsupported("trigger.successor.binding", "incomplete successor tuck source or reference closure");
-    let [_, Ability::Triggered { trigger, effects, condition, .. }, _] = abilities else {
+    let bad = || {
+        unsupported(
+            "trigger.successor.binding",
+            "incomplete successor tuck source or reference closure",
+        )
+    };
+    let [
+        _,
+        Ability::Triggered {
+            trigger,
+            effects,
+            condition,
+            ..
+        },
+        _,
+    ] = abilities
+    else {
         return Err(bad());
     };
     let SourceTrigger::PutIntoGraveyard { from, to, .. } = trigger.as_ref() else {
         return Err(bad());
     };
     let ability = lower(effects, condition.as_ref(), from, to, 1)?;
-    let Instruction::MoveTriggeredSuccessor { position: LibraryPosition::NthFromTop(depth), .. } =
-        ability.program.instructions[0] else {
+    let Instruction::MoveTriggeredSuccessor {
+        position: LibraryPosition::NthFromTop(depth),
+        ..
+    } = ability.program.instructions[0]
+    else {
         return Err(bad());
     };
     let raw: Value = decode(parsed.abilities.get(), "abilities")?;
     let subject = json!({"ref":"this","noun":"creature"});
     let pronoun = json!({"ref":"it"});
-    if raw != json!([
-        {"kind":"keywords","keywords":[{"keyword":"flying"}]},
-        {"kind":"triggered","trigger":{"trigger":"put-into-graveyard","what":subject,"from":"battlefield","to":graveyard()},
-            "effects":[{"steps":[{"effect":"move-zone","what":pronoun,"to":destination(depth)}]}]},
-        {"kind":"keywords","keywords":[{"keyword":"cascade"}]}
-    ]) {
+    if raw
+        != json!([
+            {"kind":"keywords","keywords":[{"keyword":"flying"}]},
+            {"kind":"triggered","trigger":{"trigger":"put-into-graveyard","what":subject,"from":"battlefield","to":graveyard()},
+                "effects":[{"steps":[{"effect":"move-zone","what":pronoun,"to":destination(depth)}]}]},
+            {"kind":"keywords","keywords":[{"keyword":"cascade"}]}
+        ])
+    {
         return Err(bad());
     }
     // Match the archived parser's ordinal words for this grammar. The executable
@@ -113,11 +152,18 @@ pub(super) fn bind(
     const ORDINALS: [&str; 9] = [
         "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth",
     ];
-    let ordinal = depth.get().checked_sub(2)
+    let ordinal = depth
+        .get()
+        .checked_sub(2)
         .and_then(|i| ORDINALS.get(i as usize))
         .ok_or_else(bad)?;
-    let sentence = format!("When this creature is put into your graveyard from the battlefield, put it into your library {ordinal} from the top.");
-    if parsed.lines.iter().map(|line| normalization::literal_spelling(&line.text))
+    let sentence = format!(
+        "When this creature is put into your graveyard from the battlefield, put it into your library {ordinal} from the top."
+    );
+    if parsed
+        .lines
+        .iter()
+        .map(|line| normalization::literal_spelling(&line.text))
         .ne(["Flying", sentence.as_str(), "Cascade"].map(str::to_owned))
     {
         return Err(bad());
@@ -141,8 +187,10 @@ pub(super) fn bind(
         let path = format!("/faces/0/abilities/{block}");
         let scope = format!("{root}{path}#ability");
         let you = format!("{root}{path}#you");
-        nodes.push(json!({"id":scope,"path":path,"node":"ability","source":source,"face":face,
-            "abilityKind":kind,"you":you,"rules":["113","109.5"]}));
+        nodes.push(
+            json!({"id":scope,"path":path,"node":"ability","source":source,"face":face,
+            "abilityKind":kind,"you":you,"rules":["113","109.5"]}),
+        );
         nodes.push(json!({"id":you,"path":path,"node":"runtime-player","scope":scope,"role":role,"rules":["109.5"]}));
         if kind == "keywords" {
             let (keyword, role, ability, rule) = if block == 0 {
@@ -153,8 +201,10 @@ pub(super) fn bind(
             let path = format!("{path}/keywords/0");
             let you = format!("{root}{path}#you");
             nodes.push(json!({"id":you,"path":path,"node":"runtime-player","scope":scope,"role":role,"rules":["109.5",rule]}));
-            nodes.push(json!({"id":format!("{root}{path}#keyword"),"path":path,"node":"keyword-ability",
-                "scope":scope,"keyword":keyword,"abilities":[ability],"you":you,"rules":[rule]}));
+            nodes.push(
+                json!({"id":format!("{root}{path}#keyword"),"path":path,"node":"keyword-ability",
+                "scope":scope,"keyword":keyword,"abilities":[ability],"you":you,"rules":[rule]}),
+            );
             continue;
         }
         let trigger = format!("{path}/trigger");
@@ -181,13 +231,15 @@ pub(super) fn bind(
             json!({"path":format!("{effect}/to/owner"),"expression":{"player":"you"},"binding":"bound","target":you,"rules":["109.5"]}),
         ]);
     }
-    if *binding != json!({
-        "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,"identity":identity,
-        "rules":{"edition":RULES_EDITION,"url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
-        "nodes":nodes,"references":references,"diagnostics":[],
-        "counts":{"obligations":5,"bound":5,"unresolved":0},"referencesBound":true,
-        "engineFeatures":[],"fullyBound":true
-    }) {
+    if *binding
+        != json!({
+            "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,"identity":identity,
+            "rules":{"edition":RULES_EDITION,"url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
+            "nodes":nodes,"references":references,"diagnostics":[],
+            "counts":{"obligations":5,"bound":5,"unresolved":0},"referencesBound":true,
+            "engineFeatures":[],"fullyBound":true
+        })
+    {
         return Err(bad());
     }
     Ok(())
@@ -196,7 +248,8 @@ pub(super) fn bind(
 #[cfg(test)]
 mod tests {
     use super::*;
-    const HEADER: &str = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+    const HEADER: &str =
+        include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
     const SOURCE: &str =
         include_str!("../../../tests/fixtures/ramos/6fb84ecd-ab60-4c2c-987d-8a0749db5777.json");
 
@@ -211,7 +264,10 @@ mod tests {
         };
         assert_eq!(definition.keywords, [KeywordAbility::Flying]);
         assert_eq!(definition.triggered.len(), 2);
-        assert_eq!(definition.triggered[1].program, canonical_cascade_program(2));
+        assert_eq!(
+            definition.triggered[1].program,
+            canonical_cascade_program(2)
+        );
         assert_eq!(
             definition.triggered[0].program.instructions,
             [Instruction::MoveTriggeredSuccessor {
@@ -221,7 +277,11 @@ mod tests {
                 source_block: 1,
             }]
         );
-        assert!(definition.capabilities.contains(&Capability::TriggeredSuccessorLibraryTuckV1));
+        assert!(
+            definition
+                .capabilities
+                .contains(&Capability::TriggeredSuccessorLibraryTuckV1)
+        );
         assert!(definition.characteristics.has_type(CardKind::Artifact));
         assert_eq!(
             definition.characteristics.mana_cost,
@@ -239,7 +299,10 @@ mod tests {
                 .replace("#successor", "#objects")
                 .into();
         });
-        assert!(matches!(compile(HEADER, &bad), CompileResult::Unsupported { .. }));
+        assert!(matches!(
+            compile(HEADER, &bad),
+            CompileResult::Unsupported { .. }
+        ));
 
         let second = crate::tests::changed_source(SOURCE, |record| {
             let text = &mut record["source"]["oracle_text"];

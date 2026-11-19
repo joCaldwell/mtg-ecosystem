@@ -15,7 +15,7 @@ pub(super) fn self_graveyard_successor(
     (movement.previous == source
         && movement.from == Zone::Battlefield
         && movement.destination == (Zone::Graveyard { owner: controller }))
-        .then_some(movement.successor)
+    .then_some(movement.successor)
 }
 
 impl Game {
@@ -57,7 +57,9 @@ impl Game {
         let (object, _, source_block) = self.successor_tuck_instruction(&frame)?;
         let owner = frame.spell.controller;
         if self.is_live(owner)
-            && self.current(object).is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))
+            && self
+                .current(object)
+                .is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))
             && self.state.rules.commanders.history(object.card).is_some()
         {
             self.state.rules.frame = Frame::CommanderReturn {
@@ -84,7 +86,9 @@ impl Game {
         // CR 608.2k/609.3: this move is untargeted and only the original
         // successor in the expected zone is eligible.
         let outcome = if self.is_live(owner)
-            && self.current(object).is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))
+            && self
+                .current(object)
+                .is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))
         {
             let cause = BatchCause::Instruction {
                 stack_id: stack.id,
@@ -129,9 +133,13 @@ impl Game {
         }
         let destination = Zone::Library { owner: player };
         let EventOutcome::Moved { movement } = self.apply_occurrence_with_prior(
-            &ProposedEvent::Move { object, destination },
+            &ProposedEvent::Move {
+                object,
+                destination,
+            },
             before,
-        )? else {
+        )?
+        else {
             return Err("ordered-library movement invariant".into());
         };
         let library = self

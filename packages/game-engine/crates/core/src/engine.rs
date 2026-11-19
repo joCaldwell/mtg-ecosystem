@@ -331,15 +331,15 @@ mod hand_return;
 mod intrinsic_mana;
 mod library_order;
 mod library_position_memory;
-mod successor_tuck;
-#[cfg(test)]
-mod successor_tuck_tests;
 mod library_selection;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
 mod mill;
 mod scry;
+mod successor_tuck;
+#[cfg(test)]
+mod successor_tuck_tests;
 mod surveil;
 pub use mana_permanents::PermanentManaUndo;
 use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
@@ -2425,7 +2425,8 @@ impl Game {
         let o = self.current(object)?;
         let d = self.definition(object.card)?;
         if o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
-            return Ok(d.mana_abilities
+            return Ok(d
+                .mana_abilities
                 .iter()
                 .flat_map(|ability| self.mana_colors(o.controller, &ability.production))
                 .collect());
@@ -2747,7 +2748,9 @@ impl Game {
             return match response {
                 Response::ManaColor { color }
                     if *chooser == player
-                        && self.mana_source_colors(player, *source, *scope)?.contains(color) =>
+                        && self
+                            .mana_source_colors(player, *source, *scope)?
+                            .contains(color) =>
                 {
                     Ok(())
                 }
