@@ -207,11 +207,10 @@ The first game mode is one human against three automated opponents. Cookie sign-
 grants no native seat authority. Captured preview stays separate from admission,
 selected library decks and live records.
 
-`@multiverse/game/server` supplies the authenticated `/api/games` extension to the
-existing public backend host. The host retains session resolution, Host/Origin
-checks, rate limits and response error handling. It dispatches the extension
-outside the handler-wide SQL reservation; the coordinator reserves SQL only for
-queries/transactions and rechecks authority after native I/O.
+`@multiverse/game/server` mounts `/api/games`. The backend owns session resolution,
+Host/Origin checks, rate limits and errors. Hosted play paces product and native
+fetches from the shared Actor limit. Record polls honor account cooldown. Native
+I/O runs outside SQL reservations. The coordinator rechecks authority afterward.
 
 Deck-builder's public application port checks the existing human Actor/account and
 deck owner and captures exact Oracle IDs/roles/quantities at the requested revision,

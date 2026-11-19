@@ -23,6 +23,7 @@ export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrows
   const [grant, setGrant] = useState<Grant | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
   useEffect(() => {
+    const releaseBudget = host.startRequestBudget?.();
     let current = true, grantAllowed = true, revoked = false;
     let statusRequest: AbortController | undefined;
     let nextStatus: ReturnType<typeof setTimeout> | undefined;
@@ -67,8 +68,13 @@ export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrows
     }).catch(() => {
       if (current && !revoked) setGrant({ gameId, attempt, error: "This game session is unavailable. Return to saved games to resume it, or try again." });
     }).finally(() => clearTimeout(timer));
-    return () => { current = false; clearTimeout(timer); clearTimeout(nextStatus); controller.abort(); statusRequest?.abort(); };
-  }, [gameId, attempt]);
+    return () => {
+      current = false;
+      clearTimeout(timer); clearTimeout(nextStatus);
+      controller.abort(); statusRequest?.abort();
+      releaseBudget?.();
+    };
+  }, [gameId, attempt, host.startRequestBudget]);
   const current = grant?.gameId === gameId && grant.attempt === attempt ? grant : null;
   const record = saved?.gameId === gameId && saved.attempt === attempt ? saved : null;
   const game = record?.game;
@@ -76,7 +82,8 @@ export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrows
   return <Page width="full" header={<PageHeader title="Game" actions={<ButtonLink href={host.backHref}>Back to saved games</ButtonLink>} />}>
     {inactive && <section aria-labelledby="saved-game-status"><h2 id="saved-game-status">{game.state === "completed" ? "Game complete" : game.state === "provisioning" ? "Preparing game" : game.state === "paused" ? "Game paused" : "Game interrupted"}</h2><p role="status">{savedStatus(game)}</p></section>}
     {record?.error && <ErrorNote>{record.error}</ErrorNote>}
-    {current?.file ? <GameSession gameId={gameId} bootstrapFile={current.file} headingLevel={2} interactive={!inactive && record?.denied !== true} />
+    {current?.file ? <GameSession gameId={gameId} bootstrapFile={current.file} headingLevel={2} interactive={!inactive && record?.denied !== true}
+      {...(host.requestFetch ? { requestFetch: host.requestFetch } : {})} />
       : inactive ? null
       : current?.error ? <><ErrorNote>{current.error}</ErrorNote><Button onClick={() => setAttempt(value => value + 1)}>Try again</Button></>
         : record?.denied ? <Button onClick={() => setAttempt(value => value + 1)}>Try again</Button>

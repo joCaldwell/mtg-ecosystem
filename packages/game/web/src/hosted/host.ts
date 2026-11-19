@@ -2,6 +2,9 @@ import type { ComponentType, ReactNode } from "react";
 import type { GameAdmission, GameLaunchResult, GameRecord } from "../../../shared/contracts.ts";
 /** Product navigation, HTTP and visual primitives; no product-private imports. */
 export interface GameBrowserHost {
+  /** Share the hosted game proxy's requests with the product transport. */
+  requestFetch?: typeof fetch;
+  startRequestBudget?: () => () => void;
   api: {
     gameAdmission(deckId: number, revision: number): Promise<{ admission: GameAdmission }>;
     launchGame(deckId: number, revision: number, requestId: string): Promise<GameLaunchResult>;

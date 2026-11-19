@@ -1,3 +1,5 @@
+import { productFetch } from "./request-budget.ts";
+
 // One HTTP boundary, shared by the small reader client and the editor.
 export class ApiError extends Error {
   status: number;
@@ -14,7 +16,7 @@ export async function request<T>(method: string, path: string, body?: unknown, s
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (key) headers["Idempotency-Key"] = key;
   const send = async (): Promise<T> => {
-    const res = await fetch(path, {
+    const res = await productFetch(path, {
       method,
       credentials: "same-origin",
       headers,
@@ -39,7 +41,7 @@ export async function request<T>(method: string, path: string, body?: unknown, s
   catch (error) {
     // A dropped response can follow a committed write. Retry the same command
     // once with its original identity; HTTP errors already have a clear result.
-    if (!key || signal?.aborted || error instanceof ApiError) throw error;
+    if (!key || signal?.aborted || error instanceof ApiError || (error instanceof Error && error.name === "AbortError")) throw error;
     return send();
   }
 }
