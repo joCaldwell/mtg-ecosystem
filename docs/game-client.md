@@ -260,12 +260,12 @@ old-generation cancellation is ignored. Late completions cannot relabel themselv
 with the latest generation. Immutable snapshots omit token/cursor/credential;
 handles/scope/beginnings remain private in-memory facts, never URL/log/storage data.
 
-Local ceilings: page 16, work 250/call, 32 charged attempts, 8,000 units, 256 aggregate
-entries, 131,072 aggregate UTF-8 response bytes, absolute 20-second chain, four-second
-operations, 100 ms inter-page wait. Limits may only decrease. At most two total retries
-for HTTP 429/explicit quota, with one-second wait and full charged budgets. Other
-transport/protocol failures retain uncertainty. At most one extra cancellation
-attempt per retired intent, four seconds, no work/budget replenishment.
+Local ceilings are 16/page, 250 work/call, 32 charged attempts, 8,000 units, 256
+entries, 131,072 aggregate UTF-8 response bytes, 20 seconds/chain and four
+seconds/operation. Inter-page wait is 100 ms. Limits only decrease. At most two
+fully charged retries for HTTP 429/explicit quota wait one second each. Other
+transport/protocol failures retain uncertainty. One extra cancellation may wait
+for cooldown within four seconds. It never replenishes work or budget.
 
 ReadSession captures original CommandContext/query context/scope before discovery,
 associates only that returned query generation, and requires its issued draft,

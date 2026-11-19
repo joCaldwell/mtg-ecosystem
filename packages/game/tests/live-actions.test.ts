@@ -20,7 +20,7 @@ const complete = (): ActionQueryResponse => ({ protocol_version: 1, match_id: bi
 const incomplete = (): ActionQueryResponse => { const result = complete(); if (result.outcome.status !== 'complete') throw new Error(); return { ...result, outcome: { ...result.outcome, status: 'incomplete', cursor, required_minimum: 1 } }; };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { resolve, promise }; }
 async function flush() { for (let i = 0; i < 100; i++) await Promise.resolve(); }
-function rig() {
+function rig(retryAfter?: () => number) {
   let owns = false, record: JournalRecord<CommandEnvelope> | null = null, sends = 0, authorizations = 0;
   const events: string[] = [], waits: ReturnType<typeof deferred<void>>[] = [], operations: ReturnType<typeof deferred<void>>[] = [];
   const queries: ActionQueryRequest[] = [];
@@ -47,6 +47,7 @@ function rig() {
       operation() { const c = new AbortController(), expired = deferred<void>(); operations.push(expired); return { signal: c.signal, expired: expired.promise, abort: () => c.abort(), dispose() {} }; },
       async query(request) { assert.ok(owns); events.push(request.operation); queries.push(request); return handler(request); },
     }, transport: {
+      ...(retryAfter ? { retryAfter } : {}),
       async manifest() { events.push('manifest'); return { ...binding, profile: opening.profile } as unknown as PublicManifest; },
       async presentation() { return null; }, async resume() { events.push('resume'); return structuredClone(original); },
       poll(after) { return poll(after); },
@@ -92,6 +93,39 @@ test('same-token read revision replacement synchronously revokes pages and origi
   await r.stop(running);
 });
 
+test('hinted read cooldown delays own-cursor cancel and fences replacement discovery', async () => {
+  let cooldown = 0;
+  const r = rig(() => cooldown), cancellation = deferred<ActionQueryResponse>();
+  const waits: number[] = [], wait = r.effects.wait;
+  r.effects.wait = (ms, signal) => { waits.push(ms); return wait(ms, signal); };
+  let starts = 0;
+  r.handler(async request => request.operation === 'cancel' ? cancellation.promise : ++starts === 1 ? incomplete() : complete());
+  const running = r.session.join('seat'); await flush();
+  const first = r.session.startActions(); await flush();
+  assert.equal(r.session.getSnapshot().actions?.phase, 'incomplete');
+  r.poll(async () => { cooldown = 1_000; throw new SessionFailure('rate-limited'); });
+  r.waits[0]!.resolve(); await flush();
+  assert.equal(r.session.getSnapshot().actions?.cancellation, 'pending');
+  assert.deepEqual(waits, [100, 100, 1_000, 1_000]);
+  assert.deepEqual(r.queries.map(query => query.operation), ['start']);
+
+  r.waits[2]!.resolve(); await flush();
+  assert.equal(r.session.getSnapshot().connection, 'ready');
+  const replacement = r.session.startActions(); await flush();
+  assert.deepEqual(r.queries.map(query => query.operation), ['start']);
+  cooldown = 0;
+  r.waits[3]!.resolve(); await flush();
+  assert.deepEqual(r.queries.at(-1), { operation: 'cancel', cursor });
+  assert.deepEqual(r.queries.map(query => query.operation), ['start', 'cancel']);
+  cancellation.resolve({ protocol_version: 1, match_id: binding.match_id, viewer: 0, outcome: { status: 'cancelled' } });
+  r.waits[1]!.resolve();
+  const [discarded, next] = await Promise.all([first, replacement]);
+  assert.equal(discarded, null); assert.ok(next);
+  assert.deepEqual(r.queries.map(query => query.operation), ['start', 'cancel', 'start']);
+  assert.equal(r.stats().sends, 0);
+  await r.stop(running);
+});
+
 test('seat replacement waits for captured SDK cancellation while lock is held; stopped queued import never restarts', async () => {
   const r = rig(), cancellation = deferred<ActionQueryResponse>();
   r.handler(async request => request.operation === 'cancel' ? cancellation.promise : incomplete());
@@ -118,7 +152,8 @@ test('late in-flight own cursor cleanup finishes before release and uses old aut
 });
 
 test('shutdown drains late cleanup from an older retired query after a newer generation completes', async () => {
-  const r = rig(), result = deferred<ActionQueryResponse>(), cancellation = deferred<ActionQueryResponse>();
+  let cooldown = 0;
+  const r = rig(() => cooldown), result = deferred<ActionQueryResponse>(), cancellation = deferred<ActionQueryResponse>();
   let starts = 0;
   r.handler(async request => request.operation === 'cancel' ? cancellation.promise : ++starts === 1 ? result.promise : complete());
   const running = r.session.join('seat'); await flush();
@@ -126,11 +161,33 @@ test('shutdown drains late cleanup from an older retired query after a newer gen
   await r.session.cancelActions(r.session.getSnapshot().actions!.generation);
   const next = await r.session.startActions(); assert.ok(next);
   r.session.stop(); await flush(); assert.equal(r.stats().owns, true);
+  cooldown = 1_000;
   result.resolve(incomplete()); await flush();
+  assert.deepEqual(r.queries.map(query => query.operation), ['start', 'start']);
+  assert.equal(r.stats().owns, true, 'late cooldown must finish under the old exclusive owner');
+  cooldown = 0;
+  r.waits.at(-1)!.resolve(); await flush();
   assert.deepEqual(r.queries.map(query => query.operation), ['start', 'start', 'cancel']);
   assert.equal(r.stats().owns, true, 'late cancellation must finish under the old exclusive owner');
   cancellation.resolve({ protocol_version: 1, match_id: binding.match_id, viewer: 0, outcome: { status: 'cancelled' } });
   await first; await r.stop(running); assert.equal(r.stats().owns, false);
+});
+
+test('cooldown at the cleanup deadline leaves cancellation unknown without sending', async () => {
+  const r = rig(() => 4_000);
+  r.handler(async request => {
+    assert.equal(request.operation, 'start');
+    return incomplete();
+  });
+  const running = r.session.join('seat'); await flush();
+  const discovery = r.session.startActions(); await flush();
+  assert.equal(r.session.getSnapshot().actions?.phase, 'incomplete');
+  await r.session.cancelActions(r.session.getSnapshot().actions!.generation);
+  assert.equal(r.session.getSnapshot().actions?.cancellation, 'unknown');
+  assert.deepEqual(r.queries.map(query => query.operation), ['start']);
+  r.waits[1]!.resolve(); await discovery;
+  await r.stop(running);
+  assert.equal(r.stats().owns, false);
 });
 
 test('unexplained beginnings and mana payment context cannot construct live responses', () => {

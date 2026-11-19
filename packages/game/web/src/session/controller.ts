@@ -1,6 +1,6 @@
 import type { ActionScope, PublicManifest, SeatResume, StreamPage } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../../../generated/presentation.d.ts';
-import { ActionQueryController, type ActionQueryContext, type ActionQueryEffects, type ActionQuerySnapshot, type ActionQueryTransport } from './action-query.ts';
+import { ACTION_QUERY_LIMITS, ActionQueryController, type ActionQueryContext, type ActionQueryEffects, type ActionQuerySnapshot, type ActionQueryTransport } from './action-query.ts';
 import { actionResponse, type LiveActionDraft } from './live-action.ts';
 import type { ExternalStore } from './contracts.ts';
 import { CommandLifecycle, disabledCommand, journalBinding, type CommandContext, type CommandEffects, type CommandSnapshot, type DecisionIntent } from './command.ts';
@@ -170,7 +170,7 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
           current: () => this.#current(run) ? run.queryContext : null,
           authorize: context => context.authorization === run.authorization ? (request, querySignal) => {
             if (!run.release) return Promise.reject(new SessionFailure('disconnected'));
-            const operation = actions.operation(4_000), cancel = this.#effects.cancellation();
+            const operation = actions.operation(ACTION_QUERY_LIMITS.requestMs), cancel = this.#effects.cancellation();
             const abort = () => cancel.abort();
             for (const signal of [querySignal, operation.signal]) {
               if (signal.aborted) abort();
@@ -178,7 +178,14 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
             }
             // Register before calling injected transport, which can synchronously
             // stop/replace its owner. Cleanup alone may use a retired owner.
-            const response = Promise.resolve().then(() => {
+            const response = Promise.resolve().then(async () => {
+              // Keep the single cleanup request inside both existing deadlines
+              // and track its wait before the old seat can release ownership.
+              const cooldown = request.operation === 'cancel' ? Math.ceil(transport.retryAfter?.() ?? 0) : 0;
+              if (Number.isFinite(cooldown) && cooldown > 0) {
+                if (cooldown >= ACTION_QUERY_LIMITS.requestMs) throw new SessionFailure('rate-limited');
+                await this.#effects.wait(cooldown, cancel.signal);
+              }
               if (!run.release || cancel.signal.aborted || (request.operation !== 'cancel'
                 && (!this.#current(run) || run.queryContext?.generation !== context.generation))) throw new SessionFailure('disconnected');
               return actions.query(request, cancel.signal);

@@ -116,6 +116,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const staleRediscovery = { native: 0, local: 0, started: 0, ready: 0, freshGenerations: 0,
     contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 };
   let discoveryGenerations = 0, staleRecoveredCommands = 0;
+  const queryUnavailableReasons: Record<string, number> = {};
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   type SavedIntent = { response: PlayerResponse; revision: string; token: string; binding: Record<string, string> };
   const submissions = new SubmissionAudit<SavedIntent>();
@@ -294,6 +295,11 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             queries++;
             check(["complete", "incomplete", "stale", "unavailable", "cancelled"].includes(value.outcome.status), "query_outcome_kind");
             add(queryOutcomes, value.outcome.status);
+            if (value.outcome.status === "unavailable") {
+              const kind = value.outcome.reason?.kind;
+              check(["core", "quota", "in_flight", "total_work", "response_limit", "executor"].includes(kind), "query_unavailable_kind");
+              add(queryUnavailableReasons, kind);
+            }
             if (queryOwner && queryOwner === discovery) {
               queryOwner.calls++;
               if (value.outcome.status === "stale") queryOwner.nativeStale = true;
@@ -793,7 +799,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       discovery_ui_generations: discoveryGenerations, stale_discovery_counts: staleRediscovery,
       stale_rediscovery_consumed_commands: staleRecoveredCommands,
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
-      ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
+      ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes,
+      query_unavailable_reasons: queryUnavailableReasons, discovery_phase_counts: discoveryPhases,
       last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,
       presentation_404: presentationMissing, presentation_artifacts: presentationArtifacts, production_presentation_verified: presentationVerified,
       immutable_assets_revalidated_per_grant: immutableAssetsRevalidated, named_cards_verified: namedCards,
