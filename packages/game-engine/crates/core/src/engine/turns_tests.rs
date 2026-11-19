@@ -1337,8 +1337,8 @@ fn flash_end_step_draw() {
         } else {
             let progress = frame.draw_progress.as_ref().unwrap();
             assert_eq!(progress.source_block, 1);
-            assert_eq!(progress.completed, (completed as u32).into());
-            assert_eq!(progress.remaining, (7 - completed as u32).into());
+            assert_eq!(progress.completed, Quantity::from(completed as i64));
+            assert_eq!(progress.remaining, Quantity::from(7 - completed as i64));
         }
         if completed == 3 {
             recover(&game);
