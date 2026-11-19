@@ -33,6 +33,8 @@ pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod targeted_counted_draw;
+mod targeted_discard;
+pub use targeted_discard::target_player_discard_program;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 mod controller_library;
 mod draw_discard;
@@ -355,6 +357,7 @@ pub enum Capability {
     TypedLandSearchV1,
     CreatureAnthemV1,
     TargetPlayerDrawV1,
+    TargetPlayerDiscardV1,
     AttachmentsV1,
     PermanentRemovalV1,
     SacrificeV1,
@@ -808,6 +811,11 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
+    TargetPlayerDiscardCards {
+        target_slot: u32,
+        count: Quantity,
+        source_block: u32,
+    },
     TargetPlayerSacrificeCreature {
         target_slot: u32,
         source_block: u32,
@@ -927,6 +935,7 @@ impl Instruction {
             Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
+            Self::TargetPlayerDiscardCards { source_block, .. } => *source_block,
             Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::DrawCards { source_block, .. } => *source_block,
@@ -2186,6 +2195,7 @@ impl Definition {
         u32::try_from(self.static_abilities.len()).map_err(|_| "static ability index limit")?;
         controller_library::validate_definition(self)?;
         fixed_mill::validate_definition(self)?;
+        targeted_discard::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
@@ -4232,6 +4242,12 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::TargetPlayerDiscardCards { target_slot, .. } => {
+                if !target_player_discard_program(p) {
+                    return Err("invalid targeted discard program".into());
+                }
+                Some((*target_slot, TargetDomain::AnyPlayer))
+            }
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
             }
@@ -4666,6 +4682,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::MoveTriggeredSuccessor { .. } => {
                 Capability::TriggeredSuccessorLibraryTuckV1
             }
+            Instruction::TargetPlayerDiscardCards { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::TargetPlayerSacrificeCreature { .. } => {
                 Capability::TargetPlayerSacrificeCreatureV1
             }
@@ -5985,6 +6002,7 @@ pub fn catalog_schema() -> serde_json::Value {
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
+    targeted_discard::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
@@ -6237,6 +6255,7 @@ mod tests {
             TypedLandSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
+            TargetPlayerDiscardV1,
             TargetedCountedDrawV1,
             CastArtifactV1,
             PermanentManaV1,
@@ -6494,6 +6513,7 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(targeted_discard::witness());
         definitions.push(targeted_counted_draw::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());

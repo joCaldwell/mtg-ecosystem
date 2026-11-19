@@ -377,3 +377,59 @@ fn fixed_mill_atomic_rollback_and_authenticated_completed_prefix() {
         },
     );
 }
+
+#[test]
+fn synthetic_target_player_discard_uses_announced_hand() {
+    for (seat, depart) in [(0, false), (1, false), (1, true)] {
+        let mut p = prepared(&[
+            ("Tome Scour", 0, 0, true),
+            ("Island", 0, 0, false),
+            ("Island", seat, seat, true),
+            ("Island", seat, seat, true),
+        ]);
+        let catalog = Arc::make_mut(&mut p.catalog);
+        let d = catalog.definitions.iter_mut()
+            .find(|d| d.oracle_id == p.config.cards[0].oracle_id).unwrap();
+        d.spell.as_mut().unwrap().instructions = vec![Instruction::TargetPlayerDiscardCards {
+            target_slot: 0,
+            count: 3.into(),
+            source_block: 0,
+        }];
+        d.capabilities = d.requirements();
+        d.validate().unwrap();
+        p.catalog_digest = digest(catalog).unwrap();
+        both(p, |g, q| {
+            let target = PlayerId(seat);
+            paid(g, q, Some(target));
+            let caster_hand = g.action_hand(PlayerId(0));
+            let target_hand = g.action_hand(target);
+            loop {
+                let r = request(g, q);
+                if let Request::ResolveDiscard { player, count, candidates, .. } = &r {
+                    assert_eq!(*player, target);
+                    assert_eq!(*count, 2);
+                    assert_eq!(candidates, &target_hand);
+                    recover(g);
+                    assert!(g.respond(*player, r.decision_id(), Response::ResolveDiscard {
+                        objects: candidates[..1].to_vec(),
+                    }).is_err());
+                    if depart {
+                        g.concede(target).unwrap();
+                    } else {
+                        g.respond(*player, r.decision_id(), Response::ResolveDiscard {
+                            objects: candidates.clone(),
+                        }).unwrap();
+                    }
+                    break;
+                }
+                assert!(!g.state.rules.stack.is_empty());
+                answer(g, q, pass(&r));
+            }
+            finish(g, q);
+            assert!(g.action_hand(target).is_empty());
+            if seat != 0 {
+                assert_eq!(g.action_hand(PlayerId(0)), caster_hand);
+            }
+        });
+    }
+}
