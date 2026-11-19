@@ -1543,6 +1543,7 @@ impl TriggerCondition {
             Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
+            Self::SelfBecomesTapped => "self_becomes_tapped",
             Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
             Self::SelfMoved { .. } => "self_moved",
         }

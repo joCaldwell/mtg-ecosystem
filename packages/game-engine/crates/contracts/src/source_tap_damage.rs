@@ -4,7 +4,8 @@ use super::*;
 use serde_json::{Value, json};
 
 const PRINTED_TRIGGER: &str = "Whenever this land becomes tapped, it deals ";
-const SHAPE_ERROR: &str = "source tap damage requires a complete land with a separate any-color mana ability";
+const SHAPE_ERROR: &str =
+    "source tap damage requires a complete land with a separate any-color mana ability";
 
 fn controller_damage(program: &SpellProgram) -> bool {
     program
@@ -171,12 +172,14 @@ pub(super) fn extend_schema(schema: &mut Value) {
 
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
-    let mut d = Catalog::read(include_str!("../../../tests/fixtures/expected-mana-ir.json"))
-        .unwrap()
-        .definitions
-        .into_iter()
-        .find(|d| d.name == "Command Tower")
-        .unwrap();
+    let mut d = Catalog::read(include_str!(
+        "../../../tests/fixtures/expected-mana-ir.json"
+    ))
+    .unwrap()
+    .definitions
+    .into_iter()
+    .find(|d| d.name == "Command Tower")
+    .unwrap();
     d.source_labels = None;
     d.mana_abilities[0].production = ManaProduction::AnyColor;
     d.mana_abilities[0].source_block = 1;

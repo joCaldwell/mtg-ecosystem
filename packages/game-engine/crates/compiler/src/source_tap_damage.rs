@@ -19,7 +19,9 @@ pub(super) fn lower(
         )
     });
     let has_binding = binding["nodes"].as_array().is_some_and(|nodes| {
-        nodes.iter().any(|node| node["operation"] == "trigger:becomes-tapped")
+        nodes
+            .iter()
+            .any(|node| node["operation"] == "trigger:becomes-tapped")
     });
     if !has_trigger && !has_binding && !card.oracle_text.contains("becomes tapped") {
         return Ok(None);
@@ -33,7 +35,11 @@ pub(super) fn lower(
     let Some((trigger_line, mana_line)) = card.oracle_text.split_once('\n') else {
         return Err(bad());
     };
-    let [Ability::Triggered { trigger, .. }, Ability::Activated { .. }] = abilities else {
+    let [
+        Ability::Triggered { trigger, .. },
+        Ability::Activated { .. },
+    ] = abilities
+    else {
         return Err(bad());
     };
     let amount = trigger_line
@@ -51,15 +57,17 @@ pub(super) fn lower(
             SourceTrigger::BecomesTapped { what: TriggerObject::This { noun } } if noun == "land"
         )
         || mana_line != MANA_LINE
-        || trigger_line != format!("Whenever this land becomes tapped, it deals {amount} damage to you.")
-        || raw != json!([
-            {"kind":"triggered","trigger":{"trigger":"becomes-tapped","what":{"ref":"this","noun":"land"}},
-             "effects":[{"steps":[{"effect":"damage","source":{"ref":"it"},
-                 "amount":{"amount":"fixed","value":amount},"to":{"to":"player","ref":you}}]}]},
-            {"kind":"activated","costs":[{"cost":"tap-self"}],
-             "effects":[{"steps":[{"effect":"add-mana","who":you,
-                 "mana":{"mana":"any-color","amount":{"amount":"fixed","value":1}}}]}]}
-        ])
+        || trigger_line
+            != format!("Whenever this land becomes tapped, it deals {amount} damage to you.")
+        || raw
+            != json!([
+                {"kind":"triggered","trigger":{"trigger":"becomes-tapped","what":{"ref":"this","noun":"land"}},
+                 "effects":[{"steps":[{"effect":"damage","source":{"ref":"it"},
+                     "amount":{"amount":"fixed","value":amount},"to":{"to":"player","ref":you}}]}]},
+                {"kind":"activated","costs":[{"cost":"tap-self"}],
+                 "effects":[{"steps":[{"effect":"add-mana","who":you,
+                     "mana":{"mana":"any-color","amount":{"amount":"fixed","value":1}}}]}]}
+            ])
     {
         return Err(bad());
     }

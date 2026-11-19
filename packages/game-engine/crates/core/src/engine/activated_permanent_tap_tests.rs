@@ -482,7 +482,10 @@ fn assert_city_damage(g: &Game, city: ObjectId, controller: PlayerId) {
     };
     assert_eq!(hit.source.object, city);
     assert_eq!(hit.controller, controller);
-    assert_eq!(hit.recipient, DamageRecipient::Player { player: controller });
+    assert_eq!(
+        hit.recipient,
+        DamageRecipient::Player { player: controller }
+    );
     assert_eq!(hit.amount, 1.into());
     assert!(damage.next().is_none());
     assert_eq!(g.state.rules.players[controller.0 as usize].life, 39.into());
@@ -549,12 +552,18 @@ fn city_of_brass_paid_taps_queue_damage_for_trigger_controller() {
     let mut mana_branch = g.fork();
     priority(&mut mana_branch, 1, controller.0);
     answer(&mut mana_branch, 1, Response::ActivateMana { object: city });
-    assert!(matches!(request(&mut mana_branch, 1), Request::ManaColor { .. }));
+    assert!(matches!(
+        request(&mut mana_branch, 1),
+        Request::ManaColor { .. }
+    ));
     assert!(mana_branch.current(city).unwrap().tapped);
     assert_eq!(mana_branch.state.rules.stack.len(), 1);
     assert_eq!(mana_branch.state.rules.players[2].life, 40.into());
     answer(&mut mana_branch, 1, Response::ManaColor { color: Color::U });
-    assert!(matches!(request(&mut mana_branch, 1), Request::Priority { .. }));
+    assert!(matches!(
+        request(&mut mana_branch, 1),
+        Request::Priority { .. }
+    ));
     assert_eq!(mana_branch.mana(controller, Color::U), Some(1.into()));
     assert_eq!(mana_branch.state.rules.players[2].life, 40.into());
     assert_eq!(mana_branch.state.rules.stack.len(), 2);

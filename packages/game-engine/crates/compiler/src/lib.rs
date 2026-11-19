@@ -44,8 +44,8 @@ mod opponent_nonland_destroy;
 mod optional_costs;
 mod pain_mana;
 mod self_reference;
-mod source_tap_damage;
 mod self_spell_protection;
+mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
@@ -1411,8 +1411,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let (color_stats, color_mana) =
         distinct_permanent_colors::lower(&abilities, &result, &binding, &source)?
             .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
-    let mut source_tap_trigger =
-        source_tap_damage::lower(&abilities, &result, &binding, &source)?;
+    let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let mut draw_land_allowance =

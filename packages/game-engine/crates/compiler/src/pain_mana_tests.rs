@@ -64,7 +64,10 @@ fn pain_mana_lowers_complete_source_and_rejects_wrong_activator_binding() {
     };
     assert!(!disjoint_pain_mana_family(&definition));
     assert_eq!(definition.mana_abilities.len(), 1);
-    assert_eq!(definition.mana_abilities[0].production, ManaProduction::AnyColor);
+    assert_eq!(
+        definition.mana_abilities[0].production,
+        ManaProduction::AnyColor
+    );
     assert_eq!(definition.mana_abilities[0].self_damage, None);
 
     let wrong_controller = crate::tests::changed_source(CITY, |record| {
