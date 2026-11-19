@@ -40,6 +40,7 @@ mod archives;
 pub use archives::*;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
+mod paid_counted_draw;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -2139,10 +2140,16 @@ impl Definition {
         if !self.activated.is_empty()
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
+            && !paid_counted_draw::definition_matches(self)
         {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if paid_counted_draw::ability_matches(ability) {
+                // The complete source is checked by hand_return::validate_definition.
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if activated_artifact_draw_ability(ability) {
                 activated_artifact_draw::validate_source(self)?;
                 validate_instruction_program(&ability.program)?;
@@ -3085,6 +3092,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         && !controller_draw_discard_program(p)
         && !controller_counted_draw_program(p)
         && !flash_end_step_draw::trigger_program(p)
+        && !paid_counted_draw::program_matches(p)
     {
         return Err("unsupported complete controller draw/hand return".into());
     }
@@ -5030,6 +5038,7 @@ pub fn catalog_schema() -> serde_json::Value {
     unlimited_hand_size::extend_schema(&mut schema);
     hand_size_adjustments::extend_schema(&mut schema);
     flash_end_step_draw::extend_schema(&mut schema);
+    paid_counted_draw::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5380,6 +5389,7 @@ mod tests {
         definitions.push(activated_spell_counter_tests::activated_counter());
         definitions.push(activated_permanent_return_tests::activated_return());
         definitions.push(activated_artifact_draw::witness());
+        definitions.extend(paid_counted_draw::witnesses());
         definitions.push(permanent_owner_hand_tests::permanent_owner_hand());
         // Synthetic contract-shape witness only. Complete D2c-e source lowering
         // is checked in compiler/core tests, without fabricated expected IR.

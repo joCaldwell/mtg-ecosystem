@@ -113,7 +113,8 @@ Top-order/optional-shuffle/draw privately orders an incarnation-preserving prefi
 offers a shuffle, then draws. Even empty libraries shuffle; declines consume no
 randomness. `ControllerCountedDrawV1` uses sequential unclamped attempts with
 optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
-opponent hand-size reductions can draw at their controller's end step. Counted
+opponent hand-size reductions can draw at their controller's end step. Paid
+activations can draw after tapping or sacrificing their source. Counted
 draws precede whole-hand returns or simultaneous discards. Commander replacements
 precede return successors; discard precedes Commander SBAs. Short hands clamp;
 failed draws continue. `TargetedCountedDrawV1` shares progress for one announced
