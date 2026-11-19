@@ -43,9 +43,7 @@ export function PlaytestPage({ deckId }: { deckId: number }) {
             </a>
             <div className={styles.title}>
               <h1>{state.deck.name}</h1>
-              <span>
-                Playtest · <span className={styles.mono}>r{state.deck.revision}</span>
-              </span>
+              <span>Playtest</span>
             </div>
           </div>
         </header>
@@ -55,7 +53,6 @@ export function PlaytestPage({ deckId }: { deckId: number }) {
         </div>
         <NewGameDialog
           deckName={state.deck.name}
-          revision={state.deck.revision}
           commanders={state.cards.filter((c) => c.role === "commander" && !c.maybe)}
           replaces={controller.error ? "unreadable" : undefined}
           error={controller.error}

@@ -4,12 +4,12 @@ import styles from './decisions.module.css';
 
 /** Controlled presentation only. Native controls supply keyboard conventions;
  * the parent owns local state and completion. No network/storage/SDK runtime. */
-export function LocalControls({ control, draft, onChange, onComplete, confirmLabel = 'Confirm local draft', readyText = 'Draft shape complete. Core validation is still required.', validationKey }: {
+export function LocalControls({ control, draft, onChange, onComplete, confirmLabel = 'Confirm local draft', readyText = 'Draft shape complete. Core validation is still required.', validationKey, sharedHeading = false, quiet = false }: {
   readonly control: LocalControl; readonly draft: LocalDraft;
   readonly onChange: (draft: LocalDraft) => void; readonly onComplete: () => void;
   readonly confirmLabel?: string;
   readonly readyText?: string;
-  readonly validationKey?: string;
+  readonly validationKey?: string; readonly sharedHeading?: boolean; readonly quiet?: boolean;
 }) {
   const id = useId();
   const error = draftError(control, draft);
@@ -31,7 +31,7 @@ export function LocalControls({ control, draft, onChange, onComplete, confirmLab
       setInvalidSubmission(value => value + 1);
     } else onComplete();
   }} aria-describedby={`${id}-help`}>
-    <fieldset><legend id={`${id}-title`}>{control.title}</legend><p id={`${id}-help`}>{control.description}</p>
+    <fieldset><legend id={`${id}-title`} className={sharedHeading ? styles.srOnly : undefined}>{control.title}</legend><p id={`${id}-help`}>{control.description}</p>
       {control.kind === 'quantity' ? <div className={styles.quantity}><label htmlFor={`${id}-quantity`}>Exact quantity</label><input id={`${id}-quantity`} name="quantity" type="text" inputMode="numeric" enterKeyHint="done" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} required pattern="0|[1-9][0-9]*" value={draft.quantity}
         aria-invalid={showError || undefined} aria-describedby={`${id}-help${showError ? ` ${id}-error` : ''}`} onBlur={() => {
           if (draft.quantity.length) setValidation({ key, attempted: true });
@@ -64,7 +64,7 @@ export function LocalControls({ control, draft, onChange, onComplete, confirmLab
           <button type="button" aria-label={`Move ${selected} later`} aria-disabled={index === draft.selected.length - 1} onClick={() => { if (index < draft.selected.length - 1) onChange(reorderDraft(draft, selected, 1)); }}>Later</button></li>;
       })}</ol></>}
     </fieldset>
-    <p ref={errorSummary} id={`${id}-error`} tabIndex={-1} className={styles.hint}>{showError ? error : error ? 'Complete your choice, then confirm to review it.' : readyText}</p>
+    <p ref={errorSummary} id={`${id}-error`} tabIndex={-1} className={styles.hint}>{showError ? error : quiet ? null : error ? 'Complete your choice, then confirm to review it.' : readyText}</p>
     <button className={styles.complete} type="submit">{confirmLabel}</button>
   </form>;
 }

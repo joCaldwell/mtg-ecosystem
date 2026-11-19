@@ -236,7 +236,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       const original = { revision, token: current().decision!.token };
       await page.getByLabel('Discovery scope', { exact: true }).selectOption('');
       await page.getByRole('button', { name: 'Discover actions', exact: true }).click();
-      await expect(page.getByText('Discovery complete. Each submitted action is validated again by the host.', { exact: true })).toBeVisible();
+      await expect(page.getByText('Discovery complete.', { exact: true })).toBeVisible();
       return original;
     };
     const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {

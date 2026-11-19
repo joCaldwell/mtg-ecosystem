@@ -5,9 +5,9 @@ import { actionDescription, actionResponse } from '../../session/live-action.ts'
 import styles from './LiveActions.module.css';
 
 const messages: Record<ActionQuerySnapshot['phase'], string> = {
-  idle: 'Discover the beginnings available in this decision.', loading: 'Discovering actions.',
+  idle: '', loading: 'Discovering actions.',
   incomplete: 'Partial results. Discovery is continuing; this is not a complete menu.',
-  complete: 'Discovery complete. Each submitted action is validated again by the host.',
+  complete: 'Discovery complete.',
   stale: 'The decision changed. Discover actions again.', unavailable: 'Discovery is unavailable for this decision.',
   cancelled: 'Discovery stopped. No game command was cancelled.', limited: 'Discovery reached a local limit. Results are not a complete menu.',
   uncertain: 'Discovery could not finish. Results cannot be submitted.',
@@ -19,7 +19,7 @@ export function LiveActions({ snapshot, draft, enabled, objects, onStart, onCanc
   readonly onStart: (scope: LiveActionScope) => void; readonly onCancel: (generation: number) => void;
   readonly onSubmit: (draft: LiveActionDraft, index: number) => void;
 }) {
-  const heading = useId(), description = useId(), scopeId = useId();
+  const heading = useId(), scopeId = useId();
   const [object, setObject] = useState('');
   const scopeExists = !object || objects.some(candidate => candidate.handle === object);
   const phase = snapshot?.phase ?? 'idle';
@@ -27,7 +27,6 @@ export function LiveActions({ snapshot, draft, enabled, objects, onStart, onCanc
   const ready = enabled && phase === 'complete' && draft?.generation === snapshot?.generation;
   return <section className={styles.actions} aria-labelledby={heading}>
     <h3 id={heading}>Available actions</h3>
-    <p id={description}>Choose a beginning, then complete any requested targets or payment. The table validates each choice. Actions without a supplied explanation remain unavailable.</p>
     <label htmlFor={scopeId}>Discovery scope</label>
     <select id={scopeId} value={object} disabled={busy} onChange={event => setObject(event.target.value)}>
       <option value="">Entire decision window</option>
@@ -35,12 +34,11 @@ export function LiveActions({ snapshot, draft, enabled, objects, onStart, onCanc
       {!scopeExists && <option value={object}>Previous object is no longer available</option>}
     </select>
     <div className={styles.buttons}>
-      <button type="button" aria-disabled={!enabled || busy || !scopeExists} onClick={() => { if (enabled && !busy && scopeExists) onStart(object ? { scope: 'object', object } : { scope: 'window' }); }} aria-describedby={description}>Discover actions</button>
+      <button type="button" aria-disabled={!enabled || busy || !scopeExists} onClick={() => { if (enabled && !busy && scopeExists) onStart(object ? { scope: 'object', object } : { scope: 'window' }); }}>Discover actions</button>
       <button type="button" aria-disabled={!snapshot || !busy} onClick={() => { if (snapshot && busy) onCancel(snapshot.generation); }}>Stop discovery</button>
     </div>
+    <p role="status" className={styles.message}>{messages[phase]}</p>
     {busy && <progress aria-label="Discovering available actions" />}
-    <p role={busy ? undefined : 'status'}>{messages[phase]}</p>
-    {snapshot && <p>{snapshot.beginnings.length} beginnings received · {snapshot.calls} of 32 calls used</p>}
     {snapshot?.beginnings.length ? <ol className={styles.list}>{snapshot.beginnings.map((beginning, index) => {
       const response = actionResponse(beginning, snapshot.context, snapshot.scope);
       return <li key={index}><button type="button" disabled={!response} aria-disabled={!ready || !response} onClick={() => { if (ready && response && draft) onSubmit(draft, index); }}>{actionDescription(beginning, objects)}</button>

@@ -46,9 +46,13 @@ test('missing metadata keeps exact current characteristics with no invented prin
 test('ambiguous face mapping does not assume first face; known empty text stays empty', () => {
   const commanderOracle = opening.resume.state.observation.view.objects.find(object => object.zone.zone === 'command' && object.owner === 0)!.oracle_id;
   const printed = metadata.cards.find(card => card.oracle_id === commanderOracle)!;
-  assert.equal(openingFixtureTable(resume, metadata).commandZone[0]?.oracleText, '');
+  const commander = openingFixtureTable(resume, metadata).commandZone[0];
+  assert.equal(commander?.oracleText, '');
+  assert.equal(commander?.printImage, printed.faces[0]?.image_url);
   const ambiguous = { ...metadata, cards: [{ ...printed, faces: [printed.faces[0]!, { ...printed.faces[0]!, face_index: 1 }] }] } as PresentationArtifact;
-  assert.equal(openingFixtureTable(resume, ambiguous).commandZone[0]?.name, null);
+  const unknown = openingFixtureTable(resume, ambiguous).commandZone[0];
+  assert.equal(unknown?.name, null);
+  assert.equal(unknown?.printImage, undefined);
 });
 
 test('fixture adapter rejects mixed identities, pending state and unreviewed layouts', () => {
@@ -61,12 +65,12 @@ test('fixture adapter rejects mixed identities, pending state and unreviewed lay
   assert.throws(() => openingFixtureTable(changed, metadata), /Unsupported opening fixture shape/);
 });
 
-test('only mulligan has a reviewed inspection adapter; unsupported requests stop explicitly', () => {
+test('opening and priority headings describe the current supplied request', () => {
   if (resume.state.status !== 'available') assert.fail('expected fixture');
   assert.equal(inspectDecision(resume.state.observation.decision)?.title, 'Opening hand');
   assert.equal(inspectDecision(null), null);
-  const unsupported: PlayerRequest = { request: 'priority', player: 0, token: 'synthetic-test-token' };
-  assert.equal(inspectDecision(unsupported)?.title, 'Unsupported decision');
+  const priority: PlayerRequest = { request: 'priority', player: 0, token: 'synthetic-test-token' };
+  assert.equal(inspectDecision(priority)?.title, 'Priority');
 });
 
 test('live adapter uses permitted data and retains all zones, exact quantities and lifecycle-independent view', async () => {
@@ -81,6 +85,9 @@ test('live adapter uses permitted data and retains all zones, exact quantities a
   assert.equal(table.live, true); assert.equal(table.seats[0]!.life, '9007199254740993');
   assert.equal(table.otherObjects?.length, 1); assert.equal(table.otherObjects?.[0]?.inspectionId, card.handle);
   assert.equal(table.hand.length, 6); assert.equal(table.stack.length, 0);
+  assert.ok(table.hand.every(card => !card.printImage));
+  assert.equal(table.otherObjects?.[0]?.printImage, undefined);
+  assert.ok(table.commandZone[0]?.printImage);
   assert.equal(liveTable({ ...changed, state: { status: 'pending' } }, metadata), null);
   assert.ok(liveTable(changed, null)!.hand.every(value => value.name === null));
 });

@@ -10,33 +10,21 @@ Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-
 
 ## Delivered scope and remaining gates
 
-The production App joins through an operator-issued single-seat file. Public
-`@multiverse/game/session` composes the same router-free table from an
-Actor-authorized human File. Every non-query request has a local draft adapter;
-source-dependent choices require complete producer context. Explicit confirmation
-retains the original command context, journals exact bytes and reconciles unknown
-outcomes. Local controls do not establish whole-profile coverage.
-`fixtures/decision-controls/coverage.json` owns request/response coverage with
-separate reachability, control, context and test evidence.
-Review new variants explicitly; schema presence is never admission.
+The standalone App imports an operator-issued single-seat file. Product
+`@multiverse/game/session` uses the same router-free table with an Actor-authorized
+File. Non-query decisions use local drafts, with producer context required for
+source-dependent choices. The [decision inventory](../packages/game/fixtures/decision-controls/coverage.json)
+records request coverage. Priority and mana windows use bounded action discovery
+and submit named beginnings only when their scope and meaning are supplied.
 
-The production App composes session-owned action discovery in priority/mana
-windows, with window/object scope, bounded pagination, status and explicit stop.
-Pass priority is self-explanatory. Named land/cast, ability/mana and FinishMana
-beginnings require their exact permitted labels/source and scope. Missing meaning
-stays blocked. FinishMana's flag controls reversal only if payment fails.
-Complete games, whole-profile usability and integrated product launch remain
-qualification gates. Exact deck admission, private provisioning/recovery and
-three separately owned automated seats are implemented; default browser launch
-stays disabled pending integrated proof. Unsupported automation pauses explicitly.
-Optional private diagnostics retain closed stage/cause codes and file boundary,
-check and link-count buckets, without paths, contents or raw errors. Callback
-failures never affect lifecycle decisions.
-The owner-scoped durable record supplies confirmed pauses/results after native
-shutdown. Command controls can become read-only while the last permitted table
-remains visible; command dispositions retain their separate native-status authority.
-The product preview is a captured sample, never the selected deck or a real game.
-Do not use legacy solo playtester briefs/components as guidance.
+Full games and integrated launch remain qualification gates. Exact deck admission,
+private provisioning/recovery and three separately owned automated seats are
+implemented. The default launcher stays disabled, and unsupported automation pauses.
+The owner-scoped record confirms pauses and results after shutdown. A retained
+table can be read-only while the host independently resolves any pending command.
+
+The product preview uses a captured sample and local choices. Solo playtester
+briefs/components are outside this client.
 
 ## Package, privacy and presentation boundaries
 
@@ -49,7 +37,10 @@ Core-observed current characteristics override printed reference values. Metadat
 is offline-produced from exact archived source with catalog/printing/face/source
 hashes; compiler source-to-ability labels remain a separate producer gate. No
 Oracle heuristics, card-name dispatch, image API lookup or turn-time source fetch.
-Missing metadata/art shows identity/current facts/text fallback. Invalid metadata
+Display uses exact stored Scryfall printings for the captured public preview and
+public battlefield, command and stack cards. Images omit referrer information.
+Private live cards and unavailable or failed printings use source-backed text and
+observed characteristics. Invalid metadata
 hash/schema is a blocking protocol error, never fallback success. Do not fabricate
 source labels, X meaning, mode labels, payment intent or clocks from wire syntax.
 No service worker/private cache, URL secrets, telemetry of private projections,

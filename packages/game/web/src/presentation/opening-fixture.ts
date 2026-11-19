@@ -9,18 +9,20 @@ export function inspectDecision(request: PlayerRequest | null): TableView['decis
   switch (request.request) {
     case 'mulligan': return {
       title: 'Opening hand',
-      description: 'Inspect your hand before choosing whether to keep it.',
+      description: '',
       details: [`Mulligans taken: ${request.mulligans_taken}`, `Mulligan available: ${request.can_mulligan ? 'yes' : 'no'}`, `Cards to bottom if taking this mulligan: ${request.bottom_if_mulligan}`],
     };
+    case 'priority': return { title: 'Priority', description: '', details: [] };
+    case 'mana': return { title: 'Mana', description: '', details: [] };
     case 'legend_rule': case 'announce_x': case 'sacrifice_cost': case 'forced_sacrifice':
     case 'mana_color': case 'search_lands': case 'optional_effect': case 'optional_recursion':
     case 'bottom_opening': case 'damage_allocation': case 'modes': case 'damage_effect':
     case 'order_triggers': case 'entity_targets': case 'stack_targets': case 'player_targets':
     case 'sacrifice': case 'resolve_discard': case 'spend_mana': case 'commander_return':
-    case 'attackers': case 'blockers': case 'damage': case 'discard': case 'priority':
-    case 'targets': case 'mana': return {
-      title: 'Unsupported decision',
-      description: 'This build has no reviewed inspector for this decision. No choice can be submitted.',
+    case 'attackers': case 'blockers': case 'damage': case 'discard':
+    case 'targets': return {
+      title: 'Game decision',
+      description: '',
       details: [`Request: ${request.request}`],
     };
     default: {
@@ -30,7 +32,7 @@ export function inspectDecision(request: PlayerRequest | null): TableView['decis
   }
 }
 
-export function cardView(object: VisibleObject, metadata: PresentationArtifact | null): CardView {
+export function cardView(object: VisibleObject, metadata: PresentationArtifact | null, showPrint = false): CardView {
   const printed = metadata?.cards.find(card => card.oracle_id === object.oracle_id);
   // Multi-face active identity is a separate producer/core mapping gate. Do not
   // guess the active face from Oracle text or array ordering.
@@ -39,8 +41,10 @@ export function cardView(object: VisibleObject, metadata: PresentationArtifact |
   const currentFacts: { label: string; value: string }[] = [
     { label: 'Owner', value: `Seat ${object.owner + 1}` },
     { label: 'Controller', value: `Seat ${object.controller + 1}` },
-    { label: 'Orientation', value: object.tapped ? 'Tapped' : 'Untapped' },
-    { label: 'Marked damage', value: object.marked_damage },
+    ...(object.zone.zone === 'battlefield' ? [
+      { label: 'Orientation', value: object.tapped ? 'Tapped' : 'Untapped' },
+      { label: 'Marked damage', value: object.marked_damage },
+    ] : []),
   ];
   if (current) {
     currentFacts.push({ label: 'Types', value: [current.kind, ...(current.additional_types ?? [])].join(' · ') });
@@ -55,8 +59,10 @@ export function cardView(object: VisibleObject, metadata: PresentationArtifact |
     inspectionId: object.handle, name: object.token?.name ?? face?.name ?? null,
     printedType: face?.type_line ?? null, printedMana: face?.mana_cost ?? null,
     oracleText: face?.oracle_text ?? null,
+    ...(showPrint && !object.token && face?.image_url ? { printImage: face.image_url } : {}),
+    ...(object.zone.zone === 'battlefield' ? { tapped: object.tapped } : {}),
     sourceIdentity: `Oracle ${object.oracle_id}${printed ? ` · Printing ${printed.printing_id} · Source SHA-256 ${printed.source_sha256}` : ' · Presentation metadata unavailable'}`,
-    zoneLabel: `Seat ${object.owner + 1} · ${object.zone.zone === 'command' ? 'Command zone' : object.zone.zone}`,
+    zoneLabel: `Seat ${object.owner + 1} · ${object.zone.zone === 'command' ? 'Command zone' : object.zone.zone[0]!.toUpperCase() + object.zone.zone.slice(1)}`,
     currentFacts,
   };
 }
@@ -69,7 +75,7 @@ export function openingFixtureTable(resume: SeatResume, metadata: PresentationAr
   const { view, decision } = resume.state.observation;
   if (view.viewer !== resume.viewer) throw new Error('Fixture viewer mismatch');
   if (view.stack.length || view.combat.length || view.objects.some(object => !['hand', 'command', 'battlefield'].includes(object.zone.zone))) throw new Error('Unsupported opening fixture shape');
-  const display = (object: VisibleObject) => cardView(object, metadata);
+  const display = (object: VisibleObject) => cardView(object, metadata, true);
   return {
     title: 'Commander table',
     sourceLabel: `Foundations opening fixture · seat ${view.viewer + 1} · committed cursor ${resume.next} · observation v${resume.state.observation.observation_version}`,

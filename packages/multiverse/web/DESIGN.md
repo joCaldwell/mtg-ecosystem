@@ -66,7 +66,7 @@ centered page. Prose keeps a reading measure. Tables scroll in their own contain
 
 Use sentence case, outcome-led actions, useful empty states and no exclamation
 marks. Say “Accept the edit”, not “OK”. Call owner choices decisions, never
-“rules” or “rulings”; preserve user-authored text. Revisions display as `r95`.
+“rules” or “rulings”; preserve user-authored text. Revision numbers belong to agent-facing records.
 Use one name per action: “New deck” opens creation. Explain privacy/permissions
 where they apply and keep essential/destructive consequences visible.
 
@@ -273,8 +273,8 @@ down/up shafted arrows, 44 px touch targets, visible label, direct typing and bu
 updates settled into one command/undo. Floor 1; Cut removes. Ceiling/eligibility
 come from `copy_limit` and server facts, never Oracle parsing or local restrictions.
 
-Revision metadata belongs in History/card decisions, or titles for memories/
-assessments; none in deck headers. Budgets/usage/omissions belong in Settings.
+History, card decisions, memories and assessments use readable dates or relative times.
+Budgets/usage/omissions belong in Settings.
 Ownership evidence appears only when present, including basis/attribution. Agent
 review status is plain in decisions and unread count belongs in proposal history.
 Keep required stale warnings visible without generic revision explanations.
@@ -339,6 +339,7 @@ alt; reserve aspect/space before load/failure and hide credits if the image fail
 | banner | Phone header, 224 px minimum | Eager |
 | showcase | Public page, 176 px; 112 px phone | Eager/high priority |
 | backdrop | Sign-in/empty-account panel, one exact-source land per visit | Eager, no rotation |
+| feature | Full-width Home and Play art behind a lower caption fade | Eager |
 | thumbnail | Sidebar/drawer 16 px | Deferred; keep native-size frame |
 
 Gallery captions sit directly on art without a panel edge. Eased multi-stop black
@@ -391,6 +392,11 @@ Tablet/phone/public heroes leave naturally with window scroll. Compact phone/
 tablet header retains deck name/lifecycle beneath navigation; review/filter strips
 stack below. End gutter 16 px; add 64 px bulk clearance only while selection exists.
 
-Art stays out of Inbox, Activity, Memories, Settings, dialogs and playtester content;
-navigation thumbnails remain permitted. The game table uses scoped public game-ui
-and qualified client preview, with [application and launch boundaries](ARCHITECTURE.md#application-boundaries).
+Art stays out of Inbox, Activity, Memories, Settings, dialogs and solo playtester
+content. Home and Play use stored land or commander art. Setup pairs compatibility with launch.
+Saved games show deck name, status and update time.
+
+The game table uses scoped public game-ui. Life, turn and priority sit above the
+battlefield and the visible hand. Decisions and the stack share a rail. Card
+inspection opens on demand and returns focus to the selected card. Preview and
+live imagery follow the [client presentation contract](../../../docs/game-client.md#package-privacy-and-presentation-boundaries).
