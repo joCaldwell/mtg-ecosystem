@@ -1150,3 +1150,6 @@ mod temporary_double_strike_tests;
 mod activated_artifact_draw_tests;
 #[path = "targeted_discard_tests.rs"]
 mod targeted_discard_tests;
+
+#[path = "creature_entry_return_tests.rs"]
+mod creature_entry_return_tests;
