@@ -542,10 +542,10 @@ hosting/search or consumer admission; Card IR remains schema 1.
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
-controller, event-player, source incarnation and family-specific witnesses.
-Intervening conditions check at collection and resolution. Source status uses
-current incarnation or departure-refreshed LKI bounded by live continuations;
-never retain an unbounded permanent LKI archive. Cast triggers collect after
+controllers, actors, incarnations and witnesses. Power-filtered entries use
+derived post-event power. Intervening conditions recheck at resolution. Source
+status uses current incarnation or departure-refreshed LKI in live continuations.
+Cast triggers collect after
 successful payment; declared attacks use the real declaration batch. Ordinary
 step, death, ETB, draw/discard and combat/noncombat-damage families each retain
 strict source/program validation.
