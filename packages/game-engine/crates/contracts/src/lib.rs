@@ -1962,7 +1962,7 @@ impl Definition {
             ) {
                 set.insert(Capability::FilteredDamageTriggerV1);
             }
-            set.insert(match ability.condition {
+            let trigger_capability = match ability.condition {
                 TriggerCondition::GroupedDamageDealt { .. } => {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
@@ -1989,7 +1989,8 @@ impl Definition {
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
                 TriggerCondition::SelfAuraToGraveyard => Capability::AttachmentsV1,
                 TriggerCondition::SelfMoved { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
-            });
+            };
+            set.insert(trigger_capability);
             if ability.intervening_if.is_some() {
                 set.insert(Capability::InterveningIfV1);
             }

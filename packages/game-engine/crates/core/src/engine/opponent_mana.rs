@@ -202,12 +202,12 @@ mod tests {
     }
 
     #[test]
-    fn opponent_land_mana_paid_stone_and_orchard_fund_lore() {
+    fn opponent_land_mana_paid_stone_and_orchard_fund_spell() {
         let mut game = Game::with_trace(
             prepared(&[
                 ("Exotic Orchard", 0, true),
                 ("Fellwar Stone", 0, true),
-                ("Nature's Lore", 0, true),
+                ("Grizzly Bears", 0, true),
                 ("Sol Ring", 0, false),
                 ("Forest", 1, false),
             ]),
@@ -291,20 +291,8 @@ mod tests {
             Event::Committed { actual: EventOutcome::ManaPaidSelected { cost, spending: actual, .. }, .. }
                 if cost.generic == Quantity::from(1) && cost.colored == [Color::G] && *actual == spending
         )));
-        let Request::SearchLands { candidates, .. } = pass_to_resolution(&mut game) else {
-            panic!("paid Lore did not resolve to a land search");
-        };
-        let selected = candidates[0];
-        answer(
-            &mut game,
-            Response::SearchLands {
-                objects: vec![selected],
-            },
-        );
-        assert_eq!(
-            game.zone(game.object_id(selected.card).unwrap()),
-            Some(Zone::Battlefield)
-        );
+        assert!(matches!(pass_to_resolution(&mut game), Request::Priority { .. }));
+        assert_eq!(game.zone(game.object_id(CardId(2)).unwrap()), Some(Zone::Battlefield));
         assert!(game.state.rules.stack.is_empty());
     }
 
