@@ -5,6 +5,7 @@ pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
+mod cast_origin;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
 mod typed_land_search;
@@ -211,6 +212,7 @@ pub enum Capability {
     CastHistoryV1,
     RandomBottomV1,
     CastTriggerV1,
+    CastOriginTriggerV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     DisjointPainManaV1,
@@ -1234,6 +1236,11 @@ pub enum TriggerCondition {
         caster: CasterRelation,
         spell: TypePredicate,
     },
+    SpellCastWithOrigin {
+        caster: CasterRelation,
+        spell: TypePredicate,
+        origin: CastOriginPredicate,
+    },
     StepBegan {
         step: BeginningStep,
         turn_relation: TurnRelation,
@@ -1336,6 +1343,25 @@ pub enum CasterRelation {
     AnyPlayer,
     Opponent,
 }
+/// CR 601.2a: compare the zone the spell left during announcement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CastOriginPredicate {
+    Outside { zone: CastOriginZone },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CastOriginZone {
+    ControllerHand,
+}
+impl<'de> Deserialize<'de> for CastOriginZone {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "controller_hand" => Ok(Self::ControllerHand),
+            _ => Err(serde::de::Error::custom("unsupported cast origin zone")),
+        }
+    }
+}
 /// Source ObjectFilter fields are conjunctive; explicit anyOf retains OR.
 /// Only full card-type membership is supported, never execution-kind equality.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1412,7 +1438,7 @@ impl TriggerCondition {
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
             Self::SelfSpellCast => "self_spell_cast",
-            Self::SpellCast { .. } => "spell_cast",
+            Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
             Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
@@ -1927,6 +1953,10 @@ impl Definition {
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SelfSpellCast => Capability::CascadeV1,
                 TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
+                TriggerCondition::SpellCastWithOrigin { .. } => {
+                    set.insert(Capability::CastOriginTriggerV1);
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
                 TriggerCondition::DamageDealt {
                     kind: TriggerDamageKind::Combat,
@@ -2721,6 +2751,9 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if matches!(ability.condition, TriggerCondition::SpellCastWithOrigin { .. }) {
+                cast_origin::validate(ability)?;
+            }
             if matches!(ability.condition, TriggerCondition::SelfMoved { .. }) {
                 successor_tuck::validate(c, ability)?;
                 validate_instruction_program(p)?;
@@ -5735,6 +5768,7 @@ pub fn catalog_schema() -> serde_json::Value {
     hand_return::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
+    cast_origin::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -5985,6 +6019,7 @@ mod tests {
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
             CastTriggerV1,
+            CastOriginTriggerV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             DisjointPainManaV1,
@@ -6043,6 +6078,36 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(successor_tuck::witness(counted.clone()));
+        let mut origin_draw = counted.clone();
+        origin_draw.source_labels = None;
+        origin_draw.triggered = vec![TriggeredAbility {
+            death_filter: None,
+            functioning_zone: FunctioningZone::Battlefield,
+            condition: TriggerCondition::SpellCastWithOrigin {
+                caster: CasterRelation::Controller,
+                spell: TypePredicate::Any {},
+                origin: CastOriginPredicate::Outside {
+                    zone: CastOriginZone::ControllerHand,
+                },
+            },
+            intervening_if: None,
+            program: SpellProgram {
+                optional_additional_costs: vec![],
+                additional_sacrifice: None,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                functioning_zone: FunctioningZone::Stack,
+                targets: vec![],
+                instructions: vec![Instruction::DrawCards {
+                    recipient: None,
+                    count: 1.into(),
+                    source_block: 0,
+                }],
+                modes: vec![],
+            },
+        }];
+        origin_draw.capabilities = origin_draw.requirements();
+        definitions.push(origin_draw);
         counted.static_abilities = vec![StaticAbility {
             functioning_zone: FunctioningZone::Stack,
             effect: StaticEffect::ReduceSelfGenericCost {

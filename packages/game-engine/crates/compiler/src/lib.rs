@@ -8,6 +8,7 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 pub mod catalog;
+mod cast_origin;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -280,6 +281,8 @@ enum SourceTrigger {
     Cast {
         who: PlayerSelector,
         what: SourceTypeFilter,
+        #[serde(default, rename = "notFrom", deserialize_with = "present_json_operand")]
+        not_from: Option<serde_json::Value>,
     },
     Phase {
         phase: String,
@@ -1369,6 +1372,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
     }
+    cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
     let control_target = abilities.iter().find_map(|a| match a {
         Ability::Static {
@@ -4811,7 +4815,7 @@ fn lower_trigger(
             let attacker = lower_attack_subject(what)?;
             TriggerCondition::CreatureAttacked { attacker }
         },
-        SourceTrigger::Cast { who, what } => {
+        SourceTrigger::Cast { who, what, not_from } => {
             if who.selection_id.is_some() || who.of.is_some() { return Err(unsupported("trigger.who", "unsupported caster qualifier")); }
             let caster = match who.player.as_str() {
                 "you" => CasterRelation::Controller,
@@ -4819,7 +4823,11 @@ fn lower_trigger(
                 "an-opponent" => CasterRelation::Opponent,
                 _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
             };
-            TriggerCondition::SpellCast { caster, spell: lower_type_predicate(what, Some("spell"), true, 0)? }
+            let spell = lower_type_predicate(what, Some("spell"), true, 0)?;
+            match not_from {
+                None => TriggerCondition::SpellCast { caster, spell },
+                Some(zone) => cast_origin::lower_condition(caster, spell, zone)?,
+            }
         },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
