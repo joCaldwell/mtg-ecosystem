@@ -164,14 +164,39 @@ pub(super) fn declare(
                     "missing optional cost declaration",
                 ));
             };
+            let [
+                Step::Draw {
+                    who,
+                    amount: DrawAmount::Fixed { value },
+                    optional: false,
+                },
+            ] = effect.steps.as_slice()
+            else {
+                return Err(unsupported("effects.condition", "unsupported linked draw"));
+            };
+            let printed_count = result.lines[block]
+                .text
+                .split_inclusive('.')
+                .nth(sentence)
+                .and_then(|text| text.trim().strip_prefix("If this spell was kicked, draw "))
+                .and_then(|text| match *value {
+                    1 => text.strip_suffix(" card."),
+                    _ => text.strip_suffix(" cards."),
+                });
             if effect.condition_kind.as_deref() != Some("if")
                 || !effect
                     .condition
                     .as_ref()
                     .is_some_and(KickedCondition::supported)
                 || !effect.bindings.is_empty()
-                || !matches!(effect.steps.as_slice(), [Step::Draw { who, amount:DrawAmount::Fixed { value }, optional:false }]
-                    if who.player == "you" && who.of.is_none() && who.selection_id.is_none() && *value > 0)
+                || who.player != "you"
+                || who.of.is_some()
+                || who.selection_id.is_some()
+                || *value == 0
+                || !printed_count.is_some_and(|text| {
+                    (*value == 1 && text == "a")
+                        || normalization::matches_fixed_amount(text, i64::from(*value))
+                })
             {
                 return Err(unsupported(
                     "effects.condition",

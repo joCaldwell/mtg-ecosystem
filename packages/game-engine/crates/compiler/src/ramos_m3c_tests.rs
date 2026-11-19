@@ -127,7 +127,7 @@ fn ramos_m3c_contract_missing_cost_identity_link_capability_and_other_contexts_r
 }
 #[test]
 fn ramos_m3c_complete_source_near_misses_cannot_discard_cost_or_condition() {
-    for case in 0..17 {
+    for case in 0..18 {
         let raw = tests::changed_source(BLOW, |r| {
             let abilities = &mut r["faces"][0]["result"]["abilities"];
             match case {
@@ -200,6 +200,7 @@ fn ramos_m3c_complete_source_near_misses_cannot_discard_cost_or_condition() {
                     abilities[0]["keywords"][0]["cost"][0]["symbols"] =
                         serde_json::json!(["1", "U"])
                 }
+                17 => abilities[1]["effects"][1]["steps"][0]["amount"]["value"] = 19.into(),
                 _ => unreachable!(),
             }
             let result = &mut r["faces"][0]["result"];
