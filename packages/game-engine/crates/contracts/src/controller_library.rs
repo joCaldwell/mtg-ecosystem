@@ -204,11 +204,13 @@ fn validate_fixed_cast_source(d: &Definition) -> Result<(), String> {
     let fail = || "fixed cast effect requires its printed operands and trigger block".to_owned();
     let source: serde_json::Value = strict_read(raw)?;
     let text = source["oracle_text"].as_str().unwrap_or("");
+    // Detect an omitted trigger from the source independently of the IR identity.
+    let source_name = source["name"].as_str().unwrap_or("");
     let printed: Vec<_> = text
         .lines()
         .enumerate()
         .filter_map(|(index, line)| {
-            FixedCastEffect::from_line(line, &d.name).map(|operands| (index, line, operands))
+            FixedCastEffect::from_line(line, source_name).map(|operands| (index, line, operands))
         })
         .collect();
     if printed.len() != count {

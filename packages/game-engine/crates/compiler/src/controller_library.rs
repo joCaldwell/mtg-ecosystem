@@ -483,10 +483,21 @@ fn fixed_cast_opponent_damage_proves_actor_selection_event_and_omission() {
     let CompileResult::Lowered { definition } = parsed else {
         panic!("synthetic cast damage must lower: {parsed:?}")
     };
-    for change in ["omission", "amount", "selection", "condition"] {
+    for change in [
+        "omission",
+        "renamed omission",
+        "amount",
+        "selection",
+        "condition",
+    ] {
         let mut d = definition.clone();
         match change {
             "omission" => d.triggered.clear(),
+            "renamed omission" => {
+                d.triggered.clear();
+                d.name = "Synthetic Missing Observer".into();
+                d.source_labels = None;
+            }
             "amount" => {
                 let Instruction::DealDamage { amount, .. } =
                     &mut d.triggered[0].program.instructions[0]
