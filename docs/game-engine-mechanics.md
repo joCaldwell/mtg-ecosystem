@@ -116,7 +116,8 @@ optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
 opponent hand-size reductions draw at their controller's end step. Paid draws
 survive source sacrifice. Counted
 draws precede hand returns or simultaneous discards. Commander replacements
-precede return successors. Targeted and group discards clamp to hand size.
+precede return successors. Returning a targeted creature from your graveyard
+uses ordinary battlefield entry. Targeted and group discards clamp to hand size.
 Group choices stay private until one simultaneous discard before Commander SBAs.
 Each-player draws finish each seat in turn order, including failed attempts.
 Seeded random discard samples without replacement. Departure never redirects attempts.
