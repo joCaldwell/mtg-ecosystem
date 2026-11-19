@@ -173,6 +173,12 @@ mod tests {
                 source_block: 1
             }]
         );
+        let mut stripped = definition.clone();
+        stripped.name = "Renamed source".into();
+        stripped.triggered.clear();
+        stripped.capabilities = stripped.requirements();
+        assert!(stripped.validate().is_err());
+
         for operation in ["timing", "identity", "extra"] {
             let changed = crate::tests::changed_source(record, |r| {
                 let nodes = r["binding"]["nodes"].as_array_mut().unwrap();

@@ -57,13 +57,15 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         return Err(INVALID_FAMILY.into());
     }
     let reserved = d.triggered.iter().any(|a| contains_destroy(&a.program));
-    if !reserved && !d.provenance.source_json.contains("nonland permanents") {
+    let source_json = &d.provenance.source_json;
+    if !reserved && !source_json.contains("nonland permanents") && !source_json.contains(r"\u") {
         return Ok(());
     }
-    let source: Value = strict_read(&d.provenance.source_json)?;
-    let block = source["oracle_text"]
+    let source: Value = strict_read(source_json)?;
+    let block = source["name"]
         .as_str()
-        .and_then(|text| death_sweep_source_block(&d.name, text));
+        .zip(source["oracle_text"].as_str())
+        .and_then(|(name, text)| death_sweep_source_block(name, text));
     if !reserved && block.is_none() {
         return Ok(());
     }

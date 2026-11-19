@@ -118,7 +118,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
                     "resolution":{"const":"instructions"},"targets":{"maxItems":0},
                     "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
                     "modes":{"maxItems":0},
-                    "instructions":{"const":[{"op":"destroy_set","set":set,"source_block":0}]}
+                    "instructions":{"minItems":1,"maxItems":1,"items":{
+                        "type":"object","required":["op","set","source_block"],"additionalProperties":false,
+                        "properties":{"op":{"const":"destroy_set"},"set":{"const":set},
+                            "source_block":{"const":0},"regeneration_forbidden":{"const":false}}
+                    }}
                 }},
                 "characteristics":{"properties":{
                     "kind":{"const":"sorcery"},"additional_types":{"maxItems":0},
