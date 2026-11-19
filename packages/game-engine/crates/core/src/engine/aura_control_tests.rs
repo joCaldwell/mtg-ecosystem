@@ -1112,6 +1112,10 @@ mod controller_scry_paid_tests;
 mod controller_surveil_tests;
 
 #[cfg(test)]
+#[path = "counter_spell_controller_mill_tests.rs"]
+mod counter_spell_controller_mill_tests;
+
+#[cfg(test)]
 #[path = "fixed_mill_tests.rs"]
 mod fixed_mill_tests;
 
