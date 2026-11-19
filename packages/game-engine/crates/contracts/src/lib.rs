@@ -47,7 +47,7 @@ mod library_selection;
 mod nonland_exile_life;
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
-pub use source_dies_nonland_destroy::{death_sweep_source_block, death_sweep_abilities};
+pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 mod self_spell_protection;
 pub use controller_library::{controller_scry_program, controller_surveil_program};
 pub use fixed_mill::fixed_mill_program;
