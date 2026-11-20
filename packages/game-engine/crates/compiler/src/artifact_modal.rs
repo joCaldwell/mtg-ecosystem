@@ -124,7 +124,7 @@ pub(super) fn bind(
                 g.result(&path, "quantity", "measured-quantity", None);
             }
         }
-        g.validate_block(binding, &root)?;
+        g.validate_block(binding, &root, "incomplete cast trigger binding graph")?;
         lowered.insert(block, bound.ability);
     }
     Ok(lowered)
