@@ -68,6 +68,36 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let ast: Value = strict_read(&d.provenance.abilities_json)?;
     let step = &ast[0]["effects"][0]["steps"][0];
     let expected = program(text, step, timing, 0).ok_or_else(fail)?;
+    let c = &d.characteristics;
+    let mut cost = String::new();
+    if c.mana_cost.generic != Quantity::zero() || c.mana_cost.colored.is_empty() {
+        cost.push_str(&format!("{{{}}}", c.mana_cost.generic));
+    }
+    for color in &c.mana_cost.colored {
+        cost.push_str(&format!("{{{color:?}}}"));
+    }
+    if src["id"] != d.provenance.printing_id
+        || src["name"] != d.name
+        || src["oracle_id"] != d.oracle_id
+        || src["layout"] != "normal"
+        || src["mana_cost"] != cost
+        || src["colors"] != json!(c.colors)
+        || src["color_identity"] != json!(c.color_identity)
+        || c.snow
+        || c.basic
+        || c.legendary
+        || !c.additional_types.is_empty()
+        || !c.subtypes.is_empty()
+        || d.source_labels.as_ref().is_some_and(|l| {
+            l != &SourceLabels {
+                text: text.into(),
+                blocks: vec![text.into()],
+                ..Default::default()
+            }
+        })
+    {
+        return Err(fail());
+    }
     if ast != json!([{"kind":"spell","effects":[{"steps":[step]}]}])
         || d.spell.as_ref() != Some(&expected)
         || d.x_mana_cost
@@ -80,4 +110,41 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         return Err(fail());
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn witness() -> Definition {
+    let raw: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/synthetic-creature-planeswalker-return.json"
+    ))
+    .unwrap();
+    let source = &raw["source"];
+    let ast = &raw["faces"][0]["result"]["abilities"];
+    let mut d = crate::graveyard_shuffle::witness();
+    d.name = source["name"].as_str().unwrap().into();
+    d.oracle_id = raw["oracleIdentity"].as_str().unwrap().into();
+    d.provenance.printing_id = source["id"].as_str().unwrap().into();
+    d.provenance.source_json = source.to_string();
+    d.provenance.abilities_json = ast.to_string();
+    d.provenance.source_sha256 = sha256(d.provenance.source_json.as_bytes());
+    d.provenance.ast_sha256 = sha256(format!("[{}]", d.provenance.abilities_json).as_bytes());
+    d.provenance.binding_sha256 = raw["bindingSha256"].as_str().unwrap().into();
+    d.spell = Some(
+        program(
+            CLAUSE,
+            &ast[0]["effects"][0]["steps"][0],
+            SpellTiming::MainPhase,
+            0,
+        )
+        .unwrap(),
+    );
+    d.capabilities = d.requirements();
+    d
+}
+pub(super) fn schema(schema: &mut Value) {
+    let cap = json!({"contains":{"const":Capability::CreatureOrPlaneswalkerTargetV1}});
+    let target = json!({"required":["domain"],"properties":{"domain":{"const":TargetDomain::CreatureOrPlaneswalker},"slot":{"const":0},"filter":{"type":"null"}}});
+    let free = json!({"$ref":"#/$defs/CreaturePlaneswalkerReturnFree"});
+    schema["$defs"]["CreaturePlaneswalkerReturnFree"] = json!({"properties":{"targets":{"not":{"contains":target}},"modes":{"items":{"properties":{"program":free}}}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}}]},"then":{"required":["spell","capabilities"],"properties":{"capabilities":{"allOf":[cap,{"contains":{"const":Capability::OwnerHandMoveV1}}]},"spell":{"type":"object","properties":{"targets":{"minItems":1,"maxItems":1,"items":target},"instructions":{"const":[Instruction::ReturnToOwnerHand{target_slot:0,source_block:0}]},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}}));
 }

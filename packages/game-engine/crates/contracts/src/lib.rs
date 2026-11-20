@@ -421,6 +421,7 @@ pub enum Capability {
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
+    CreatureOrPlaneswalkerTargetV1,
     FixedTargetModesV1,
     ModalChoiceV1,
     CommanderModalKeywordGrantV1,
@@ -5360,9 +5361,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
                 Capability::PermanentRemovalV1
             }
-            TargetDomain::CreatureOrPlaneswalker | TargetDomain::BattlefieldCreature => {
-                Capability::CreatureTargetV1
-            }
+            TargetDomain::CreatureOrPlaneswalker => Capability::CreatureOrPlaneswalkerTargetV1,
+            TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
             TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
@@ -7020,6 +7020,7 @@ pub fn catalog_schema() -> serde_json::Value {
     optional_costs::schema(&mut schema);
     counted_costs::schema(&mut schema);
     fixed_artifact_sacrifice_schema(&mut schema);
+    creature_planeswalker_return::schema(&mut schema);
     modal_targets::schema(&mut schema);
     graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
@@ -7320,6 +7321,7 @@ mod tests {
             StaticDamageReplacementV1,
             SelfDiesV1,
             InterveningIfV1,
+            CreatureOrPlaneswalkerTargetV1,
             FixedTargetModesV1,
             ModalChoiceV1,
             CommanderModalKeywordGrantV1,
@@ -7844,6 +7846,7 @@ mod tests {
         definitions.push(counter_unless_generic::witness());
         definitions.push(graveyard_shuffle::witness());
         definitions.push(modal_targets::witness());
+        definitions.push(creature_planeswalker_return::witness());
         definitions.push(controlled_creature_spell_copy::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
