@@ -1394,3 +1394,67 @@ describe("stack-copy alternatives and exile successors", () => {
     assert.ok(suspension?.binding === "unresolved");
   });
 });
+
+describe("specific later moves replaced by exile", () => {
+  it("tracks the stack successor of the actual optional graveyard cast", () => {
+    const graph = analyze("You may cast an instant or sorcery spell with mana value 2 or less from your graveyard "
+      + "without paying its mana cost. If that spell would be put into your graveyard, exile it instead.", "Instant");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "captured-move-replacement");
+    assert.ok(replacement?.tracked.kind === "one-object");
+    assert.equal(replacement.tracked.object, bound(graph, "/replacement/event/what"));
+    assert.ok(graph.nodes.some(node => node.id === bound(graph, "/replacement/event/what") &&
+      node.node === "event-result" && node.identity === "zone-successors"));
+    assert.ok(graph.nodes.some(node => node.id === replacement.exile && node.node === "event" && node.operation === "exile"));
+  });
+
+  it("does not bind an unrelated cast replacement after an intervening draw", () => {
+    const graph = analyze("You may cast an instant or sorcery spell from your graveyard without paying its mana cost. "
+      + "Draw a card. If that spell would be put into your graveyard, exile it instead.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "captured-move-replacement"));
+  });
+
+  it("follows only the spells cast by the exact preceding graveyard permission", () => {
+    const graph = analyze("Until end of turn, you may cast instant and sorcery spells from any graveyard. "
+      + "If a spell cast this way would be put into a graveyard, exile it instead.", "Sorcery");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "captured-move-replacement");
+    assert.ok(replacement?.tracked.kind === "cast-permission");
+    const grant = replacement.tracked.grant;
+    assert.ok(graph.nodes.some(node => node.id === grant && node.node === "event" && node.operation === "grant-play-permission"));
+  });
+
+  it("does not export a possible future spell as an actual object in the resolution", () => {
+    const graph = analyze("III — Until end of turn, you may cast instant and sorcery spells from any graveyard. "
+      + "If a spell cast this way would be put into a graveyard, exile it instead. Exile this Saga, "
+      + "then return it to the battlefield.", "Enchantment — Saga");
+    boundCard(graph);
+    const returned = bound(graph, "/effects/2/steps/1/what");
+    assert.ok(graph.nodes.some(node => node.id === returned && node.node === "event-result" &&
+      node.identity === "zone-successors" && node.path.endsWith("/effects/2/steps/0")));
+  });
+
+  it("attaches the leave-the-battlefield rule to the creature that actually entered", () => {
+    const graph = analyze("Put target creature card from a graveyard onto the battlefield under your control with a corpse counter "
+      + "on it. You take the initiative. If that creature would leave the battlefield, exile it instead of putting it anywhere else."
+      + "\nEscape—{3}{B}{B}, Exile five other cards from your graveyard.", "Sorcery");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "captured-move-replacement");
+    assert.ok(replacement?.tracked.kind === "one-object");
+    assert.notEqual(replacement.tracked.object, bound(graph, "/effects/0/steps/0/what"));
+    assert.equal(replacement.tracked.object, bound(graph, "/replacement/event/what"));
+    assert.ok(graph.references.some(reference => reference.path.endsWith("/cost/1/what/filter/other") && reference.binding === "bound"));
+  });
+
+  it("tests suspend on the card after the resolving spell's replacement moves it", () => {
+    const graph = analyze("Whenever you cast an instant or sorcery spell from your hand during an opponent's turn, "
+      + "exile that card with three time counters on it instead of putting it into your graveyard as it resolves. "
+      + "Then if the exiled card doesn't have suspend, it gains suspend.", "Creature");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "captured-move-replacement");
+    assert.ok(replacement?.match.resolving);
+    assert.equal(bound(graph, "/replace/effects/1/condition/of/what"), bound(graph, "/replace/effects/1/steps/0/what"));
+    assert.notEqual(bound(graph, "/replacement/event/what"), bound(graph, "/replace/effects/1/steps/0/what"));
+  });
+});

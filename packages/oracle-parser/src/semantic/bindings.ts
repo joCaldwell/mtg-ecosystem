@@ -1229,6 +1229,9 @@ class Analyzer {
         this.bound({ ref: "affected-object" }, child(path, "other"), context.comparisonExclusion.subject, ["201.2a", "608.2b"]);
       } else if (!context.barrier && context.copyModelExclusion?.path === path) {
         this.bound(context.copyModelExclusion.reference, child(path, "other"), context.copyModelExclusion.model.id, ["611.2c", "707.2"]);
+      } else if (!context.barrier && context.phase === "payment" && path === context.sourceExclusionPath &&
+          path.includes("/keywords/") && value.cls === "card") {
+        this.bound({ ref: "this", noun: "card" }, child(path, "other"), context.source, ["201.5", "601.2a", "702.138a"]);
       } else if (context.permanentSource && !context.barrier && !context.sourceMoved &&
           (path === context.sourceExclusionPath || (!context.mentionedObject && this.onlySource(context))))
         this.bound({ ref: "self" }, child(path, "other"), context.source,
@@ -1439,7 +1442,13 @@ class Analyzer {
     for (const [key, value] of Object.entries(instance)) {
       if (key === "keyword" || key === "bindings") continue;
       if (key === "amount") { if (value === "x") this.walk({ amount: "x" }, child(path, "amount"), own); continue; }
-      this.walk(value, child(path, key), KEYWORD_PAYMENT_FIELDS.has(key) ? { ...own, phase: "payment" } : own);
+      const payment: Context = { ...own, phase: "payment" };
+      if (instance.keyword === "escape" && key === "cost" && Array.isArray(instance.cost)) {
+        const index = instance.cost.findIndex(cost => cost.cost === "exile" && cost.what.ref === "filter" &&
+          cost.what.filter.cls === "card" && cost.what.filter.other && isDeepStrictEqual(cost.what.filter.zone, { zone: "graveyard", owner: "your" }));
+        if (index >= 0) payment.sourceExclusionPath = `${path}/cost/${index}/what/filter`;
+      }
+      this.walk(value, child(path, key), KEYWORD_PAYMENT_FIELDS.has(key) ? payment : own);
     }
     instance.bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), own));
   }
@@ -1722,6 +1731,100 @@ class Analyzer {
     return true;
   }
 
+  private moveToExileRule(effect: Extract<Effect, { effect: "create-replacement" }>, path: string,
+    context: Context, precedingEffect?: string): boolean {
+    const { event, replace, occurrence, condition, optional } = effect.replacement;
+    if (context.barrier || context.phase !== "resolution" || context.conditional || context.decider ||
+        effect.optional || effect.decidedBy || effect.forEach || effect.forEachVote ||
+        condition || optional || occurrence !== "each" || event.event !== "move-zone" || event.notControlledByBefore ||
+        replace.replacement !== "effects" || replace.effects.length < 1 || replace.effects.length > 2 ||
+        replace.effects[0].steps.length !== 1 || Object.keys(replace.effects[0]).length !== 1) return false;
+    const [exile] = replace.effects[0].steps;
+    if (exile.effect !== "exile" || Object.keys(exile).some(key => !["effect", "what", "counters"].includes(key)) ||
+        !isDeepStrictEqual(exile.what, { ref: "replacement-event-object", role: "affected" })) return false;
+    const suspend = replace.effects[1];
+    if (suspend && (!event.resolving || !isDeepStrictEqual(suspend, {
+      steps: [{ effect: "gain-abilities", what: { ref: "it" }, abilities: [{ gained: "keyword", keyword: { keyword: "suspend" } }] }],
+      condition: { condition: "not", of: { condition: "has-keyword", what: { ref: "related", number: "singular",
+        filter: { cls: "card" }, relation: { relation: "event-result", event: "exile", scope: "contextual" } }, keyword: "suspend" } },
+      conditionKind: "if",
+    }))) return false;
+
+    const at = child(path, "replacement");
+    const eventPath = child(at, "event");
+    const whatPath = child(eventPath, "what");
+    const prior = context.precedingSentence?.steps.length === 1 && precedingEffect === `${context.precedingSentence.path}/steps/0`
+      ? context.precedingSentence.steps[0] : undefined;
+    const priorEvent = prior && precedingEffect ? this.result.nodes.find(node => node.id === this.id(precedingEffect, "event")) : undefined;
+    const rules = ["400.6", "400.7h", "400.7j", "614.1a", "614.5", "614.6"];
+    let tracked: Extract<BindingNode, { node: "captured-move-replacement" }>["tracked"];
+
+    if (event.from === undefined && isDeepStrictEqual(event.to, { zone: "graveyard", owner: "your" }) &&
+        !event.resolving && isDeepStrictEqual(event.what, { ref: "that", filter: { cls: "spell" } }) &&
+        prior?.effect === "play-card" && prior.optional && !prior.decidedBy && !prior.forEach && !prior.forEachVote &&
+        prior.instruction.who.player === "you" && prior.instruction.action === "cast" && prior.instruction.from && "zone" in prior.instruction.from && prior.instruction.from.zone === "graveyard" &&
+        prior.instruction.what.ref === "filter" && objectCardinality(prior.instruction.what) === "one" &&
+        priorEvent?.node === "event" && priorEvent.scope === context.ability && precedingEffect) {
+      const cast = this.eventResult(precedingEffect, priorEvent.id, "objects", "one", "zone-successors", { cls: "spell" });
+      tracked = { kind: "one-object", object: cast.id };
+      this.bound(event.what, whatPath, cast.id, rules);
+    } else if (event.from === undefined && event.resolving && context.castActors?.caster.id === context.you &&
+        context.triggerObject?.event === "cast" && context.objects.length === 0 &&
+        isDeepStrictEqual(event.to, { zone: "graveyard", owner: "your" }) &&
+        isDeepStrictEqual(event.what, { ref: "that", filter: { cls: "card" } })) {
+      const cast = context.triggerObject.candidate.id;
+      tracked = { kind: "one-object", object: cast };
+      this.bound(event.what, whatPath, cast, rules);
+    } else if (event.from === undefined && !event.resolving && isDeepStrictEqual(event.to, { zone: "graveyard", owner: "any" }) &&
+        isDeepStrictEqual(event.what, { ref: "filter", count: { amount: "fixed", value: 1 }, filter: {
+          cls: "spell", relation: { relation: "event-result", event: "cast", scope: "this-way" },
+        } }) && prior?.effect === "grant-play-permission" &&
+        prior.permission.action === "cast" && prior.permission.from && "zone" in prior.permission.from && prior.permission.from.zone === "graveyard" && prior.permission.who.player === "you" &&
+        priorEvent?.node === "event" && priorEvent.scope === context.ability && !priorEvent.conditional) {
+      const member = this.node({ id: this.id(whatPath, "cast-by-permission"), path: whatPath, node: "event-participant",
+        scope: context.ability, event: priorEvent.id, role: "spell-cast-by-permission", cardinality: "one", rules });
+      tracked = { kind: "cast-permission", grant: priorEvent.id, member };
+      this.bound(event.what, whatPath, member, rules);
+      // The grant describes possible future spells; it did not produce a
+      // stack object to compete with a subsequent move's actual successor.
+      const spellQuery = precedingEffect ? this.at(`${precedingEffect}/permission/what`) : undefined;
+      context.objects = context.objects.filter(candidate => candidate.id !== spellQuery?.id);
+    } else if (!event.to && !event.resolving && isDeepStrictEqual(event.from, { zone: "battlefield" }) &&
+        isDeepStrictEqual(event.what, { ref: "that", filter: { types: ["creature"] } }) &&
+        context.objects.length === 1 && context.objects[0].description?.cls === "permanent" &&
+        context.objects[0].description.types?.includes("creature") &&
+        this.result.nodes.some(node => node.node === "event-result" && node.identity === "zone-successors" && node.id === context.objects[0].id)) {
+      const permanent = context.objects[0].id;
+      tracked = { kind: "one-object", object: permanent };
+      this.bound(event.what, whatPath, permanent, rules);
+    } else return false;
+
+    this.walk(event.from, child(eventPath, "from"), context);
+    this.walk(event.to, child(eventPath, "to"), context);
+    const exilePath = `${at}/replace/effects/0/steps/0`;
+    const ruleId = this.id(path, "move-to-exile");
+    const affected = this.node({ id: this.id(exilePath, "affected"), path: child(exilePath, "what"),
+      node: "event-participant", scope: context.ability, event: ruleId, role: "proposed-move-object", cardinality: "one", rules });
+    this.node({ id: ruleId, path, node: "captured-move-replacement", scope: context.ability,
+      created: this.event(path, context, effect.effect, []), tracked, match: event, exile: this.id(exilePath, "event"), rules });
+    const execution = { ...context, objects: [], players: [], quantities: [], departed: [], exileResults: undefined,
+      exactEventObject: { path: child(exilePath, "what"), id: affected, rules } };
+    this.effect(exile, exilePath, execution);
+    if (suspend) {
+      const result = this.result.nodes.find(node => node.id === this.id(exilePath, "objects"));
+      if (result?.node === "event-result") {
+        const card: Candidate = { id: result.id, domain: "object", cardinality: "one", description: { cls: "card" } };
+        const atSuspend = `${at}/replace/effects/1`;
+        this.walk(suspend.condition, child(atSuspend, "condition"), { ...execution, objects: [card],
+          exileResults: [{ event: result.event, result: card }], uncertainExileOrigin: false });
+        this.effect(suspend.steps[0], `${atSuspend}/steps/0`, { ...execution, objects: [card], conditional: true });
+      }
+    }
+    this.engineFeature("zone-replacement", path,
+      "Install the exile replacement only for the specified object incarnation or spells cast by the bound permission.", rules);
+    return true;
+  }
+
   private preventionOutcome(prevention: Extract<StaticEffect, { static: "prevent-damage" }>["prevention"],
     path: string, context: Context): boolean {
     const { shield, eventScope, kind, to, after } = prevention;
@@ -1871,13 +1974,15 @@ class Analyzer {
     if (context.barrier) return false;
     if (effect.to.to === "each" && effect.to.refs.length === 2) {
       const [players, creatures] = effect.to.refs;
-      if (isDeepStrictEqual(players, { player: "each-opponent" }) &&
+      if ("player" in players &&
+          (isDeepStrictEqual(players, { player: "each-opponent" }) ||
+            (players.player === "target-opponent" && players.selectionId && !players.count)) &&
           "ref" in creatures && creatures.ref === "each" &&
           isDeepStrictEqual(creatures.filter, { types: ["creature"], controlledBy: { player: "they" } })) {
         const at = `${path}/to/refs`;
-        const opponents = this.player({ player: "each-opponent" }, child(at, 0), context);
+        const opponents = this.player(players, child(at, 0), context);
         if (opponents) {
-          const rules = ["102.2", "120.4b", "608.2f"];
+          const rules = ["102.2", "120.4b", "608.2f", ...(players.player === "target-opponent" ? ["601.2c", "608.2b"] : [])];
           const controlled = this.object(creatures, child(at, 1), { ...context, actor: opponents });
           if (controlled) {
             this.node({ id: this.id(path, "opponent-group-damage"), path, node: "opponent-group-damage",
@@ -3725,6 +3830,7 @@ class Analyzer {
     if (this.distinctAction(effect, path, context)) return;
     if (this.relativePlayerAction(effect, path, context)) return;
     if (effect.effect === "grant-look-permission" && this.lookAtFaceDownExile(effect, path, context)) return;
+    if (effect.effect === "create-replacement" && this.moveToExileRule(effect, path, context, precedingEffect)) return;
     if (effect.effect === "damage" && this.damageByEachSource(effect, path, context)) return;
     if (effect.effect === "draw" && this.groupedDraw(effect, path, context)) return;
     if (effect.effect === "for-each" && this.quantifiedInstruction(effect, path, context, precedingEffect)) return;

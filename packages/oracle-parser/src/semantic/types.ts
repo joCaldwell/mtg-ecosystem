@@ -131,9 +131,12 @@ export type BindingNode = NodeBase & (
   | { node: "devotion"; scope: string; who: string; colors: Extract<Amount, { amount: "devotion" }>["colors"] }
   /** The proposed event and the scalar change made when this replacement applies. */
   | { node: "event-participant"; scope: string; event: string; cardinality: "one";
-      role: "proposed-damage-recipient" | "prevented-damage-recipient" | "proposed-move-object" }
+      role: "proposed-damage-recipient" | "prevented-damage-recipient" | "proposed-move-object" | "spell-cast-by-permission" }
   | { node: "exile-replacement"; scope: string; object: string; filter?: string;
       from: "battlefield"; originalDestination: "graveyard"; exileEvent: string; reflexiveTrigger?: string }
+  | { node: "captured-move-replacement"; scope: string; created: string; exile: string;
+      match: Extract<ReplacementInstruction["event"], { event: "move-zone" }>;
+      tracked: { kind: "one-object"; object: string } | { kind: "cast-permission"; grant: string; member: string } }
   | { node: "performed-action-trigger"; scope: string; event: string; outcome: "actually-exiled" }
   /** CR 615.5: apply the follow-up to the same recipient using the amount actually prevented. */
   | { node: "prevention-outcome"; scope: string; targetFilter: string; kind: "all" | "combat" | "noncombat";
