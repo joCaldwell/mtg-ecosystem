@@ -73,6 +73,7 @@ mod counter_spell_controller_mill;
 mod draw_discard;
 mod fixed_mill;
 mod graveyard_battlefield_return;
+pub mod graveyard_shuffle;
 mod group_discard;
 mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
