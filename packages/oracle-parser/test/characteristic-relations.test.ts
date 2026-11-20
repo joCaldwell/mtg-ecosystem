@@ -88,12 +88,16 @@ describe("characteristic comparisons retain both sides and their scope", () => {
       "Destroy target creature with the same name.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
   });
-  it("retains target provenance while keeping relational binding obligations unresolved", () => {
+  it("retains separate targets in a relational eligibility test", () => {
     const text = "Destroy target creature with the same name as target creature.";
     const result = parseOracleText(text, "Relation fixture", { includeSourceProvenance: true }); assert.ok(result.ok);
     const graph = analyzeCardBindings({ identity: "relation-fixture", source: { name: "Relation fixture", layout: "normal", type_line: "Sorcery" }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(graph.fullyBound, false);
-    assert.ok(graph.diagnostics.some(d => d.message.includes("Characteristic relations")));
+    assert.equal(graph.referencesBound, true, JSON.stringify(graph.diagnostics));
+    const comparison = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(comparison?.timing === "target-legality" && comparison.operand.kind === "object");
+    assert.notEqual(comparison.subject, comparison.operand.object);
+    assert.equal(graph.nodes.filter(node => node.node === "selection" && node.selection === "target").length, 2);
     assert.equal(new Set(JSON.stringify(result).match(/line:0:\d+/g)).size, 2);
   });
 });

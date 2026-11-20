@@ -160,7 +160,7 @@ describe("proven first-instruction stack-copy inputs", () => {
       "Whenever you cast a spell, target creature gains \"{T}: Copy it.\" until end of turn.",
     ]) assert.equal(parseOracleText(text).ok, false, text);
   });
-  it("binds the explicit input to its matching lexical event, while copy-result scopes remain unsupported", () => {
+  it("binds a copy input to its matching lexical event", () => {
     const result = parsed("Whenever you cast a spell, copy it.");
     const binding = graph(result);
     const input = binding.references.find(ref => "ref" in ref.expression && ref.expression.ref === "trigger-event-object");
@@ -173,7 +173,9 @@ describe("proven first-instruction stack-copy inputs", () => {
     const event = binding.nodes.find(candidate => candidate.id === node.event);
     assert.ok(event?.node === "event" && event.operation === "trigger:cast");
     assert.equal(binding.fullyBound, false);
-    assert.ok(binding.diagnostics.some(diagnostic => diagnostic.message.includes("Stack-copy results")));
+    assert.equal(binding.referencesBound, true, JSON.stringify(binding.diagnostics));
+    const operation = binding.nodes.find(candidate => candidate.node === "stack-instruction");
+    assert.ok(operation?.action.kind === "copy" && operation.subject === node.id);
     const mismatch = structuredClone(result);
     const ability = mismatch.abilities[0];
     if (ability.kind !== "triggered") throw new Error("expected trigger");

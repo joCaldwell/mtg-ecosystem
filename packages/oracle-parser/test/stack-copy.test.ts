@@ -199,11 +199,13 @@ describe("choosing new targets retains actors, references and choice scope", () 
       { effect: "choose-new-targets", who: you, what: copy, timing: "copy-creation", optional: true },
     ]);
   });
-  it("keeps copy-result bindings unresolved rather than borrowing the last target", () => {
-    const result = parsed("Copy target spell. You may choose new targets for the copy.");
+  it("rejects copy-creation retargeting separated from the copy by another instruction", () => {
+    const result = parsed("Copy target spell, then gain 1 life. You may choose new targets for the copy.");
     const graph = analyzeCardBindings({ identity: "fixture", source: { name: "Fixture", layout: "normal", type_line: "Instant" }, faces: [{ sourceFaceIndex: 0, result }] });
-    assert.equal(graph.fullyBound, false);
-    assert.ok(graph.diagnostics.some(d => d.message.includes("Stack-copy results")), JSON.stringify(graph));
+    assert.equal(graph.referencesBound, false);
+    const instructions = graph.nodes.filter(node => node.node === "stack-instruction");
+    assert.equal(instructions.length, 1);
+    assert.ok(instructions[0].action.kind === "copy" && !instructions[0].action.retarget);
     const unresolvedResult = parsed("Choose new targets for the copy.");
     const unresolvedGraph = analyzeCardBindings({ identity: "fixture", source: { name: "Fixture", layout: "normal", type_line: "Instant" }, faces: [{ sourceFaceIndex: 0, result: unresolvedResult }] });
     assert.equal(unresolvedGraph.fullyBound, false);

@@ -97,7 +97,7 @@ describe('sequential library scans', () => {
     assert.ok(plural.ok);
     const unsupported = bind(plural);
     assert.equal(unsupported.referencesBound, false);
-    assert.ok(unsupported.diagnostics.some(d => d.code === 'unsupported-scope'));
+    assert.ok(unsupported.diagnostics.some(d => d.code === 'cardinality-mismatch' || d.code === 'ambiguous-antecedent'));
     assert.ok(!unsupported.engineFeatures.some(need => need.feature === 'reveal-and-cast'));
   });
   it('keeps Treasure Hunt full revealed pool separate from its nonland stopping match', () => {
@@ -167,13 +167,17 @@ describe('sequential library scans', () => {
     assert.equal(c.pos, 0);
     assert.equal(JSON.stringify(ctx), original);
   });
-  it('records unresolved scan pools instead of binding the stopping card to a preceding object', () => {
+  it('binds the stopping card to the matching subset of the scan', () => {
     const result = parseOracleText('Reveal cards from the top of your library until you reveal a land card. Put that card into your hand.', 'Scan test');
     assert.ok(result.ok);
     const binding = analyzeCardBindings({ identity: 'scan-test', source: { name: 'Scan test', layout: 'normal', type_line: 'Sorcery', mana_cost: '{G}' }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(binding.fullyBound, false);
-    assert.ok(binding.diagnostics.some(d => d.code === 'unsupported-scope'));
-    assert.ok(binding.diagnostics.some(d => d.code === 'missing-antecedent'));
+    assert.equal(binding.referencesBound, true, JSON.stringify(binding.diagnostics));
+    const scan = binding.nodes.find(node => node.node === 'library-scan');
+    const moved = binding.references.find(ref => ref.path.endsWith('/effects/1/steps/0/what'));
+    assert.ok(scan && moved?.binding === 'bound');
+    assert.equal(moved.target, scan.matches);
+    assert.notEqual(moved.target, scan.pool);
   });
 });
 

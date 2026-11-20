@@ -106,12 +106,15 @@ describe('Class bars preserve upgrades and cumulative ability grants', () => {
     ]) assert.equal(parseOracleText(text).ok, false, text);
     assert.equal(parseClassCard(['Creatures you control have "{U}: Level 2."'], () => [], text => lex(text)), null);
   });
-  it('does not certify Class activation history, designation changes or nested targets as bound', () => {
+  it('binds nested Class targets while retaining an unsupported standalone transition', () => {
     const result = parse('When this Class becomes level 2, draw a card.\n{U}: Level 2\n{T}: Tap target creature.\n{U}: Level 3\nWhenever you attack, untap target creature.', true);
     const analysis = analyzeCardBindings({ identity: 'class-fixture', source: { name: 'Class fixture', layout: 'class', type_line: 'Enchantment — Class' }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(analysis.fullyBound, false);
     assert.ok(analysis.diagnostics.some(diagnostic => diagnostic.message.startsWith('A Class-level trigger')));
-    assert.equal(analysis.diagnostics.filter(diagnostic => diagnostic.message.startsWith('A Class level bar') && /\/abilities\/[12]$/.test(diagnostic.path)).length, 2);
-    assert.ok(analysis.references.filter(reference => 'ref' in reference.expression && reference.expression.ref === 'target').every(reference => reference.binding === 'unresolved'));
+    assert.equal(analysis.nodes.filter(node => node.node === 'class-level').length, 2);
+    const targets = analysis.references.filter(reference => 'ref' in reference.expression && reference.expression.ref === 'target');
+    assert.equal(targets.length, 2);
+    assert.ok(targets.every(reference => reference.binding === 'bound'));
+    assert.equal(analysis.engineFeatures.filter(need => need.feature === 'class-level').length, 2);
   });
 });

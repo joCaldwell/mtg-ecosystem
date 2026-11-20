@@ -71,7 +71,7 @@ describe("printed chosen-object references", () => {
     for (const text of ["Return the chosen card name to your hand.", "Exile the chosen creature type.", "Destroy the previously chosen permanent."])
       assert.equal(parseOracleText(text).ok, false, text);
   });
-  it("retains one target identity and leaves chosen-object binding explicitly unresolved", () => {
+  it("uses the same target identity for a uniquely declared chosen object", () => {
     const result = parseOracleText("Choose target creature. Tap the chosen creature.", "Choice Fixture", { includeSourceProvenance: true });
     assert.ok(result.ok);
     assert.deepEqual(JSON.parse(JSON.stringify(result.abilities)), [{ kind: "spell", effects: [
@@ -79,8 +79,10 @@ describe("printed chosen-object references", () => {
       { steps: [{ effect: "tap", what: chosen("singular", { types: ["creature"] }) }] },
     ] }]);
     const graph = analyzeCardBindings({ identity: "choice-fixture", source: { name: "Choice Fixture", layout: "normal" }, faces: [{ sourceFaceIndex: 0, result }] });
-    assert.equal(graph.fullyBound, false);
-    assert.equal(graph.nodes.filter(node => node.node === "selection" && node.selection === "target").length, 1);
-    assert.ok(graph.references.some(binding => "ref" in binding.expression && binding.expression.ref === "choice-result" && binding.binding === "unresolved"));
+    assert.equal(graph.fullyBound, true, JSON.stringify(graph.diagnostics));
+    const targets = graph.nodes.filter(node => node.node === "selection" && node.selection === "target");
+    assert.equal(targets.length, 1);
+    assert.ok(graph.references.some(binding => "ref" in binding.expression && binding.expression.ref === "choice-result" &&
+      binding.binding === "bound" && binding.target === targets[0].id));
   });
 });

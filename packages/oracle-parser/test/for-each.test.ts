@@ -129,11 +129,15 @@ describe("explicit per-member instruction scopes", () => {
       }] }],
     }]);
   });
-  it("marks member references, target multiplicity and output aggregation as unresolved", () => {
+  it("binds per-opponent destruction targets at announcement without exporting the individual targets", () => {
     const result = parsed("For each opponent, destroy up to one target creature that player controls.");
     const graph = analyzeCardBindings({ identity: "loop", source: { name: "Fixture", layout: "normal", type_line: "Sorcery" }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(graph.fullyBound, false);
-    assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope" && d.message.includes("membership timing")));
-    assert.ok(graph.references.filter(r => JSON.stringify(r.expression).includes('"that-player"')).every(r => r.binding === "unresolved"));
+    assert.equal(graph.referencesBound, true, JSON.stringify(graph.diagnostics));
+    const group = graph.nodes.find(node => node.node === "group-instruction");
+    const target = graph.nodes.find(node => node.node === "selection" && node.selection === "target");
+    assert.ok(group?.execution.kind === "for-each" && target?.node === "selection");
+    assert.equal(target.perMember, group.execution.member);
+    assert.ok(!graph.nodes.some(node => node.node === "eligible-target-group"));
   });
 });
