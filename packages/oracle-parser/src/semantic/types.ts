@@ -178,6 +178,8 @@ export type BindingNode = NodeBase & (
   | { node: "per-player-copies"; scope: string; event: string; subject: string; group: string; member: string;
       retarget: "optional-per-copy" }
   | { node: "permanent-spell-copy-grant"; scope: string; copy: string; applies: "permanent-spell-and-resulting-token"; cardinality: "one" }
+  | { node: "copy-return-original"; scope: string; original: string; copy: string; copyEvent: string;
+      returnEvent: string; owner: string; targetOption: string; whenNoCopy: "return-original" }
   | { node: "paired-random-reselection"; scope: string; event: string; original: string; copy: string;
       chooser: string; exclude: [string, string]; unit: "target-slot"; whenUnavailable: "keep"; whenNoCopy: "reselect-original" }
   | { node: "opponent-copy-count"; scope: string; original: string; opponents: string; member: string; opponentEvent: string;
@@ -214,7 +216,7 @@ export type BindingNode = NodeBase & (
   | { node: "shared-exile-play"; scope: string; ledger: string; player: string; maximum: 1;
       alternatives: { action: "play-land" | "cast-spell"; use: string; player: string; refill: string; mana?: "any-color" }[];
       period: "actual-turn-per-player-and-source-incarnation"; commit: "completed-use-of-this-permission";
-      refillController: "source-controller-at-use" }
+      refillController: "source-controller-at-use"; candidate: "proposed-face-for-action" }
   | { node: "linked-scan-cleanup"; scope: string; ledger: string; caster: string; spell: string; match: string;
       cast: string; cleanup: string; destination: "owners-libraries-random" }
   | { node: "grouped-library-scan"; scope: string; event: string; group: string; member: string; pool: string; matches: string;

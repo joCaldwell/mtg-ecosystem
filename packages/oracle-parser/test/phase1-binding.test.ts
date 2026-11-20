@@ -2647,15 +2647,33 @@ describe("distinct library scan and spell-copy results", () => {
     assert.ok(graph.diagnostics.some(diagnostic => diagnostic.path.endsWith("/effects/3") && diagnostic.code === "unsupported-scope"));
   });
 
-  it("retargets the explicit copy while leaving an ambiguous return unbound", () => {
+  it("returns the named original and offers a target choice for the separately named copy", () => {
     const graph = analyze("Copy target instant or sorcery spell, then return it to its owner's hand. You may choose new targets "
       + "for the copy.", "Instant");
-    assert.equal(graph.referencesBound, false);
-    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.path.endsWith("/effects/0/steps/1/what") &&
-      diagnostic.code === "ambiguous-antecedent"));
-    const retarget = graph.nodes.find(node => node.node === "stack-instruction" && node.action.kind === "choose-new-targets");
-    assert.ok(retarget?.node === "stack-instruction");
-    assert.equal(retarget.subject, bound(graph, "/effects/1/steps/0/what"));
+    boundCard(graph);
+    const action = graph.nodes.find(node => node.node === "copy-return-original");
+    assert.ok(action && action.original !== action.copy);
+    assert.equal(action.original, bound(graph, "/effects/0/steps/0/what"));
+    assert.equal(action.original, bound(graph, "/effects/0/steps/1/what"));
+    assert.equal(action.copy, bound(graph, "/effects/1/steps/0/what"));
+    assert.equal(action.owner, bound(graph, "/effects/0/steps/1/to"));
+    assert.equal(action.whenNoCopy, "return-original");
+    const retarget = graph.nodes.find(node => node.id === action.targetOption);
+    assert.ok(retarget?.node === "stack-instruction" && retarget.action.kind === "choose-new-targets");
+    assert.equal(retarget.action.timing, "copy-creation");
+    assert.equal(retarget.action.copyEvent, action.copyEvent);
+  });
+
+  it("does not derive an unqualified return from a different copy or sentence layout", () => {
+    for (const text of [
+      "Copy target instant or sorcery spell twice, then return it to its owner's hand. You may choose new targets for the copies.",
+      "Copy target instant or sorcery spell. Return it to its owner's hand. You may choose new targets for the copy.",
+    ]) {
+      const graph = analyze(text, "Instant");
+      assert.equal(graph.referencesBound, false);
+      assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "ambiguous-antecedent"));
+      assert.ok(!graph.nodes.some(node => node.node === "copy-return-original"));
+    }
   });
 });
 
@@ -2707,6 +2725,7 @@ describe("source-incarnation exile ledgers", () => {
     assert.equal(permission.period, "actual-turn-per-player-and-source-incarnation");
     assert.equal(permission.commit, "completed-use-of-this-permission");
     assert.equal(permission.refillController, "source-controller-at-use");
+    assert.equal(permission.candidate, "proposed-face-for-action");
     assert.equal(permission.player, bound(graph, "/useLimit/during"));
     assert.deepEqual(permission.alternatives.map(option => [option.action, option.mana]), [["play-land", undefined], ["cast-spell", "any-color"]]);
     permission.alternatives.forEach((option, index) => {

@@ -3753,6 +3753,56 @@ class Analyzer {
     return true;
   }
 
+  /** In this whole template the target is the object named by the first
+   * sentence's continuation. The second sentence explicitly names the
+   * different copy and applies at copy creation (CR 707.10c).
+   * https://magic.wizards.com/en/news/feature/war-spark-release-notes-2019-04-19 */
+  private copyThenReturnOriginal(sentences: Sentence[], path: string, context: Context): boolean {
+    if (!context.spellAbility || sentences.length !== 2 || sentences.some(sentence => Object.keys(sentence).length !== 1) ||
+        sentences[0].steps.length !== 2 || sentences[1].steps.length !== 1) return false;
+    const [copy, bounce] = sentences[0].steps;
+    const [retarget] = sentences[1].steps;
+    const you = { player: "you" } as const;
+    if (copy.effect !== "copy-stack-object" || !isDeepStrictEqual(copy, {
+          effect: "copy-stack-object", what: copy.what, who: you, count: { amount: "fixed", value: 1 },
+        }) || copy.what.ref !== "target" || !copy.what.selectionId ||
+        !isDeepStrictEqual({ ...copy.what, selectionId: undefined }, {
+          ref: "target", filter: { allOf: [{ anyOf: [{ types: ["instant"] }, { types: ["sorcery"] }] }], cls: "spell" },
+          count: { amount: "fixed", value: 1 }, selectionId: undefined,
+        }) || !isDeepStrictEqual(bounce, { effect: "return-to-hand", what: { ref: "it" }, to: "owner" }) ||
+        !isDeepStrictEqual(retarget, { effect: "choose-new-targets",
+          who: you, what: { ref: "copy-result", number: "singular" }, timing: "copy-creation", optional: true,
+        })) return false;
+    const first = `${path}/0/steps/0`;
+    this.effect(copy, first, context);
+    const original = this.at(child(first, "what"));
+    const capture = context.stackCopies?.length === 1 ? context.stackCopies[0] : undefined;
+    const second = `${path}/0/steps/1`;
+    const rules = ["101.2", "112.2", "400.7", "608.2b", "608.2c", "609.3", "704.5e", "707.10", "707.10c"];
+    if (!original || !capture || original.id === capture.result.id || capture.path !== first) {
+      this.diagnostic("unsupported-scope", second, "The return needs the named original spell and a separate copy operation.", rules);
+      return true;
+    }
+    const scoped: Context = { ...context, precedingSentence: { path: child(path, 0), steps: sentences[0].steps },
+      boundOperand: { path: child(second, "what"), candidate: original, rules } };
+    this.effect(bounce, second, scoped);
+    const third = `${path}/1/steps/0`;
+    this.effect(retarget, third, scoped);
+    const owner = this.at(child(second, "to"));
+    if (!owner) return true;
+    this.node({ id: this.id(second, "copy-return-original"), path: second, node: "copy-return-original",
+      scope: context.ability, original: original.id, copy: capture.result.id, copyEvent: capture.event,
+      returnEvent: this.id(second, "event"), owner: owner.id, targetOption: this.id(third, "stack-instruction"),
+      whenNoCopy: "return-original", rules });
+    this.engineFeature("stack-instruction", second,
+      "Create the copy with its own target choices, then return the original spell to its owner's hand, even if the copy could not be created.", rules);
+    context.objects = [];
+    context.quantities = [];
+    context.stackCopies = undefined;
+    context.uncertainStackOrigin = true;
+    return true;
+  }
+
   /** CR 115.9c counts distinct target objects, while CR 115.7e–f
    * still applies to each slot of each stack incarnation. */
   private copyAndReselect(sentences: Sentence[], path: string, context: Context): boolean {
@@ -4434,7 +4484,7 @@ class Analyzer {
     if (!seed) return false;
     const at = child(path, "effect");
     const rules = ["305.1", "305.2", "400.7", "601.2i", "603.7g", "603.9", "603.11", "607.2a", "607.2h", "607.5",
-      "609.4b", "611.3", "733.1", "800.4"];
+      "609.4b", "611.3", "712.11b", "712.11c", "712.12", "733.1", "800.4"];
     const actor = this.player(active, `${at}/useLimit/during`, context);
     if (!actor) return true;
     const writers = [this.seedLedgerWriter(seed, rules)];
@@ -4465,7 +4515,7 @@ class Analyzer {
     this.node({ id: this.id(at, "shared-exile-play"), path: at, node: "shared-exile-play", scope: context.ability,
       ledger: ledgerId, player: actor.id, alternatives, maximum: 1,
       period: "actual-turn-per-player-and-source-incarnation", commit: "completed-use-of-this-permission",
-      refillController: "source-controller-at-use", rules });
+      refillController: "source-controller-at-use", candidate: "proposed-face-for-action", rules });
     this.engineFeature("linked-exile-play", at,
       "Share one normal-timing land play or spell cast from this source's exile ledger during the active player's turn. A completed use spends the permission and triggers the refill for that exact user.", rules);
     return true;
@@ -4607,7 +4657,8 @@ class Analyzer {
 
   sentences(sentences: Sentence[], path: string, context: Context): void {
     if (!context.barrier && !context.previousEffect && !context.decider && !context.conditional && context.phase === "resolution" &&
-        (this.copyAndReselect(sentences, path, context) || this.copiesForOpponents(sentences, path, context) ||
+        (this.copyThenReturnOriginal(sentences, path, context) || this.copyAndReselect(sentences, path, context) ||
+          this.copiesForOpponents(sentences, path, context) ||
           this.grantOnStackCopies(sentences, path, context) || this.conditionalExilePermission(sentences, path, context) ||
           this.pairedHandExiles(sentences, path, context) || this.matchingSacrifice(sentences, path, context) ||
           this.fightCreatedTokens(sentences, path, context) || this.searchesForExiledCreatures(sentences, path, context) ||
