@@ -212,6 +212,61 @@ pub(super) fn validate_bindings(
 
 // Match both directions: an edited AST must not erase a printed lookup,
 // and an injected lookup cannot borrow a different printed effect.
+pub(super) fn lower_cast_opponent_damage(
+    condition: &TriggerCondition,
+    effects: &[Sentence],
+    block: u32,
+    program: &mut SpellProgram,
+) -> Result<Option<Instruction>, Failure> {
+    // The complete printed block, operand and scoped graph were checked by
+    // validate_fixed_cast_effects before lowering any abilities.
+    let TriggerCondition::SpellCast {
+        caster: CasterRelation::Controller,
+        spell: TypePredicate::SpellColor { .. },
+    } = condition
+    else {
+        return Ok(None);
+    };
+    let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
+    else {
+        return Ok(None);
+    };
+    let [
+        Step::Damage {
+            optional: None,
+            amount,
+            to: DamageDestination::Player { reference },
+            ..
+        },
+    ] = steps.as_slice()
+    else {
+        return Ok(None);
+    };
+    if !bindings.is_empty() || reference["player"] != "target-opponent" {
+        return Ok(None);
+    }
+    let selection = reference["selectionId"]
+        .as_str()
+        .ok_or_else(|| unsupported("damage.target", "missing bound opponent occurrence"))?;
+    Ok(Some(Instruction::DealDamage {
+        target_slot: bind_target(
+            program,
+            &mut BTreeMap::new(),
+            selection,
+            TargetDomain::OpponentPlayer,
+        )?,
+        amount: fixed_positive_value(amount)?,
+        source_block: block,
+    }))
+}
+
 pub(super) fn validate_fixed_cast_effects(
     abilities: &[Ability],
     result: &ParseResult,

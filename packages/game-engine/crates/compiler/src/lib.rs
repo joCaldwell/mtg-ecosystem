@@ -5339,6 +5339,13 @@ fn lower_trigger(
             .push(Instruction::UntapControllerLands {
                 source_block: source_block(block)?,
             });
+    } else if let Some(instruction) = controller_library::lower_cast_opponent_damage(
+        &condition,
+        effects,
+        source_block(block)?,
+        &mut program,
+    )? {
+        program.instructions.push(instruction);
     } else if let (
         SourceTrigger::Enters { what: subject },
         [
