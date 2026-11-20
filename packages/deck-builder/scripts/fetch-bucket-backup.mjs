@@ -55,9 +55,10 @@ async function newestSnapshotKey() {
 
 try {
   const key = args.key ?? await newestSnapshotKey();
-  const file = resolve(args.out ?? join(homedir(), ".local/share/deck-builder-offline", new Date().toISOString().slice(0, 7), basename(key)));
+  const defaultDir = join(homedir(), ".local/share/deck-builder-offline", new Date().toISOString().slice(0, 7));
+  const file = resolve(args.out ?? join(defaultDir, basename(key)));
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  chmodSync(dirname(file), 0o700);
+  if (!args.out) chmodSync(defaultDir, 0o700);
   const object = await s3.send(new GetObjectCommand({ Bucket: credentials.bucketName, Key: key }));
   await pipeline(object.Body, createWriteStream(file, { flags: "wx", mode: 0o600 }));
 
