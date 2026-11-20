@@ -2655,6 +2655,8 @@ export type Condition =
   | { condition: "targets"; what: ObjectRef; target: ObjectRef | PlayerRef }
   | { condition: "characteristic-relation"; what: ObjectRef; test: CharacteristicRelation }
   | { condition: "compare"; value: Amount; comparison: Comparison }
+  /** Compare the identified object with every other member, excluding its own incarnation. */
+  | { condition: "strict-attribute-extremum"; what: ObjectRef; attribute: "power" | "toughness"; extremum: "maximum" | "minimum"; among: ObjectFilter }
   /** Quantified players retain their quantifier: an opponent is existential,
    * while each player is tested independently, never a combined counter sum. */
   | { condition: "player-counters"; who: PlayerRef; counter: CounterSpec | "any"; comparison: Comparison }
