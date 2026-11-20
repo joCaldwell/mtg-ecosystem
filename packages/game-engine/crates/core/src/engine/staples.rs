@@ -914,7 +914,9 @@ impl Game {
                 source_block == b
                     && frame.spell.entity_targets.first()
                         == Some(&TargetEntity::Player { player: *player })
-                    && frame.legal_targets.first() == Some(&true)
+                    && self
+                        .graveyard_legality(frame)
+                        .is_ok_and(|(legal, _)| legal.first() == Some(&true))
                     && (*index as usize)
                         < self
                             .state

@@ -131,7 +131,7 @@ pub(super) fn cast(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
     answer(g, q, Response::Cast { card: obj.card });
     pay_and_resolve(g, q, targets);
 }
-pub(super) fn pay_and_resolve(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
+pub(super) fn pay_to_priority(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
     loop {
         let r = request(g, q);
         let response = match &r {
@@ -193,6 +193,9 @@ pub(super) fn pay_and_resolve(g: &mut Game, q: u64, targets: Vec<TargetEntity>) 
         };
         g.respond(r.player(), r.decision_id(), response).unwrap();
     }
+}
+pub(super) fn pay_and_resolve(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
+    pay_to_priority(g, q, targets);
     while !g.state.rules.stack.is_empty() {
         answer(g, q, Response::Pass);
         request(g, q);
