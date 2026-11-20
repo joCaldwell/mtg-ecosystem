@@ -63,17 +63,27 @@ const HIDEAWAY_PLAY = {
       comparison: { op: "ge", value: { amount: "fixed", value: 10 } } },
   },
 } as const satisfies Effect;
+const HIDEAWAY_DAMAGE_PLAY = {
+  ...HIDEAWAY_PLAY, instruction: {
+    ...HIDEAWAY_PLAY.instruction,
+    condition: { condition: "damage-history", comparison: { op: "ge", value: { amount: "fixed", value: 7 } },
+      quantity: "total", to: { player: "an-opponent" }, during: "this-turn" },
+  },
+} as const satisfies Effect;
 const HIDEAWAY_FOUR = { keyword: "hideaway", amount: 4 } as const satisfies KeywordInstance;
 
 // Only these independent entry and mana paragraphs may accompany the pair.
 // A second hideaway, another exile producer or a granted ability must never
 // supply this link. Printed order is immaterial.
-function hideawayProducer(abilities: Ability[], activation: Extract<Ability, { kind: "activated" }>): number | undefined {
+function hideawayProducer(abilities: Ability[], activation: Extract<Ability, { kind: "activated" }>):
+  { index: number; play: typeof HIDEAWAY_PLAY | typeof HIDEAWAY_DAMAGE_PLAY } | undefined {
   const { abilityWord, restriction, ...paragraph } = activation;
-  if (abilityWord !== undefined || restriction !== undefined || !isDeepStrictEqual(paragraph, {
-    kind: "activated", costs: [{ cost: "mana", symbols: ["G"] }, { cost: "tap-self" }],
-    effects: [{ steps: [HIDEAWAY_PLAY] }],
-  })) return undefined;
+  if (abilityWord !== undefined || restriction !== undefined) return;
+  const lane = [[HIDEAWAY_PLAY, "G"], [HIDEAWAY_DAMAGE_PLAY, "R"]].find(([play, color]) =>
+    isDeepStrictEqual(paragraph, { kind: "activated", costs: [{ cost: "mana", symbols: [color] }, { cost: "tap-self" }],
+      effects: [{ steps: [play] }] })) as [typeof HIDEAWAY_PLAY | typeof HIDEAWAY_DAMAGE_PLAY, string] | undefined;
+  if (!lane) return;
+  const [play, color] = lane;
   let producer: number | undefined;
   for (const [index, ability] of abilities.entries()) {
     if (ability === activation) continue;
@@ -91,12 +101,12 @@ function hideawayProducer(abilities: Ability[], activation: Extract<Ability, { k
       const { abilityWord, restriction, ...mana } = ability;
       if (abilityWord === undefined && restriction === undefined && isDeepStrictEqual(mana, {
         kind: "activated", costs: [{ cost: "tap-self" }], effects: [{ steps: [{ effect: "add-mana",
-          who: { player: "you" }, mana: { mana: "fixed", symbols: ["G"] } }] }],
+          who: { player: "you" }, mana: { mana: "fixed", symbols: [color] } }] }],
       })) continue;
     }
     return undefined;
   }
-  return producer;
+  return producer === undefined ? undefined : { index: producer, play };
 }
 const SYMBOLIC_AMOUNTS = new Set(["x", "that-number", "that-much", "replacement-event-quantity"]);
 interface Candidate { id: string; cardinality: BindingCardinality; domain: "object" | "object-or-player" | "player" | "number"; description?: ObjectFilter;
@@ -162,7 +172,9 @@ function replacementObject(object: ObjectRef | PlayerRef | undefined, excludeRec
   if (!object || !("ref" in object)) return false;
   if (object.ref === "equipped") return object.noun === "creature";
   return object.ref === "filter" && object.count.amount === "fixed" && object.count.value === 1 &&
-    Object.keys(object).length === 3 && Object.keys(object.filter).every(key => ["cls", "types", "supertypes", "control"].includes(key) ||
+    Object.keys(object).length === 3 && Object.keys(object.filter).every(key => ["cls", "types", "supertypes", "control", "colors"].includes(key) ||
+      (key === "anyOf" && object.filter.anyOf?.every(option =>
+        Object.keys(option).length === 1 && (option.colors?.length === 1 || option.types?.length === 1))) ||
       (excludeRecipient && key === "otherThan" && isDeepStrictEqual(object.filter.otherThan, { ref: "replacement-event-object", role: "recipient" })));
 }
 
@@ -2766,6 +2778,7 @@ class Analyzer {
   /** "[Player] pays [cost]" as an instruction (CR 118.12): the payer is that
    * player. Paying it is optional when printed with "may". */
   payCost(effect: Extract<Effect, { effect: "pay-cost" }>, path: string, context: Context): void {
+    if (effect.optional) this.rememberDecision(path, context);
     this.walk(effect.who, child(path, "who"), context);
     const payer = this.at(child(path, "who"));
     const decider = effect.optional ? (effect.decidedBy ? (this.walk(effect.decidedBy, child(path, "decidedBy"), context), this.at(child(path, "decidedBy"))?.id) : payer?.id) : undefined;
@@ -2776,7 +2789,8 @@ class Analyzer {
       return;
     }
     const boundPayment = effect.optional && !effect.decidedBy && !context.decider && !context.x && !context.announcedX &&
-      context.lifeGain?.player === payer.id &&
+      context.lifeGain?.player === payer.id && !context.conditional &&
+      context.lexicalAbilityPath !== undefined && path === `${context.lexicalAbilityPath}/effects/0/steps/0` &&
       isDeepStrictEqual(effect.costs, [{ cost: "mana", symbols: ["X"] }]) &&
       isDeepStrictEqual(effect.variableConstraints, [{ variable: "x", maximum: {
         amount: "event-quantity", event: "life-change", change: "gained", who: { player: "you" }, scope: "contextual",
@@ -2784,7 +2798,7 @@ class Analyzer {
     const payment: Context = { ...context, you: payer.id, phase: "payment" };
     if (boundPayment && context.lifeGain) {
       const at = child(path, "variableConstraints");
-      const rules = ["107.3e", "118.12", "119.9", "603.2c", "608.2g"];
+      const rules = ["107.3f", "118.12", "119.9", "603.2c", "608.2d", "608.2g"];
       const id = this.node({ id: this.id(at, "life-bounded-x"), path: at, node: "bounded-payment-amount",
         scope: context.ability, payment: this.id(path, "event"), payer: payer.id, minimum: 0, maximum: context.lifeGain.quantity, rules });
       this.bound({ player: "you" }, `${at}/0/maximum/who`, payer.id, rules);
@@ -2841,8 +2855,6 @@ class Analyzer {
     this.walk(search.zones, child(searchPath, "zones"), { ...context, actor });
     const selection = this.object(search.for, child(searchPath, "for"), context);
     if (!selection) return true;
-    this.rememberDecision(path, context);
-    context.decisions?.push(path);
     const decision = this.event(path, context, "optional-controller-search", [actor], {
       optional: true, decider: player, ...(context.conditional ? { conditional: true as const } : {}),
     });
@@ -2897,22 +2909,28 @@ class Analyzer {
       rules: identity === "zone-successors" ? ["400.7j"] : ["608.2h"] });
     return { id, cardinality, domain: result === "objects" ? "object" : result === "player" ? "player" : "number", description };
   }
-  hideawayPlay(path: string, pool: string, context: Context): void {
+  hideawayPlay(path: string, pool: string, context: Context, play: typeof HIDEAWAY_PLAY | typeof HIDEAWAY_DAMAGE_PLAY): void {
     const at = child(path, "instruction");
-    const { instruction } = HIDEAWAY_PLAY;
+    const { instruction } = play;
     const controller = this.bound(instruction.who, child(at, "who"), context.you, ["109.5"]);
     const cards = this.bound(instruction.what, child(at, "what"), pool, ["400.7", "607.2a", "607.3"]);
     this.walk(instruction.alternativeCost, child(at, "alternativeCost"), context);
     const conditionPath = child(at, "condition");
     this.walk(instruction.condition, conditionPath, context);
-    const creatures = this.at(`${conditionPath}/value/among`)!;
-    const condition = this.node({ id: this.id(conditionPath, "condition"), path: conditionPath,
-      node: "total-power-condition", scope: context.ability, creatures: creatures.id,
-      comparison: instruction.condition.comparison, timing: "resolution", rules: ["608.2h"] });
+    const id = this.id(conditionPath, "condition");
+    const condition = instruction.condition.condition === "compare"
+      ? this.node({ id, path: conditionPath, node: "total-power-condition", scope: context.ability,
+          creatures: this.at(`${conditionPath}/value/among`)!.id,
+          comparison: instruction.condition.comparison, timing: "resolution", rules: ["608.2h"] })
+      : this.node({ id, path: conditionPath, node: "damage-history-condition", scope: context.ability,
+          opponentsOf: context.you, comparison: instruction.condition.comparison, timing: "resolution",
+          during: "this-turn", quantifier: "any-one-opponent", rules: ["102.2", "120.3", "120.4b", "608.2i"] });
     this.event(path, context, HIDEAWAY_PLAY.effect, [cards, controller],
       { optional: true, decider: controller.id, conditional: true, condition });
     this.engineFeature("linked-exile-play", path,
-      "During resolution, if the activator's creatures have total power at least ten, they may play each card still in this incarnation's linked exile pool. Apply land-play limits or cast without paying its mana cost, subject to legality.",
+      instruction.condition.condition === "compare"
+        ? "During resolution, if the activator's creatures have total power at least ten, they may play each card still in this incarnation's linked exile pool. Apply land-play limits or cast without paying its mana cost, subject to legality."
+        : "If one opponent received enough damage this turn, offer legal land plays and casts from the linked face-down exile pool.",
       ["113.7a", "305.2", "305.3", "406.3a", "607.2a", "607.3", "608.2g", "608.2h", "701.18b"]);
   }
   revealAndCast(effects: typeof REVEAL_AND_CAST, path: string, context: Context): void {
@@ -3011,8 +3029,16 @@ class Analyzer {
       // "If you do" / "If you don't" refers to the one optional instruction of
       // the preceding sentence (CR 608.2c, 608.2d).
       const condition = sentence.condition;
-      const linked = condition && (condition.condition === "you-do" || condition.condition === "you-dont") && previousDecisions.length === 1
-        ? previousDecisions[0] : undefined;
+      const decisionPath = previousDecisions.length === 1 ? previousDecisions[0] : undefined;
+      const previousPayment = condition?.condition === "preceding-action" && condition.outcome === "not-performed" &&
+        condition.who.player === "they" && decisionPath
+        ? this.result.nodes.find(node => node.id === this.id(decisionPath, "event")) : undefined;
+      const paymentCondition = previousPayment?.node === "event" && previousPayment.operation === "pay-cost" &&
+        previousPayment.optional && previousPayment.scope === context.ability && previousPayment.decider &&
+        this.player({ player: "they" }, `${at}/condition/who`, context)?.id === previousPayment.decider;
+      const linked = condition && (condition.condition === "you-do" || condition.condition === "you-dont" || paymentCondition)
+        ? decisionPath : undefined;
+      const declines = condition?.condition === "you-dont" || paymentCondition;
       const paid = !linked && condition?.condition === "you-do" ? precedingAction : undefined;
       if (paid) {
         const atCondition = child(at, "condition");
@@ -3022,13 +3048,13 @@ class Analyzer {
         this.engineFeature("action-cost-condition", atCondition, "Check whether the preceding action was carried out as the cost of this instruction.", rules);
       }
       if (linked && condition) this.node({ id: this.id(child(at, "condition"), "decision-link"), path: child(at, "condition"), node: "decision-link",
-        scope: context.ability, condition: condition.condition as "you-do" | "you-dont", decision: linked, rules: ["608.2c", "608.2d"] });
+        scope: context.ability, condition: declines ? "you-dont" : "you-do", decision: linked, rules: ["608.2c", "608.2d"] });
       // An "unless" clause follows its instruction and may refer to that
       // instruction's objects ("Counter target spell unless its controller
       // pays {3}"), so it binds after the steps.
       const trailing = sentence.conditionKind === "unless" || sentence.conditionPosition === "after";
       context.linkedPath = linked;
-      if (!trailing) this.walk(condition, child(at, "condition"), linked || paid ? { ...context, linkedDecision: true } : context);
+      if (!trailing && !paymentCondition) this.walk(condition, child(at, "condition"), linked || paid ? { ...context, linkedDecision: true } : context);
       if (sentence.afterConditional)
         this.diagnostic("unsupported-scope", at, "This sentence refers back to a conditional sentence; whether that condition governs it is not decided.", ["608.2c"]);
       if (condition || sentence.otherwise || sentence.afterConditional) {
@@ -3046,13 +3072,13 @@ class Analyzer {
           ? this.at(child(child(at, "condition"), "what"))
           : linkedResult?.node === "event-result" ? { id: linkedResult.id, cardinality: linkedResult.cardinality, domain: "object" as const, description: linkedResult.description } : undefined;
         const branches = [sentence.steps, sentence.otherwise?.steps ?? []].map((steps, branchIndex) => {
+          const declinedBranch = declines ? branchIndex === 0 : branchIndex === 1;
           const branch: Context = { ...this.branch(context), conditional: true, decisions,
             players: combine(context.players, this.targetPlayersUnder(child(at, "condition"), context)),
-            ...(linked && condition?.condition === "you-do" && branchIndex === 0 &&
-                context.resolutionPaymentX?.path === linked && !context.x
+            ...(linked && !declinedBranch && context.resolutionPaymentX?.path === linked && !context.x
               ? { x: context.resolutionPaymentX.id } : {}),
             // "If you don't, ...": what the declined instruction would have produced does not exist.
-            ...(linked && condition?.condition === "you-dont" && branchIndex === 0 ? this.beforeDecision.get(linked) : {}),
+            ...(linked && declinedBranch ? this.beforeDecision.get(linked) : {}),
             ...(conditionSubject?.domain === "object" ? { conditionSubject: { candidate: conditionSubject,
               before: [...context.objects, ...(context.departed ?? [])].map(candidate => candidate.id) } } : {}) };
           const stepsPath = branchIndex === 0 ? child(at, "steps") : child(child(at, "otherwise"), "steps");
@@ -3498,7 +3524,7 @@ class Analyzer {
 
     const subject = this.object(effect.what, child(path, "what"), context);
     if (!subject) return true;
-    const rules = ["603.2c", "707.10", otherPlayers ? "707.10c" : "707.10d", ...(otherPlayers ? ["101.4"] : ["115.9c"])];
+    const rules = ["603.2c", "707.10", otherPlayers ? "707.10c" : "707.10d", ...(otherPlayers ? ["101.4", "405.3"] : ["115.9c"])];
     if (alternateTargets && fixed) {
       this.bound(effect.who, child(path, "who"), caster.id, rules);
       const event = this.event(path, context, effect.effect, [subject, caster]);
@@ -4542,7 +4568,7 @@ class Analyzer {
           ? hideawayProducer(cardAbilities, ability) : undefined;
         if (producer !== undefined) {
           const siblings = path.slice(0, path.lastIndexOf("/"));
-          this.hideawayPlay(`${path}/effects/0/steps/0`, this.id(`${siblings}/${producer}/keywords/0`, "pool"), context);
+          this.hideawayPlay(`${path}/effects/0/steps/0`, this.id(`${siblings}/${producer.index}/keywords/0`, "pool"), context, producer.play);
           break;
         }
         this.sentences(ability.effects, child(path, "effects"), context);
@@ -4561,6 +4587,7 @@ class Analyzer {
         context.interveningIf = true;
         this.namingCondition(ability.condition, child(path, "condition"), context);
         context.interveningIf = undefined;
+        this.countedPermanentPool(ability, path, context);
         if (context.stackPlacement && isDeepStrictEqual(ability.condition,
           { condition: "is-filter", what: { ref: "it" }, filter: { singleTarget: true } }))
           context.singleTargetStackGuard = true;
@@ -4711,6 +4738,26 @@ class Analyzer {
     }
     this.spellParagraph = undefined;
   }
+  private countedPermanentPool(ability: Extract<Ability, { kind: "triggered" }>, path: string, context: Context): void {
+    const { condition, effects } = ability;
+    if (context.barrier || context.objects.length || context.departed?.length || condition?.condition !== "count" ||
+        condition.comparison.op !== "ge" || condition.comparison.value.amount !== "fixed" ||
+        condition.of.cls !== "permanent" || !condition.of.counterConstraints?.length ||
+        Object.keys(condition.of).some(key => !["cls", "control", "counterConstraints"].includes(key)) ||
+        effects.length !== 1 || effects[0].steps.length !== 1 || Object.keys(effects[0]).length !== 1) return;
+    const [destroy] = effects[0].steps;
+    if (destroy.effect !== "destroy" || Object.keys(destroy).length !== 2 ||
+        destroy.what.ref !== "from-pool" || !destroy.what.random || objectCardinality(destroy.what) !== "one" ||
+        !isDeepStrictEqual(destroy.what.pool, { ref: "that", filter: { cls: "permanent" }, plural: true })) return;
+    const at = `${path}/condition/of`;
+    const rules = ["122.1", "603.4", "608.2d", "608.2h"];
+    const id = this.node({ id: this.id(at, "intervening-pool"), path: at, node: "intervening-condition-pool",
+      scope: context.ability, filter: condition.of, cardinality: "many", timing: "trigger-check-and-resolution", rules });
+    context.objects = [{ id, domain: "object", cardinality: "many", description: condition.of }];
+    this.engineFeature("intervening-condition-pool", at,
+      "Recompute the current set at each intervening-if check and sample the one random choice from the resolving set.", rules);
+  }
+
   /** An intervening "if" clause (CR 603.4) or a static ability's "as long as"
    * condition that names the source or what it is attached to makes that
    * object an antecedent of the effect: "if this creature has defender, it

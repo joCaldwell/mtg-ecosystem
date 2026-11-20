@@ -1231,6 +1231,13 @@ describe("resolution choices and participant identity", () => {
       node.condition === search.decision && !node.requiresResult));
   });
 
+  it("does not interpret another player's search choice as if-you-do", () => {
+    const graph = analyze("Exile target creature. Its controller may search their library for a basic land card, "
+      + "put that card onto the battlefield tapped, then shuffle. If you do, draw a card.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "decision-link"));
+  });
+
   it("does not use a nonadjacent exile as the optional search's anchor", () => {
     const graph = analyze("Exile target creature. Tap target creature. Its controller may search their library for a basic land card, "
       + "put that card onto the battlefield tapped, then shuffle.", "Instant");
@@ -1288,5 +1295,65 @@ describe("actual outcomes across payments and players", () => {
     const graph = analyze("Each player creates three tapped 1/1 white Warrior creature tokens. "
       + "Create a Gold token. Goad those tokens.", "Sorcery");
     assert.equal(graph.referencesBound, false);
+  });
+});
+
+describe("history and linked outcomes", () => {
+  it("uses the same payer in a preceding-action condition about a declined payment", () => {
+    const graph = analyze("Whenever a creature an opponent controls dies, they may pay 3 life. "
+      + "If they don't, return that card under your control with a finality counter on it.", "Enchantment");
+    boundCard(graph);
+    const check = graph.nodes.find(node => node.node === "decision-link");
+    assert.ok(check && check.condition === "you-dont");
+    assert.equal(bound(graph, "/steps/0/who"), bound(graph, "/condition/who"));
+  });
+
+  it("rejects a preceding-action check when no adjacent payment was offered", () => {
+    const graph = analyze("Whenever a creature an opponent controls dies, they may pay 3 life. Draw a card. "
+      + "If they don't, return that card under your control with a finality counter on it.", "Enchantment");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "decision-link"));
+  });
+
+  it("retains the qualifying set from the intervening-if evaluated on resolution", () => {
+    const graph = analyze("At the beginning of your end step, if two or more permanents you don't control have an aim counter on them, "
+      + "destroy one of those permanents at random.", "Enchantment");
+    boundCard(graph);
+    const pool = graph.nodes.find(node => node.node === "intervening-condition-pool");
+    assert.ok(pool?.timing === "trigger-check-and-resolution");
+    assert.equal(pool.id, bound(graph, "/what/pool"));
+  });
+
+  it("matches a disjunction in a proposed damage event without choosing a source", () => {
+    const graph = analyze("If a red or artifact source you control would deal damage to an opponent or a permanent an opponent controls, "
+      + "it deals that much damage plus 1 instead.", "Enchantment");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "quantity-replacement");
+    assert.equal(replacement?.unit, "damage-source-and-recipient");
+    assert.ok(graph.nodes.some(node => node.node === "selection" && node.id === bound(graph, "/event/source") &&
+      node.selection === "event-participant-filter"));
+  });
+
+  it("tests the actual damage to each individual opponent for hideaway", () => {
+    const graph = analyze("Hideaway 4\nThis land enters tapped.\n{T}: Add {R}.\n"
+      + "{R}, {T}: You may play the exiled card without paying its mana cost if an opponent was dealt 7 or more damage this turn.", "Land");
+    boundCard(graph);
+    const condition = graph.nodes.find(node => node.node === "damage-history-condition");
+    assert.ok(condition && condition.quantifier === "any-one-opponent");
+    assert.ok(graph.nodes.some(node => node.node === "event" && node.condition === condition.id && node.optional));
+  });
+
+  it("does not borrow the total from the triggering gain past a competing gain", () => {
+    const graph = analyze("Whenever you gain life, you gain 2 life. You may pay {X}, where X is less than or equal "
+      + "to the amount of life you gained. If you do, draw X cards.", "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "bounded-payment-amount"));
+  });
+
+  it("omits declined action captures from the otherwise branch of if-you-do", () => {
+    const graph = analyze("You may exile target instant card from a graveyard. If you do, draw a card. "
+      + "Otherwise, copy the exiled card.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "card-copy"));
   });
 });
