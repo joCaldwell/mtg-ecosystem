@@ -2471,10 +2471,14 @@ impl Game {
                         .get(&source.card)
                         .ok_or("missing countered spell physical card")?
                         .owner;
+                    let destination = replacement
+                        .and_then(|proof| proof.get(&source))
+                        .copied()
+                        .unwrap_or(Zone::Graveyard { owner });
                     let EventOutcome::Moved { movement } =
                         self.apply_occurrence(&ProposedEvent::Move {
                             object: source,
-                            destination: Zone::Graveyard { owner },
+                            destination,
                         })?
                     else {
                         return Err("missing countered spell movement".into());

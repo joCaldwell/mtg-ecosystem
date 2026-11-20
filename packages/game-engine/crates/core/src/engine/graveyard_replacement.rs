@@ -1,4 +1,4 @@
-//! Printed replacement before a library card would enter a graveyard.
+//! Printed replacement before a physical object would enter a graveyard.
 //! CR 113.6, 400.7, 614.4–6, 616.1f, 701.24c/f/g, 903.9b (2026-09-25).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -6,7 +6,8 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct GraveyardReplacement {
-    frame: Resolving,
+    pub(super) frame: Resolving,
+    completion: GraveyardCompletion,
     source_block: u32,
     proposed: ProposedEvent,
     owner: PlayerId,
@@ -14,6 +15,21 @@ pub(super) struct GraveyardReplacement {
     commanders: Vec<ObjectId>,
     choices: Vec<bool>,
     phase: ReplacementPhase,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "completion", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum GraveyardCompletion {
+    Library,
+    Counter {
+        target: StackId,
+        source: ObjectId,
+        controller: PlayerId,
+        mill: Option<Quantity>,
+    },
+    MillAfterCounter {
+        outcome: Box<InstructionOutcome>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,11 +120,26 @@ impl Game {
         proposed: ProposedEvent,
         source_block: u32,
     ) -> Result<(), String> {
+        self.complete_library_effect_with(
+            frame,
+            proposed,
+            source_block,
+            GraveyardCompletion::Library,
+        )
+    }
+
+    pub(super) fn complete_library_effect_with(
+        &mut self,
+        frame: Resolving,
+        proposed: ProposedEvent,
+        source_block: u32,
+        completion: GraveyardCompletion,
+    ) -> Result<(), String> {
         if let Some((owner, members)) = library_members(&proposed) {
             let mut revealed = vec![];
             for &object in members {
                 if self.has_self_graveyard_replacement(object)? {
-                    if self.current(object)?.zone != (Zone::Library { owner })
+                    if self.zone(object) != Some(Zone::Library { owner })
                         || self.state.rules.cards[&object.card].owner != owner
                     {
                         return Err("replacement source is outside the proposed library".into());
@@ -117,36 +148,86 @@ impl Game {
                 }
             }
             if !revealed.is_empty() {
-                if self.state.rules.match_state.is_none() {
-                    return Err("printed graveyard shuffle requires a seeded match".into());
-                }
-                let commanders = revealed
-                    .iter()
-                    .copied()
-                    .filter(|id| self.state.rules.commanders.history(id.card).is_some())
-                    .collect();
-                self.state.rules.frame = Frame::GraveyardReplacement {
-                    transaction: Box::new(GraveyardReplacement {
-                        frame,
-                        proposed,
-                        source_block,
-                        owner,
-                        revealed,
-                        commanders,
-                        choices: vec![],
-                        phase: ReplacementPhase::BeforeMovement,
-                    }),
-                };
-                return Ok(());
+                return self.begin_graveyard_effect(
+                    frame,
+                    proposed,
+                    source_block,
+                    owner,
+                    revealed,
+                    completion,
+                );
             }
         }
         let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            },
-        )
+        self.finish_graveyard_effect(frame, source_block, actual, completion)
+    }
+
+    pub(super) fn begin_graveyard_effect(
+        &mut self,
+        frame: Resolving,
+        proposed: ProposedEvent,
+        source_block: u32,
+        owner: PlayerId,
+        revealed: Vec<ObjectId>,
+        completion: GraveyardCompletion,
+    ) -> Result<(), String> {
+        if self.state.rules.match_state.is_none() {
+            return Err("printed graveyard shuffle requires a seeded match".into());
+        }
+        self.record_event(Event::GraveyardReplacementRevealed {
+            cause: Self::staple_cause(&frame, source_block),
+            objects: revealed.clone(),
+        })?;
+        let commanders = revealed
+            .iter()
+            .copied()
+            .filter(|id| self.state.rules.commanders.history(id.card).is_some())
+            .collect();
+        self.state.rules.frame = Frame::GraveyardReplacement {
+            transaction: Box::new(GraveyardReplacement {
+                frame,
+                proposed,
+                source_block,
+                owner,
+                revealed,
+                commanders,
+                choices: vec![],
+                completion,
+                phase: ReplacementPhase::BeforeMovement,
+            }),
+        };
+        Ok(())
+    }
+
+    fn finish_graveyard_effect(
+        &mut self,
+        frame: Resolving,
+        source_block: u32,
+        actual: EventOutcome,
+        completion: GraveyardCompletion,
+    ) -> Result<(), String> {
+        match completion {
+            GraveyardCompletion::Library => self.finish_instruction(
+                frame,
+                InstructionOutcome::Effect {
+                    actual: Some(actual),
+                },
+            ),
+            GraveyardCompletion::MillAfterCounter { outcome } => {
+                self.finish_instruction(frame, *outcome)
+            }
+            GraveyardCompletion::Counter {
+                target,
+                controller,
+                mill,
+                ..
+            } => {
+                self.state.rules.frame = Frame::Resolve {
+                    frame: frame.clone(),
+                };
+                self.complete_counter_outcome(frame, source_block, target, controller, mill, actual)
+            }
+        }
     }
 
     pub(super) fn replacement_request(&self) -> Option<Request> {
@@ -218,15 +299,23 @@ impl Game {
     ) -> Result<(), String> {
         if !self.is_live(tx.owner) {
             self.state.rules.pending = None;
-            let outcome = match tx.phase {
-                ReplacementPhase::BeforeMovement => {
-                    InstructionOutcome::PlayerActionSkipped { player: tx.owner }
+            return match tx.phase {
+                ReplacementPhase::Shuffling { actual, .. } => {
+                    self.finish_graveyard_effect(tx.frame, tx.source_block, *actual, tx.completion)
                 }
-                ReplacementPhase::Shuffling { actual, .. } => InstructionOutcome::Effect {
-                    actual: Some(*actual),
-                },
+                ReplacementPhase::BeforeMovement => {
+                    let outcome = match tx.completion {
+                        GraveyardCompletion::Counter { target, .. } => {
+                            InstructionOutcome::StackObjectNoLongerPresent { target }
+                        }
+                        GraveyardCompletion::MillAfterCounter { outcome } => *outcome,
+                        GraveyardCompletion::Library => {
+                            InstructionOutcome::PlayerActionSkipped { player: tx.owner }
+                        }
+                    };
+                    self.finish_instruction(tx.frame, outcome)
+                }
             };
-            return self.finish_instruction(tx.frame, outcome);
         }
         let cause = Self::staple_cause(&tx.frame, tx.source_block);
         match &tx.phase {
@@ -268,11 +357,11 @@ impl Game {
                     unreachable!()
                 };
                 if *remaining == 1 {
-                    return self.finish_instruction(
+                    return self.finish_graveyard_effect(
                         tx.frame,
-                        InstructionOutcome::Effect {
-                            actual: Some(*actual.clone()),
-                        },
+                        tx.source_block,
+                        *actual.clone(),
+                        tx.completion,
                     );
                 }
                 *remaining = remaining
@@ -323,8 +412,72 @@ impl Game {
             .instructions
             .get(tx.frame.cursor as usize)
             .ok_or("missing replacement-producing instruction")?;
-        let (owner, members) =
-            library_members(&tx.proposed).ok_or("unsupported retained graveyard proposal")?;
+        let (owner, members, from) = match (&tx.completion, &tx.proposed) {
+            (
+                GraveyardCompletion::Counter {
+                    target,
+                    source,
+                    controller,
+                    mill,
+                },
+                ProposedEvent::CounterStackObject {
+                    target: proposed,
+                    countering,
+                    domain,
+                },
+            ) if *target == *proposed
+                && *countering == tx.frame.stack_id
+                && *domain == TargetDomain::StackSpell =>
+            {
+                let (slot, count) = match instruction {
+                    Instruction::CounterSpellAndMillController {
+                        target_slot, count, ..
+                    } => (*target_slot, Some(count)),
+                    Instruction::CounterStackObject { target_slot, .. }
+                    | Instruction::CounterSpellUnlessPays { target_slot, .. } => {
+                        (*target_slot, None)
+                    }
+                    _ => return Err("replacement counter source".into()),
+                };
+                if mill.as_ref() != count
+                    || tx.frame.spell.stack_targets.get(slot as usize) != Some(target)
+                    || tx.frame.legal_targets.get(slot as usize) != Some(&true)
+                {
+                    return Err("counter replacement announcement invariant".into());
+                }
+                if matches!(tx.phase, ReplacementPhase::BeforeMovement) && self.is_live(tx.owner) {
+                    let entry = self
+                        .state
+                        .rules
+                        .stack
+                        .iter()
+                        .find(|s| s.id == *target)
+                        .ok_or("missing replaced counter target")?;
+                    if !entry.kind.is_spell()
+                        || entry.source != *source
+                        || entry.controller != *controller
+                        || self.spell_cannot_be_countered(entry)?
+                    {
+                        return Err("counter replacement target invariant".into());
+                    }
+                }
+                (
+                    self.state
+                        .rules
+                        .cards
+                        .get(&source.card)
+                        .ok_or("missing countered card")?
+                        .owner,
+                    std::slice::from_ref(source),
+                    Zone::Stack,
+                )
+            }
+            _ => {
+                let (owner, members) = library_members(&tx.proposed)
+                    .ok_or("unsupported retained graveyard proposal")?;
+                (owner, members, Zone::Library { owner })
+            }
+        };
         let expected = members
             .iter()
             .copied()
@@ -351,6 +504,14 @@ impl Game {
             || !matches!(
                 (instruction, &tx.proposed),
                 (
+                    Instruction::CounterSpellAndMillController { .. }
+                        | Instruction::CounterSpellUnlessPays { .. }
+                        | Instruction::CounterStackObject { .. },
+                    ProposedEvent::CounterStackObject { .. }
+                ) | (
+                    Instruction::CounterSpellAndMillController { .. },
+                    ProposedEvent::Mill { .. }
+                ) | (
                     Instruction::MillCards { .. } | Instruction::MillAnnouncedX { .. },
                     ProposedEvent::Mill { .. }
                 ) | (Instruction::Surveil { .. }, ProposedEvent::Surveil { .. })
@@ -365,9 +526,7 @@ impl Game {
         if self.is_live(owner) {
             match &tx.phase {
                 ReplacementPhase::BeforeMovement
-                    if members
-                        .iter()
-                        .any(|id| self.zone(*id) != Some(Zone::Library { owner })) =>
+                    if members.iter().any(|id| self.zone(*id) != Some(from)) =>
                 {
                     return Err("stale replacement proposal".into());
                 }
