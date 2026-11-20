@@ -186,7 +186,7 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     else {
         panic!("chooser observation");
     };
-    assert_eq!(observation.observation_version, 35);
+    assert_eq!(observation.observation_version, 37);
     let Some(PlayerRequest::ChooseManaAbility {
         token,
         choices: offered,
@@ -236,7 +236,7 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     };
     let encoded = free.save_work(&work).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&encoded).unwrap();
-    assert_eq!(saved["work_version"], 32);
+    assert_eq!(saved["work_version"], 33);
     let restored = free.restore_work(&encoded).unwrap();
     let QueryResult::Complete(QueryValue::Validated(receipt)) =
         free.resume_work(restored, Budget::new(65536))

@@ -217,56 +217,6 @@ struct SavedWork {
 }
 
 impl Game {
-    fn player_observation_version(&self) -> u32 {
-        if self.catalog_has_land_type_grant {
-            35
-        } else {
-            34
-        }
-    }
-    fn saved_work_version(&self) -> u32 {
-        if self.catalog_has_land_type_grant {
-            32
-        } else {
-            31
-        }
-    }
-    pub fn observe(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
-        self.begin_query(Query::Observe { viewer }, budget)
-    }
-    pub fn player_decision_for(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
-        self.begin_query(Query::Decision { viewer }, budget)
-    }
-    pub fn check_player_response(
-        &self,
-        viewer: PlayerId,
-        token: DecisionToken,
-        response: PlayerResponse,
-        budget: Budget,
-    ) -> QueryResult {
-        self.begin_query(
-            Query::Check {
-                viewer,
-                token,
-                response,
-            },
-            budget,
-        )
-    }
-    pub fn search_context(
-        &self,
-        viewer: PlayerId,
-        sampling_seed: String,
-        budget: Budget,
-    ) -> QueryResult {
-        self.begin_query(
-            Query::Search {
-                viewer,
-                sampling_seed,
-            },
-            budget,
-        )
-    }
     fn start_work(&self, query: Query) -> Result<Work, QueryRejection> {
         let viewer = match &query {
             Query::Observe { viewer }
@@ -576,7 +526,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: self.player_observation_version(),
+                    observation_version: 37,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -835,7 +785,10 @@ impl Game {
                             true
                         }
                         (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
-                        (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
+                        (
+                            Frame::Modes { .. },
+                            PlayerResponse::Modes { .. } | PlayerResponse::ModeSubset { .. },
+                        ) => true,
                         (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
                         | (Frame::ForcedSacrifice { .. }, PlayerResponse::ForcedSacrifice { .. })
                         | (Frame::OptionalDamage { .. }, PlayerResponse::OptionalEffect { .. }) => {
@@ -1075,7 +1028,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: self.player_observation_version(),
+                            observation_version: 37,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1111,7 +1064,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 31,
+                    context_version: 33,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1130,7 +1083,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: self.saved_work_version(),
+            work_version: 33,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1139,7 +1092,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != self.saved_work_version()
+        if saved.work_version != 33
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -1256,6 +1209,7 @@ impl Game {
                     | PlayerResponse::LibraryOrder { objects }
                     | PlayerResponse::Targets { objects }
                     | PlayerResponse::BottomOpening { objects } => objects.len(),
+                    PlayerResponse::ModeSubset { modes } => modes.len(),
                     PlayerResponse::EntityTargets { entities } => entities.len(),
                     PlayerResponse::OrderTriggers { order } => order.len(),
                     PlayerResponse::DamageAllocation { allocations } => allocations.len(),

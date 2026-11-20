@@ -106,7 +106,7 @@ impl Game {
         Ok(())
     }
 
-    fn counter_instruction(&self, frame: &Resolving) -> Result<&Instruction, String> {
+    fn counter_instruction<'a>(&'a self, frame: &'a Resolving) -> Result<&'a Instruction, String> {
         self.program_for(&frame.spell)?
             .instructions
             .get(frame.cursor as usize)

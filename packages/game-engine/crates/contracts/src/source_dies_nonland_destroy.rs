@@ -37,7 +37,9 @@ const INVALID_FAMILY: &str =
 
 fn contains_destroy(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
-        matches!(i, Instruction::DestroySet { set, .. } if *set != ObjectSet::OpponentNonlandPermanents)
+        matches!(i, Instruction::DestroySet { set, regeneration_forbidden, .. }
+            if *set != ObjectSet::OpponentNonlandPermanents
+                && (*set != ObjectSet::NonlandPermanents || *regeneration_forbidden))
     }) || p.modes.iter().any(|mode| contains_destroy(&mode.program))
 }
 
@@ -131,13 +133,14 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let nonopponent_destroy = json!({"required":["op","set"],"properties":{
-        "op":{"const":"destroy_set"},
-        "set":{"not":{"const":ObjectSet::OpponentNonlandPermanents}}
-    }});
+    let death_sweep = json!({"required":["op","set"],"properties":{
+        "op":{"const":"destroy_set"},"set":{"not":{"const":ObjectSet::OpponentNonlandPermanents}}
+    },"not":{"properties":{"set":{"const":ObjectSet::NonlandPermanents},
+        "regeneration_forbidden":{"const":false}}}});
+
     let free = json!({"$ref":"#/$defs/SourceDiesNonlandDestroyFreeProgram"});
     schema["$defs"]["SourceDiesNonlandDestroyFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":nonopponent_destroy}},
+        "instructions":{"items":{"not":death_sweep}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     let program = |timing, resolution, instructions| {

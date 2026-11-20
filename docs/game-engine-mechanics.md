@@ -148,13 +148,12 @@ production remain open.
 ## Casting, costs, targets and stack
 
 Stack projections run bottom to top. Saved announcement handles are historical:
-never rebind to a later incarnation or authorize a new response. Lower entries
-stay completed while the top is announced; reversal restores prior passes filtered
-by living seats. Resolving frames retain frozen instances through supported source
+they never bind successor incarnations. Lower entries stay complete during announcement. Reversal restores living players’ passes. Resolving frames retain frozen instances through supported source
 departure (CR 608.2m). Only the caster answers targets/casting mana.
 
-Targets are selected before costs. Casting always offers its mana window, even
-when already funded. FinishMana attempts full payment and cannot cancel a payable
+For one-or-more exile spells, the caster selects distinct mode indices before payment. Each selected set resolves in printed order; snapshots retain indices and reconstruct instructions from the catalog.
+
+Targets precede costs. Casting always offers a mana window. FinishMana attempts full payment and cannot cancel a payable
 spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,

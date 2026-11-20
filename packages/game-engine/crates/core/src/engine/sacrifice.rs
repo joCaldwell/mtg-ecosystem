@@ -24,7 +24,7 @@ impl Game {
     }
     pub(super) fn invocation_sacrifice<'a>(
         &'a self,
-        entry: &StackInstance,
+        entry: &'a StackInstance,
     ) -> Option<(&'a SacrificeFilter, u32)> {
         match entry.kind {
             StackKind::Spell => self

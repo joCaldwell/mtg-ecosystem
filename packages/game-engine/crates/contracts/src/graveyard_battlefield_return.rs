@@ -119,14 +119,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     }
     // Reconcile the ordinary printed mana with the retained cost, including a
     // printed {0}. The shared validator checks timing, zones and characteristics.
-    let mut printed = String::new();
-    if c.mana_cost.generic != Quantity::zero() || c.mana_cost.colored.is_empty() {
-        printed.push_str(&format!("{{{}}}", c.mana_cost.generic));
-    }
-    for color in &c.mana_cost.colored {
-        printed.push_str(&format!("{{{color:?}}}"));
-    }
-    if source["mana_cost"] != printed {
+    if source["mana_cost"] != c.mana_cost.printed_fixed_cost() {
         return Err(INVALID.into());
     }
     Ok(())
