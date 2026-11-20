@@ -180,13 +180,70 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     assert_eq!(choices.len(), 7);
     recover(&g);
     let mut free = g.fork();
-    answer(
-        &mut free,
-        1,
-        Response::ChooseManaAbility {
+    let seat = PlayerId(0);
+    let QueryResult::Complete(QueryValue::Observation(observation)) =
+        free.observe(seat, Budget::new(65536))
+    else {
+        panic!("chooser observation");
+    };
+    assert_eq!(observation.observation_version, 35);
+    let Some(PlayerRequest::ChooseManaAbility {
+        token,
+        choices: offered,
+        mana_ability_source,
+        ..
+    }) = observation.decision
+    else {
+        panic!("permitted mixed ability choice");
+    };
+    assert_eq!(offered, choices);
+    assert_eq!(mana_ability_source, free.handle_for(seat, land).unwrap());
+    let QueryResult::Complete(QueryValue::Observation(other)) =
+        free.observe(PlayerId(2), Budget::new(65536))
+    else {
+        panic!("opponent observation");
+    };
+    assert!(other.decision.is_none() && other.decision_context.is_none());
+    for (actor, response) in [
+        (
+            PlayerId(2),
+            PlayerResponse::ChooseManaAbility {
+                ability: ManaAbilityIdentity::Printed { index: 0 },
+            },
+        ),
+        (
+            seat,
+            PlayerResponse::ChooseManaAbility {
+                ability: ManaAbilityIdentity::Printed { index: 12 },
+            },
+        ),
+        (seat, PlayerResponse::ManaColor { color: Color::U }),
+    ] {
+        assert!(matches!(
+            free.check_player_response(actor, token.clone(), response, Budget::new(65536)),
+            QueryResult::Rejected(_)
+        ));
+    }
+    let QueryResult::Incomplete { work, .. } = free.check_player_response(
+        seat,
+        token,
+        PlayerResponse::ChooseManaAbility {
             ability: ManaAbilityIdentity::Intrinsic { color: Color::U },
         },
-    );
+        Budget::new(1),
+    ) else {
+        panic!("suspended mixed mana choice");
+    };
+    let encoded = free.save_work(&work).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(saved["work_version"], 32);
+    let restored = free.restore_work(&encoded).unwrap();
+    let QueryResult::Complete(QueryValue::Validated(receipt)) =
+        free.resume_work(restored, Budget::new(65536))
+    else {
+        panic!("authorized mixed choice");
+    };
+    free.submit(receipt).unwrap();
     assert!(matches!(request(&mut free, 1), Request::Priority { .. }));
     assert_eq!(free.mana(PlayerId(0), Color::U), Some(1.into()));
     assert_eq!(free.state.rules.players[0].life, 40.into());

@@ -88,7 +88,8 @@ impl Policy {
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
                 return Err("sacrifice request unsupported by this completion policy".into());
             }
-            PlayerRequest::ManaColor { .. }
+            PlayerRequest::ChooseManaAbility { .. }
+            | PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
