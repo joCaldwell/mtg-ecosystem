@@ -78,6 +78,7 @@ mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
 mod power_filtered_removal;
+mod repeated_target_modes;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
@@ -1463,6 +1464,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     let ast_sha256 = r
         .ast_sha256
+        .clone()
         .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
     if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
         return Err(invalid("astSha256", "successful AST hash mismatch"));
@@ -1490,7 +1492,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let graveyard_shuffle =
         graveyard_shuffle::lower(&shape, &result, &binding, &r.oracle_identity)?;
-    let fixed_modes = fixed_target_modes::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let repeated_modes = repeated_target_modes::lower(&shape, &result, &binding, &r)?;
+    let fixed_modes = match repeated_modes {
+        Some(p) => Some(p),
+        None => fixed_target_modes::lower(&shape, &result, &binding, &r.oracle_identity)?,
+    };
     let permanent_union =
         creature_planeswalker_return::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let abilities = if permanent_union.is_some() {

@@ -85,6 +85,12 @@ fn enters_tapped() -> StaticAbility {
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseRepeatedModes { .. }))
+    {
+        return crate::modal_targets::validate_definition(d);
+    }
     let reserved = d.capabilities.contains(&Capability::EntryGraveyardExileV1);
     let raw = &d.provenance.source_json;
     let phrase = "exile target player's graveyard";

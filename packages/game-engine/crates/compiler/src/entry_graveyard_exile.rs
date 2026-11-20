@@ -142,6 +142,12 @@ pub(super) fn validate_binding(
     source: &Value,
     binding: &Value,
 ) -> Result<(), Failure> {
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseRepeatedModes { .. }))
+    {
+        return Ok(());
+    }
     if d.capabilities.contains(&Capability::EntryGraveyardExileV1) {
         graph(
             &d.oracle_id,

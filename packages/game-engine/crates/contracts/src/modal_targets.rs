@@ -218,8 +218,10 @@ pub fn fixed_player_modes(
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     fn fixed(p: &SpellProgram) -> bool {
-        matches!(p.resolution, SpellResolution::ChooseModes { .. })
-            || p.modes.iter().any(|m| fixed(&m.program))
+        matches!(
+            p.resolution,
+            SpellResolution::ChooseModes { .. } | SpellResolution::ChooseRepeatedModes { .. }
+        ) || p.modes.iter().any(|m| fixed(&m.program))
     }
     let fail =
         || "fixed target modes require the complete ordinary source and target operands".to_owned();
@@ -235,6 +237,10 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     if !uses
         && !d.provenance.source_json.contains("Choose two")
         && !d.provenance.source_json.contains("Choose three")
+        && !d
+            .provenance
+            .source_json
+            .contains(crate::repeated_target_modes::HEADER)
     {
         return Ok(());
     }
@@ -247,8 +253,9 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         _ if !uses => return Ok(()),
         _ => return Err(fail()),
     };
-    let candidate =
-        fixed_player_modes(text, &ast, timing).or_else(|| mixed_target_modes(text, &ast, timing));
+    let candidate = fixed_player_modes(text, &ast, timing)
+        .or_else(|| mixed_target_modes(text, &ast, timing))
+        .or_else(|| crate::repeated_target_modes::program(&d.name, text, &ast, timing));
     let source_candidate = text
         .lines()
         .next()
@@ -256,7 +263,11 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         && text.lines().skip(1).all(|l| {
             l.starts_with("• Target player gains ") || l.starts_with("• Target player loses ")
         });
-    if !uses && !source_candidate && candidate.is_none() {
+    if !uses
+        && !source_candidate
+        && candidate.is_none()
+        && text.lines().next() != Some(crate::repeated_target_modes::HEADER)
+    {
         return Ok(());
     }
     let c = &d.characteristics;

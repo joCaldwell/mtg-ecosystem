@@ -58,6 +58,12 @@ pub fn controller_window_instructions(
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseRepeatedModes { .. }))
+    {
+        return crate::modal_targets::validate_definition(d);
+    }
     let fail = || "phasing requires the complete ordinary controller spell".to_string();
     if d.activated.iter().any(|a|contains(&a.program)) || d.triggered.iter().any(|a|contains(&a.program))
         || d.static_abilities.iter().any(|a|matches!(&a.effect,StaticEffect::GrantSpellCascade{program,..} if contains(program))) {return Err(fail());}

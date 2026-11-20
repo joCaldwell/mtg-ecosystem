@@ -430,6 +430,7 @@ pub enum Capability {
     InterveningIfV1,
     CreatureOrPlaneswalkerTargetV1,
     FixedTargetModesV1,
+    RepeatedTargetModesV1,
     ModalChoiceV1,
     CommanderModalKeywordGrantV1,
     NonemptyModeSubsetV1,
@@ -4024,6 +4025,7 @@ impl Definition {
                         SpellResolution::Instructions
                             | SpellResolution::OneOrMoreModes
                             | SpellResolution::ChooseModes { .. }
+                            | SpellResolution::ChooseRepeatedModes { .. }
                     )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
@@ -4609,6 +4611,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 SpellResolution::Instructions
                     | SpellResolution::OneOrMoreModes
                     | SpellResolution::ChooseModes { .. }
+                    | SpellResolution::ChooseRepeatedModes { .. }
             )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
@@ -5372,6 +5375,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if matches!(
+            program.resolution,
+            SpellResolution::ChooseRepeatedModes { .. }
+        ) {
+            set.insert(Capability::RepeatedTargetModesV1);
+        }
         if matches!(program.resolution, SpellResolution::ChooseModes { .. }) {
             set.insert(Capability::FixedTargetModesV1);
         }
@@ -7388,6 +7397,7 @@ mod tests {
             InterveningIfV1,
             CreatureOrPlaneswalkerTargetV1,
             FixedTargetModesV1,
+            RepeatedTargetModesV1,
             ModalChoiceV1,
             CommanderModalKeywordGrantV1,
             NonemptyModeSubsetV1,
