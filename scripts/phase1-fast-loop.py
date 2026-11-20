@@ -14,6 +14,7 @@ import argparse
 import csv
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import runpy
 import shutil
@@ -45,16 +46,14 @@ def run(command, **kwargs):
 def mtg_sim(args):
     if args.mtg_sim:
         return args.mtg_sim
-    # engine-env.sh may select a per-checkout target directory; ask Cargo.
-    metadata = subprocess.run(["sh", "scripts/engine-env.sh", "cargo", "metadata", "--locked", "--no-deps",
-                               "--format-version", "1"], cwd=ROOT, capture_output=True, text=True)
-    if metadata.returncode:
-        sys.exit(f"phase1-fast-loop: cargo metadata failed: {metadata.stderr.strip()}")
-    binary = Path(json.loads(metadata.stdout)["target_directory"]) / "release" / "mtg-sim"
+    # Like engine:dev, build in this checkout's own target: a cache shared across
+    # worktrees can treat another lane's workspace crates as fresh and link them.
+    target = Path(os.environ.get("CARGO_TARGET_DIR") or ROOT / "target" / "engine-dev")
+    binary = target / "release" / "mtg-sim"
     if not args.no_build:
         # Release scans the whole archive in seconds; quick (opt-level 0) does not.
         code = run(["sh", "scripts/engine-env.sh", "flock", LOCK, "cargo", "build", "--locked", "--release",
-                    "-p", "mtg-sim"])
+                    "-p", "mtg-sim"], env={**os.environ, "CARGO_TARGET_DIR": str(target)})
         if code:
             sys.exit(code)
     if not binary.exists():
