@@ -54,7 +54,7 @@ fn scenario() -> Prepared {
     pod
 }
 
-fn respond_to_spell(
+pub(super) fn respond_to_spell(
     g: &mut Game,
     card: CardId,
     target: StackId,

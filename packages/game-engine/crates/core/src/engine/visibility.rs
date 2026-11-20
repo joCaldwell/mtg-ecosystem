@@ -336,6 +336,11 @@ pub enum PlayerRequest {
         maximum: u32,
         candidates: Vec<VisibleSearchLand>,
     },
+    ChooseOpponent {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<PlayerId>,
+    },
     OptionalEffect {
         token: DecisionToken,
         player: PlayerId,
@@ -509,6 +514,7 @@ impl PlayerRequest {
             | Self::SearchLands { token, .. }
             | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
+            | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
@@ -601,6 +607,9 @@ pub enum PlayerResponse {
     },
     SearchLandBattlefield {
         object: ObjectHandle,
+    },
+    ChooseOpponent {
+        opponent: PlayerId,
     },
     OptionalEffect {
         perform: bool,
@@ -1576,7 +1585,7 @@ impl Game {
                 }),
             );
         }
-        if let Some(request) = self.cascade_request()? {
+        if let Some(request) = self.resolution_cast_request()? {
             if request.player() != viewer {
                 return Ok(None);
             }
@@ -1769,6 +1778,11 @@ impl Game {
                 Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
                     token,
                     player: viewer,
+                },
+                Request::ChooseOpponent { candidates, .. } => PlayerRequest::ChooseOpponent {
+                    token,
+                    player: viewer,
+                    candidates,
                 },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
@@ -2202,7 +2216,7 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 45))
-            } else if let Some(request) = self.cascade_request()?
+            } else if let Some(request) = self.resolution_cast_request()?
                 && request.player() == viewer
             {
                 let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
@@ -2537,6 +2551,9 @@ impl Game {
             PlayerResponse::OptionalEffect { perform } => {
                 Ok(Response::OptionalEffect { perform: *perform })
             }
+            PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
+                opponent: *opponent,
+            }),
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })
             }

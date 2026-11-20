@@ -392,6 +392,18 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
             (read, BTreeSet::from([FactKey::Libraries]))
         }
+        ProposedEvent::RevealLibraryCard { object, .. } => (
+            BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
+            BTreeSet::new(),
+        ),
+        ProposedEvent::BottomRevealedCards { order, .. } => (
+            order
+                .iter()
+                .map(|o| FactKey::Object(o.card))
+                .chain([FactKey::Libraries])
+                .collect(),
+            BTreeSet::from([FactKey::Libraries]),
+        ),
         ProposedEvent::RevealSearchLands { objects, .. } => (
             objects
                 .iter()
@@ -926,7 +938,15 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
-                ProposedEvent::RevealSearchLands {
+                ProposedEvent::RevealLibraryCard { player, object } => {
+                    objects.insert(*object);
+                    libraries.insert(*player);
+                }
+                ProposedEvent::BottomRevealedCards {
+                    player,
+                    order: selected,
+                }
+                | ProposedEvent::RevealSearchLands {
                     player,
                     objects: selected,
                 } => {
@@ -2137,6 +2157,12 @@ impl Game {
     ) -> Result<EventOutcome, String> {
         let entry = authority.entry();
         let actual = match proposed {
+            ProposedEvent::RevealLibraryCard { player, object } => {
+                self.apply_reveal_library_card(*player, *object)?
+            }
+            ProposedEvent::BottomRevealedCards { player, order } => {
+                self.apply_bottom_revealed(*player, order)?
+            }
             ProposedEvent::RevealSearchLands { player, objects } => {
                 if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, split: true, maximum: 2, .. }, .. } if p == *player)
                     || objects.len() > 2

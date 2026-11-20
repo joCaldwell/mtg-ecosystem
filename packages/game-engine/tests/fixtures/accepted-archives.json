@@ -358,5 +358,16 @@
     "record_sha256": [
       "e14b03d2b0721bcdde1a106d0b2966c0713bdf963e2b3d03d10d71c3d2533904"
     ]
+  },
+  {
+    "manifest_file": "archive-manifest-creative-technique.json",
+    "manifest_sha256": "20403105680031ae331c8d8291451ac3194dc11b58956d927fb71776c3babb9e",
+    "file_sha256": "86c721c13151e4ed8f82be4154f0202e8fbd337a3454902f45c33979bc7f7a9e",
+    "parser_revision": "b6c162d97a1e84a67f97c5743e9999952d312c69",
+    "parser_source_sha256": "d11b179fe4e79869fb09c7df06297c2699040672d4431a1b27c3efd5ece1853a",
+    "corpus_sha256": "2af8006fe86c28008450049d8a2619e8faa7eae0b5f3049d1327ff2d9674a892",
+    "record_sha256": [
+      "e7f74eeafcd6a4ba0a23cdeb1f02cc3b6bbeb643b83bdef426f949904639f49b"
+    ]
   }
 ]
