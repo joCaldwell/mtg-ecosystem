@@ -95,7 +95,7 @@ describe("characteristic comparisons retain both sides and their scope", () => {
     assert.equal(graph.fullyBound, false);
     assert.equal(graph.referencesBound, true, JSON.stringify(graph.diagnostics));
     const comparison = graph.nodes.find(node => node.node === "characteristic-predicate");
-    assert.ok(comparison?.timing === "stack-announcement" && comparison.operand.kind === "object");
+    assert.ok(comparison?.timing === "target-legality" && comparison.operand.kind === "object");
     assert.notEqual(comparison.subject, comparison.operand.object);
     assert.equal(graph.nodes.filter(node => node.node === "selection" && node.selection === "target").length, 2);
     assert.equal(new Set(JSON.stringify(result).match(/line:0:\d+/g)).size, 2);

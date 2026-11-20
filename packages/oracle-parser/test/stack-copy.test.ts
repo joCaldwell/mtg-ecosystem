@@ -199,17 +199,13 @@ describe("choosing new targets retains actors, references and choice scope", () 
       { effect: "choose-new-targets", who: you, what: copy, timing: "copy-creation", optional: true },
     ]);
   });
-  it("links copy-creation retargeting to the copy and rejects an absent producer", () => {
+  it("rejects copy-creation retargeting separated from the copy by another instruction", () => {
     const result = parsed("Copy target spell, then gain 1 life. You may choose new targets for the copy.");
     const graph = analyzeCardBindings({ identity: "fixture", source: { name: "Fixture", layout: "normal", type_line: "Instant" }, faces: [{ sourceFaceIndex: 0, result }] });
-    assert.equal(graph.fullyBound, false);
-    assert.equal(graph.referencesBound, true, JSON.stringify(graph.diagnostics));
+    assert.equal(graph.referencesBound, false);
     const instructions = graph.nodes.filter(node => node.node === "stack-instruction");
-    assert.equal(instructions.length, 2);
-    const [copyInstruction, retarget] = instructions;
-    assert.ok(copyInstruction.action.kind === "copy" && retarget.action.kind === "choose-new-targets");
-    assert.equal(retarget.action.copyEvent, copyInstruction.action.event);
-    assert.notEqual(retarget.subject, copyInstruction.subject);
+    assert.equal(instructions.length, 1);
+    assert.ok(instructions[0].action.kind === "copy" && !instructions[0].action.retarget);
     const unresolvedResult = parsed("Choose new targets for the copy.");
     const unresolvedGraph = analyzeCardBindings({ identity: "fixture", source: { name: "Fixture", layout: "normal", type_line: "Instant" }, faces: [{ sourceFaceIndex: 0, result: unresolvedResult }] });
     assert.equal(unresolvedGraph.fullyBound, false);

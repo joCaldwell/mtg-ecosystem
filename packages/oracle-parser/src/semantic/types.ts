@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, CharacteristicRelation, ChosenValueRef, Color, Effect, EntryCopy, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, StaticEffect, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
+import type { Amount, CascadeExiledCards, CharacteristicRelation, ChosenValueRef, Color, Cost, Effect, EntryCopy, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, StaticEffect, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -51,7 +51,7 @@ export type BindingNode = NodeBase & (
   | { node: "future-cast-spells"; grant: string; caster: string; from: { zone: "hand"; owner: string };
       timing: "as-cast"; cardinality: "many" }
   | { node: "runtime-player"; scope: string; role: "static-source-controller" | "activator" | "spell-controller" | "trigger-controller" | "prospective-caster"
-      | "special-action-player" | "targeting-player" | "card-owner" | "entering-controller" | "replacement-source-controller-or-owner" }
+      | "special-action-player" | "targeting-player" | "declaring-player" | "card-owner" | "entering-controller" | "replacement-source-controller-or-owner" }
   /** One keyword instance of this ability line, with the kinds of ability it
    * represents (CR 702); `you` is the player its printed parameters refer to. */
   | { node: "keyword-ability"; scope: string; keyword: string; abilities: KeywordAbilityKind[]; you: string; protectionFrom?: "everything" }
@@ -69,7 +69,7 @@ export type BindingNode = NodeBase & (
       chooser?: string;
       countChoice?: string;
       perMember?: string;
-      timing: BindingPhase | "stack-announcement"; selection: "target" | "evaluate-reference" | "event-participant-filter" | "resolution-choice" }
+      timing: BindingPhase | "stack-announcement" | "target-legality"; selection: "target" | "evaluate-reference" | "event-participant-filter" | "resolution-choice" }
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
   | { node: "event"; scope: string; operation: string; inputs: string[]; availability: "when-performed";
@@ -145,12 +145,12 @@ export type BindingNode = NodeBase & (
   | { node: "text-choice"; scope: string; subject: string; chooser: string;
       replacements: Extract<Effect, { effect: "change-text" }>["replacements"] }
   | { node: "characteristic-subject"; scope: string; role: "evaluated-candidate" | "affected-member"; of?: string;
-      timing: BindingPhase | "stack-announcement" }
+      timing: BindingPhase | "stack-announcement" | "target-legality" }
   | { node: "characteristic-predicate"; scope: string; subject: string; test: CharacteristicRelation;
       operand: { kind: "object"; object: string; information: "current" | "current-or-last-known" }
         | { kind: "matching-set"; filter: ObjectFilter; quantifier: "any" | "every" }
         | { kind: "linked-exile-names"; pool: string; quantifier: "any" };
-      timing: BindingPhase | "stack-announcement" }
+      timing: BindingPhase | "stack-announcement" | "target-legality" | "intervening-if" }
   | { node: "common-name-subset"; scope: string; controller: string; filter: ObjectFilter; minimum: number }
   | { node: "static-rule"; scope: string; rule: Extract<StaticEffect, { static: "prohibit" | "untap-during-step" | "untap-step-limit" }>;
       operands: string[] }
@@ -171,11 +171,20 @@ export type BindingNode = NodeBase & (
   | { node: "blight-payment"; scope: string; payer: string; count: number }
   | { node: "action-cost-condition"; scope: string; event: string; action: "sacrifice" }
   | { node: "value-exchange"; scope: string; subjects: [string, string]; event: string; operation: "life-and-toughness" }
-  | { node: "targeting-permission"; scope: string; controller: string; affected: string[];
+  | { node: "targeting-permission"; scope: string; controller: string; affected: string[]; evaluation: "each-target-legality-check";
       duration: Extract<Effect, { effect: "targeting-as-though" }>["duration"] }
   | { node: "scheduled-phase"; scope: string; phase: Extract<Trigger, { trigger: "phase-in-turn" }>["phase"]; turn: "next" }
   | { node: "skip-draw-step"; scope: string; who: string }
   | { node: "cast-history-exclusion"; scope: string; occurrence: string; caster: string }
+  | { node: "activation-permission"; scope: string; source: string; actors: "any-player" | "opponents-of-source-controller" }
+  | { node: "payment-alternatives"; scope: string; payer: string; options: Extract<Cost, { cost: "choice" }>["options"] }
+  | { node: "class-level"; scope: string; source: string; payer: string; level: number; requiresLevel: number;
+      timing: "sorcery"; abilities: string[] }
+  | { node: "attack-declaration"; scope: string; event: string; actor: string; defender: string;
+      filter?: ObjectFilter; count?: Extract<Trigger, { trigger: "player-attacks" }>["count"] }
+  | { node: "attack-payment"; scope: string; payer: string; eligible: string;
+      rule: Extract<Extract<StaticEffect, { static: "combat-rule" }>["rule"], { rule: "declaration-cost" }> }
+  | { node: "additional-stack-copy"; scope: string; actor: string; mayRetarget: boolean }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
@@ -224,7 +233,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

@@ -144,6 +144,25 @@ describe("stack and text operations", () => {
       { kind: "choose-new-targets", timing: "resolution" });
   });
 
+  it("keeps retargeting in the immediately associated copy instruction", () => {
+    const adjacent = analyze("Copy target spell. You may choose new targets for the copy.", "Instant");
+    boundCard(adjacent);
+    assert.ok(adjacent.nodes.some(node => node.node === "stack-instruction" &&
+      node.action.kind === "copy" && node.action.retarget));
+
+    const intervening = analyze("Copy target spell. Draw a card. You may choose new targets for the copy.", "Instant");
+    assert.equal(intervening.referencesBound, false);
+    assert.ok(!intervening.nodes.some(node => node.node === "stack-instruction" &&
+      node.action.kind === "choose-new-targets" && node.action.timing === "copy-creation"));
+  });
+
+  it("rejects a text choice whose enclosing optional decision would be lost", () => {
+    const graph = analyze("You may change the text of target permanent by replacing all instances of one color word "
+      + "with another and draw a card.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "text-choice"));
+  });
+
   it("does not borrow a copy created in a preceding conditional branch", () => {
     const graph = analyze("If you control a creature, copy target spell. You may choose new targets for the copy.", "Instant");
     assert.equal(graph.referencesBound, false);
@@ -332,6 +351,43 @@ describe("characteristic comparisons and local continuous rules", () => {
   });
 });
 
+describe("target eligibility at announcement and resolution", () => {
+  it("uses source information even after that source is sacrificed to pay for the ability", () => {
+    const graph = analyze("{T}, Sacrifice this creature: Destroy target creature that shares a color with this creature.", "Creature");
+    boundCard(graph);
+    const predicate = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(predicate?.timing === "target-legality" && predicate.operand.kind === "object");
+    assert.equal(predicate.operand.information, "current-or-last-known");
+    assert.ok(predicate.rules.includes("608.2b"));
+  });
+
+  it("excludes the evaluated target from a comparison with another creature", () => {
+    const graph = analyze("{T}: Destroy target creature with the same name as another creature you control.", "Creature");
+    boundCard(graph);
+    const predicate = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(predicate);
+    assert.equal(bound(graph, "/with/filter/other"), predicate.subject);
+    assert.ok(graph.nodes.some(node => node.id === predicate.subject && node.node === "characteristic-subject"));
+  });
+
+  it("excludes the entering creature from the battlefield alternative at both intervening-if checks", () => {
+    const graph = analyze("Whenever a nontoken creature you control enters, if it doesn't have the same name "
+      + "as another creature you control or a creature card in your graveyard, draw a card.", "Enchantment");
+    boundCard(graph);
+    const predicate = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(predicate?.timing === "intervening-if");
+    assert.equal(bound(graph, "/with/filter/anyOf/0/other"), predicate.subject);
+    assert.ok(!graph.references.some(reference => reference.path.endsWith("/with/filter/anyOf/1/other")));
+  });
+
+  it("reevaluates a matching set without snapshotting it at announcement", () => {
+    const graph = analyze("Destroy target creature that shares a color with a creature you control.", "Instant");
+    boundCard(graph);
+    const predicate = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(predicate?.timing === "target-legality" && predicate.operand.kind === "matching-set");
+  });
+});
+
 describe("sequential library scans and temporary card copies", () => {
   it("records an ordered scan's pool and matching card as different results", () => {
     const graph = analyze("Exile cards from the top of your library until you exile a nonland card. "
@@ -355,6 +411,13 @@ describe("sequential library scans and temporary card copies", () => {
     assert.equal(scan.operation, "reveal");
     assert.equal(rest.pool, scan.pool);
     assert.equal(rest.excluding, scan.matches);
+  });
+
+  it("rejects a scan whose enclosing optional decision would be lost", () => {
+    const graph = analyze("You may reveal cards from the top of your library until you reveal a land card "
+      + "and put it into your hand.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "library-scan"));
   });
 
   it("rejects a scan result outside the branch that produced it", () => {
@@ -484,6 +547,13 @@ describe("entry choices, linked pools, and emblem sources", () => {
     assert.equal(comparison.operand.quantifier, "any");
   });
 
+  it("does not ignore a qualifier on the linked name comparison", () => {
+    const graph = analyze("Imprint — When this artifact enters, you may exile target land you control.\n"
+      + "Whenever a land with the same name as the exiled creature card is tapped for mana, draw a card.", "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "characteristic-predicate" && node.operand.kind === "linked-exile-names"));
+  });
+
   it("refuses to assign a linked name to either of two eligible producers", () => {
     const graph = analyze("Imprint — When this artifact enters, you may exile target land you control.\n"
       + "{2}: Exile target land.\nWhenever a land with the same name as the exiled card is tapped for mana, draw a card.", "Artifact");
@@ -545,6 +615,22 @@ describe("explicit timing, exclusions, and special instruction operands", () => 
     assert.equal(bound(graph, "/effects/2/steps/0/what"), bound(graph, "/effects/0/steps/0/what"));
   });
 
+  it("preserves competing resolution choices instead of assuming the announced target", () => {
+    const graph = analyze("Choose target creature. Choose a creature you control. Destroy the chosen creature.", "Sorcery");
+    assert.ok(graph.references.some(reference => "ref" in reference.expression &&
+      reference.expression.ref === "choice-result" && reference.binding === "unresolved"));
+  });
+
+  it("evaluates hexproof exceptions when targets are checked", () => {
+    const graph = analyze("{1}, {T}: Until end of turn, your opponents and creatures your opponents control with hexproof "
+      + "can be the targets of spells and abilities you control as though they didn't have hexproof.", "Land");
+    boundCard(graph);
+    const permission = graph.nodes.find(node => node.node === "targeting-permission");
+    assert.ok(permission && permission.evaluation === "each-target-legality-check");
+    assert.ok(graph.nodes.some(node => permission.affected.includes(node.id) && node.node === "selection" &&
+      node.timing === "target-legality" && "ref" in node.expression && node.expression.ref === "each"));
+  });
+
   it("does not link a condition to an unrelated earlier sacrifice", () => {
     const graph = analyze("Sacrifice a creature. Draw a card. If you do, gain 1 life.", "Sorcery");
     assert.ok(!graph.nodes.some(node => node.node === "action-cost-condition"));
@@ -572,5 +658,64 @@ describe("explicit timing, exclusions, and special instruction operands", () => 
     const exchange = graph.nodes.find(node => node.node === "value-exchange");
     assert.ok(exchange);
     assert.deepEqual(exchange.subjects, [bound(graph, "/a/of"), bound(graph, "/b/of")]);
+  });
+});
+
+describe("activation and declaration actors", () => {
+  it("charges the actual activator for the chosen payment alternative", () => {
+    const graph = analyze("Pay 2 life or {2}: Counter target red or green spell. Any player may activate this ability.", "Enchantment");
+    boundCard(graph);
+    const payment = graph.nodes.find(node => node.node === "payment-alternatives");
+    const permission = graph.nodes.find(node => node.node === "activation-permission");
+    assert.ok(payment && permission);
+    assert.equal(permission.actors, "any-player");
+    assert.equal(bound(graph, "/options/0/0/payer"), payment.payer);
+    assert.equal(bound(graph, "/options/1/0/payer"), payment.payer);
+    assert.notEqual(permission.source, payment.payer);
+  });
+
+  it("binds the attack tax to the proposed declaring player", () => {
+    const graph = analyze("Nonblack creatures can't attack you unless their controller pays {2} for each creature they control "
+      + "that's attacking you.", "Enchantment");
+    boundCard(graph);
+    const payment = graph.nodes.find(node => node.node === "attack-payment");
+    assert.ok(payment);
+    assert.equal(bound(graph, "/rule/who"), payment.payer);
+    assert.equal(bound(graph, "/rule/multiplier/of/controlledBy"), payment.payer);
+    assert.notEqual(bound(graph, "/rule/defenders/0/who"), payment.payer);
+  });
+
+  it("binds intrinsic Class payment and the level-specific trigger separately", () => {
+    const graph = analyze("Whenever one or more tokens you control enter, draw a card. This ability triggers only once each turn.\n"
+      + "{W}: Level 2\nWhen this Class becomes level 2, create a token that's a copy of target token you control.\n"
+      + "{3}{W}: Level 3\nCreature tokens you control get +2/+2.", "Enchantment — Class");
+    boundCard(graph);
+    const levels = graph.nodes.filter(node => node.node === "class-level");
+    assert.deepEqual(levels.map(node => [node.level, node.requiresLevel, node.timing]), [[2, 1, "sorcery"], [3, 2, "sorcery"]]);
+    assert.ok(graph.nodes.some(node => node.node === "event" && node.operation === "trigger:becomes-class-level" && levels[0].abilities.includes(node.scope)));
+  });
+
+  it("does not invent an intrinsic Class level for an unrelated trigger", () => {
+    const graph = analyze("When this Class becomes level 2, draw a card.", "Enchantment — Class");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "class-level"));
+  });
+
+  it("tests the whole attack declaration against the stated defender", () => {
+    const graph = analyze("Whenever you attack the player who has the initiative, create a Treasure token.", "Enchantment");
+    boundCard(graph);
+    const attack = graph.nodes.find(node => node.node === "attack-declaration");
+    assert.ok(attack);
+    assert.equal(attack.actor, bound(graph, "/trigger/who"));
+    assert.equal(attack.defender, bound(graph, "/trigger/whom"));
+  });
+
+  it("proves an explicit union qualification only when every alternative qualifies", () => {
+    const prefix = "{T}: Choose target permanent you control or suspended card you own.";
+    const accepted = analyze(`${prefix} If that permanent or card has a time counter on it, you may remove a time counter from it or put another time counter on it.`,
+      "Artifact Creature");
+    boundCard(accepted);
+    const rejected = analyze(`${prefix} If that permanent has a time counter on it, draw a card.`, "Artifact Creature");
+    assert.ok(rejected.diagnostics.some(diagnostic => diagnostic.code === "unsupported-reference"));
   });
 });
