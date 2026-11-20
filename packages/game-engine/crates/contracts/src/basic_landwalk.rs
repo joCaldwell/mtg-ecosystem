@@ -25,7 +25,7 @@ impl KeywordAbility {
     }
 }
 
-fn without_reminder(line: &str) -> Option<String> {
+pub(super) fn without_reminder(line: &str) -> Option<String> {
     let mut depth = 0_usize;
     let mut text = String::new();
     for ch in line.chars() {

@@ -220,7 +220,8 @@ costs, activations and triggers reject. Blockers retain status through EndCombat
 Already tapped/untapped is a legal target; produce no false second status event.
 Tap/untap does not itself remove combat membership. Self-targeting tap/untap
 abilities still pay tap first. Paid activations survive source departure.
-Fixed-mana creatures may combine controller life gain, targeted creature damage and artifact-or-enchantment destruction with cast-entry untap.
+Fixed-mana creature abilities support self-pump, life gain, creature damage and
+artifact-or-enchantment destruction. Cast-entry untap can compose with them.
 
 <a id="combat-damage-and-state-based-actions"></a>
 

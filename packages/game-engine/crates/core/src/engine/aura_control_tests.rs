@@ -1323,3 +1323,82 @@ fn controller_creature_pump_affects_only_the_resolving_controllers_creatures() {
     );
     recover(&g);
 }
+
+#[test]
+fn paid_fixed_self_pump_and_land_sacrifice_draw_resolve() {
+    let p = prepared_with_sources(
+        &[
+            ("Flowstone Wyvern", 0, 0, false),
+            ("Airship Engine Room", 0, 0, false),
+            ("Mountain", 0, 0, false),
+            ("Forest", 0, 0, false),
+            ("Forest", 0, 0, false),
+            ("Forest", 0, 0, false),
+            ("Forest", 0, 0, false),
+        ],
+        &[
+            include_str!("../../../../tests/fixtures/flowstone-wyvern.json"),
+            include_str!("../../../../tests/fixtures/01ed9139-293d-4477-a145-3c6fe59266c7.json"),
+        ],
+    );
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    let q = 1;
+    let source = object(&g, 0);
+    let land = object(&g, 1);
+    let mountain = object(&g, 2);
+    answer(
+        &mut g,
+        q,
+        Response::ActivateAbility {
+            object: source,
+            ability: 0,
+        },
+    );
+    answer(&mut g, q, Response::ActivateMana { object: mountain });
+    answer(&mut g, q, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        q,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::R, 1.into())]),
+        },
+    );
+    resolve(&mut g, q, |_| {});
+    let pumped = g.characteristics(source).unwrap();
+    assert_eq!(
+        (pumped.power, pumped.toughness),
+        (Some(5.into()), Some(1.into()))
+    );
+
+    let controller = PlayerId(0);
+    let before = g.state.rules.libraries[&controller].len();
+    answer(
+        &mut g,
+        q,
+        Response::ActivateAbility {
+            object: land,
+            ability: 0,
+        },
+    );
+    for index in 3..7 {
+        let object = object(&g, index);
+        answer(&mut g, q, Response::ActivateMana { object });
+    }
+    answer(&mut g, q, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        q,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::G, 4.into())]),
+        },
+    );
+    request(&mut g, q);
+    assert_eq!(
+        g.zone(object(&g, 1)),
+        Some(Zone::Graveyard { owner: controller })
+    );
+    assert_eq!(g.state.rules.libraries[&controller].len(), before);
+    resolve(&mut g, q, |_| {});
+    assert_eq!(g.state.rules.libraries[&controller].len(), before - 1);
+    recover(&g);
+}

@@ -25,7 +25,7 @@ and attachments; search admits foundations only. Later headless admissions do
 not broaden those consumers. [Catalogs](game-engine-catalogs.md#ir-and-build-identity)
 owns the sole active IR schema 1 and separate version/build identities.
 
-Ordinary controller-creature, attacking-creature and pure controller-permanent
+Controller-creature, attacking-creature and controller-permanent
 temporary keyword programs share bounded capture and characteristic derivation.
 A combined fixed stat/keyword grant is one instruction/effect with one recipient
 capture; later control or incarnation changes do not select new recipients.

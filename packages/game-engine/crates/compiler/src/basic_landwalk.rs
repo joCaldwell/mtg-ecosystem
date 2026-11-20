@@ -55,7 +55,7 @@ pub(super) fn lower(
     Ok(Some(blocks.into_iter().flatten().collect()))
 }
 
-fn keyword_metadata(keyword: KeywordAbility) -> Option<(&'static str, &'static str)> {
+pub(super) fn keyword_metadata(keyword: KeywordAbility) -> Option<(&'static str, &'static str)> {
     use KeywordAbility::*;
     Some(match keyword {
         Deathtouch => ("deathtouch", "702.2"),

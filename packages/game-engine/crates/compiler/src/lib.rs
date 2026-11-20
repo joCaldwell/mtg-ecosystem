@@ -8,6 +8,7 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 mod activated_artifact_draw;
+mod activated_source_keyword;
 mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
@@ -68,6 +69,7 @@ mod hand_return;
 mod hand_return_tests;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
+mod land_sacrifice_draw;
 mod library_order;
 #[cfg(test)]
 mod library_order_tests;
@@ -2322,6 +2324,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 loss
                             } else if let Some(bound) = counted_artifact_modes.remove(&block) {
                                 bound
+                            } else if let Some(ability) = activated_source_keyword::lower(
+                                &result.lines[block],
+                                block,
+                                &original[block],
+                                &shape,
+                                &binding,
+                                kind,
+                            )? {
+                                ability
                             } else if let Some(spec) = fixed {
                                 let raw: serde_json::Value =
                                     decode(original[block].get(), "activated")?;
@@ -2906,6 +2917,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
+    land_sacrifice_draw::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
@@ -6209,6 +6221,9 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
+    if let Some(ability) = land_sacrifice_draw::lower(costs, effects, block, kind)? {
+        return Ok(ability);
+    }
     if let Some(ability) = paid_counted_draw::lower(costs, effects, block, kind)? {
         return Ok(ability);
     }

@@ -41,8 +41,8 @@ pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
 pub use fixed_creature_activation::{
-    FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
-    has_fixed_creature_activation,
+    FixedCreatureActivation, bound_fixed_activation_keyword, fixed_activation_keyword,
+    fixed_creature_activation, has_fixed_creature_activation,
 };
 mod cast_mana_value_sweep;
 mod cast_origin;
@@ -70,6 +70,7 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
+pub mod activated_source_keyword;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
@@ -81,6 +82,7 @@ mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
 mod land_entry_gain_life;
+mod land_sacrifice_draw;
 mod other_land_entry;
 mod set_exile;
 pub use set_exile::{SetExileClause, set_exile_modes};
@@ -490,6 +492,7 @@ pub enum Capability {
     CreatureEntryReturnV1,
     EntryGraveyardExileV1,
     LandEntryGainLifeV1,
+    LandSacrificeDrawV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -516,6 +519,7 @@ pub enum Capability {
     TemporaryPermanentKeywordProgramV1,
     TemporaryCreatureSetKeywordProgramV1,
     TemporaryPermanentSetKeywordProgramV1,
+    ActivatedSourceKeywordGrantV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -1139,6 +1143,11 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
+    /// CR 400.7, 611.2c: capture the activating incarnation until cleanup.
+    GrantSourceKeywords {
+        keywords: Vec<KeywordAbility>,
+        source_block: u32,
+    },
     /// CR 611.2c, 613.5–6: all properties belong to one captured effect.
     GrantKeywords {
         target_slot: u32,
@@ -1424,7 +1433,8 @@ impl Instruction {
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
-            Self::GrantKeywords { source_block, .. } => *source_block,
+            Self::GrantKeywords { source_block, .. }
+            | Self::GrantSourceKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
@@ -2780,7 +2790,14 @@ impl Definition {
             {
                 set.insert(Capability::SacrificeV1);
             }
-            add_program_requirements(&mut set, &ability.program);
+            add_program_requirements_for_activation(
+                &mut set,
+                &ability.program,
+                fixed_creature_activation::mana_self_pump(ability),
+            );
+        }
+        if land_sacrifice_draw::present(self) {
+            set.insert(Capability::LandSacrificeDrawV1);
         }
         if land_entry_gain_life::present(self) {
             set.insert(Capability::LandEntryGainLifeV1);
@@ -2994,6 +3011,7 @@ impl Definition {
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
+        activated_source_keyword::validate(self)?;
         conditional_lands::validate_definition(self)?;
         cascade_land_entry::validate_definition(self)?;
         entry_copy::validate_definition(self)?;
@@ -3031,6 +3049,7 @@ impl Definition {
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
         other_land_entry::validate(self)?;
+        let land_sacrifice_draw = land_sacrifice_draw::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
@@ -3520,6 +3539,7 @@ impl Definition {
             && !self.capabilities.contains(&Capability::LinkedExilePlayV1)
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
+            && !land_sacrifice_draw
         {
             return Err("activated programs require supported creature characteristics".into());
         }
@@ -3585,6 +3605,15 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
+            if activated_source_keyword::has_grant(&ability.program) {
+                if c.kind != CardKind::Creature
+                    || activated_source_keyword::keywords(ability).is_none()
+                {
+                    return Err("unsupported complete source keyword activation".into());
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if typed_land_search::activation(ability) || *ability == linked_hideaway::play() {
                 validate_instruction_program(&ability.program)?;
                 continue;
@@ -3592,6 +3621,10 @@ impl Definition {
             if matches!(&ability.cost, ActivationCost::Composite { costs } if costs.remove_source_plus_one_counters.is_some())
             {
                 return Err("counter removal requires mana ability".into());
+            }
+            if land_sacrifice_draw {
+                validate_instruction_program(&ability.program)?;
+                continue;
             }
             if paid_counted_draw::ability_matches(ability) {
                 // The complete source is checked by hand_return::validate_definition.
@@ -5264,6 +5297,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     }
                 }
             }
+            Instruction::GrantSourceKeywords { .. } => None,
             Instruction::GrantKeywords { target_slot, .. } => {
                 // The complete family guard above restricts this to its two domains.
                 Some((*target_slot, p.targets[0].domain))
@@ -5651,6 +5685,14 @@ fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Cap
     })
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    add_program_requirements_for_activation(set, program, false);
+}
+
+fn add_program_requirements_for_activation(
+    set: &mut BTreeSet<Capability>,
+    program: &SpellProgram,
+    mana_self_pump: bool,
+) {
     if !program.optional_additional_costs.is_empty() {
         set.insert(Capability::OptionalAdditionalManaCostV1);
     }
@@ -5783,7 +5825,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.insert(Capability::AttachmentsV1);
         }
         if let Instruction::GrantKeywords { keywords, .. }
-        | Instruction::GrantKeywordsSet { keywords, .. } = instruction
+        | Instruction::GrantKeywordsSet { keywords, .. }
+        | Instruction::GrantSourceKeywords { keywords, .. } = instruction
         {
             for keyword in keywords {
                 if let Some(capability) = temporary_keyword_primitive_capability(*keyword) {
@@ -5891,6 +5934,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
+            Instruction::ModifySourcePowerToughness { .. } if mana_self_pump => {
+                Capability::TemporaryPowerToughnessV1
+            }
             Instruction::SacrificeDamage { .. }
             | Instruction::EachOpponentSacrifice { .. }
             | Instruction::ModifySourcePowerToughness { .. } => Capability::SacrificeV1,
@@ -5941,6 +5987,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
+            Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
                 if temporary_permanent_keyword_program(program).is_some() {
                     Capability::TemporaryPermanentKeywordProgramV1
@@ -6415,6 +6462,8 @@ pub fn catalog_schema() -> serde_json::Value {
         ]})
     };
     let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
+    let self_indestructible =
+        activated_source_keyword::schema_presence(Some(KeywordAbility::Indestructible));
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({
@@ -6438,7 +6487,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible),{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible),self_indestructible,{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
             serde_json::json!({"if":permanent_grant,"then":{"properties":{
                 "characteristics":{"properties":{"kind":{"const":"creature"}}},
                 "static_abilities":{"maxItems":1},"activated":{"maxItems":0},
@@ -6453,6 +6502,7 @@ pub fn catalog_schema() -> serde_json::Value {
 
     basic_landwalk::extend_schema(&mut schema);
     source_combat_restrictions::extend_schema(&mut schema);
+    activated_source_keyword::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -7490,6 +7540,7 @@ pub fn catalog_schema() -> serde_json::Value {
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
     land_entry_gain_life::extend_schema(&mut schema);
+    land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
@@ -7762,6 +7813,7 @@ mod tests {
             CreatureEntryReturnV1,
             EntryGraveyardExileV1,
             LandEntryGainLifeV1,
+            LandSacrificeDrawV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -7795,6 +7847,7 @@ mod tests {
             TemporaryPermanentKeywordProgramV1,
             TemporaryCreatureSetKeywordProgramV1,
             TemporaryPermanentSetKeywordProgramV1,
+            ActivatedSourceKeywordGrantV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -8265,6 +8318,7 @@ mod tests {
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(land_entry_gain_life::witness());
         definitions.push(entry_copy::registry_witness());
+        definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
@@ -8784,6 +8838,49 @@ mod tests {
         )];
         kraken.capabilities = kraken.requirements();
         definitions.push(kraken);
+
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/activated-source-keyword-battlefly-swarm.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        let mut self_grant = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        self_grant.name = source["name"].as_str().unwrap().into();
+        self_grant.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        self_grant.provenance.printing_id = source["id"].as_str().unwrap().into();
+        self_grant.provenance.source_json = canonical(source).unwrap();
+        self_grant.provenance.source_sha256 = sha256(self_grant.provenance.source_json.as_bytes());
+        self_grant.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        self_grant.provenance.ast_sha256 =
+            sha256(format!("[{}]", self_grant.provenance.abilities_json).as_bytes());
+        self_grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        self_grant.characteristics.subtypes = vec!["Phyrexian".into(), "Insect".into()];
+        self_grant.characteristics.power = Some(1.into());
+        self_grant.characteristics.toughness = Some(1.into());
+        self_grant.characteristics.mana_cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::B],
+        };
+        self_grant.characteristics.colors = vec![Color::B];
+        self_grant.characteristics.color_identity = vec![Color::B];
+        self_grant.source_labels = None;
+        self_grant.keywords = vec![KeywordAbility::Flying];
+        self_grant.activated = vec![
+            activated_source_keyword::printed_grant(
+                record["faces"][0]["result"]["lines"][1]["text"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap()
+            .activation(1),
+        ];
+        self_grant.capabilities = self_grant.requirements();
+        definitions.push(self_grant);
 
         definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {
