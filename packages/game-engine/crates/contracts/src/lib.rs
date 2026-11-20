@@ -45,7 +45,7 @@ mod artifact_modal;
 mod counter_unless_generic;
 mod each_player_draw;
 mod set_exile;
-pub use set_exile::SetExileClause;
+pub use set_exile::{SetExileClause, set_exile_modes};
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -369,6 +369,7 @@ pub enum Capability {
     SelfDiesV1,
     InterveningIfV1,
     ModalChoiceV1,
+    NonemptyModeSubsetV1,
     DefenderV1,
     FlyingV1,
     ReachV1,
@@ -1455,6 +1456,7 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
+    OneOrMoreModes,
     Instructions,
     Permanent,
 }
@@ -3798,7 +3800,10 @@ impl Definition {
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
                     || p.timing != cast_timing
-                    || p.resolution != SpellResolution::Instructions
+                    || !matches!(
+                        p.resolution,
+                        SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                    )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
                     return Err("invalid spell functioning zone or empty program".into());
@@ -4375,7 +4380,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         if p.modes.len() < 2
             || !p.targets.is_empty()
             || !p.instructions.is_empty()
-            || p.resolution != SpellResolution::Instructions
+            || !matches!(
+                p.resolution,
+                SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+            )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
         }
@@ -4384,7 +4392,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             if !child.modes.is_empty()
                 || child.timing != p.timing
                 || child.functioning_zone != p.functioning_zone
-                || child.resolution != p.resolution
+                || child.resolution != SpellResolution::Instructions
                 || child.instructions.is_empty()
             {
                 return Err("nested, empty, or inconsistent modal program".into());
@@ -5104,6 +5112,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if program.resolution == SpellResolution::OneOrMoreModes {
+            set.insert(Capability::NonemptyModeSubsetV1);
+        }
         for mode in &program.modes {
             add_program_requirements(set, &mode.program);
         }
@@ -7001,6 +7012,7 @@ mod tests {
             SelfDiesV1,
             InterveningIfV1,
             ModalChoiceV1,
+            NonemptyModeSubsetV1,
             DefenderV1,
             FlyingV1,
             ReachV1,
@@ -7145,6 +7157,47 @@ mod tests {
             token.toughness = 7.into();
         }
         creator.capabilities = creator.requirements();
+        let mut menu = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Sorcery
+                    && !d.x_mana_cost
+                    && d.keywords.is_empty()
+                    && d.triggered.is_empty()
+                    && d.static_abilities.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-open-mode-catalog.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        menu.source_labels = None;
+        menu.name = source["name"].as_str().unwrap().into();
+        menu.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        menu.provenance.printing_id = source["id"].as_str().unwrap().into();
+        menu.provenance.source_json = canonical(source).unwrap();
+        menu.provenance.source_sha256 = sha256(menu.provenance.source_json.as_bytes());
+        menu.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        menu.provenance.ast_sha256 =
+            sha256(format!("[{}]", menu.provenance.abilities_json).as_bytes());
+        let timing = if source["type_line"] == "Sorcery" {
+            menu.characteristics.kind = CardKind::Sorcery;
+            SpellTiming::MainPhase
+        } else {
+            menu.characteristics.kind = CardKind::Instant;
+            SpellTiming::Instant
+        };
+        menu.spell = Some(
+            set_exile_modes(source["oracle_text"].as_str().unwrap(), timing)
+                .unwrap()
+                .2,
+        );
+        menu.capabilities = menu.requirements();
+        definitions.push(menu);
         definitions.push(creator);
         // Synthetic complete typed control; exact frozen source is compiled
         // independently in compiler::ramos_m4e_tests.

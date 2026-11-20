@@ -914,3 +914,89 @@ fn fixed_set_exile_moves_one_zone_batch_and_preserves_commander_choice() {
         recover(&g);
     }
 }
+
+#[test]
+fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
+    let raw = include_str!("../../../../tests/fixtures/synthetic-open-mode-catalog.json");
+    let parsed = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        raw,
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = parsed else {
+        panic!("{parsed:?}")
+    };
+    let mut p = prepared(&[
+        ("Grizzly Bears", 0, 0, true),
+        ("Grizzly Bears", 1, 1, false),
+        ("Sol Ring", 2, 2, false),
+    ]);
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    answer(&mut g, 1, Response::Cast { card: CardId(0) });
+    let r = request(&mut g, 1);
+    assert!(matches!(&r,Request::Modes{one_or_more:true,candidates,..} if candidates==&[0,1,2]));
+    for modes in [vec![], vec![1, 1], vec![3]] {
+        assert!(
+            g.respond(r.player(), r.decision_id(), Response::ModeSubset { modes })
+                .is_err()
+        );
+    }
+    recover(&g);
+    answer(&mut g, 1, Response::ModeSubset { modes: vec![2, 1] });
+    assert!(matches!(request(&mut g, 1), Request::Mana { .. }));
+    let plan = g.top().unwrap().mode_subset.as_ref().unwrap();
+    assert_eq!(plan.indices, [1, 2]);
+    recover(&g);
+    let mut bad = g.fork();
+    bad.state
+        .rules
+        .stack
+        .last_mut()
+        .unwrap()
+        .mode_subset
+        .as_mut()
+        .unwrap()
+        .indices
+        .reverse();
+    assert!(Game::restore(bad.prepared.as_ref().clone(), &bad.snapshot().unwrap()).is_err());
+    answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+    g.complete_test_mana();
+    loop {
+        let request = request(&mut g, 1);
+        if g.state.rules.stack.is_empty() {
+            break;
+        }
+        assert!(matches!(request, Request::Priority { .. }));
+        answer(&mut g, 1, Response::Pass);
+    }
+    let moved = g
+        .trace()
+        .records
+        .iter()
+        .filter_map(|row| match &row.record {
+            EvidenceRecord::Batch { batch }
+                if matches!(batch.cause, BatchCause::Instruction { .. }) =>
+            {
+                Some(batch)
+            }
+            _ => None,
+        })
+        .flat_map(|batch| batch.occurrences.iter())
+        .filter_map(|occurrence| match &occurrence.actual {
+            EventOutcome::Moved { movement } if movement.destination == Zone::Exile => {
+                Some(movement.previous.card)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(moved, [CardId(2), CardId(1)]);
+    recover(&g);
+}

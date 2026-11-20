@@ -159,6 +159,7 @@ fn plate_policy_announced_fallback_is_separate_from_initiation_and_buffs_preserv
         selected_additional_costs: None,
         x: None,
         mana_value: None,
+        selected_modes: vec![],
         mode: None,
         triggered: None,
         entity_targets: vec![],

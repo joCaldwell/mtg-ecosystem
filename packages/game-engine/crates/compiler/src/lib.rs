@@ -281,8 +281,15 @@ impl<'de> Deserialize<'de> for SourceKeyword {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ModeCount {
-    exactly: u32,
+#[serde(untagged)]
+enum ModeCount {
+    Exact {
+        exactly: u32,
+    },
+    Minimum {
+        #[serde(rename = "atLeast")]
+        minimum: u32,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2767,7 +2774,13 @@ fn append_spell_effects(
                 "bindings on standalone modal instructions are unsupported",
             ));
         }
-        if count.exactly != 1
+        if let ModeCount::Minimum { minimum } = count {
+            return Err(unsupported(
+                "effects.modal",
+                format!("atLeast {minimum} requires a complete supported standalone mode family"),
+            ));
+        }
+        if !matches!(count, ModeCount::Exact { exactly: 1 })
             || options.len() < 2
             || !program.modes.is_empty()
             || !program.targets.is_empty()
@@ -8089,7 +8102,7 @@ mod tests {
             condition_kind: None,
             bindings: vec![],
             steps: vec![Step::Modal {
-                count: ModeCount { exactly: 1 },
+                count: ModeCount::Exact { exactly: 1 },
                 options: vec![
                     ModeOption {
                         effects: effects.clone()

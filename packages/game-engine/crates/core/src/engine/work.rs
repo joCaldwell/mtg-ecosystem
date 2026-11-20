@@ -562,7 +562,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 33,
+                    observation_version: 34,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -811,7 +811,10 @@ impl Game {
                             true
                         }
                         (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
-                        (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
+                        (
+                            Frame::Modes { .. },
+                            PlayerResponse::Modes { .. } | PlayerResponse::ModeSubset { .. },
+                        ) => true,
                         (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
                         | (Frame::ForcedSacrifice { .. }, PlayerResponse::ForcedSacrifice { .. })
                         | (Frame::OptionalDamage { .. }, PlayerResponse::OptionalEffect { .. }) => {
@@ -1048,7 +1051,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 33,
+                            observation_version: 34,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1103,7 +1106,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 30,
+            work_version: 31,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1112,7 +1115,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 30
+        if saved.work_version != 31
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -1229,6 +1232,7 @@ impl Game {
                     | PlayerResponse::LibraryOrder { objects }
                     | PlayerResponse::Targets { objects }
                     | PlayerResponse::BottomOpening { objects } => objects.len(),
+                    PlayerResponse::ModeSubset { modes } => modes.len(),
                     PlayerResponse::EntityTargets { entities } => entities.len(),
                     PlayerResponse::OrderTriggers { order } => order.len(),
                     PlayerResponse::DamageAllocation { allocations } => allocations.len(),

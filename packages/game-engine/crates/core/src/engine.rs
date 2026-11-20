@@ -906,6 +906,8 @@ struct StackInstance {
     sacrificed_set: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode_subset: Option<choices::BoundModeSubset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     effect_source_handles: Vec<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1188,6 +1190,9 @@ pub enum Response {
     DamageAllocation {
         allocations: Vec<(DamageId, Quantity)>,
     },
+    ModeSubset {
+        modes: Vec<u32>,
+    },
     Modes {
         mode: u32,
     },
@@ -1373,6 +1378,8 @@ pub enum Request {
     Modes {
         decision_id: u64,
         player: PlayerId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        one_or_more: bool,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {
@@ -2091,6 +2098,11 @@ pub enum Event {
         player: PlayerId,
         value: Quantity,
     },
+    ModeSubsetSelected {
+        stack_id: StackId,
+        player: PlayerId,
+        modes: Vec<u32>,
+    },
     ModeSelected {
         stack_id: StackId,
         player: PlayerId,
@@ -2521,7 +2533,11 @@ impl Game {
     fn program(&self) -> Result<&SpellProgram, String> {
         self.program_for(self.top()?)
     }
-    fn program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
+    fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
+        if let Some(plan) = &stack.mode_subset {
+            return plan.program(self.root_program_for(stack)?);
+        }
+
         self.selected_program(self.root_program_for(stack)?, stack.mode)
     }
     fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
@@ -2775,6 +2791,11 @@ impl Game {
             (&self.state.rules.frame, response)
         {
             return self.validate_damage_allocation(player, allocations);
+        }
+        if let (Frame::Modes { .. }, Response::ModeSubset { modes }) =
+            (&self.state.rules.frame, response)
+        {
+            return self.authorize_mode_subset(player, modes).map(|_| ());
         }
         if let (Frame::Modes { .. }, Response::Modes { mode }) = (&self.state.rules.frame, response)
         {
@@ -3347,7 +3368,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 55,
+            snapshot_version: 56,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3389,7 +3410,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 55
+        if s.snapshot_version != 56
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

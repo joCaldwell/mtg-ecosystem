@@ -145,6 +145,7 @@ impl Game {
             death_controller: None,
             sacrificed: None,
             sacrificed_set: vec![],
+            mode_subset: None,
             mode: None,
             effect_source_handles,
             source_facts: Some(self.object_before(source)?),
@@ -204,6 +205,7 @@ impl Game {
             .modes
             .is_empty()
             && stack.mode.is_none()
+            && stack.mode_subset.is_none()
         {
             return Ok(Frame::Modes { cast });
         }

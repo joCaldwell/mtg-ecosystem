@@ -28,10 +28,10 @@ enum PaymentPurpose {
 }
 
 impl Game {
-    fn resolution_payment_terms(
-        &self,
-        frame: &Resolving,
-    ) -> Result<(PaymentPurpose, &Quantity, u32), String> {
+    fn resolution_payment_terms<'a>(
+        &'a self,
+        frame: &'a Resolving,
+    ) -> Result<(PaymentPurpose, &'a Quantity, u32), String> {
         match self
             .program_for(&frame.spell)?
             .instructions
