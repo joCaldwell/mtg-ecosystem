@@ -6,19 +6,21 @@ use super::*;
 pub enum ModeCount {
     OneOrMore,
     Exactly(u32),
+    ExactlyWithRepetition(u32),
 }
 
 impl ModeCount {
     pub fn selected(self, offered: usize, indices: &[u32]) -> Result<Vec<u32>, String> {
         if indices.is_empty()
-            || indices.len() > offered
-            || matches!(self, Self::Exactly(n) if usize::try_from(n).ok()!=Some(indices.len()))
+            || (indices.len() > offered && !matches!(self, Self::ExactlyWithRepetition(_)))
+            || matches!(self, Self::Exactly(n) | Self::ExactlyWithRepetition(n) if usize::try_from(n).ok()!=Some(indices.len()))
         {
             return Err("wrong number of chosen modes".into());
         }
         let mut chosen = indices.to_vec();
         chosen.sort_unstable();
-        if chosen.windows(2).any(|pair| pair[0] == pair[1])
+        if (!matches!(self, Self::ExactlyWithRepetition(_))
+            && chosen.windows(2).any(|pair| pair[0] == pair[1]))
             || chosen
                 .last()
                 .is_none_or(|index| usize::try_from(*index).map_or(true, |i| i >= offered))
@@ -72,6 +74,17 @@ pub fn target_occurrences<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exact_repeat_count_retains_each_printed_occurrence() {
+        let count = ModeCount::ExactlyWithRepetition(5);
+        assert_eq!(
+            count.selected(3, &[2, 0, 2, 2, 0]).unwrap(),
+            [0, 0, 2, 2, 2]
+        );
+        assert_eq!(count.selected(1, &[0; 5]).unwrap(), [0; 5]);
+        assert!(count.selected(3, &[0; 4]).is_err());
+        assert!(count.selected(3, &[3; 5]).is_err());
+    }
     #[test]
     fn exact_mode_count_preserves_print_order_and_distinct_dependent_occurrences() {
         let mut root = crate::graveyard_shuffle::witness().spell.unwrap();
