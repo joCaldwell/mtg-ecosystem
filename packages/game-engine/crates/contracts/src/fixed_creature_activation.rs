@@ -82,7 +82,14 @@ pub fn fixed_creature_activation(
     let fixed = |value| json!({"amount":"fixed","value":value});
     let mut targets = Vec::new();
     let mut label = line.to_owned();
-    let (instruction, step) = if let Some((subject, stats)) = effect
+    let (instruction, step) = if effect == "Regenerate this creature." {
+        (
+            Instruction::RegenerateSource {
+                source_block: block,
+            },
+            json!({"effect":"regenerate","what":{"ref":"this","noun":"creature"}}),
+        )
+    } else if let Some((subject, stats)) = effect
         .strip_suffix(" until end of turn.")
         .and_then(|text| text.rsplit_once(" gets "))
     {
@@ -226,6 +233,13 @@ pub fn bound_fixed_activation_keyword(
     if d.activated.is_empty() || !d.activated.iter().all(mana_self_pump) {
         return None;
     }
+    intrinsic_keyword(keyword)
+}
+
+pub(super) fn intrinsic_keyword(keyword: KeywordAbility) -> Option<(&'static str, &'static str)> {
+    if let Some(bound) = fixed_activation_keyword(keyword) {
+        return Some(bound);
+    }
     Some(match keyword {
         KeywordAbility::Defender => ("defender", "702.3"),
         KeywordAbility::FirstStrike => ("first strike", "702.7"),
@@ -253,7 +267,7 @@ pub(super) fn mana_self_pump(a: &ActivatedAbility) -> bool {
         )
 }
 
-fn pump_keyword_reminder(keyword: KeywordAbility) -> Option<&'static str> {
+pub(super) fn keyword_reminder(keyword: KeywordAbility) -> Option<&'static str> {
     Some(match keyword {
         KeywordAbility::Defender => "(This creature can't attack.)",
         KeywordAbility::FirstStrike => {
@@ -270,6 +284,9 @@ fn pump_keyword_reminder(keyword: KeywordAbility) -> Option<&'static str> {
             "(Damage dealt by this creature also causes you to gain that much life.)"
         }
         KeywordAbility::Flash => "(You may cast this spell any time you could cast an instant.)",
+        KeywordAbility::Hexproof => {
+            "(This creature can't be the target of spells or abilities your opponents control.)"
+        }
         _ => return None,
     })
 }
@@ -317,8 +334,13 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
     let mut fixed = Vec::new();
     for (n, line) in text.lines().enumerate() {
         let block = u32::try_from(n).map_err(|_| "activation block limit")?;
-        if let Some(spec) = fixed_creature_activation(line, name, block) {
-            fixed.push((block, spec))
+        if let Some(spec) = fixed_creature_activation(line, name, block)
+            && !matches!(
+                spec.ability.program.instructions.as_slice(),
+                [Instruction::RegenerateSource { .. }]
+            )
+        {
+            fixed.push((block, spec));
         }
     }
     if fixed.is_empty() && !candidate {
@@ -345,7 +367,7 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
         printed[..1].make_ascii_uppercase();
         let first = text.lines().next().unwrap_or("");
         let exact_reminder = match d.keywords.as_slice() {
-            [keyword] if d.activated.iter().all(mana_self_pump) => pump_keyword_reminder(*keyword)
+            [keyword] if d.activated.iter().all(mana_self_pump) => keyword_reminder(*keyword)
                 .is_some_and(|reminder| first == format!("{printed} {reminder}")),
             _ => false,
         };

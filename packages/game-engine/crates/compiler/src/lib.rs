@@ -99,6 +99,7 @@ mod self_spell_protection;
 mod set_exile;
 mod source_combat_restrictions;
 mod source_dies_nonland_destroy;
+mod source_regeneration;
 mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
@@ -879,6 +880,9 @@ enum Step {
         power: SignedAmount,
         toughness: SignedAmount,
         duration: SourceDuration,
+    },
+    Regenerate {
+        what: serde_json::Value,
     },
     PreventDamage {
         prevention: SourcePrevention,
@@ -2914,6 +2918,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
+    source_regeneration::bind(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
@@ -6458,6 +6463,14 @@ fn lower_activation(
             let instruction = match step {
                 Step::CreateReplacement { .. } => {
                     return Err(unsupported("replacement", "unsupported replacement"));
+                }
+                Step::Regenerate { what } => {
+                    let reason = if *what == serde_json::json!({"ref":"this","noun":"creature"}) {
+                        "self-regeneration requires a complete printed fixed-mana activation"
+                    } else {
+                        "regeneration requires this creature as the subject"
+                    };
+                    return Err(unsupported("effects.regenerate", reason));
                 }
                 Step::PreventDamage {
                     prevention,

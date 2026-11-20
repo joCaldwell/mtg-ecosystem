@@ -31,26 +31,12 @@ pub(super) fn validate_binding(
     let keyword_block = bound_fixed && !d.keywords.is_empty();
     if keyword_block {
         let base = "/faces/0/abilities/0";
-        let role = "static-source-controller";
-        graph.ability(base, "keywords", role);
-        let scope = graph.id(base, "ability");
+        graph.ability(base, "keywords", "static-source-controller");
         for (index, keyword) in d.keywords.iter().enumerate() {
             let (word, rule) = bound_fixed_activation_keyword(d, *keyword).ok_or_else(|| {
                 unsupported("keywords", "unsupported fixed activation keyword binding")
             })?;
-            let path = format!("{base}/keywords/{index}");
-            let keyword_role = if *keyword == KeywordAbility::Flash {
-                "prospective-caster"
-            } else {
-                role
-            };
-            let actor = graph.node(
-                &path,
-                "you",
-                "runtime-player",
-                json!({"scope":scope,"role":keyword_role,"rules":["109.5",rule]}),
-            );
-            graph.node(&path,"keyword","keyword-ability",json!({"scope":scope,"keyword":word,"abilities":["static"],"you":actor,"rules":[rule]}));
+            bind_keyword(&mut graph, base, index, *keyword, word, rule);
         }
     }
     if !gated && bound_fixed {
@@ -122,7 +108,40 @@ pub(super) fn validate_binding(
     })], "requires the exact entry-result and caster bindings")
 }
 
-fn bind_activation(graph: &mut Bindings<'_>, block: u32, spec: &FixedCreatureActivation) {
+pub(super) fn bind_keyword(
+    graph: &mut Bindings<'_>,
+    base: &str,
+    index: usize,
+    keyword: KeywordAbility,
+    word: &str,
+    rule: &str,
+) {
+    let scope = graph.id(base, "ability");
+    let path = format!("{base}/keywords/{index}");
+    let role = if keyword == KeywordAbility::Flash {
+        "prospective-caster"
+    } else {
+        "static-source-controller"
+    };
+    let actor = graph.node(
+        &path,
+        "you",
+        "runtime-player",
+        json!({"scope":scope,"role":role,"rules":["109.5",rule]}),
+    );
+    graph.node(
+        &path,
+        "keyword",
+        "keyword-ability",
+        json!({"scope":scope,"keyword":word,"abilities":["static"],"you":actor,"rules":[rule]}),
+    );
+}
+
+pub(super) fn bind_activation(
+    graph: &mut Bindings<'_>,
+    block: u32,
+    spec: &FixedCreatureActivation,
+) {
     let base = format!("/faces/0/abilities/{block}");
     graph.ability(&base, "activated", "activator");
     let scope = graph.id(&base, "ability");
@@ -152,7 +171,7 @@ fn bind_activation(graph: &mut Bindings<'_>, block: u32, spec: &FixedCreatureAct
             expression,
             &target.selection_id,
         ));
-    } else if operation == "pump" {
+    } else if matches!(operation, "pump" | "regenerate") {
         let source = graph.id("/source", "object");
         graph.reference(&format!("{path}/what"), &step["what"], &source, "201.5");
         inputs.push(source);

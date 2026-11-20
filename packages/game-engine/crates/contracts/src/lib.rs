@@ -118,6 +118,7 @@ pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wip
 pub mod linked_hideaway;
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
+pub mod source_regeneration;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
@@ -420,6 +421,7 @@ pub enum Capability {
     AuraControlV1,
     BestowV1,
     TemporaryPowerToughnessV1,
+    SourceRegenerationV1,
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
     StaticDamageReplacementV1,
@@ -1025,6 +1027,10 @@ pub enum Instruction {
     EachOpponentSacrifice {
         source_block: u32,
     },
+    /// Create an until-cleanup destroy replacement for the exact invocation source (CR 701.19a).
+    RegenerateSource {
+        source_block: u32,
+    },
     ModifySourcePowerToughness {
         power: Quantity,
         toughness: Quantity,
@@ -1416,7 +1422,8 @@ impl Instruction {
             Self::LoseLifeDeathController { source_block, .. } => *source_block,
             Self::SacrificeDamage { source_block, .. } => *source_block,
             Self::EachOpponentSacrifice { source_block, .. } => *source_block,
-            Self::ModifySourcePowerToughness { source_block, .. } => *source_block,
+            Self::ModifySourcePowerToughness { source_block, .. }
+            | Self::RegenerateSource { source_block } => *source_block,
             Self::DestroyPermanent { source_block, .. } => *source_block,
             Self::ExilePermanent { source_block, .. } => *source_block,
             Self::UntapPermanent { source_block, .. } => *source_block,
@@ -3027,6 +3034,7 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
+        let source_regeneration = source_regeneration::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
@@ -3605,6 +3613,10 @@ impl Definition {
             }
             // Each complete cost, target and instruction was reconstructed from its printed block.
             if fixed_activations {
+                continue;
+            }
+            if source_regeneration {
+                validate_instruction_program(&ability.program)?;
                 continue;
             }
             if ability.functioning_zone == FunctioningZone::Hand
@@ -5158,7 +5170,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::EachOpponentSacrifice { .. }
             | Instruction::DrainOpponents { .. }
-            | Instruction::ModifySourcePowerToughness { .. } => None,
+            | Instruction::ModifySourcePowerToughness { .. }
+            | Instruction::RegenerateSource { .. } => None,
             Instruction::DestroyPermanent {
                 target_slot,
                 optional,
@@ -5959,6 +5972,7 @@ fn add_program_requirements_for_activation(
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
+            Instruction::RegenerateSource { .. } => Capability::SourceRegenerationV1,
             Instruction::ModifySourcePowerToughness { .. } if mana_self_pump => {
                 Capability::TemporaryPowerToughnessV1
             }
@@ -7540,6 +7554,7 @@ pub fn catalog_schema() -> serde_json::Value {
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
     fixed_creature_activation::extend_schema(&mut schema);
+    source_regeneration::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -7846,6 +7861,7 @@ mod tests {
             AuraControlV1,
             BestowV1,
             TemporaryPowerToughnessV1,
+            SourceRegenerationV1,
             CombatDamagePreventionV1,
             DamageBudgetPreventionV1,
             StaticDamageReplacementV1,
@@ -8331,6 +8347,7 @@ mod tests {
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(source_regeneration::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());
