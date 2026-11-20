@@ -3,8 +3,6 @@
 use super::*;
 use crate::engine::temporary_indestructible_tests::pass;
 
-const BRIDGE: &str =
-    include_str!("../../../../tests/fixtures/ramos/7cb9e29f-835f-4155-a2a5-4b778866c773.json");
 const PLAYER: PlayerId = PlayerId(0);
 
 fn scenario(hit: &str) -> Prepared {
@@ -12,7 +10,28 @@ fn scenario(hit: &str) -> Prepared {
         "../../../../tests/fixtures/expected-mana-ir.json"
     ))
     .unwrap();
-    catalog.definitions.push(lowered(BRIDGE));
+    let archive = std::fs::read(
+        std::env::var_os("MTG_LINKED_HIDEAWAY_ARCHIVE_PROBE")
+            .expect("supply the exact linked hideaway archive"),
+    )
+    .unwrap();
+    assert_eq!(
+        mtg_contracts::sha256(&archive),
+        "114f814949a6c0ddf680ac569113b15452e9a9efb025cbd79e04f58220d9fe4f"
+    );
+    let lines = std::str::from_utf8(&archive)
+        .unwrap()
+        .lines()
+        .collect::<Vec<_>>();
+    let [manifest, record] = lines.as_slice() else {
+        panic!("expected one frozen source")
+    };
+    let mtg_compiler::CompileResult::Lowered { definition } =
+        mtg_compiler::compile(manifest, record)
+    else {
+        panic!("complete Mosswort Bridge source must lower");
+    };
+    catalog.definitions.push(*definition);
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -45,6 +64,7 @@ fn scenario(hit: &str) -> Prepared {
 }
 
 #[test]
+#[ignore = "requires the pinned MTG_LINKED_HIDEAWAY_ARCHIVE_PROBE"]
 fn mosswort_paid_hideaway_and_linked_play() {
     for hit in ["Grizzly Bears", "Forest"] {
         let mut g = Game::with_trace(scenario(hit), TraceMode::Off);
