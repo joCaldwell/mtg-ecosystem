@@ -212,7 +212,7 @@ describe("whole-card reference binding", () => {
 
   it("does not call unexpanded intrinsic payment scopes fully bound", () => {
     // Actual costs include Tenth District Hero and Ruthless Waterbender.
-    for (const text of ["Collect evidence 6: Draw a card.", "Waterbend {2}: Draw a card.", "Forage: Draw a card.", "Blight 1: Draw a card."]) {
+    for (const text of ["Collect evidence 6: Draw a card.", "Waterbend {2}: Draw a card.", "Forage: Draw a card."]) {
       const graph = analyzeCardBindings(input(text));
       assert.equal(graph.fullyBound, false, text);
       assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope"), text);

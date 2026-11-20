@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, CharacteristicRelation, ChosenValueRef, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, StaticEffect, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
+import type { Amount, CascadeExiledCards, CharacteristicRelation, ChosenValueRef, Color, Effect, EntryCopy, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, StaticEffect, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -62,7 +62,8 @@ export type BindingNode = NodeBase & (
   | { node: "derived-object"; scope: string; role: "attached-to"; of: string }
   /** The source of an ability an effect grants: each object of the bound
    * group `of` (`each`), or the object the effect creates (CR 113.10). */
-  | { node: "recipient"; scope: string; of?: string; each?: boolean; created?: true }
+  | { node: "recipient"; scope: string; of?: string; each?: boolean; created?: true;
+      emblem?: { owner: string; controller: string; zone: "command" } }
   | { node: "selection"; scope: string; expression: ObjectRef | PlayerRef; cardinality: BindingCardinality;
       /** Explicit player binding for the announced target when established. */
       chooser?: string;
@@ -100,10 +101,11 @@ export type BindingNode = NodeBase & (
   | { node: "battlefield-entry-proposal"; scope: string; object: string; to: "battlefield"; controller: string }
   /** The battlefield at the choice point, with entry history for each current incarnation (CR 110.1, 400.7, 614.12a). */
   | { node: "entry-copy-model-choice"; scope: string; proposal: string; chooser: string; timing: "before-entry";
-      selection: "non-target"; count: "zero-or-one"; zone: "battlefield"; filter: ObjectFilter; historyIdentity: "current-incarnation" }
+      selection: "non-target"; count: "zero-or-one"; zone: "battlefield"; filter: ObjectFilter; historyIdentity?: "current-incarnation" }
   /** The same proposed entrant enters with the model's copiable values if chosen (CR 707.2, 707.5). */
   | { node: "entry-copy-replacement"; scope: string; entry: string; model: string; timing: "as-enters";
-      values: "model-copiable-values"; onDecline: "leave-entry-unchanged" }
+      values: "model-copiable-values"; onDecline: "leave-entry-unchanged";
+      changes?: EntryCopy["changes"]; duration?: EntryCopy["duration"]; exceptions?: EntryCopy["entryExceptions"]; entryState?: EntryCopy["entry"] }
   /** Reveal in the original zone, then move into the specified library and
    * shuffle it. The shuffle still occurs if the library move is redirected (CR 701.24c). */
   | { node: "reveal-and-shuffle-replacement"; scope: string; replaces: string; occurrence: "each";
@@ -146,7 +148,8 @@ export type BindingNode = NodeBase & (
       timing: BindingPhase | "stack-announcement" }
   | { node: "characteristic-predicate"; scope: string; subject: string; test: CharacteristicRelation;
       operand: { kind: "object"; object: string; information: "current" | "current-or-last-known" }
-        | { kind: "matching-set"; filter: ObjectFilter; quantifier: "any" | "every" };
+        | { kind: "matching-set"; filter: ObjectFilter; quantifier: "any" | "every" }
+        | { kind: "linked-exile-names"; pool: string; quantifier: "any" };
       timing: BindingPhase | "stack-announcement" }
   | { node: "common-name-subset"; scope: string; controller: string; filter: ObjectFilter; minimum: number }
   | { node: "static-rule"; scope: string; rule: Extract<StaticEffect, { static: "prohibit" | "untap-during-step" | "untap-step-limit" }>;
@@ -162,6 +165,10 @@ export type BindingNode = NodeBase & (
         | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise" } }
   | { node: "instruction-member"; scope: string; group: string; domain: "player" | "object" }
   | { node: "event-aggregate"; scope: string; event: string; measure: "damage-dealt" | "life-lost" }
+  | { node: "linked-exile-pool"; scope: string; source: string; producer: string; event: string;
+      membership: "still-in-exile"; identity: "source-incarnation"; cardinality: "many" }
+  | { node: "linked-exile-filter"; scope: string; pool: string }
+  | { node: "blight-payment"; scope: string; payer: string; count: number }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
@@ -210,7 +217,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

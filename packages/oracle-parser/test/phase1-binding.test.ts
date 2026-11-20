@@ -450,3 +450,63 @@ describe("group instructions and event quantities", () => {
     assert.equal(bound(graph, "/effects/0/steps/0/who"), bound(graph, "/effects/1/steps/0/who"));
   });
 });
+
+describe("entry choices, linked pools, and emblem sources", () => {
+  it("chooses a battlefield model before entry without announcing a target", () => {
+    const graph = analyze("You may have this artifact enter as a copy of any artifact on the battlefield.", "Artifact");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "entry-copy-model-choice");
+    assert.ok(choice && choice.selection === "non-target" && choice.timing === "before-entry");
+    const player = graph.nodes.find(node => node.id === choice.chooser);
+    assert.ok(player?.node === "runtime-player" && player.role === "entering-controller");
+    assert.equal(graph.engineFeatures[0]?.feature, "entry-copy-replacement");
+  });
+
+  it("keeps the stated copy duration and haste exception separate from the model", () => {
+    const graph = analyze("You may have this artifact enter as a copy of any creature on the battlefield until end of turn, "
+      + "except it has haste.", "Artifact");
+    boundCard(graph);
+    const copy = graph.nodes.find(node => node.node === "entry-copy-replacement");
+    assert.ok(copy);
+    assert.deepEqual(copy.duration, { duration: "end-of-turn" });
+    assert.equal(copy.changes?.[0]?.change, "abilities");
+  });
+
+  it("matches the name of any card retained by the one printed imprint producer", () => {
+    const graph = analyze("Imprint — When this artifact enters, you may exile target land you control.\n"
+      + "Whenever a land with the same name as the exiled card is tapped for mana, its controller adds one mana of any type that land produced.", "Artifact");
+    boundCard(graph);
+    const pool = graph.nodes.find(node => node.node === "linked-exile-pool");
+    const comparison = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(pool && comparison?.operand.kind === "linked-exile-names");
+    assert.equal(pool.identity, "source-incarnation");
+    assert.equal(comparison.operand.pool, pool.id);
+    assert.equal(comparison.operand.quantifier, "any");
+  });
+
+  it("refuses to assign a linked name to either of two eligible producers", () => {
+    const graph = analyze("Imprint — When this artifact enters, you may exile target land you control.\n"
+      + "{2}: Exile target land.\nWhenever a land with the same name as the exiled card is tapped for mana, draw a card.", "Artifact");
+    assert.ok(!graph.nodes.some(node => node.node === "linked-exile-pool"));
+    assert.equal(graph.referencesBound, false);
+  });
+
+  it("assigns a quoted ability to the emblem controlled by the recipient", () => {
+    const graph = analyze("+1: You get an emblem with \"Whenever you cast a spell, draw a card.\"", "Planeswalker");
+    boundCard(graph);
+    const emblem = graph.nodes.find(node => node.node === "recipient" && node.emblem);
+    assert.ok(emblem?.node === "recipient" && emblem.emblem);
+    assert.equal(emblem.emblem.zone, "command");
+    assert.equal(emblem.emblem.controller, bound(graph, "/steps/0/who"));
+    assert.ok(graph.nodes.some(node => node.node === "ability" && node.source === emblem.id));
+  });
+
+  it("keeps a fixed blight payment in the payer's scope", () => {
+    const graph = analyze("Blight 2: Draw a card.", "Creature");
+    boundCard(graph);
+    const payment = graph.nodes.find(node => node.node === "blight-payment");
+    assert.ok(payment);
+    assert.equal(payment.payer, bound(graph, "/costs/0/payer"));
+    assert.equal(payment.count, 2);
+  });
+});

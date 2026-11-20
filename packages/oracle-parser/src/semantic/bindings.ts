@@ -4,7 +4,7 @@
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import { isDeepStrictEqual } from "node:util";
-import type { Ability, Amount, CascadeExiledCards, CharacteristicRelation, Color, Condition, Cost, CostModification, Effect, GainedAbility, KeywordInstance, LookPermission, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, CharacteristicRelation, Color, Condition, Cost, CostModification, Effect, EntryCopy, GainedAbility, KeywordInstance, LookPermission, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -233,6 +233,45 @@ function resolutionCount(effect: Effect, path: string): Context["resolutionCount
 
 type StaticRule = Extract<StaticEffect, { static: "prohibit" | "untap-during-step" | "untap-step-limit" }>;
 
+type OptionalEntryCopy = EntryCopy & { model: Extract<EntryCopy["model"], { model: "choose" }>; optional: { who: PlayerRef } };
+type LinkedExileOrigin = { ability: string; path: string; imprint: boolean };
+
+function ordinaryEntryCopy(effect: EntryCopy): effect is OptionalEntryCopy {
+  const { what, model, optional, duration, changes, entryExceptions } = effect;
+  if ((what.ref !== "self" && what.ref !== "this") || model.model !== "choose" || model.who.player !== "you" ||
+      optional?.who.player !== "you" || model.filter.zoneChangeHistory ||
+      (model.filter.zone && model.filter.zone.zone !== "battlefield") ||
+      (duration && duration.duration !== "end-of-turn")) return false;
+  if (entryExceptions?.some(exception => exception.count.amount !== "fixed")) return false;
+  return !changes?.some(change => change.change !== "types" &&
+    !(change.change === "abilities" && change.abilities.every(ability => isDeepStrictEqual(ability,
+      { gained: "keyword", keyword: { keyword: "haste" } }))));
+}
+
+function seeksLinkedExile(value: unknown, imprint: boolean): boolean {
+  if (Array.isArray(value)) return value.some(entry => seeksLinkedExile(entry, imprint));
+  if (!isRecord(value)) return false;
+  return value.relation === "linked-exile" ||
+    (imprint && value.relation === "event-result" && value.event === "exile" && value.scope === "contextual") ||
+    Object.values(value).some(entry => seeksLinkedExile(entry, imprint));
+}
+
+function linkedExileOrigin(abilities: Ability[], siblings: string): LinkedExileOrigin | undefined {
+  const possible = abilities.flatMap((ability, index) => containsEffect(ability, "exile") ||
+    containsEffect(ability, "scan-library") || containsEffect(ability, "exile-until") ? [{ ability, index }] : []);
+  if (possible.length !== 1) return;
+  const [{ ability, index }] = possible;
+  if ((ability.kind !== "activated" && ability.kind !== "triggered") || ability.effects.length !== 1) return;
+  const [sentence] = ability.effects;
+  if (sentence.steps.length !== 1 || sentence.condition || sentence.otherwise || sentence.afterConditional) return;
+  const [exile] = sentence.steps;
+  if (exile.effect !== "exile" || exile.forEach || exile.forEachVote || exile.decidedBy ||
+      (exile.what.ref !== "target" && exile.what.ref !== "filter") || objectCardinality(exile.what) !== "one") return;
+  const imprint = ability.abilityWord === "Imprint";
+  if (!abilities.some(entry => entry !== ability && seeksLinkedExile(entry, imprint))) return;
+  return { ability: `${siblings}/${index}`, path: `${siblings}/${index}/effects/0/steps/0`, imprint };
+}
+
 interface Context {
   source: string; face: string; ability: string; you: string; phase: BindingPhase;
   objects: Candidate[]; players: Candidate[]; quantities: Candidate[]; x?: string;
@@ -268,13 +307,15 @@ interface Context {
   measuredEvents?: { operation: "damage" | "lose-life"; event: string }[];
   uncertainMeasureOrigin?: boolean;
   triggerX?: string;
+  linkedExile?: LinkedExileOrigin;
+  lexicalAbilityPath?: string;
   entryChoice?: ChoiceOrigin;
   resolutionChoice?: ChoiceOrigin;
   availableChoice?: ChoiceOrigin;
   announcementOperand?: boolean;
   /** The object(s) an enclosing effect gives abilities to: a bound object or
    * group, an object it creates, or a player. */
-  recipient?: { candidate: Candidate } | { created: true } | { unresolved: true };
+  recipient?: { candidate: Candidate } | { created: true; emblemController?: string } | { unresolved: true };
   /** The source is a permanent (or an object that receives an ability), so an
    * unqualified "other" excludes it. */
   permanentSource?: boolean;
@@ -1057,6 +1098,7 @@ class Analyzer {
         return;
       }
     }
+    else if (value.relation === "linked-exile" && this.linkedExileFilter(value, path, context)) return;
     else if (value.relation === "event-result" && value.scope === "this-way" && this.thisWay(value, path, context)) { /* linked */ }
     else if (value.relation === "event-result" || value.relation === "linked-exile" || value.condition === "kicked")
       this.diagnostic("unsupported-reference", path, "This reference requires a specific event/payment or linked-ability association.", ["607"]);
@@ -1094,7 +1136,14 @@ class Analyzer {
       this.object({ ref: "self" }, child(path, "source"), context);
     if (typeof value.cost === "string") {
       this.player({ player: "you" }, child(path, "payer"), context);
-      if (["choice", "collect-evidence", "waterbend", "forage", "blight"].includes(value.cost))
+      if (value.cost === "blight" && !context.barrier && context.phase === "payment" && isRecord(value.amount) &&
+          value.amount.amount === "fixed" && typeof value.amount.value === "number") {
+        const rules = ["118.11", "601.2h", "602.2b", "701.68a", "701.68b"];
+        this.node({ id: this.id(path, "blight-payment"), path, node: "blight-payment", scope: context.ability,
+          payer: context.you, count: value.amount.value, rules });
+        context.mentionedObject = true;
+        this.engineFeature("intrinsic-payment", path, "The payer chooses a creature they control for the blight payment.", rules);
+      } else if (["choice", "collect-evidence", "waterbend", "forage", "blight"].includes(value.cost))
         this.diagnostic("unsupported-scope", path, "This cost has intrinsic payment choices and object selections requiring a distinct payment scope.", ["118", "701"]);
       if (value.cost === "mill" || (value.cost === "discard" && value.what === "hand"))
         this.player({ player: "you" }, child(path, "zone-owner"), context);
@@ -1250,6 +1299,17 @@ class Analyzer {
     }
     bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), scope));
   }
+  private linkedExileFilter(filter: Record<string, unknown>, path: string, context: Context): boolean {
+    const origin = context.linkedExile;
+    if (context.barrier || context.sourceMoved || !origin || context.lexicalAbilityPath === origin.ability ||
+        !isRecord(filter.source) || (filter.source.ref !== "self" && filter.source.ref !== "this")) return false;
+    this.walkChildren(filter, path, context);
+    const rules = ["400.7", "607.2a", "607.3", "607.5"];
+    this.node({ id: this.id(path, "linked-exile-filter"), path, node: "linked-exile-filter", scope: context.ability,
+      pool: this.id(origin.path, "linked-exile-pool"), rules });
+    return true;
+  }
+
   private characteristicPredicate(test: CharacteristicRelation, path: string, subject: string, context: Context): void {
     let inner = test;
     let at = path;
@@ -1267,6 +1327,14 @@ class Analyzer {
     if (operand.operand === "matching-set") {
       this.walk(operand.filter, child(operandPath, "filter"), scoped);
       binding = { kind: "matching-set", filter: operand.filter, quantifier: operand.quantifier };
+    } else if (inner.relation === "shared-value" && inner.characteristic === "name" &&
+        context.linkedExile?.imprint && context.lexicalAbilityPath !== context.linkedExile.ability &&
+        !context.sourceMoved && operand.what.ref === "related" && operand.what.filter.cls === "card" &&
+        operand.what.relation.relation === "event-result" && operand.what.relation.event === "exile" &&
+        operand.what.relation.scope === "contextual") {
+      const pool = this.id(context.linkedExile.path, "linked-exile-pool");
+      this.bound(operand.what, child(operandPath, "what"), pool, ["607.2a", "607.3"]);
+      binding = { kind: "linked-exile-names", pool, quantifier: "any" };
     } else {
       const whatPath = child(operandPath, "what");
       const lastKnown = knownTiming === "resolution";
@@ -1418,7 +1486,8 @@ class Analyzer {
   }
   /** CR 614.12a: choose before the proposed entrant is on the battlefield.
    * CR 707.2, 707.5: apply the model's copiable values to that entry. */
-  sameTurnEntryCopy({ what, model, optional }: typeof OPTIONAL_SAME_TURN_ENTRY_COPY, path: string, context: Context): void {
+  bindEntryCopy({ what, model, optional, duration, changes, entryExceptions, entry }: OptionalEntryCopy,
+    path: string, context: Context): void {
     const { source, ability: scope, you } = context;
     const entrantPath = child(path, "what");
     const proposal = this.node({ id: this.id(entrantPath, "proposal"), path: entrantPath, node: "battlefield-entry-proposal",
@@ -1427,15 +1496,22 @@ class Analyzer {
     const modelPath = child(path, "model");
     const choice = this.node({ id: this.id(modelPath, "choice"), path: modelPath, node: "entry-copy-model-choice",
       scope, proposal, chooser: you, timing: model.when, selection: "non-target", count: "zero-or-one",
-      zone: "battlefield", filter: model.filter, historyIdentity: "current-incarnation",
+      zone: "battlefield", filter: model.filter,
+      ...(model.filter.zoneChangeHistory ? { historyIdentity: "current-incarnation" as const } : {}),
       rules: ["110.1", "115.10a", "400.7", "614.12a"] });
     this.bound(model.who, child(modelPath, "who"), you, ["110.2", "614.12a"]);
     this.bound(optional.who, `${path}/optional/who`, you, ["110.2", "614.12a"]);
+    if (!model.filter.zoneChangeHistory) this.walk(model.filter, `${modelPath}/filter`, context);
+    this.walk(entryExceptions, child(path, "entryExceptions"), context);
     this.node({ id: this.id(path, "replacement"), path, node: "entry-copy-replacement", scope,
       entry: proposal, model: choice, timing: "as-enters", values: "model-copiable-values",
-      onDecline: "leave-entry-unchanged", rules: ["614.12", "707.2", "707.2b", "707.5"] });
+      onDecline: "leave-entry-unchanged", ...(changes ? { changes } : {}), ...(duration ? { duration } : {}),
+      ...(entryExceptions ? { exceptions: entryExceptions } : {}), ...(entry ? { entryState: entry } : {}),
+      rules: ["614.12", "707.2", "707.2b", "707.5", ...(changes || entryExceptions ? ["707.9"] : [])] });
     this.engineFeature("entry-copy-replacement", path,
-      "Track entry turn for current battlefield incarnations, offer the optional choice before entry, and apply the chosen model's copiable values during entry replacement processing.",
+      model.filter.zoneChangeHistory
+        ? "Track entry turn for current battlefield incarnations, offer the optional choice before entry, and apply the chosen model's copiable values during entry replacement processing."
+        : "Offer the battlefield model choice before entry and apply the stated copy duration, characteristics, and entry exceptions.",
       ["400.7", "614.12", "614.12a", "616.1c", "707.2", "707.5"]);
   }
   /** CR 400.6 and 614.6: both instructions see the affected object of the
@@ -1551,7 +1627,14 @@ class Analyzer {
       }
     }
     if (value.effect === "create-token") context.recipient = { created: true };
-    else if (recipientKey) {
+    else if (value.effect === "get-emblem") {
+      const player = this.at(child(path, "who"));
+      if (!context.barrier && player?.domain === "player" && player.cardinality === "one") {
+        context.recipient = { created: true, emblemController: player.id };
+        this.engineFeature("emblem", path, "Create the emblem with its printed abilities in the command zone for the bound player.",
+          ["113.6p", "114.1", "114.2", "114.4"]);
+      } else context.recipient = { unresolved: true };
+    } else if (recipientKey) {
       const candidate = this.at(child(path, recipientKey));
       context.recipient = candidate ? { candidate } : { unresolved: true };
       // "Put a card an opponent owns from exile into that player's graveyard".
@@ -1601,7 +1684,9 @@ class Analyzer {
       ? this.node({ id: this.id(path, "recipient"), path, node: "recipient", scope: context.ability, of: recipient.candidate.id,
           each: recipient.candidate.cardinality !== "one", rules: ["113.10", "201.5a"] })
       : recipient && "created" in recipient
-        ? this.node({ id: this.id(path, "recipient"), path, node: "recipient", scope: context.ability, created: true, rules: ["111.1", "113.10"] })
+        ? this.node({ id: this.id(path, "recipient"), path, node: "recipient", scope: context.ability, created: true,
+            ...(recipient.emblemController ? { emblem: { owner: recipient.emblemController, controller: recipient.emblemController, zone: "command" } } : {}),
+            rules: recipient.emblemController ? ["114.1", "114.2", "114.4"] : ["111.1", "113.10"] })
         : undefined;
     if (!source) {
       // A player's keyword, or a recipient that is not bound: only a keyword
@@ -2222,7 +2307,8 @@ class Analyzer {
       sacrificedCost: undefined, stackCopies: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined,
       copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined,
-      measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined };
+      measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined,
+      linkedExile: undefined, lexicalAbilityPath: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
     const delayed = this.nestedAbility(path, context, "delayed-triggered", ["603.7"]);
@@ -3084,6 +3170,13 @@ class Analyzer {
     const event = this.event(path, context, effect.effect, [...objects, ...players], {
       ...(effect.optional || context.decider ? { optional: true as const, ...(decider ? { decider } : {}) } : {}),
       ...(effect.forEach ? { repeated: "for-each" as const } : {}), ...(context.conditional ? { conditional: true as const } : {}) });
+    if (effect.effect === "exile" && context.linkedExile?.path === path) {
+      const rules = ["400.7", "607.2a", "607.3", "607.5"];
+      this.node({ id: this.id(path, "linked-exile-pool"), path, node: "linked-exile-pool", scope: context.ability,
+        source: context.source, producer: context.ability, event, membership: "still-in-exile",
+        identity: "source-incarnation", cardinality: "many", rules });
+      this.engineFeature("linked-exile-pool", path, "Record only cards exiled by this linked ability instance and still in exile.", rules);
+    }
     if (effect.effect === "damage" || effect.effect === "lose-life")
       context.measuredEvents = [...(context.measuredEvents ?? []), { operation: effect.effect, event }];
     const preEntryChoice = context.entryChoice?.path === path;
@@ -3398,21 +3491,27 @@ class Analyzer {
     const selfGraveyardReplacement = isSelfGraveyardReplacement(ability, cardAbilities);
     const sameTurnEntryCopy = cardAbilities !== undefined && this.permanentFaces.has(face) &&
       this.faceTypes.get(face)?.types?.includes("creature") && isSameTurnEntryCopy(ability);
+    const entryCopy = sameTurnEntryCopy ? ability.effect :
+      this.permanentFaces.has(face) && ability.kind === "static" && ability.effect.static === "entry-copy" && ordinaryEntryCopy(ability.effect)
+        ? ability.effect : undefined;
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
       : ability.kind === "triggered" || ability.kind === "chapter" || ability.kind === "visit" || ability.kind === "case-solve" ? "trigger-controller"
       : ability.kind === "spell" ? "spell-controller" : ability.kind === "additional-cost" ? "prospective-caster"
       : selfGraveyardReplacement ? "replacement-source-controller-or-owner"
-      : sameTurnEntryCopy ? "entering-controller" : "static-source-controller";
+      : entryCopy ? "entering-controller" : "static-source-controller";
     this.node({ id, path, node: "ability", source, face, abilityKind: ability.kind, you, rules: ["113", "109.5"] });
     this.node({ id: you, path, node: "runtime-player", scope: id, role,
-      rules: selfGraveyardReplacement ? ["108.4a", "109.5"] : sameTurnEntryCopy ? ["109.5", "110.2", "614.12"] : ["109.5"] });
+      rules: selfGraveyardReplacement ? ["108.4a", "109.5"] : entryCopy ? ["109.5", "110.2", "614.12"] : ["109.5"] });
     // An unqualified "other" excludes the permanent with the ability, including
     // an object that was given the ability; never the "source" of a spell.
-    const permanentSource = ability.kind !== "spell" &&
-      (this.permanentFaces.has(face) || this.result.nodes.some(node => node.id === source && node.node === "recipient"));
+    const recipientSource = this.result.nodes.find(node => node.id === source);
+    const granted = recipientSource?.node === "recipient";
+    const permanentSource = ability.kind !== "spell" && !(granted && recipientSource.emblem) &&
+      (this.permanentFaces.has(face) || granted);
     const context: Context = { source, face, ability: id, you, permanentSource, staticAbility: ability.kind === "static",
       entryChoice: cardAbilities && permanentSource ? entryChoice(cardAbilities, path.slice(0, path.lastIndexOf("/"))) : undefined,
-      resolutionChoice: resolutionChoice(ability, path),
+      resolutionChoice: resolutionChoice(ability, path), lexicalAbilityPath: path,
+      linkedExile: cardAbilities && permanentSource ? linkedExileOrigin(cardAbilities, path.slice(0, path.lastIndexOf("/"))) : undefined,
       spellAbility: ability.kind === "spell",
       // "This creature can't attack unless defending player controls an
       // Island", "This creature can't be blocked as long as ...": a rule about
@@ -3427,7 +3526,6 @@ class Analyzer {
     // its cost (107.3k), a spell with X in its costs, or a permanent's own
     // entry from such a spell (107.3m). Text that defines X wins (107.3c); a
     // granted ability has no announced X (107.3j).
-    const granted = this.result.nodes.some(node => node.id === source && node.node === "recipient");
     if (!granted && !definesX(ability)) {
       const entering = (ability.kind === "triggered" && ability.trigger.trigger === "enters" && "what" in ability.trigger
           && isRecord(ability.trigger.what) && ["self", "this"].includes(String(ability.trigger.what.ref)))
@@ -3543,8 +3641,8 @@ class Analyzer {
       }
       case "chapter": this.sentences(ability.effects, child(path, "effects"), context); break;
       case "static":
-        if (sameTurnEntryCopy) {
-          this.sameTurnEntryCopy(ability.effect, child(path, "effect"), context);
+        if (entryCopy) {
+          this.bindEntryCopy(entryCopy, child(path, "effect"), context);
           break;
         }
         if (selfGraveyardReplacement) {
@@ -3682,7 +3780,7 @@ class Analyzer {
           : node.node === "value-choice" ? this.invalidNodes.has(node.event) || this.invalidNodes.has(node.chooser)
           : node.node === "recipient-member" || node.node === "instruction-member" ? this.invalidNodes.has(node.group)
           : node.node === "characteristic-subject" && node.of ? this.invalidNodes.has(node.of)
-          : node.node === "event-result" ? this.invalidNodes.has(node.event)
+          : node.node === "event-result" || node.node === "linked-exile-pool" ? this.invalidNodes.has(node.event)
           : node.node === "derived-player" ? this.invalidNodes.has(node.of)
           : node.node === "selection" || node.node === "defined-number"
             ? this.result.references.some(reference => reference.path.startsWith(`${node.path}/`) &&
