@@ -240,4 +240,5 @@ Mixed mana `226507a0`:66/19/0,60/38/34, `generated/ramos/mixed-mana-main115/`.
 Search/mana `1bb122a7`:70 exact, `generated/ramos/colored-search-granted-mana-main118/`.
 Controller window/hand cast `02b35e35`:73 exact, 65/42/38.
 Receipts: `generated/ramos/{combat-cast-protection-main121,reparsed-audit}/`.
-Deck/consumer admission remains open.
+Leyline `b9a27f44`:76 exact, 68/45/41, `generated/ramos/opening-hybrid-main125/`.
+Schema-only `27ce86d6`: `generated/ramos/opening-hybrid-schema-fix/`. Deck admission remains open.
