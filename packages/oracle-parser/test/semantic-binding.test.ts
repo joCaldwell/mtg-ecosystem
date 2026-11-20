@@ -181,7 +181,7 @@ describe("whole-card reference binding", () => {
   });
 
   it("reports every symbolic reference behind an unsupported nested scope", () => {
-    const graph = analyzeCardBindings(input("Choose up to five {P} worth of modes. You may choose the same mode more than once."
+    const graph = analyzeCardBindings(input("Choose up to five {P} worth of modes at random —"
       + "\n{P} — Draw a card.\n{P}{P} — Target player mills a card."));
     assert.equal(graph.fullyBound, false);
     assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope"));

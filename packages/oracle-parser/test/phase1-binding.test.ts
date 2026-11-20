@@ -1836,3 +1836,118 @@ describe("specific random outcomes and mana riders", () => {
     assert.equal(graph.nodes.filter(node => node.node === "announced-number").length, 1);
   });
 });
+
+describe("weighted modes and linked exile scopes", () => {
+  it("binds a separate finite type choice for each selected occurrence of a mode", () => {
+    const graph = analyze("Choose up to five {P} worth of modes. You may choose the same mode more than once.\n"
+      + "{P} — Put a +1/+1 counter on a creature you control. It gains vigilance until end of turn.\n"
+      + "{P}{P} — Choose artifact or enchantment. Destroy all permanents of the chosen type.\n"
+      + "{P}{P}{P} — Draw a card.", "Sorcery");
+    boundCard(graph);
+    const modal = graph.nodes.find(node => node.node === "weighted-modal");
+    assert.ok(modal?.repeat && modal.maximum === 5);
+    assert.deepEqual(modal.weights, [1, 2, 3]);
+    const choice = graph.nodes.find(node => node.node === "value-choice");
+    assert.deepEqual(choice?.lifetime, { kind: "mode-occurrence", modal: modal.id });
+    assert.deepEqual(choice?.options, [
+      { type: "card-type", value: "artifact" }, { type: "card-type", value: "enchantment" },
+    ]);
+    assert.equal(choice?.id, bound(graph, "/chosenType"));
+    assert.ok(graph.engineFeatures.some(feature => feature.feature === "weighted-modal-selection"));
+  });
+
+  it("does not import a chosen type from a different mode", () => {
+    const graph = analyze("Choose up to two {P} worth of modes —\n"
+      + "{P} — Choose artifact or enchantment.\n"
+      + "{P} — Destroy all permanents of the chosen type.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.path.endsWith("/chosenType")));
+  });
+
+  it("records the weighted budget when modes cannot repeat", () => {
+    const graph = analyze("Choose up to two {P} worth of modes —\n"
+      + "{P} — Draw a card.\n{P}{P} — You gain 1 life.", "Sorcery");
+    boundCard(graph);
+    assert.ok(graph.nodes.some(node => node.node === "weighted-modal" && !node.repeat));
+    assert.equal(graph.fullyBound, false);
+  });
+
+  it("does not treat random weighted modes as the caster's choice", () => {
+    const graph = analyze("Choose up to two {P} worth of modes at random —\n"
+      + "{P} — Draw a card.\n{P}{P} — You gain 1 life.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "weighted-modal"));
+  });
+
+  it("keeps an exile permission and a later graveyard count tied to their distinct actual results", () => {
+    const graph = analyze("Whenever a land you control enters, exile the top card of your library. "
+      + "You may play that card for as long as it remains exiled.\n"
+      + "At the beginning of your end step, if there are cards exiled with this enchantment, put them into their owner's graveyard, "
+      + "then this enchantment deals that much damage to each opponent.", "Enchantment");
+    boundCard(graph);
+    const permission = graph.nodes.find(node => node.node === "exile-play-lifetime");
+    assert.equal(permission?.exile, bound(graph, "/permission/what"));
+    assert.equal(permission?.exile, bound(graph, "/duration/condition/what"));
+    const pool = graph.nodes.find(node => node.node === "linked-pool-condition");
+    assert.equal(pool?.timing, "trigger-check-and-resolution");
+    assert.equal(pool?.pool, bound(graph, "/abilities/1/effects/0/steps/0/what"));
+    const moved = graph.nodes.find(node => node.node === "actual-destination-count");
+    assert.equal(moved?.result, bound(graph, "/steps/1/amount"));
+    assert.equal(graph.nodes.filter(node => node.node === "event-result" && node.event === moved?.event && node.result === "quantity").length, 1);
+  });
+
+  it("requires the permission lifetime to identify one captured card", () => {
+    const graph = analyze("When this enchantment enters, exile the top card of your library. "
+      + "Exile the top card of your library. You may play that card for as long as it remains exiled.", "Enchantment");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "exile-play-lifetime"));
+  });
+
+  it("uses a strict vote majority and leaves the order of removed Saga exiles to each owner", () => {
+    const graph = analyze("I, II, III — Exile target nontoken creature an opponent controls until this Saga leaves the battlefield.\n"
+      + "IV — Starting with you, each player votes for innocent or guilty. If guilty gets more votes, the owner of each card exiled "
+      + "with this Saga puts that card on the bottom of their library.", "Enchantment — Saga");
+    boundCard(graph);
+    const vote = graph.nodes.find(node => node.node === "named-vote");
+    const outcome = graph.nodes.find(node => node.node === "vote-outcome");
+    assert.ok(vote && outcome && outcome.event === vote.event);
+    assert.equal(outcome.comparison, "strict-majority");
+    const ordering = graph.nodes.find(node => node.node === "group-instruction")?.execution;
+    assert.ok(ordering?.kind === "for-each" && ordering.ordering === "each-owner-private-simultaneous");
+    assert.equal(ordering.domain, bound(graph, "/each"));
+    assert.equal(graph.nodes.find(node => node.node === "linked-exile-filter")?.pool,
+      graph.nodes.find(node => node.node === "linked-exile-pool")?.id);
+  });
+
+  it("does not borrow a ballot across another choice", () => {
+    const graph = analyze("Starting with you, each player votes for innocent or guilty. "
+      + "Choose a color. If guilty gets more votes, draw a card.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "vote-outcome"));
+  });
+});
+
+describe("amounts at stack announcement", () => {
+  it("keeps a trigger's measured quantity available while choosing targets", () => {
+    const graph = analyze("Whenever you gain life, put a +1/+1 counter on up to that many target creatures.", "Enchantment");
+    boundCard(graph);
+    const quantity = bound(graph, "/on/count");
+    const result = graph.nodes.find(node => node.id === quantity);
+    assert.ok(result?.node === "event-result" && result.result === "quantity" && result.event.endsWith("/trigger#event"));
+  });
+
+  it("cannot determine target eligibility with a die rolled on resolution", () => {
+    const graph = analyze("Roll a d6. Destroy target creature with power equal to the result.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.references.some(ref => "amount" in ref.expression && ref.expression.amount === "dice-result" && ref.binding === "bound"));
+  });
+
+  it("cannot choose a target count from a resolution quantity, including through X", () => {
+    for (const text of ["Draw three cards. Destroy up to that many target creatures.",
+      "Draw three cards. Destroy up to X target creatures, where X is that many."]) {
+      const graph = analyze(text, "Sorcery");
+      assert.equal(graph.referencesBound, false);
+      assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding" && diagnostic.path.endsWith("/what/count")));
+    }
+  });
+});

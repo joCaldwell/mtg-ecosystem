@@ -121,7 +121,8 @@ export type BindingNode = NodeBase & (
   /** CR 607.1c/607.2d, 608.2d, 614.12a: a value belongs to one
    * resolution or is stored for the entering source incarnation. */
   | { node: "value-choice"; scope: string; event: string; chooser: string; category: ValueChoice["category"]; within?: "permanent-types";
-      lifetime: { kind: "resolution" } | { kind: "source-incarnation"; source: string; lookup: "current-or-last-known" } }
+      options?: Extract<ValueChoice, { category: "type" }>["options"];
+      lifetime: { kind: "resolution" } | { kind: "mode-occurrence"; modal: string } | { kind: "source-incarnation"; source: string; lookup: "current-or-last-known" } }
   | { node: "player-state-condition"; scope: string; who: string;
       query: "designation" | "completed-dungeon" | "opponent-count" | "turn-of" }
   | { node: "equip-target-color-discount"; scope: string; chooser: string; source: string; timing: "after-target-announcement" }
@@ -190,7 +191,7 @@ export type BindingNode = NodeBase & (
   | { node: "card-copy"; scope: string; event: string; card: string; chooser: string; result: string; count: number }
   | { node: "group-instruction"; scope: string; event?: string;
       execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }
-        | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise" } }
+        | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise"; ordering?: "each-owner-private-simultaneous" } }
   /** The targets that are still legal when this set of per-player targets resolves. */
   | { node: "multiplayer-choice"; scope: string; event: string; group: string; member: string;
       selector: string; result: string; startWith?: string; choose: "one-per-permanent-type" | "printed-count" }
@@ -198,6 +199,13 @@ export type BindingNode = NodeBase & (
       exclude: "all-player-choices" | "own-choices"; cardinality: "many" }
   | { node: "intervening-condition-pool"; scope: string; filter: ObjectFilter; cardinality: "many";
       timing: "trigger-check-and-resolution" }
+  | { node: "named-vote"; scope: string; event: string; start: string; names: string[] }
+  | { node: "vote-outcome"; scope: string; event: string; choice: string; comparison: "strict-majority" }
+  | { node: "linked-pool-condition"; scope: string; pool: string; comparison: "nonempty"; timing: "trigger-check-and-resolution" }
+  | { node: "exile-play-lifetime"; scope: string; exile: string; player: string; duration: "while-that-object-is-exiled" }
+  | { node: "actual-destination-count"; scope: string; event: string; result: string; destination: "graveyard" }
+  | { node: "weighted-modal"; scope: string; chooser: string; maximum: number; weights: number[]; repeat: boolean;
+      timing: "stack-announcement"; order: "printed-mode-order" }
   | { node: "commander-set"; scope: string; owner: string; cardinality: "many" }
   | { node: "commander-mana-rider"; scope: string; manaEvent: string; commanderSet: string; trigger: string;
       comparison: "shares-creature-type-with-any"; evaluate: "when-mana-spent-on-cast"; occurrence: "each-mana-produced" }
@@ -296,7 +304,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount" | "commander-mana-rider" | "numeric-roll" | "random-aura-attachment";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount" | "commander-mana-rider" | "numeric-roll" | "random-aura-attachment" | "vote-outcome" | "actual-destination-count" | "weighted-modal-selection";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
