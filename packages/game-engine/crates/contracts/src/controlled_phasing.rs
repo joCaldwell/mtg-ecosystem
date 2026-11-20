@@ -111,15 +111,17 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
             Instruction::PhaseOutControllerPermanents { source_block: 0 },
         )
     };
+    let ast_text = ast.to_string();
     if !uses
         && text != self_exile
         && ast != exile_ast
         && !text.contains(phase)
         && !text.contains(freeze)
         && !text.contains(protection)
-        && !ast.to_string().contains("\"phase-out\"")
-        && !ast.to_string().contains("\"scope\":\"everything\"")
-        && !ast.to_string().contains("cant-lose-life")
+        && !ast_text.contains("\"phase-out\"")
+        && !(ast_text.contains("\"effect\":\"player-gain-abilities\"")
+            && ast_text.contains("\"scope\":\"everything\""))
+        && !ast_text.contains("cant-lose-life")
     {
         return Ok(());
     }
