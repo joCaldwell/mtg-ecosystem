@@ -589,8 +589,8 @@ The cast spell remains rules source; caster and grant provenance freeze at colle
 surviving later grantor departure/control changes. Whole batches preflight IDs,
 fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
 firstness; failed proposals/payments never consume it. Nexus and Wild-Magic
-Sorcerer reuse cascade. Yidris is unsupported. Averna enters a chosen land
-tapped before the cast offer.
+Sorcerer reuse cascade. Averna may put an exiled land in tapped before the cast
+offer.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,
