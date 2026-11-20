@@ -38,6 +38,9 @@ impl Game {
     pub(super) fn mana_resume_player(&self, resume: &Frame, player: PlayerId) -> bool {
         match resume {
             Frame::Priority => self.state.rules.priority == player,
+            Frame::CounterUnless { payment, .. } => {
+                payment.stage == CounterPaymentStage::Mana && payment.payer == player
+            }
             Frame::Mana { .. } => self.top().is_ok_and(|s| s.controller == player),
             Frame::ManaAbility { activation } => {
                 activation.player == player

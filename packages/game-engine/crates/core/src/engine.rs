@@ -69,6 +69,8 @@ mod aura_control_tests;
 #[cfg(test)]
 mod blocking_target_tests;
 mod counter_placement;
+mod counter_unless;
+use counter_unless::{CounterPayment, CounterPaymentStage};
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
@@ -1032,6 +1034,10 @@ enum Frame {
         remaining: Vec<PlayerId>,
         choices: Vec<(PlayerId, ObjectId)>,
         source_block: u32,
+    },
+    CounterUnless {
+        frame: Resolving,
+        payment: CounterPayment,
     },
     OptionalDamage {
         frame: Resolving,
@@ -2662,6 +2668,7 @@ impl Game {
                 colors: self.mana_source_colors(*player, *source, *scope)?,
             },
             Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
+            Frame::CounterUnless { payment, .. } => self.counter_payment_request(payment),
             Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
                 object,
@@ -2712,6 +2719,9 @@ impl Game {
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return self.validate_land_entry_response(player, response);
+        }
+        if let Frame::CounterUnless { payment, .. } = &self.state.rules.frame {
+            return self.validate_counter_payment_response(payment, player, response);
         }
         if let Frame::Cascade { progress } = &self.state.rules.frame {
             return self.validate_cascade_response(progress, player, response);
@@ -3000,6 +3010,7 @@ impl Game {
         match self.state.rules.frame.clone() {
             Frame::LandEntry { .. } => self.land_entry_step()?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
+            Frame::CounterUnless { frame, payment } => self.counter_payment_step(frame, payment)?,
             Frame::LegendRule { .. } => self.legend_step()?,
             Frame::SacrificeCost { .. }
             | Frame::ForcedSacrifice { .. }
@@ -3099,11 +3110,7 @@ impl Game {
                     .ok_or("missing accepted mana input")?;
                 match input.response {
                     Response::ActivateMana { object } => {
-                        if self.is_permanent_mana(object) {
-                            self.begin_permanent_mana(&input, object, Frame::Mana { cast })?;
-                        } else {
-                            self.begin_intrinsic_mana(&input, object, Frame::Mana { cast })?;
-                        }
+                        self.begin_payment_mana(&input, object, Frame::Mana { cast })?;
                     }
                     Response::FinishMana { undo_mana } => {
                         cast.undo_mana = undo_mana;
@@ -3337,7 +3344,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 51,
+            snapshot_version: 53,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3379,7 +3386,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 51
+        if s.snapshot_version != 53
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3651,6 +3658,9 @@ impl Game {
                 {
                     return Err("snapshot payment target invariant".into());
                 }
+            }
+            Frame::CounterUnless { frame, payment } => {
+                self.validate_counter_payment(frame, payment)?
             }
             Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }

@@ -34,6 +34,7 @@ pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
+mod counter_unless_generic;
 mod each_player_draw;
 mod opponent_life_drain;
 mod targeted_counted_draw;
@@ -332,6 +333,7 @@ pub enum Capability {
     StackAbilityTargetV1,
     CounterStackObjectV1,
     CounterSpellControllerMillV1,
+    CounterUnlessGenericV1,
     TapSourceCostV1,
     PayLifeCostV1,
     ManaActivationCostV1,
@@ -1037,6 +1039,15 @@ pub enum Instruction {
         #[schemars(range(max = 0))]
         source_block: u32,
     },
+    /// CR 118.12a: the targeted spell's controller may pay during resolution.
+    CounterSpellUnlessPays {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        generic: Quantity,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     CounterStackObject {
         target_slot: u32,
         source_block: u32,
@@ -1145,6 +1156,7 @@ impl Instruction {
             | Self::DiscardTargetPlayerAtRandom { source_block, .. }
             | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterSpellAndMillController { source_block, .. }
+            | Self::CounterSpellUnlessPays { source_block, .. }
             | Self::CounterStackObject { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. } => *source_block,
@@ -2502,6 +2514,7 @@ impl Definition {
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
         targeted_game_loss::validate_definition(self)?;
+        counter_unless_generic::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -4656,7 +4669,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
             }
-            Instruction::CounterSpellAndMillController { target_slot, .. } => {
+            Instruction::CounterSpellAndMillController { target_slot, .. }
+            | Instruction::CounterSpellUnlessPays { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::StackSpell))
             }
             Instruction::CounterStackObject { target_slot, .. } => {
@@ -5087,6 +5101,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::GrantKeywordsSet { .. }) {
             set.insert(Capability::BoardWipesV1);
         }
+        if matches!(instruction, Instruction::CounterSpellUnlessPays { .. }) {
+            set.insert(Capability::CounterStackObjectV1);
+        }
         if matches!(instruction, Instruction::DrainOpponents { .. }) {
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
@@ -5214,6 +5231,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::CounterSpellControllerMillV1
             }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
+            Instruction::CounterSpellUnlessPays { .. } => Capability::CounterUnlessGenericV1,
             Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
                 Capability::NoncombatDamageV1
             }
@@ -6591,6 +6609,7 @@ pub fn catalog_schema() -> serde_json::Value {
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
+    counter_unless_generic::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -6808,6 +6827,7 @@ mod tests {
             StackAbilityTargetV1,
             CounterStackObjectV1,
             CounterSpellControllerMillV1,
+            CounterUnlessGenericV1,
             TapSourceCostV1,
             PayLifeCostV1,
             ManaActivationCostV1,
@@ -7248,6 +7268,7 @@ mod tests {
         definitions.push(group_discard::witness());
         definitions.push(opponent_life_drain::witness());
         definitions.push(targeted_game_loss::witness());
+        definitions.push(counter_unless_generic::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());

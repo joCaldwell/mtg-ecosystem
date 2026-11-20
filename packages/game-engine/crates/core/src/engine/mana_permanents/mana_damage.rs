@@ -41,6 +41,9 @@ impl Game {
         self.is_live(a.player)
             && match self.underlying_mana_frame(&a.resume) {
                 Frame::Priority => self.state.rules.priority == a.player,
+                Frame::CounterUnless { payment, .. } => {
+                    payment.payer == a.player && payment.stage == CounterPaymentStage::Mana
+                }
                 Frame::Mana { cast } => self
                     .top()
                     .is_ok_and(|top| top.id == cast.stack_id && top.controller == a.player),
@@ -169,6 +172,12 @@ impl Game {
             // A departure may remove the payer or the suspended announcement.
             // Its legal paid activation stands, with any invalid damage cancelled
             // by the ordinary transaction. Leave their last-known state alone.
+            if let frame @ Frame::CounterUnless { .. } =
+                spell_cascade_grants::retained_effect_frame(&a.resume)
+            {
+                self.state.rules.frame = frame.clone();
+                return self.revalidate_counter_payment_departure();
+            }
             self.state.rules.passes.clear();
             self.state.rules.frame = Frame::Priority;
             return self.stabilize();

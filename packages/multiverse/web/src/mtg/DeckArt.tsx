@@ -20,7 +20,7 @@ export function DeckArt({ cards, identity, variant = "strip", load = true, prior
   return <div className={`${styles.surface} ${styles[variant]}`}
     data-art={art.length > 0 || undefined}
     style={variant === "strip" || variant === "editor" || variant === "banner" || variant === "feature" ? { "--deck-tint": tint } as CSSProperties : undefined}>
-    {children}
+    {variant === "feature" && children ? <div className={styles.featureCaption}>{children}</div> : children}
     {load && art.length > 0 && (variant === "editor" || variant === "banner") && <div className={styles.atmosphere} aria-hidden="true">{art.map(c => <img key={c.oracle_id} src={c.image_art_crop} alt="" decoding="async" onError={e => { e.currentTarget.hidden = true; }} />)}</div>}
     {art.length > 0 && <div className={styles.visual}>{art.map(c => <div className={styles.crop} key={c.oracle_id}>
       {load && <img src={c.image_art_crop} alt="" loading="eager" fetchPriority={priority} decoding="async" onError={e => { e.currentTarget.parentElement!.dataset.failed = ""; }} />}
