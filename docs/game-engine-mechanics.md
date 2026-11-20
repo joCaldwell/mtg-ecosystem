@@ -582,8 +582,8 @@ strict source/program validation.
 
 Live battlefield static grants add independent cascade instances to completed spells
 of the source's current controller using disjoint mana-value, first-cast or
-first-from-exile predicates. A constant four-seat ledger counts every successful
-cast, including observer-free and resolution casts, and resets only on a new turn.
+first-from-exile predicates. The four-seat ledger tracks completed casts and their
+mana values each turn. Call Forth excludes its own cast.
 Intrinsic indexes and grant-source incarnation/static indexes are distinct identities.
 The cast spell remains rules source; caster and grant provenance freeze at collection,
 surviving later grantor departure/control changes. Whole batches preflight IDs,

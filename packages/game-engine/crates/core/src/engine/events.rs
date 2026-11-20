@@ -2691,7 +2691,8 @@ impl Game {
                 self.state.rules.active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
                     self.state.rules.mana_ability_uses.clear();
-                    self.state.rules.cast_history = [triggers::TurnCastHistory::default(); 4];
+                    self.state.rules.cast_history =
+                        std::array::from_fn(|_| triggers::TurnCastHistory::default());
                     for o in self.state.rules.objects.values_mut() {
                         if o.zone == Zone::Battlefield
                             && Some(o.controller) == self.state.rules.active

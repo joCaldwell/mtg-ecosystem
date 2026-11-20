@@ -18,6 +18,7 @@ pub use fixed_creature_activation::{
     FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
     has_fixed_creature_activation,
 };
+mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub use cast_payer_draw::cast_payer_draw_trigger;
@@ -278,6 +279,7 @@ pub enum Capability {
     CascadeV1,
     StaticSpellCascadeGrantV1,
     CastHistoryV1,
+    CastManaValueSweepV1,
     RandomBottomV1,
     CastTriggerV1,
     CastOriginTriggerV1,
@@ -548,9 +550,14 @@ pub enum SetMove {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WipeAmount {
-    Fixed { value: Quantity },
+    Fixed {
+        value: Quantity,
+    },
     AnnouncedX,
     CreatureCount,
+    /// Sum of the controller's other completed casts this turn, at resolution.
+    #[serde(deserialize_with = "cast_mana_value_sweep::empty_amount")]
+    OtherCastsManaValue,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
@@ -2655,6 +2662,7 @@ impl Definition {
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
+        cast_mana_value_sweep::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -5287,6 +5295,15 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
         }
+        if matches!(
+            instruction,
+            Instruction::DamageSet {
+                amount: WipeAmount::OtherCastsManaValue,
+                ..
+            }
+        ) {
+            set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
+        }
         if matches!(instruction, Instruction::Cascade { .. }) {
             set.insert(Capability::ResolutionCastV1);
             set.insert(Capability::RandomBottomV1);
@@ -5742,7 +5759,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         }}}}
     }}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
-        "if":history,"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
+        "if":{"anyOf":[history,cast_mana_value_sweep::spell_schema()]},"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":"cast_history_v1"}}}}}
     }));
     let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
@@ -6895,6 +6912,7 @@ pub fn catalog_schema() -> serde_json::Value {
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
+    cast_mana_value_sweep::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     let grant = serde_json::json!({"required":["effect"],"properties":{"effect":{"const":StaticEffect::GrantControllerLandsAllBasicTypes}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
@@ -7048,6 +7066,7 @@ mod tests {
             CascadeV1,
             StaticSpellCascadeGrantV1,
             CastHistoryV1,
+            CastManaValueSweepV1,
             RandomBottomV1,
             NormalLayoutV1,
             BasicLandManaV1,
@@ -7597,6 +7616,7 @@ mod tests {
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
+        definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
