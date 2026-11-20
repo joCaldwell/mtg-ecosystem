@@ -24,6 +24,9 @@ mod controller_library;
 mod controller_scry_tests;
 #[cfg(test)]
 mod controller_surveil_tests;
+mod counter_spell_controller_mill;
+#[cfg(test)]
+mod counter_spell_controller_mill_tests;
 pub mod coverage;
 mod creature_entry_return;
 mod diagnostics;
@@ -1504,6 +1507,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     )?;
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let counter_mill = counter_spell_controller_mill::lower(&shape, &result, &binding)?;
     let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let drain = opponent_life_drain::lower(&shape, &result, &binding)?;
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
@@ -2073,6 +2077,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(count) = &counter_mill {
+                    let target_slot = bind_target(
+                        &mut program,
+                        &mut slots,
+                        counter_spell_controller_mill::TARGET_ID,
+                        TargetDomain::StackSpell,
+                    )?;
+                    program
+                        .instructions
+                        .push(Instruction::CounterSpellAndMillController {
+                            target_slot,
+                            count: count.clone(),
+                            source_block: 0,
+                        });
+                    continue;
+                }
                 if let Some(count) = &each_player_draw {
                     program.instructions.push(Instruction::DrawEachPlayer {
                         count: count.clone(),

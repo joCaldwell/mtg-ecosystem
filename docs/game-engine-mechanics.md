@@ -97,9 +97,9 @@ Commander-return decisions are resumable continuations, never priority windows.
 Fixed nonnegative Scry/Surveil partition available prefixes
 (CR 701.22/701.25): Scry orders top/bottom; Surveil orders retained cards and
 moves the rest to graveyards. Only the chooser sees temporary handles. Fixed mill
-(CR 701.17) moves the controller's or one target player's prefix, clamping short
-libraries without failed draws. Zero emits no event; graveyard moves create public
-successors. Memory is charged/replay-proven; choices reject atomically, departed actors skip,
+(CR 701.17) moves a library prefix, clamping short libraries. Zero emits no event.
+Counter-and-mill uses the legal target spell's controller even if countering fails.
+Graveyard successors are public. Memory is charged and replay-proven.
 Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
 compositions are supported. Activated/triggered
 forms, Flashback, mill costs/replacements and search reconstruction reject.

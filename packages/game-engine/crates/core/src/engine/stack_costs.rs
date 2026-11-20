@@ -570,58 +570,62 @@ impl Game {
         frame: Resolving,
         target_slot: u32,
         source_block: u32,
+        mill_count: Option<Quantity>,
     ) -> Result<(), String> {
+        let slot = target_slot as usize;
         let target = *frame
             .spell
             .stack_targets
-            .get(target_slot as usize)
+            .get(slot)
             .ok_or("missing counter target binding")?;
-        let outcome = if !frame
-            .legal_targets
-            .get(target_slot as usize)
-            .copied()
-            .unwrap_or(false)
-        {
-            InstructionOutcome::StackTargetIllegal { target }
-        } else if !self
+        if frame.legal_targets.get(slot) != Some(&true) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::StackTargetIllegal { target });
+        }
+        let Some(entry) = self
             .state
             .rules
             .stack
             .iter()
-            .any(|entry| entry.id == target)
-        {
-            InstructionOutcome::StackObjectNoLongerPresent { target }
-        } else {
-            let domain = self
-                .program_for(&frame.spell)?
-                .targets
-                .get(target_slot as usize)
-                .ok_or("missing counter target domain")?
-                .domain;
-            let actual = self.commit(
-                ProposedEvent::CounterStackObject {
-                    target,
-                    countering: frame.stack_id,
-                    domain,
-                },
-                BatchCause::Instruction {
-                    stack_id: frame.stack_id,
-                    player: frame.spell.controller,
-                    source: frame.spell.source,
-                    cursor: frame.cursor,
-                    source_block,
-                },
-            )?;
-            match actual {
-                EventOutcome::StackObjectCountered { movement, .. } => {
-                    InstructionOutcome::Countered { target, movement }
-                }
-                EventOutcome::CounterPrevented { .. } => {
-                    InstructionOutcome::CounterPrevented { target }
-                }
-                _ => return Err("missing counter outcome".into()),
-            }
+            .find(|entry| entry.id == target)
+        else {
+            return self.finish_instruction(
+                frame,
+                InstructionOutcome::StackObjectNoLongerPresent { target },
+            );
         };
+        // CR 608.2h: the target may leave the stack during the counter event.
+        let controller = entry.controller;
+        let domain = self
+            .program_for(&frame.spell)?
+            .targets
+            .get(slot)
+            .ok_or("missing counter target domain")?
+            .domain;
+        if mill_count.is_some() && domain != TargetDomain::StackSpell {
+            return Err("counter and mill requires a spell target".into());
+        }
+        let cause = Self::staple_cause(&frame, source_block);
+        let actual = self.commit(
+            ProposedEvent::CounterStackObject {
+                target,
+                countering: frame.stack_id,
+                domain,
+            },
+            cause.clone(),
+        )?;
+        let outcome = match actual {
+            EventOutcome::StackObjectCountered { movement, .. } => {
+                InstructionOutcome::Countered { target, movement }
+            }
+            EventOutcome::CounterPrevented { .. } => {
+                InstructionOutcome::CounterPrevented { target }
+            }
+            _ => return Err("missing counter outcome".into()),
+        };
+        if let Some(count) = mill_count {
+            self.commit_mill(controller, count, cause)?;
+        }
         self.finish_instruction(frame, outcome)
     }
 }
