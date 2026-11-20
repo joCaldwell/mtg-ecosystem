@@ -25,7 +25,7 @@ impl Game {
                 let Ok(d) = self.definition(o.id.card) else {
                     return false;
                 };
-                let creature = d.characteristics.kind == CardKind::Creature;
+                let creature = self.target_is_creature(o.id);
                 match set {
                     ObjectSet::GraveyardCards => false,
                     ObjectSet::Artifacts => d.characteristics.has_type(CardKind::Artifact),

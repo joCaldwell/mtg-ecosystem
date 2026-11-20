@@ -243,13 +243,25 @@ impl Game {
         }
         Ok(())
     }
-    fn characteristics_before_power_toughness(
+    pub(super) fn structural_characteristics(
         &self,
         object: ObjectId,
-    ) -> Result<&Characteristics, String> {
-        // The admitted layers leave color unchanged. Read the same earlier
-        // characteristics as full derivation, including instantiated tokens.
-        Ok(&self.definition(object.card)?.characteristics)
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let definition = self.definition(object.card)?;
+        let bestowed = self.current(object).is_ok_and(|o| match o.zone {
+            Zone::Battlefield => {
+                o.attached_to.is_some() && mtg_contracts::bestow_alternative(definition).is_some()
+            }
+            Zone::Stack => self.is_bestowed_spell(object),
+            _ => false,
+        });
+        if bestowed {
+            Ok(std::borrow::Cow::Owned(
+                self.proposed_cast_characteristics(object.card, true)?,
+            ))
+        } else {
+            Ok(std::borrow::Cow::Borrowed(&definition.characteristics))
+        }
     }
 
     pub(super) fn permanent_colors(
@@ -267,7 +279,7 @@ impl Game {
                 }
         }) {
             colors.extend(
-                self.characteristics_before_power_toughness(permanent.id)?
+                self.structural_characteristics(permanent.id)?
                     .colors
                     .iter()
                     .copied()
@@ -281,7 +293,7 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<Characteristics, String> {
-        let mut c = self.characteristics_before_power_toughness(object)?.clone();
+        let mut c = self.structural_characteristics(object)?.into_owned();
         self.apply_land_subtype_grants(object, &mut c)?;
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
@@ -2594,7 +2606,15 @@ impl Game {
         zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
-        let mut base = self.definition(source.card)?.characteristics.clone();
+        // Historical appearances may precede detachment of this same incarnation.
+        let mut base = if matches!(zone, Zone::Stack | Zone::Battlefield)
+            && c.subtypes == ["Aura"]
+            && mtg_contracts::bestow_alternative(self.definition(source.card)?).is_some()
+        {
+            self.proposed_cast_characteristics(source.card, true)?
+        } else {
+            self.definition(source.card)?.characteristics.clone()
+        };
         if base.power.is_some() != c.power.is_some()
             || base.toughness.is_some() != c.toughness.is_some()
         {

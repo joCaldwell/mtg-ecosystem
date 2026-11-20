@@ -1996,6 +1996,9 @@ impl Game {
         } else {
             owner
         };
+        if o.zone == Zone::Battlefield {
+            self.detach_bestowed_from(*object)?;
+        }
         self.remove_from_combat(*object);
         for library in self.state.rules.libraries.values_mut() {
             library.retain(|c| *c != object.card);
@@ -2185,10 +2188,10 @@ impl Game {
                 // attached when entry observers and ETB hooks see it.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 let source = self.current(*object)?;
-                let definition = self.definition(object.card)?;
+                let characteristics = self.structural_characteristics(*object)?;
                 if source.zone != Zone::Stack
-                    || definition.characteristics.kind != CardKind::Enchantment
-                    || definition.characteristics.subtypes != ["Aura"]
+                    || characteristics.kind != CardKind::Enchantment
+                    || characteristics.subtypes != ["Aura"]
                     || !self.is_live(source.controller)
                     || !self.attachment_target_type_valid(object.card, target.card)?
                     || !self
@@ -2198,13 +2201,13 @@ impl Game {
                         .current(*target)
                         .is_ok_and(|o| self.is_live(o.controller))
                     || !self.targetable_by(*target, source.controller)
-                    || self.protected_from(*target, &definition.characteristics)
+                    || self.protected_from(*target, &characteristics)
                 {
                     return Err("invalid attached Aura entry".into());
                 }
                 // Check allocation before movement/LKI writes, even for direct
                 // private application; the batch/rule-step owns full rollback.
-                let (attachment_timestamp, _) = self.next_attachment_allocation()?;
+                let (attachment_timestamp, next) = self.next_attachment_allocation()?;
                 let EventOutcome::Moved { movement } = self.apply_occurrence_with_prior(
                     &ProposedEvent::Move {
                         object: *object,
@@ -2218,10 +2221,15 @@ impl Game {
                 if movement.destination != Zone::Battlefield {
                     return Err("unsupported replaced attached entry".into());
                 }
-                self.apply_occurrence(&ProposedEvent::Attach {
-                    object: movement.successor,
-                    target: Some(*target),
-                })?;
+                let permanent = self
+                    .state
+                    .rules
+                    .objects
+                    .get_mut(&movement.successor.card)
+                    .ok_or("missing entering Aura")?;
+                permanent.attached_to = Some(*target);
+                permanent.attachment_timestamp = Some(attachment_timestamp);
+                self.state.rules.next_attachment_timestamp = next;
                 EventOutcome::EnteredAttached {
                     movement,
                     target: *target,
@@ -2244,8 +2252,7 @@ impl Game {
                 if !self.current(*object)?.present_on_battlefield()
                     || !self.is_live(self.current(*object)?.controller)
                     || !self
-                        .definition(object.card)?
-                        .characteristics
+                        .structural_characteristics(*object)?
                         .subtypes
                         .iter()
                         .any(|s| s == "Equipment" || s == "Aura")
@@ -2986,6 +2993,7 @@ impl Game {
                     .rules
                     .mana_ability_uses
                     .retain(|k| k.source != *object);
+                self.detach_bestowed_from(*object)?;
                 self.state.rules.objects.remove(&object.card);
                 EventOutcome::LeftGame {
                     object: *object,

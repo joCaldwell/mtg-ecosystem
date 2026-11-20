@@ -709,10 +709,6 @@ impl Game {
         let enters = witness.enters();
 
         let subject = witness.subject();
-        let creature = subject.is_some_and(|o| {
-            self.definition(o.card)
-                .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
-        });
         let observers = if dies {
             before
                 .ok_or("death trigger requires actual pre-event lookback")?
@@ -720,6 +716,7 @@ impl Game {
         } else {
             &*self
         };
+        let creature = subject.is_some_and(|o| observers.target_is_creature(o));
         // Capture from the actual event's resulting game, including genuine
         // legacy leaves. Prepared damage retains assignment-time facts, while
         // a creature filter requires this exact incarnation still on the

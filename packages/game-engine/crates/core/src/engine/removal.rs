@@ -115,8 +115,7 @@ impl Game {
             o.present_on_battlefield()
                 && (!f.opponent || o.controller != controller)
                 && (!f.tapped || o.tapped)
-        }) && self.definition(object.card).is_ok_and(|d| {
-            let c = &d.characteristics;
+        }) && self.structural_characteristics(object).is_ok_and(|c| {
             !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
                 && (f.types.is_empty() || f.types.iter().any(|k| c.has_type(*k)))
                 && !f.non_types.iter().any(|k| c.has_type(*k))

@@ -416,7 +416,7 @@ impl Game {
                 .is_some_and(|n| o.plus_one_counters < *n)
             || (a.restriction.is_some() && self.mana_ability_used(source))
             || (a.costs.tap
-                && d.characteristics.kind == CardKind::Creature
+                && self.target_is_creature(source)
                 && !o.attack_ready
                 && !self.has_keyword(source, KeywordAbility::Haste))
         {
