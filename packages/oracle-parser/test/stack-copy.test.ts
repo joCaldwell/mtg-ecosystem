@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import type { Effect, ParseCardResult } from "../src/ast.ts";
 import { lex } from "../src/lexer.ts";
@@ -40,6 +41,48 @@ function complete<T>(parser: (c: Cursor) => T | null, text: string): T {
 }
 
 describe("copying spells and abilities on the stack", () => {
+  it("binds Double Major's announced creature spell and copy controller", () => {
+    const fixture = new URL("../../game-engine/tests/fixtures/ramos/ece44a82-dcf0-4439-bdd9-a09c99a6f159.json", import.meta.url);
+    const { source, oracleIdentity: identity } = JSON.parse(readFileSync(fixture, "utf8"));
+    const analyze = (text: string) => {
+      const result = parseOracleText(text, source.name, { typeLine: source.type_line, includeSourceProvenance: true });
+      assert.ok(result.ok, JSON.stringify(result.lines));
+      return { abilities: result.abilities, graph: analyzeCardBindings({
+        identity, source: { ...source, oracle_text: text }, faces: [{ sourceFaceIndex: 0, result }],
+      }) };
+    };
+    const { abilities, graph } = analyze(source.oracle_text);
+    const what = { ref: "target", filter: { cls: "spell", types: ["creature"], control: "you" }, count: one, selectionId: "line:0:1" };
+    assert.deepEqual(abilities, [{ kind: "spell", abilityWord: undefined, effects: [{ steps: [{
+      effect: "copy-stack-object", what, who: you, count: one,
+      copyExceptions: [{ change: "types", types: { supertypes: { operation: "remove", types: ["legendary"] } } }],
+    }] }] }]);
+    const ability = "/faces/0/abilities/0";
+    const path = `${ability}/effects/0/steps/0`;
+    const scope = `card:${identity}${ability}#ability`;
+    const controller = `card:${identity}${ability}#you`;
+    const target = `${scope}/targets/line%3A0%3A1`;
+    assert.ok(graph.nodes.some(n => n.node === "runtime-player" && n.id === controller && n.role === "spell-controller"));
+    assert.ok(graph.nodes.some(n => n.node === "selection" && n.id === target && n.chooser === controller &&
+      n.timing === "stack-announcement" && n.cardinality === "one" && n.selection === "target"));
+    assert.deepEqual(graph.references.map(r => [r.path, r.binding === "bound" && r.target]), [
+      [`${path}/who`, controller], [`${path}/what/filter/control`, controller], [`${path}/what`, target],
+    ]);
+    const event = graph.nodes.find(n => n.node === "event" && n.path === path);
+    assert.ok(event?.node === "event" && event.operation === "copy-stack-object");
+    assert.deepEqual(event.inputs, [target, controller]);
+    assert.ok(graph.nodes.some(n => n.node === "event-result" && n.event === event.id && n.identity === "new-objects" &&
+      n.cardinality === "one" && n.availability === "if-produced"));
+    assert.equal(graph.referencesBound, true, JSON.stringify(graph.diagnostics));
+    assert.deepEqual(graph.engineFeatures.map(n => [n.feature, n.path]), [["permanent-spell-copy", path]]);
+    assert.equal(graph.fullyBound, false);
+    assert.equal(graph.executable, false);
+
+    const retarget = analyze(source.oracle_text + " You may choose new targets for the copy.").graph;
+    assert.equal(retarget.referencesBound, false);
+    assert.deepEqual(retarget.diagnostics, [{ code: "unsupported-scope", path,
+      message: "Stack-copy results and copy target-selection timing require their own binding scope.", rules: ["707.10", "115.7"] }]);
+  });
   it("preserves Abstruse Archaic's ability eligibility, actor, count and copy referent", () => {
     assert.deepEqual(parsed("{1}, {T}: Copy target activated or triggered ability you control from a colorless source. You may choose new targets for the copy.").abilities, [{
       kind: "activated", abilityWord: undefined, restriction: undefined,

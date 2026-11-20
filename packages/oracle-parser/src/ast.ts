@@ -1986,8 +1986,16 @@ export interface EntryCopy {
   duration?: Duration;
 }
 
+/** Only the cards exiled by the cascade ability currently resolving (CR 702.85b–c). */
+export type CascadeExiledCards = { ref: "cascade-exiled-cards" };
+
 export type StaticEffect =
   | { static: "group"; effects: StaticEffect[] }
+  /** CR 702.85b: the matched cascade controller may act after exiling, before
+   * the cast decision or, with no hit, before putting the cards on the bottom. */
+  | { static: "as-cascade"; controller: Extract<PlayerRef, { player: "you" }>;
+      choice: { optional: true; from: CascadeExiledCards; filter: { types: ["land"]; cls: "card" };
+        count: 1; to: "battlefield"; tapped: true } }
   | ({ static: "entry-copy" } & EntryCopy)
   /** Recurring replacement while this static ability functions. No pending
    * one-shot skip is created on resolution (CR611.3,614.10). */

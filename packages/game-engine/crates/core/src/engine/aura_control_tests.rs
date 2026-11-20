@@ -6,6 +6,8 @@ use super::equipped_indestructible_tests::{answer, both, equip, object, recover,
 use super::temporary_indestructible_tests::{announce, pass, target, until_player};
 use super::*;
 
+#[path = "commander_modal_keyword_tests.rs"]
+mod commander_modal_keyword_tests;
 #[path = "divided_plus_one_counters_tests.rs"]
 mod divided_plus_one_counters_tests;
 

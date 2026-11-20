@@ -2113,6 +2113,7 @@ impl Game {
                         .current(*target)
                         .is_ok_and(|o| self.is_live(o.controller))
                     || !self.targetable_by(*target, source.controller)
+                    || self.protected_from(*target, &definition.characteristics)
                 {
                     return Err("invalid attached Aura entry".into());
                 }
@@ -2150,6 +2151,8 @@ impl Game {
                                 o.zone == Zone::Battlefield && self.is_live(o.controller)
                             })
                             && self.attachment_target_type_valid(object.card, t.card)?
+                            && !self
+                                .protected_from(*t, &self.definition(object.card)?.characteristics)
                     }
                     None => true,
                 };
@@ -2904,6 +2907,10 @@ impl Game {
                 DamageRecipient::Creature { object } => {
                     if !self.is_battlefield_creature(object) {
                         return Err("invalid creature damage recipient".into());
+                    }
+                    if self.protected_from(object, &self.definition(d.source.card)?.characteristics)
+                    {
+                        return Err("protection requires the damage transaction".into());
                     }
                     (1, object.card.0)
                 }

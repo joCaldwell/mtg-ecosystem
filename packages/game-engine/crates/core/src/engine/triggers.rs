@@ -1323,7 +1323,7 @@ impl Game {
                 placement,
                 stack_id,
             } => {
-                if !self.has_target_domain(self.program()?, self.top()?.controller) {
+                if !self.top_has_target_domain()? {
                     self.state.rules.pending = None;
                     let top = self
                         .state
