@@ -82,7 +82,7 @@ pub fn source_keywords(
                 if matches!(
                     keyword,
                     KeywordAbility::ProtectionFromEachColor | KeywordAbility::ProtectionFromEverything
-                ) || seen.contains(&keyword)
+                ) || keyword.fixed_protection_color().is_some() || seen.contains(&keyword)
                 {
                     return Err(error());
                 }

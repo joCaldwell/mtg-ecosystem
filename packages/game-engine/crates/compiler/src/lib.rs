@@ -54,6 +54,7 @@ mod draw_land_allowance;
 mod each_player_draw;
 mod entry_copy;
 mod entry_graveyard_exile;
+mod fixed_color_protection;
 mod fixed_creature_damage;
 mod fixed_mill;
 #[cfg(test)]
@@ -1535,7 +1536,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
-    let landwalk = basic_landwalk::lower(&source, &shape, types.kind, &result, &binding)?;
+    let intrinsic_keywords = basic_landwalk::lower(&source, &shape, types.kind, &result, &binding)?
+        .or(fixed_color_protection::lower(
+            &source, &shape, types.kind, &result, &binding,
+        )?);
     let self_graveyard_shuffle =
         self_graveyard_shuffle::validate(&source, &shape, &result, &binding)?;
     let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
@@ -1568,7 +1572,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         vec![Ability::PlayerGraveyardShuffle]
     } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
-    } else if landwalk.is_some() {
+    } else if intrinsic_keywords.is_some() {
         vec![Ability::BasicLandwalkBlock; result.lines.len()]
     } else if self_graveyard_shuffle {
         vec![
@@ -1890,7 +1894,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         mana_abilities,
         triggered: vec![],
         static_abilities: vec![],
-        keywords: landwalk.unwrap_or_default(),
+        keywords: intrinsic_keywords.unwrap_or_default(),
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,

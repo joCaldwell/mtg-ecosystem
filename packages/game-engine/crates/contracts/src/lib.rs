@@ -38,6 +38,7 @@ mod cast_entry;
 mod entry_copy;
 mod saga;
 pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
+pub mod fixed_color_protection;
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
 pub use fixed_creature_activation::{
@@ -358,6 +359,7 @@ pub enum Capability {
     ProtectionFromEverythingV1,
     SelfGraveyardRevealShuffleV1,
     BasicLandwalkV1,
+    FixedColorProtectionV1,
     SourceCombatRestrictionsV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
@@ -829,7 +831,7 @@ impl CreatureToken {
             || self
                 .keywords
                 .iter()
-                .any(|k| k.basic_landwalk_type().is_some())
+                .any(|k| k.basic_landwalk_type().is_some() || k.fixed_protection_color().is_some())
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
@@ -2322,6 +2324,11 @@ pub enum KeywordAbility {
     Swampwalk,
     Mountainwalk,
     Forestwalk,
+    ProtectionFromWhite,
+    ProtectionFromBlue,
+    ProtectionFromBlack,
+    ProtectionFromRed,
+    ProtectionFromGreen,
     ProtectionFromEachColor,
     // CR 702.16j: intrinsic battlefield protection from every source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -2350,6 +2357,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "swampwalk" => Ok(Self::Swampwalk),
             "mountainwalk" => Ok(Self::Mountainwalk),
             "forestwalk" => Ok(Self::Forestwalk),
+            "protection_from_white" => Ok(Self::ProtectionFromWhite),
+            "protection_from_blue" => Ok(Self::ProtectionFromBlue),
+            "protection_from_black" => Ok(Self::ProtectionFromBlack),
+            "protection_from_red" => Ok(Self::ProtectionFromRed),
+            "protection_from_green" => Ok(Self::ProtectionFromGreen),
             "protection_from_each_color" => Ok(Self::ProtectionFromEachColor),
             "protection_from_everything" => Ok(Self::ProtectionFromEverything),
             "hexproof" => Ok(Self::Hexproof),
@@ -2376,6 +2388,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "swampwalk",
                     "mountainwalk",
                     "forestwalk",
+                    "protection_from_white",
+                    "protection_from_blue",
+                    "protection_from_black",
+                    "protection_from_red",
+                    "protection_from_green",
                     "protection_from_each_color",
                     "protection_from_everything",
                     "hexproof",
@@ -2461,7 +2478,9 @@ fn static_creature_modification_valid(
             && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
         || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
         || keywords.contains(&KeywordAbility::ProtectionFromEverything)
-        || keywords.iter().any(|k| k.basic_landwalk_type().is_some())
+        || keywords
+            .iter()
+            .any(|k| k.basic_landwalk_type().is_some() || k.fixed_protection_color().is_some())
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -3443,6 +3462,7 @@ impl Definition {
             return Err("invalid source/AST provenance".into());
         }
         basic_landwalk::validate_definition(self)?;
+        fixed_color_protection::validate_definition(self)?;
         source_combat_restrictions::validate_definition(self)?;
         creature_planeswalker_return::validate(self)?;
         fixed_creature_damage::validate(self, fixed_activations)?;
@@ -5646,6 +5666,11 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
         KeywordAbility::ProtectionFromEachColor => return None,
         KeywordAbility::ProtectionFromEverything => Capability::ProtectionFromEverythingV1,
+        KeywordAbility::ProtectionFromWhite
+        | KeywordAbility::ProtectionFromBlue
+        | KeywordAbility::ProtectionFromBlack
+        | KeywordAbility::ProtectionFromRed
+        | KeywordAbility::ProtectionFromGreen => Capability::FixedColorProtectionV1,
         KeywordAbility::Flash => Capability::FlashV1,
         KeywordAbility::Defender => Capability::DefenderV1,
         KeywordAbility::Flying => Capability::FlyingV1,
@@ -6501,6 +6526,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ]);
 
     basic_landwalk::extend_schema(&mut schema);
+    fixed_color_protection::extend_schema(&mut schema);
     source_combat_restrictions::extend_schema(&mut schema);
     activated_source_keyword::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
@@ -7733,6 +7759,7 @@ mod tests {
             ProtectionFromEverythingV1,
             SelfGraveyardRevealShuffleV1,
             BasicLandwalkV1,
+            FixedColorProtectionV1,
             EnterAsCopyOfPermanentEnteredThisTurnV1,
             SourceCombatRestrictionsV1,
             StaticSpellCascadeGrantV1,
@@ -8881,6 +8908,45 @@ mod tests {
         ];
         self_grant.capabilities = self_grant.requirements();
         definitions.push(self_grant);
+
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/fixed-color-protection-sabertooth-nishoba.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        let mut fixed_color = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        fixed_color.name = source["name"].as_str().unwrap().into();
+        fixed_color.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        fixed_color.provenance.printing_id = source["id"].as_str().unwrap().into();
+        fixed_color.provenance.source_json = canonical(source).unwrap();
+        fixed_color.provenance.source_sha256 =
+            sha256(fixed_color.provenance.source_json.as_bytes());
+        fixed_color.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        fixed_color.provenance.ast_sha256 =
+            sha256(format!("[{}]", fixed_color.provenance.abilities_json).as_bytes());
+        fixed_color.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        fixed_color.characteristics.subtypes = vec!["Cat".into(), "Beast".into(), "Warrior".into()];
+        fixed_color.characteristics.power = Some(5.into());
+        fixed_color.characteristics.toughness = Some(5.into());
+        fixed_color.characteristics.mana_cost = ManaCost {
+            generic: 4.into(),
+            colored: vec![Color::G, Color::W],
+        };
+        fixed_color.characteristics.colors = vec![Color::G, Color::W];
+        fixed_color.characteristics.color_identity = vec![Color::G, Color::W];
+        fixed_color.source_labels = None;
+        fixed_color.keywords = vec![
+            KeywordAbility::Trample,
+            KeywordAbility::ProtectionFromBlue,
+            KeywordAbility::ProtectionFromRed,
+        ];
+        fixed_color.capabilities = fixed_color.requirements();
+        definitions.push(fixed_color);
 
         definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {

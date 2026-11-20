@@ -183,6 +183,16 @@ fn cast(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
                     Response::ActivateMana { object: land.id }
                 }
             }
+            Request::ManaColor { colors, .. } if colors.contains(&Color::R) => {
+                Response::ManaColor { color: Color::R }
+            }
+            Request::ChooseManaAbility { choices, .. }
+                if choices.contains(&ManaAbilityIdentity::Intrinsic { color: Color::R }) =>
+            {
+                Response::ChooseManaAbility {
+                    ability: ManaAbilityIdentity::Intrinsic { color: Color::R },
+                }
+            }
             Request::SpendMana {
                 cost, available, ..
             } => {
@@ -669,6 +679,228 @@ fn mana_self_keyword_grant_captures_only_the_present_source() {
             if effect.origin.source == source
                 && matches!(effect.kind, ResolvedEffectKind::GrantKeywords { target, modifier: None, .. }
                     if target == source)));
+    });
+}
+
+#[test]
+fn printed_color_protection_orders_derived_color_prevention() {
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 1, false),
+            ("Furnace of Rath", 0, true),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Grizzly Bears", 0, false),
+        ],
+        false,
+    );
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    for (index, raw) in [
+        (
+            1,
+            include_str!(
+                "../../../../tests/fixtures/fixed-color-protection-sabertooth-nishoba.json"
+            ),
+        ),
+        (
+            7,
+            include_str!(
+                "../../../../tests/fixtures/ramos/6b2e6a51-b9e6-4848-b7d7-98f02f2b897f.json"
+            ),
+        ),
+    ] {
+        let compiled = mtg_compiler::compile(manifest, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+            panic!("exact protection source: {compiled:?}");
+        };
+        if index == 1 {
+            assert_eq!(
+                definition.keywords,
+                [
+                    KeywordAbility::Trample,
+                    KeywordAbility::ProtectionFromBlue,
+                    KeywordAbility::ProtectionFromRed,
+                ]
+            );
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::FixedColorProtectionV1)
+            );
+        }
+        p.config.cards[index].oracle_id = definition.oracle_id.clone();
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p, |g| {
+        reach(g, TurnStep::PrecombatMain);
+        let attacker = object(g, 0);
+        let protected = object(g, 1);
+        let recipient = DamageRecipient::Creature { object: protected };
+        assert_eq!(
+            g.copiable_definition(attacker)
+                .unwrap()
+                .characteristics
+                .colors,
+            [Color::G]
+        );
+        assert!(
+            g.characteristics(attacker)
+                .unwrap()
+                .colors
+                .contains(&Color::R)
+        );
+        assert!(!g.can_block(attacker, protected));
+        assert!(g.can_block(protected, attacker));
+        cast(g, 2, vec![]);
+
+        assert!(attackers(g).contains(&attacker));
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(attacker, PlayerId(1))],
+            },
+        );
+        let blockers = (0..32).any(|_| {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                return true;
+            }
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+            false
+        });
+        assert!(blockers);
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(protected, attacker)],
+            },
+        );
+
+        let chooser = PlayerId(1);
+        let (damage, double) = (0..64)
+            .find_map(|_| {
+                let r = request(g);
+                if let Request::DamageEffect {
+                    player, candidates, ..
+                } = &r
+                {
+                    assert_eq!(*player, chooser);
+                    assert_eq!(candidates.len(), 3);
+                    let selected = candidates
+                        .iter()
+                        .find(|candidate| matches!(candidate.effect, EffectKey::Static { .. }))
+                        .unwrap();
+                    return Some((selected.damage, selected.effect.clone()));
+                }
+                g.respond(r.player(), r.decision_id(), Response::Pass)
+                    .unwrap();
+                None
+            })
+            .expect("protected defender orders simultaneous damage");
+        answer(
+            g,
+            Response::DamageEffect {
+                effect: double,
+                damage,
+            },
+        );
+        let Request::DamageEffect {
+            player, candidates, ..
+        } = request(g)
+        else {
+            panic!("two matching printed protection choices");
+        };
+        assert_eq!(player, chooser);
+        let red = EffectKey::IntrinsicProtectionFromColor {
+            source: protected,
+            color: Color::R,
+        };
+        let blue = EffectKey::IntrinsicProtectionFromColor {
+            source: protected,
+            color: Color::U,
+        };
+        for effect in [&blue, &red] {
+            let candidate = candidates.iter().find(|c| &c.effect == effect).unwrap();
+            let visible = g
+                .visible_damage_effect_candidate(chooser, candidate)
+                .unwrap();
+            assert_eq!(candidate.damage, damage);
+            assert_eq!(visible.kind, DamageEffectKind::ProtectionFromColor);
+            assert_eq!(visible.amount_before, 4.into());
+            assert_eq!(visible.amount_after, Quantity::zero());
+            assert!(g.effect_handle(PlayerId(0), effect).is_err());
+        }
+        answer(
+            g,
+            Response::DamageEffect {
+                effect: red.clone(),
+                damage,
+            },
+        );
+        for _ in 0..32 {
+            if g.damage_transaction()
+                .ok()
+                .is_some_and(|tx| tx.applications.iter().any(|a| a.effect == red))
+            {
+                break;
+            }
+            assert!(matches!(
+                g.advance(Budget::new(1)),
+                Advance::Suspended { .. }
+            ));
+        }
+        let tx = g.damage_transaction().unwrap();
+        let applied = tx.applications.iter().find(|a| a.effect == red).unwrap();
+        assert_eq!(tx.entries[damage.0 as usize].recipient, recipient);
+        let evidence = applied.qualification.as_ref().unwrap();
+        assert_eq!(evidence.damage_source.object, attacker);
+        assert!(
+            evidence
+                .damage_source
+                .characteristics
+                .colors
+                .contains(&Color::R)
+        );
+        let mut forged = tx.clone();
+        let applied = forged
+            .applications
+            .iter_mut()
+            .find(|a| a.effect == red)
+            .unwrap();
+        applied
+            .qualification
+            .as_mut()
+            .unwrap()
+            .damage_source
+            .characteristics
+            .colors = vec![Color::G];
+        assert!(g.validate_damage_transaction(&forged).is_err());
+        // The journal replays to the next decision. A snapshot must additionally
+        // preserve this private boundary between decisions.
+        let mut restored =
+            Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+        assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+
+        reach(g, TurnStep::EndCombat);
+        reach(&mut restored, TurnStep::EndCombat);
+        assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+        assert_eq!(restored.trace(), g.trace());
+        assert_eq!(
+            g.current(protected).unwrap().marked_damage,
+            Quantity::zero()
+        );
     });
 }
 

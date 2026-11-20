@@ -1156,7 +1156,8 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                 return Err("invalid typed damage application quantities".into());
             }
             match a.effect {
-                EffectKey::IntrinsicProtectionFromEverything { .. } => {
+                EffectKey::IntrinsicProtectionFromEverything { .. }
+                | EffectKey::IntrinsicProtectionFromColor { .. } => {
                     return Err(
                         "unexpected intrinsic protection in the Furnace/shield fixture".into(),
                     );

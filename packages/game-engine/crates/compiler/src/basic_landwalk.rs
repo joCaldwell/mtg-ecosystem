@@ -25,7 +25,26 @@ pub(super) fn lower(
         ));
     }
 
-    let mut graph = Bindings::new(&source.oracle_id, shape);
+    bind_intrinsic_keywords(
+        &source.oracle_id,
+        shape,
+        binding,
+        &blocks,
+        path,
+        "requires complete basic-landwalk keyword bindings",
+    )?;
+    Ok(Some(blocks.into_iter().flatten().collect()))
+}
+
+pub(super) fn bind_intrinsic_keywords(
+    identity: &str,
+    shape: &Value,
+    binding: &Value,
+    blocks: &[Vec<KeywordAbility>],
+    path: &str,
+    message: &str,
+) -> Result<(), Failure> {
+    let mut graph = Bindings::new(identity, shape);
     for (block, keywords) in blocks.iter().enumerate() {
         let root = format!("/faces/0/abilities/{block}");
         graph.ability(&root, "keywords", "static-source-controller");
@@ -51,8 +70,7 @@ pub(super) fn lower(
             );
         }
     }
-    graph.validate_ordered(binding, "requires complete basic-landwalk keyword bindings")?;
-    Ok(Some(blocks.into_iter().flatten().collect()))
+    graph.validate_ordered(binding, message)
 }
 
 pub(super) fn keyword_metadata(keyword: KeywordAbility) -> Option<(&'static str, &'static str)> {
@@ -74,6 +92,8 @@ pub(super) fn keyword_metadata(keyword: KeywordAbility) -> Option<(&'static str,
         Trample => ("trample", "702.19"),
         Vigilance => ("vigilance", "702.20"),
         Menace => ("menace", "702.111"),
+        ProtectionFromWhite | ProtectionFromBlue | ProtectionFromBlack | ProtectionFromRed
+        | ProtectionFromGreen => ("protection", "702.16"),
         ProtectionFromEachColor | ProtectionFromEverything => return None,
     })
 }

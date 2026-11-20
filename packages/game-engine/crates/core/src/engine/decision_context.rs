@@ -360,7 +360,8 @@ impl Game {
         let (object, source_block, mode) = match effect {
             // SourceLabels maps indexed static abilities but has no block
             // mapping for intrinsic keywords. The candidate names its source.
-            EffectKey::IntrinsicProtectionFromEverything { .. } => return None,
+            EffectKey::IntrinsicProtectionFromEverything { .. }
+            | EffectKey::IntrinsicProtectionFromColor { .. } => return None,
             EffectKey::Static { source, ability } => {
                 let labels = self
                     .copiable_definition(*source)
