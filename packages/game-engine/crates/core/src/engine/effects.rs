@@ -1120,7 +1120,7 @@ impl Game {
             return vec![];
         }
         let mut keys: Vec<_> = self
-            .printed_protection_colors(object)
+            .effective_protection_colors(object)
             .map(|color| EffectKey::IntrinsicProtectionFromColor {
                 source: object,
                 color,
@@ -1167,7 +1167,7 @@ impl Game {
                         .current(*source)
                         .is_ok_and(|o| o.present_on_battlefield())
                     || !self
-                        .printed_protection_colors(*source)
+                        .effective_protection_colors(*source)
                         .any(|printed| printed == *color)
                 {
                     return Err("wrong fixed-color protection source".into());
@@ -3332,9 +3332,10 @@ impl Game {
                             .cards
                             .get(&source.card)
                             .is_none_or(|card| card.owner != protector.owner)
-                        || !self
-                            .printed_protection_colors(*source)
-                            .any(|printed| printed == *color)
+                        || !protector
+                            .keywords
+                            .iter()
+                            .any(|k| k.fixed_protection_color() == Some(*color))
                         || !qualification
                             .damage_source
                             .characteristics

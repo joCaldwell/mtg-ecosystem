@@ -455,7 +455,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
                 .collect(),
             BTreeSet::new(),
         ),
-        ProposedEvent::CreateCreatureTokens { .. } => {
+        ProposedEvent::CreateCreatureTokens { .. }
+        | ProposedEvent::CreatePredefinedTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
         }
@@ -813,6 +814,7 @@ fn collect<'a>(
                             | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
+                            | ProposedEvent::CreatePredefinedTokens { .. }
                             | ProposedEvent::FreezeLifeUntilNextTurn { .. }
                             | ProposedEvent::PhaseOutControlled { .. }
                             | ProposedEvent::PhaseOutTarget { .. }
@@ -1049,7 +1051,8 @@ impl Game {
                     players.insert(*player);
                     objects.extend(looked.iter().copied());
                 }
-                ProposedEvent::CreateCreatureTokens { controller, .. } => {
+                ProposedEvent::CreateCreatureTokens { controller, .. }
+                | ProposedEvent::CreatePredefinedTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
                     players.insert(*controller);
@@ -2842,6 +2845,7 @@ impl Game {
                 }
             }
             event @ (ProposedEvent::CreateCreatureTokens { .. }
+            | ProposedEvent::CreatePredefinedTokens { .. }
             | ProposedEvent::CeaseToken { .. }
             | ProposedEvent::CeaseSpellCopy { .. }) => self.apply_token_event(event)?,
             ProposedEvent::Setup { action } => EventOutcome::Setup {

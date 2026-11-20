@@ -2387,3 +2387,52 @@ test("complete frozen counter placement replacement family exports strict schema
   assert.deepEqual(assertCounterPlacementSchema(validate,compiled),{positives:10,negatives:20});
   // Preserve generated complete-source evidence with the ordinary test runner.
 });
+
+test("composed triggers, attachments and artifact tokens retain their schema contexts", () => {
+  const source = fileURLToPath(fixtureDir);
+  const provenance = JSON.parse(read("provenance.json"));
+  const records = provenance.records.filter((row: { file: string }) => [
+    "308d7868-49f9-47a3-a7b1-4b0332d610f1.json",
+    "2ccdc60a-49a9-44b9-a7af-0ebf18b26785.json",
+    "d0901053-6de0-46d0-9ee3-8d40510236c1.json",
+    "41960d32-ddb5-42be-94b2-3a2e77ca148d.json",
+    "79f94050-d850-41ca-b1db-5ae0cf743f0a.json",
+    "c4efae03-99de-4439-925b-504602623bfd.json",
+    "184c763c-b52a-471c-bd87-d01729ebe5e4.json",
+  ].includes(row.file)).map((row: { file: string }) => path.join(source, row.file));
+  assert.equal(records.length, 7);
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-slice4-schema-"));
+  let passed = false;
+  try {
+    const manifest = path.join(temporary, "catalog.json");
+    fs.writeFileSync(manifest, JSON.stringify({
+      schema_version: IR_SCHEMA_VERSION, output_order: "sorted",
+      provenance: path.join(source, "provenance.json"), records,
+      expected_ir: "actual-ir.json", expected_digest: "actual.sha256",
+    }));
+    const report = run("catalog", "build", manifest, "--write");
+    const catalog = JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
+    assert.equal(catalog.definitions.length, 7);
+    const validate = new Ajv2020({ strict: false, formats: {
+      uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+    } }).compile(run("schema"));
+    assert.ok(validate(catalog), JSON.stringify(validate.errors));
+
+    const reject = (name: string, mutate: (definition: any) => void) => {
+      const bad = structuredClone(catalog);
+      const definition = bad.definitions.find((row: any) => row.name === name);
+      assert.ok(definition, name);
+      mutate(definition);
+      assert.equal(validate(bad), false, name);
+    };
+    reject("Rogue's Gloves", d => {
+      d.capabilities = d.capabilities.filter((c: string) => c !== "equipped_creature_trigger_v1");
+    });
+    reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].count = 0; });
+    reject("Sailor of Means", d => { d.triggered[0].condition = "opponent_creature_dies"; });
+    reject("Glittermonger", d => { d.activated[0].cost = "sacrifice_source"; });
+    passed = true;
+  } finally {
+    if (passed) fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
