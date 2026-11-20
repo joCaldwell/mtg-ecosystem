@@ -223,6 +223,7 @@ membership, and pays source tap first. Paid activations survive source departure
 Fixed-mana creature activations pump, gain life, deal creature damage, or destroy
 an artifact or enchantment. Cast-entry untap composes with them.
 Fixed self-attack pumps modify the declared incarnation until cleanup.
+Hybrid and Phyrexian costs compose with verified intrinsic creature keywords.
 
 <a id="combat-damage-and-state-based-actions"></a>
 
@@ -303,11 +304,11 @@ facts. Shock entry, cycling and consumer admission remain open.
 ## Keywords, attachments and temporary effects
 
 Intrinsic/static grants, counters, admitted anthems, Equipment and Auras contribute
-to common derived characteristics. Attachment identity, equip/attach costs and
+to derived characteristics. Scoped anthems check live control, derived types and
+all required subtypes. Attachment identity, equip/attach costs and
 revalidation are explicit. Grants disappear with actual attachment loss; paid
-abilities and resolved spell effects retain independent lifetimes. Unsupported
-CDA/setting/copying/swapping or general layer combinations must be implemented
-before admitting sources that need them.
+abilities and resolved spell effects retain independent lifetimes. Unimplemented
+CDA/setting/copying/swapping and general layer combinations reject.
 
 ### Attachment entry and ordering
 

@@ -377,6 +377,8 @@ impl Game {
                     }
                 }
             }
+            // The scoped modifiers below only consume earlier-layer types,
+            // subtypes and control. No recipient depends on another 7c bonus.
             for source in self
                 .state
                 .rules
@@ -385,13 +387,36 @@ impl Game {
                 .filter(|s| s.present_on_battlefield() && s.controller == o.controller)
             {
                 for a in &self.copiable_definition(source.id)?.static_abilities {
-                    if let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect {
-                        c.power.as_mut().ok_or("anthem creature power")?.add(power);
-                        c.toughness
-                            .as_mut()
-                            .ok_or("anthem creature toughness")?
-                            .add(toughness);
-                    }
+                    let (power, toughness) = match &a.effect {
+                        StaticEffect::ControllerCreatureAnthem { power, toughness } => {
+                            (power, toughness)
+                        }
+                        StaticEffect::ControllerScopedCreatureStats {
+                            filter,
+                            other,
+                            power,
+                            toughness,
+                        } if a.functioning_zone == FunctioningZone::Battlefield
+                            && (!*other || source.id != object)
+                            && match filter {
+                                ControllerCreatureStatFilter::Any => true,
+                                ControllerCreatureStatFilter::Artifact => {
+                                    c.has_type(CardKind::Artifact)
+                                }
+                                ControllerCreatureStatFilter::Subtypes { subtypes } => {
+                                    subtypes.iter().all(|subtype| c.subtypes.contains(subtype))
+                                }
+                            } =>
+                        {
+                            (power, toughness)
+                        }
+                        _ => continue,
+                    };
+                    c.power.as_mut().ok_or("anthem creature power")?.add(power);
+                    c.toughness
+                        .as_mut()
+                        .ok_or("anthem creature toughness")?
+                        .add(toughness);
                 }
             }
         }
