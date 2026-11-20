@@ -302,7 +302,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(schema: &mut Value) {
     let scope = json!({"required":["effect"],"properties":{"effect":{
-        "required":["modify_creatures"],"properties":{"modify_creatures":{
+        "type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{
             "required":["scope"],"properties":{"scope":{"const":"equipped_legendary"}}
         }}
     }}});

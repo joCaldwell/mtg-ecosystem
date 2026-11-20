@@ -151,8 +151,8 @@ pub(super) fn schema_candidate() -> Value {
     json!({"anyOf":[
         {"properties":{"provenance":{"properties":{"source_json":{"pattern":PAID
             .replace('{', r"\{").replace('}', r"\}").replace('.', r"\.")}}}}},
-        {"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"properties":{
-            "effect":{"required":["enters_tapped_unless_controller_land_type"]}
+        {"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{
+            "effect":{"type":"object","required":["enters_tapped_unless_controller_land_type"]}
         }}}}},
         {"required":["mana_abilities"],"properties":{"mana_abilities":{"contains":{"properties":{
             "production":{"required":["spend"],"properties":{"spend":{
