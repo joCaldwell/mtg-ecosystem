@@ -57,6 +57,7 @@ mod normalization;
 mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
+mod opponent_nonland_indestructible_suppression;
 mod optional_costs;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
@@ -179,6 +180,9 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    // Only produced as a pair after validating both spell blocks and their graph.
+    #[serde(skip)]
+    SuppressionSweepBlock { instruction: Instruction },
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
@@ -1430,6 +1434,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
         vec![ability]
+    } else if let Some(blocks) =
+        opponent_nonland_indestructible_suppression::lower(&shape, &result, &binding)?
+    {
+        blocks
+            .into_iter()
+            .map(|instruction| Ability::SuppressionSweepBlock { instruction })
+            .collect()
     } else {
         read_abilities(&canonical_abilities)?
     };
@@ -2106,6 +2117,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     labels.statics.push(source_block(block)?);
                     definition.static_abilities.push(a);
+                    continue;
+                }
+                if let Ability::SuppressionSweepBlock { instruction } = ability {
+                    program.instructions.push(instruction.clone());
                     continue;
                 }
                 if let Ability::CounterUnlessGeneric { generic } = ability {

@@ -57,6 +57,7 @@ pub use hand_return::controller_hand_return_program;
 mod library_selection;
 mod nonland_exile_life;
 mod opponent_nonland_destroy;
+pub mod opponent_nonland_indestructible_suppression;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 mod self_spell_protection;
@@ -397,6 +398,7 @@ pub enum Capability {
     SacrificeV1,
     FixedArtifactSacrificeCostV1,
     BoardWipesV1,
+    OpponentNonlandIndestructibleSuppressionV1,
     SelfSpellProtectionV1,
     AnnouncedXDrawV1,
     EachPlayerDrawV1,
@@ -750,6 +752,11 @@ pub enum Instruction {
     MoveSet {
         set: ObjectSet,
         action: SetMove,
+        source_block: u32,
+    },
+    /// Capture current opposing nonland permanents at resolution. Each loses
+    /// indestructible until end of turn (CR 611.2c, 613.1f, 613.7).
+    SuppressOpponentNonlandIndestructible {
         source_block: u32,
     },
     DestroySet {
@@ -1129,7 +1136,8 @@ impl Instruction {
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
-            Self::DestroySet { source_block, .. } => *source_block,
+            Self::SuppressOpponentNonlandIndestructible { source_block }
+            | Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
@@ -2930,6 +2938,7 @@ impl Definition {
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
+        opponent_nonland_indestructible_suppression::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
@@ -4423,6 +4432,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         let binding = match instruction {
             Instruction::MoveSet { .. }
             | Instruction::DestroySet { .. }
+            | Instruction::SuppressOpponentNonlandIndestructible { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
@@ -5161,6 +5171,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         }
         set.insert(match instruction {
             Instruction::Cascade { .. } => Capability::CascadeV1,
+            Instruction::SuppressOpponentNonlandIndestructible { .. } => {
+                Capability::OpponentNonlandIndestructibleSuppressionV1
+            }
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
                 ..
@@ -6672,6 +6685,7 @@ pub fn catalog_schema() -> serde_json::Value {
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
+    opponent_nonland_indestructible_suppression::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
@@ -6958,6 +6972,7 @@ mod tests {
             SacrificeV1,
             FixedArtifactSacrificeCostV1,
             BoardWipesV1,
+            OpponentNonlandIndestructibleSuppressionV1,
             SelfSpellProtectionV1,
             AnnouncedXDrawV1,
             EachPlayerDrawV1,
@@ -7319,6 +7334,7 @@ mod tests {
         definitions.push(power_entry_draw::witness());
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
+        definitions.push(opponent_nonland_indestructible_suppression::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
