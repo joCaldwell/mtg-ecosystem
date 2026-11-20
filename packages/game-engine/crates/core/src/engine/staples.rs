@@ -153,21 +153,7 @@ impl Game {
     pub(super) fn resume_entry_search(&mut self, frame: Resolving) -> Result<(), String> {
         let source_block = self.entry_search_block(&frame)?;
         let player = frame.spell.controller;
-        let index = self
-            .state
-            .rules
-            .libraries
-            .get(&player)
-            .map_or(0, |l| l.len().saturating_sub(1)) as u32;
-        self.state.rules.frame = Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::Shuffle {
-                player,
-                index,
-                source_block,
-            },
-        };
-        Ok(())
+        self.begin_library_shuffle(frame, player, source_block)
     }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         let instruction = self
@@ -680,21 +666,7 @@ impl Game {
                         },
                     )?;
                 }
-                let index = self
-                    .state
-                    .rules
-                    .libraries
-                    .get(&player)
-                    .map_or(0, |l| l.len().saturating_sub(1)) as u32;
-                self.state.rules.frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::Shuffle {
-                        player,
-                        index,
-                        source_block,
-                    },
-                };
-                Ok(())
+                self.begin_library_shuffle(frame, player, source_block)
             }
             ResolutionChoice::SearchSplit {
                 objects,
@@ -739,21 +711,7 @@ impl Game {
                         },
                     )?;
                 }
-                let index = self
-                    .state
-                    .rules
-                    .libraries
-                    .get(&player)
-                    .map_or(0, |l| l.len().saturating_sub(1)) as u32;
-                self.state.rules.frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::Shuffle {
-                        player,
-                        index,
-                        source_block,
-                    },
-                };
-                Ok(())
+                self.begin_library_shuffle(frame, player, source_block)
             }
             ResolutionChoice::OptionalDraw { source_block, .. } => {
                 let input = self
