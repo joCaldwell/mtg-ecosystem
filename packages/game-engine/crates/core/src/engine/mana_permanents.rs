@@ -445,9 +445,16 @@ impl Game {
         // Identical grants are interchangeable in the closed mana rules. They
         // stay distinct from the land's intrinsic and printed abilities.
         if grant && self.validate_simple_tap_mana(player, source).is_ok() {
-            choices.extend(Self::granted_land_mana_colors().map(|color| ManaAbilityIdentity::GrantedLandTap { color }));
+            choices.extend(
+                Self::granted_land_mana_colors()
+                    .map(|color| ManaAbilityIdentity::GrantedLandTap { color }),
+            );
         }
-        for index in 0..if printed { definition.mana_abilities.len() } else { 0 } {
+        for index in 0..if printed {
+            definition.mana_abilities.len()
+        } else {
+            0
+        } {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             if self
                 .validate_permanent_mana_costs(player, source, index)

@@ -347,8 +347,8 @@ mod casting_foundation_tests;
 mod controller_land_type_tests;
 #[cfg(test)]
 mod distinct_permanent_colors_tests;
-mod hand_return;
 mod granted_land_mana;
+mod hand_return;
 mod intrinsic_mana;
 mod library_order;
 mod library_position_memory;

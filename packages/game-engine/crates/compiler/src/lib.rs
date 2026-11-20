@@ -80,10 +80,10 @@ mod artifact_loss;
 mod artifact_modal;
 mod conditional_lands;
 mod controller_land_types;
-mod granted_land_mana;
 mod cycling;
 #[cfg(test)]
 mod cycling_tests;
+mod granted_land_mana;
 mod targeted_counted_draw;
 mod targeted_discard;
 #[cfg(test)]
@@ -1771,7 +1771,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             }
             let remaining_abilities = if grants_land_mana {
                 labels.statics.push(0);
-                definition.static_abilities.push(mtg_contracts::granted_land_mana_static());
+                definition
+                    .static_abilities
+                    .push(mtg_contracts::granted_land_mana_static());
                 &[]
             } else if let Some(stats) = color_stats {
                 // The complete family consumed the static and activated blocks.

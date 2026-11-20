@@ -2,7 +2,9 @@
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod granted_land_mana;
-pub use granted_land_mana::{granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static};
+pub use granted_land_mana::{
+    granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
+};
 mod controller_land_types;
 pub use controller_land_types::controller_land_type_ast;
 mod conditional_lands;
@@ -2583,7 +2585,9 @@ impl Definition {
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
-                StaticEffect::GrantControllerLandsAnyColorMana => Capability::ControllerLandGrantedManaV1,
+                StaticEffect::GrantControllerLandsAnyColorMana => {
+                    Capability::ControllerLandGrantedManaV1
+                }
                 StaticEffect::GrantControllerLandsAllBasicTypes => {
                     Capability::ControllerLandBasicTypesV1
                 }
@@ -7876,7 +7880,11 @@ mod tests {
         grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
         grant.capabilities = grant.requirements();
         definitions.push(grant);
-        let artifact = definitions.iter().find(|d| d.name == "Sol Ring").unwrap().clone();
+        let artifact = definitions
+            .iter()
+            .find(|d| d.name == "Sol Ring")
+            .unwrap()
+            .clone();
         definitions.push(granted_land_mana::witness(artifact));
         let sweep = definitions
             .iter()

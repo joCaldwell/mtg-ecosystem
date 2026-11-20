@@ -28,8 +28,12 @@ pub fn granted_land_mana_printed() -> ManaAbility {
 
 pub fn granted_land_mana_source(text: &str) -> Option<[Value; 2]> {
     let mut lines = text.lines();
-    let quoted = lines.next()?.strip_prefix("Lands you control have \"")?.strip_suffix('"')?;
-    if lines.next() != Some(quoted) || quoted.strip_prefix("{T}: Add ")? != "one mana of any color."
+    let quoted = lines
+        .next()?
+        .strip_prefix("Lands you control have \"")?
+        .strip_suffix('"')?;
+    if lines.next() != Some(quoted)
+        || quoted.strip_prefix("{T}: Add ")? != "one mana of any color."
         || lines.next().is_some()
     {
         return None;
@@ -46,7 +50,10 @@ pub fn granted_land_mana_source(text: &str) -> Option<[Value; 2]> {
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
-    let marked = d.static_abilities.iter().any(|a| a.effect == StaticEffect::GrantControllerLandsAnyColorMana);
+    let marked = d
+        .static_abilities
+        .iter()
+        .any(|a| a.effect == StaticEffect::GrantControllerLandsAnyColorMana);
     let raw = &d.provenance.source_json;
     if !marked && !raw.contains("Lands you control have") && !raw.contains(r"\u") {
         return Ok(());
@@ -54,7 +61,11 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     let source: Value = strict_read(raw)?;
     let text = source["oracle_text"].as_str().unwrap_or("");
     let Some(expected) = granted_land_mana_source(text) else {
-        return if marked { Err("invalid granted land mana source".into()) } else { Ok(()) };
+        return if marked {
+            Err("invalid granted land mana source".into())
+        } else {
+            Ok(())
+        };
     };
     let c = &d.characteristics;
     let mut cost = String::new();
@@ -73,22 +84,34 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || source["colors"] != json!(c.colors)
         || source["color_identity"] != json!(c.color_identity)
         || c.kind != CardKind::Artifact
-        || c.basic || c.legendary || c.snow
-        || c.power.is_some() || c.toughness.is_some()
-        || !c.subtypes.is_empty() || !c.additional_types.is_empty()
-        || d.x_mana_cost || d.intrinsic_zone.is_some()
-        || !d.keywords.is_empty() || !d.activated.is_empty() || !d.triggered.is_empty()
+        || c.basic
+        || c.legendary
+        || c.snow
+        || c.power.is_some()
+        || c.toughness.is_some()
+        || !c.subtypes.is_empty()
+        || !c.additional_types.is_empty()
+        || d.x_mana_cost
+        || d.intrinsic_zone.is_some()
+        || !d.keywords.is_empty()
+        || !d.activated.is_empty()
+        || !d.triggered.is_empty()
         || !matches!(d.spell.as_ref(), Some(p) if p.functioning_zone == FunctioningZone::Stack
             && p.timing == SpellTiming::MainPhase && p.resolution == SpellResolution::Permanent
             && p.targets.is_empty() && p.instructions.is_empty() && p.modes.is_empty()
             && p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         || d.static_abilities != [granted_land_mana_static()]
         || d.mana_abilities != [granted_land_mana_printed()]
-        || strict_read::<[Value;2]>(&d.provenance.abilities_json)? != expected
-        || d.source_labels.as_ref().is_some_and(|l|
-            l.text != text || !text.lines().eq(l.blocks.iter().map(String::as_str))
-            || l.statics != [0] || l.mana != [1]
-            || !l.triggered.is_empty() || !l.activated.is_empty() || !l.spell_modes.is_empty())
+        || strict_read::<[Value; 2]>(&d.provenance.abilities_json)? != expected
+        || d.source_labels.as_ref().is_some_and(|l| {
+            l.text != text
+                || !text.lines().eq(l.blocks.iter().map(String::as_str))
+                || l.statics != [0]
+                || l.mana != [1]
+                || !l.triggered.is_empty()
+                || !l.activated.is_empty()
+                || !l.spell_modes.is_empty()
+        })
     {
         return Err("granted land mana requires both complete artifact abilities".into());
     }
@@ -132,8 +155,10 @@ pub(super) fn witness(mut definition: Definition) -> Definition {
     definition.source_labels = None;
     definition.provenance.source_json = canonical(&source).unwrap();
     definition.provenance.source_sha256 = sha256(definition.provenance.source_json.as_bytes());
-    definition.provenance.abilities_json = canonical(&granted_land_mana_source(&text).unwrap()).unwrap();
-    definition.provenance.ast_sha256 = sha256(format!("[{}]",definition.provenance.abilities_json).as_bytes());
+    definition.provenance.abilities_json =
+        canonical(&granted_land_mana_source(&text).unwrap()).unwrap();
+    definition.provenance.ast_sha256 =
+        sha256(format!("[{}]", definition.provenance.abilities_json).as_bytes());
     definition.static_abilities = vec![granted_land_mana_static()];
     definition.mana_abilities = vec![granted_land_mana_printed()];
     definition.capabilities = definition.requirements();
