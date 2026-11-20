@@ -12,6 +12,8 @@ impl Game {
         event: &ProposedEvent,
         actual: &EventOutcome,
     ) {
+        let revealed_move = matches!(actual, EventOutcome::Moved { movement }
+            if self.replacement_reveals(movement.previous));
         let objects = &self.state.rules.objects;
         let fixed = match &self.state.rules.frame {
             Frame::GraveyardReplacement { transaction } => transaction.reserved_top(),
@@ -35,7 +37,11 @@ impl Game {
                 }
                 (ProposedEvent::Move { .. }, EventOutcome::Moved { movement }) => {
                     match (movement.from, movement.destination) {
-                        (Zone::Hand { owner }, Zone::Library { .. }) => Some(owner),
+                        // A printed replacement has already identified the
+                        // card publicly. Other known hand cards stay known.
+                        (Zone::Hand { owner }, Zone::Library { .. }) if !revealed_move => {
+                            Some(owner)
+                        }
                         _ => None,
                     }
                 }
