@@ -150,8 +150,8 @@ impl Game {
         let definition = self.definition(cast.spell.object.card)?.clone();
         // CR 608.2h/707.10: if the spell was countered, use the stack object
         // as it last existed. The admitted spell has no targets, modes, X, or
-        // additional costs. Its only possible alternate announcement is the
-        // engine's cast from exile without paying its mana cost.
+        // additional costs. The successful-cast facts distinguish an ordinary
+        // paid exile cast from a no-mana-cost resolution cast.
         let original = if let Some(entry) = self
             .state
             .rules
@@ -179,7 +179,8 @@ impl Game {
             let mut original = frame.spell.clone();
             original.kind = StackKind::Spell;
             original.id = cast.stack_id;
-            original.alternative_cost = (cast.cast_from == Zone::Exile)
+            original.alternative_cost = (cast.cast_from == Zone::Exile
+                && !cast.priority_paid_exile)
                 .then_some(cascade::AlternativeCost::WithoutManaCost);
             original
         };

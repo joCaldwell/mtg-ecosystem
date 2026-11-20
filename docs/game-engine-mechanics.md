@@ -137,6 +137,12 @@ the resolved target incarnation, expires in cleanup, and applies when blockers
 are declared (CR 506.4a, 509.1b). Its paid source and ordered sibling instructions
 remain distinct.
 
+A library play window follows the face-up exile successors of one exact
+resolution. The beneficiary uses ordinary priority, timing, costs, and land
+allowance. Leaving exile ends that incarnation's permission. An undone cast
+restores the original incarnation. A next-turn window expires in the cleanup
+of the beneficiary's next actual turn (CR 400.7j, 514.2, 611.2a).
+
 Stack projections run bottom to top. Saved announcement handles are historical
 and never bind successor incarnations; reversal restores living players' passes.
 Resolving frames retain frozen instances through supported source departure

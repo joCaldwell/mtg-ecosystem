@@ -50,6 +50,9 @@ mod opponent_nonland_destroy_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
 use hideaway::HideawayLink;
+mod impulse_play;
+#[cfg(test)]
+mod impulse_play_tests;
 mod random_discard;
 mod removal;
 #[cfg(test)]

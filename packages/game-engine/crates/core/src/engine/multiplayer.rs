@@ -333,6 +333,10 @@ impl Game {
         };
         self.state.rules.players[player.0 as usize].last_known = Some(last);
         self.expire_player_protection(player);
+        self.state.rules.effects.retain(|effect| {
+            effect.origin.controller != player
+                || !matches!(effect.kind, ResolvedEffectKind::PlayExiled { .. })
+        });
         self.state.rules.players[player.0 as usize].life_frozen_until_next_turn = false;
         self.state.rules.players[player.0 as usize].status = PlayerStatus::Left;
         self.record_event(Event::PlayerDeparted { player })?;

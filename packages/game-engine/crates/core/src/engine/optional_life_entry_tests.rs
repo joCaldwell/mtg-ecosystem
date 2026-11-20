@@ -997,6 +997,7 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
         }),
         witness: TriggerEventWitness::SpellCast {
             cast: Box::new(CastOccurrence {
+                priority_paid_exile: false,
                 history: triggers::CastHistoryFacts {
                     turn_number: g.turn().number,
                     first_overall: true,

@@ -62,6 +62,24 @@ impl ResolvedEffect {
             ResolvedEffectKind::ProtectControllerUntilNextTurn
         )
     }
+    fn extends_beyond_creation_turn(&self) -> bool {
+        self.lasts_until_controller_turn()
+            || matches!(
+                self.kind,
+                ResolvedEffectKind::PlayExiled {
+                    window: mtg_contracts::PlayWindow::ThroughNextControllerTurn,
+                    ..
+                }
+            )
+    }
+
+    fn survives_cleanup(&self, owner: PlayerId, turn: u64) -> bool {
+        self.extends_beyond_creation_turn()
+            && (self.lasts_until_controller_turn()
+                || self.origin.controller != owner
+                || self.expires_in_cleanup_of_turn == turn)
+    }
+
     pub(super) fn additional_land_plays(&self, player: PlayerId, turn: u64) -> Option<&Quantity> {
         match &self.kind {
             ResolvedEffectKind::AdditionalLandPlays { count }
@@ -110,6 +128,10 @@ pub enum ResolvedEffectKind {
         target: ObjectId,
         power: Quantity,
         toughness: Quantity,
+    },
+    PlayExiled {
+        objects: Vec<ObjectId>,
+        window: mtg_contracts::PlayWindow,
     },
     PreventCombatDamage,
     AdditionalLandPlays {
@@ -1512,6 +1534,26 @@ impl Game {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        Instruction::ExileLibraryForPlay {
+                            count,
+                            window,
+                            source_block,
+                        },
+                        ResolvedEffectKind::PlayExiled {
+                            objects,
+                            window: actual_window,
+                        },
+                    ) => {
+                        *window == *actual_window
+                            && *source_block == effect.origin.source_block
+                            && self.valid_impulse_effect_objects(effect, objects, *count)
+                            && objects.iter().all(|id| {
+                                self.current(*id)
+                                    .is_ok_and(|o| o.zone == Zone::Exile && o.hideaway.is_none())
+                            })
+                    }
+
+                    (
                         Instruction::RegenerateSource { source_block },
                         ResolvedEffectKind::RegenerationShield,
                     ) => {
@@ -1872,12 +1914,14 @@ impl Game {
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
                 self.state.rules.delayed_chapters.clear();
+                let turn = self.state.rules.turn.number;
+                let owner = self.state.rules.turn_owner;
                 let expired = self
                     .state
                     .rules
                     .effects
                     .iter()
-                    .filter(|e| !e.lasts_until_controller_turn())
+                    .filter(|e| !e.survives_cleanup(owner, turn))
                     .map(|e| e.id)
                     .collect();
                 let previous = self
@@ -1891,7 +1935,7 @@ impl Game {
                 self.state
                     .rules
                     .effects
-                    .retain(ResolvedEffect::lasts_until_controller_turn);
+                    .retain(|e| e.survives_cleanup(owner, turn));
                 for o in self.state.rules.objects.values_mut() {
                     o.marked_damage = Quantity::zero();
                     o.deathtouch_damage = false;
@@ -2027,7 +2071,7 @@ impl Game {
             if !ids.insert(e.id)
                 || e.id.0 >= self.state.rules.next_effect_id
                 || e.origin.controller.0 >= 4
-                || if e.lasts_until_controller_turn() {
+                || if e.extends_beyond_creation_turn() {
                     e.expires_in_cleanup_of_turn == 0
                         || e.expires_in_cleanup_of_turn > self.state.rules.turn.number
                 } else {
@@ -2084,6 +2128,20 @@ impl Game {
                             if expected==restriction && *source_block==e.origin.source_block)
                 {
                     return Err("invalid historical combat restriction".into());
+                }
+                continue;
+            }
+            if let ResolvedEffectKind::PlayExiled { objects, window } = &e.kind {
+                let definition = self.copiable_definition(e.origin.source)?;
+                if !self.is_live(e.origin.controller)
+                    || e.origin.mode.is_some()
+                    || e.origin.activated_ability.is_some()
+                    || !matches!(definition.spell.as_ref().and_then(|p| p.instructions.get(e.origin.cursor as usize)),
+                        Some(Instruction::ExileLibraryForPlay { count, window: expected_window, source_block })
+                            if window == expected_window && *source_block == e.origin.source_block
+                                && self.valid_impulse_effect_objects(e, objects, *count))
+                {
+                    return Err("invalid historical play permission".into());
                 }
                 continue;
             }
@@ -2505,6 +2563,12 @@ pub enum VisibleEffect {
         count: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
+    PlayExiled {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        cards: Vec<ObjectHandle>,
+        window: mtg_contracts::PlayWindow,
+    },
     GrantHandCastCascade {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2812,6 +2876,19 @@ impl Game {
                     expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
                 }
             }
+            ResolvedEffectKind::PlayExiled { objects, window } => VisibleEffect::PlayExiled {
+                handle,
+                origin,
+                cards: objects
+                    .iter()
+                    .filter(|object| {
+                        self.current(**object)
+                            .is_ok_and(|o| o.zone == Zone::Exile && o.hideaway.is_none())
+                    })
+                    .map(|object| self.handle_for(viewer, *object))
+                    .collect::<Result<_, _>>()?,
+                window: *window,
+            },
             ResolvedEffectKind::GrantHandCastCascade { .. } => {
                 VisibleEffect::GrantHandCastCascade {
                     handle,

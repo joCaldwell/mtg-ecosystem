@@ -135,8 +135,10 @@ mod counter_spell_controller_mill;
 pub mod creature_planeswalker_return;
 mod draw_discard;
 pub mod equipped_trigger;
+pub mod impulse_play;
 pub mod intrinsic_keyword_blocks;
 pub mod permanent_entry;
+pub use impulse_play::PlayWindow;
 pub mod resolution_mana;
 pub use resolution_mana::ManaResolutionQuantity;
 pub mod predefined_tokens;
@@ -427,6 +429,7 @@ pub enum Capability {
     CastColorPredicateV1,
     CastSubtypePredicateV1,
     TemporaryCombatRestrictionV1,
+    LibraryPlayWindowV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     ListedManaChoiceV1,
@@ -1193,6 +1196,12 @@ pub enum Instruction {
         minimum_lands_to_untap: Option<std::num::NonZeroU32>,
         source_block: u32,
     },
+    ExileLibraryForPlay {
+        #[schemars(range(min = 2))]
+        count: u32,
+        window: PlayWindow,
+        source_block: u32,
+    },
     AddResolutionMana {
         color: Color,
         quantity: ManaResolutionQuantity,
@@ -1471,7 +1480,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::LookTopMayRevealForMana { source_block, .. }
+            Self::ExileLibraryForPlay { source_block, .. }
+            | Self::LookTopMayRevealForMana { source_block, .. }
             | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
             | Self::Hideaway { source_block, .. }
             | Self::PlayHideawayLinked { source_block, .. }
@@ -3280,6 +3290,7 @@ impl Definition {
         cast_subtype::validate(self)?;
         combat_window::validate(self)?;
         resolution_mana::validate(self)?;
+        impulse_play::validate(self)?;
         predefined_tokens::validate(self)?;
         attachment_modifiers::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
@@ -5631,7 +5642,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 None
             }
             Instruction::FetchBasicLand { .. } => None,
-            Instruction::AddResolutionMana { .. } => None,
+            Instruction::AddResolutionMana { .. } | Instruction::ExileLibraryForPlay { .. } => None,
             Instruction::CreatePredefinedTokens { count, .. } => {
                 if *count == 0 {
                     return Err("token count must be positive".into());
@@ -6401,6 +6412,7 @@ fn add_program_requirements_for_source_pump(
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
             Instruction::CreatePredefinedTokens { .. } => Capability::PredefinedArtifactTokensV1,
             Instruction::AddResolutionMana { .. } => Capability::ResolutionManaV1,
+            Instruction::ExileLibraryForPlay { .. } => Capability::LibraryPlayWindowV1,
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
                 Capability::CastSpellColorCountersV1
             }
@@ -7964,6 +7976,7 @@ pub fn catalog_schema() -> serde_json::Value {
     resolution_mana::extend_schema(&mut schema);
     cast_subtype::extend_schema(&mut schema);
     combat_window::extend_schema(&mut schema);
+    impulse_play::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -8375,6 +8388,7 @@ mod tests {
             CastColorPredicateV1,
             CastSubtypePredicateV1,
             TemporaryCombatRestrictionV1,
+            LibraryPlayWindowV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             ListedManaChoiceV1,
@@ -8787,6 +8801,7 @@ mod tests {
         definitions.push(resolution_mana::witness());
         definitions.push(cast_subtype::witness());
         definitions.push(combat_window::witness());
+        definitions.push(impulse_play::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());

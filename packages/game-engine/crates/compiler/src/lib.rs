@@ -86,6 +86,7 @@ mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
 mod hybrid_filter_mana;
+mod impulse_play;
 mod intrinsic_keyword_blocks;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
@@ -1658,6 +1659,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         None => {
             combat_window::lower_spell(&shape, &result, &binding, &r.oracle_identity, types.kind)?
         }
+    };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => impulse_play::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
     };
     let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {

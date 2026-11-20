@@ -1433,6 +1433,7 @@ impl Game {
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::GrantHandCastCascade { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
+            Instruction::ExileLibraryForPlay { .. } => self.execute_impulse_play(frame),
             Instruction::AddResolutionMana {
                 color,
                 quantity,
