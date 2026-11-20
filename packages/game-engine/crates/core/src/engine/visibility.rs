@@ -275,6 +275,12 @@ pub enum PlayerRequest {
         candidates: Vec<ObjectHandle>,
         previous_choices: Vec<(PlayerId, ObjectHandle)>,
     },
+    ChooseManaAbility {
+        token: DecisionToken,
+        player: PlayerId,
+        choices: Vec<ManaAbilityIdentity>,
+        mana_ability_source: ObjectHandle,
+    },
     ManaColor {
         token: DecisionToken,
         player: PlayerId,
@@ -459,6 +465,7 @@ impl PlayerRequest {
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
             Self::LegendRule { token, .. }
+            | Self::ChooseManaAbility { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
             | Self::SearchLandBattlefield { token, .. }
@@ -536,6 +543,9 @@ pub enum PlayerResponse {
     },
     ForcedSacrifice {
         object: ObjectHandle,
+    },
+    ChooseManaAbility {
+        ability: ManaAbilityIdentity,
     },
     ManaColor {
         color: Color,
@@ -1820,6 +1830,17 @@ impl Game {
             Frame::ManaSourceChoice {
                 player,
                 source,
+                scope: ManaSourceScope::Mixed,
+                ..
+            } if *player == viewer => Ok(Some(PlayerRequest::ChooseManaAbility {
+                token,
+                player: viewer,
+                choices: self.mixed_mana_choices(viewer, *source)?,
+                mana_ability_source: self.handle_for(viewer, *source)?,
+            })),
+            Frame::ManaSourceChoice {
+                player,
+                source,
                 scope,
                 ..
             } if *player == viewer => Ok(Some(PlayerRequest::ManaColor {
@@ -2401,6 +2422,9 @@ impl Game {
                     .map(|object| self.resolve_handle(viewer, object))
                     .collect::<Result<Vec<_>, _>>()?,
             }),
+            PlayerResponse::ChooseManaAbility { ability } => {
+                Ok(Response::ChooseManaAbility { ability: *ability })
+            }
             PlayerResponse::ManaColor { color } => Ok(Response::ManaColor { color: *color }),
             PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
                 spending: spending.clone(),
