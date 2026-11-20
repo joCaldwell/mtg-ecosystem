@@ -1,5 +1,6 @@
 //! Private exact-source witnesses, CR 406.3, 607.2a and 702.75a.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::entry_copy_tests::protege_definition;
 use super::*;
 const BRIDGE: &str =
     include_str!("../../../../tests/fixtures/ramos/7cb9e29f-835f-4155-a2a5-4b778866c773.json");
@@ -247,6 +248,130 @@ fn short_library(size: usize) -> Game {
     }
     p.profile_digest = digest(&p.config).unwrap();
     Game::new(p)
+}
+
+#[test]
+#[ignore = "requires the pinned Protege and linked hideaway archive probes"]
+fn protege_copied_mosswort_hideaway_link_survives_source_departure() {
+    let mut rows = vec![
+        ("Forest", 0, 0, true),
+        ("Grizzly Bears", 0, 0, true),
+        ("Yargle and Multani", 0, 0, false),
+        ("Beast Within", 0, 0, true),
+    ];
+    lands(&mut rows, "Island", 0, 6);
+    lands(&mut rows, "Forest", 0, 4);
+    let mut pod = prepared(&rows);
+    let bridge = bridge_definition();
+    let protege = protege_definition();
+    pod.config.cards[0].oracle_id = bridge.oracle_id.clone();
+    pod.config.cards[1].oracle_id = protege.oracle_id.clone();
+    // Cascade returns the remaining land to the library before the copy enters.
+    // With at most two cards, neither hideaway needs a random permutation.
+    let first_library_card = rows.len() as u32;
+    pod.config.cards.retain(|card| {
+        card.zone != (Zone::Library { owner: ACTOR }) || card.id.0 < first_library_card + 2
+    });
+    let catalog = Arc::make_mut(&mut pod.catalog);
+    catalog.definitions.extend([bridge, protege]);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    pod.catalog_digest = digest(catalog).unwrap();
+    pod.profile_digest = digest(&pod.config).unwrap();
+
+    let mut g = Game::with_trace(pod, TraceMode::Off);
+    enter(&mut g, CardId(0));
+    let looked = reach_choice(&mut g);
+    assert_eq!(looked.len(), 2);
+    choose(&mut g, 0);
+    let donor = object(&g, 0);
+    let donor_hidden = object(&g, looked[0].card.0);
+
+    announce(&mut g, 128, 1, vec![]);
+    for _ in 0..8 {
+        answer(&mut g, 128, Response::Pass);
+    }
+    assert!(
+        matches!(request(&mut g, 128), Request::EntryCopy { candidates, .. } if candidates == [donor])
+    );
+    answer(
+        &mut g,
+        128,
+        Response::EntryCopy {
+            object: Some(donor),
+        },
+    );
+    let [copy_candidate]: [ObjectId; 1] = reach_choice(&mut g).try_into().unwrap();
+    assert_eq!(copy_candidate.card, looked[1].card);
+    let copy = object(&g, 1);
+    assert!(g.current(copy).unwrap().tapped);
+    choose(&mut g, 0);
+    let copy_hidden = object(&g, copy_candidate.card.0);
+    assert_eq!(g.linked_hideaway_cards(donor, 0), [donor_hidden]);
+    assert_eq!(g.linked_hideaway_cards(copy, 0), [copy_hidden]);
+    assert!(g.characteristics(copy_hidden).is_err());
+
+    let mut ready = false;
+    for _ in 0..400 {
+        let r = request(&mut g, 128);
+        if g.active_player() == Some(ACTOR)
+            && g.turn().step == TurnStep::Upkeep
+            && matches!(r, Request::Priority { player: ACTOR, .. })
+        {
+            ready = true;
+            break;
+        }
+        g.respond(r.player(), r.decision_id(), pass(&r)).unwrap();
+    }
+    assert!(ready, "copied Bridge should untap before the next draw");
+    answer(
+        &mut g,
+        128,
+        Response::ActivateAbility {
+            object: copy,
+            ability: 0,
+        },
+    );
+    let forest = object(&g, 10);
+    answer(&mut g, 128, Response::ActivateMana { object: forest });
+    answer(&mut g, 128, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        128,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::G, 1.into())]),
+        },
+    );
+
+    announce(&mut g, 128, 3, vec![TargetEntity::Object { object: copy }]);
+    for _ in 0..8 {
+        answer(&mut g, 128, Response::Pass);
+    }
+    assert!(
+        matches!(request(&mut g, 128), Request::PlayHideawayLinked { candidates, .. } if candidates == [copy_hidden])
+    );
+    let successor = object(&g, 1);
+    assert_ne!(successor, copy);
+    assert_eq!(g.zone(successor), Some(Zone::Graveyard { owner: ACTOR }));
+    assert!(g.linked_hideaway_cards(successor, 0).is_empty());
+    recover(&g);
+
+    answer(
+        &mut g,
+        128,
+        Response::PlayHideawayLinked {
+            object: Some(copy_hidden),
+        },
+    );
+    assert!(matches!(request(&mut g, 128), Request::Priority { .. }));
+    assert_eq!(
+        g.zone(object(&g, copy_hidden.card.0)),
+        Some(Zone::Battlefield)
+    );
+    assert!(g.linked_hideaway_cards(copy, 0).is_empty());
+    assert_eq!(g.linked_hideaway_cards(donor, 0), [donor_hidden]);
 }
 
 #[test]
