@@ -422,6 +422,11 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
     },
+    Proliferate {
+        token: DecisionToken,
+        player: PlayerId,
+        candidate: ObjectHandle,
+    },
     OptionalRecursion {
         token: DecisionToken,
         player: PlayerId,
@@ -605,6 +610,7 @@ impl PlayerRequest {
             | Self::SearchLandBattlefield { token, .. }
             | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
+            | Self::Proliferate { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
             | Self::OpeningPlacement { token, .. }
@@ -729,6 +735,10 @@ pub enum PlayerResponse {
     },
     OptionalEffect {
         perform: bool,
+    },
+    Proliferate {
+        object: ObjectHandle,
+        include: bool,
     },
     OptionalRecursion {
         perform: bool,
@@ -2150,6 +2160,11 @@ impl Game {
                     player: viewer,
                     candidates,
                 },
+                Request::Proliferate { candidate, .. } => PlayerRequest::Proliferate {
+                    token,
+                    player: viewer,
+                    candidate: self.handle_for(viewer, candidate)?,
+                },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
                     player: viewer,
@@ -2989,6 +3004,10 @@ impl Game {
             }
             PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
                 opponent: *opponent,
+            }),
+            PlayerResponse::Proliferate { object, include } => Ok(Response::Proliferate {
+                object: self.resolve_handle(viewer, object)?,
+                include: *include,
             }),
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })

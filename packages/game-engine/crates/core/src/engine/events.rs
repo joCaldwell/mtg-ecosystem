@@ -462,7 +462,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutPlusOneCounters { object, .. } => {
+        ProposedEvent::ProliferateCounters { object, .. }
+        | ProposedEvent::PutPlusOneCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -1076,7 +1077,8 @@ impl Game {
                 ProposedEvent::ApplyCounterPlacementEffect { effect } => {
                     objects.insert(effect.source);
                 }
-                ProposedEvent::PutPlusOneCounters { object, .. } => {
+                ProposedEvent::ProliferateCounters { object, .. }
+                | ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
                 }
                 ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
@@ -1816,6 +1818,7 @@ impl Game {
                 matches!(
                     e,
                     ProposedEvent::PutPlusOneCounters { .. }
+                        | ProposedEvent::ProliferateCounters { .. }
                         | ProposedEvent::ApplyCounterPlacementEffect { .. }
                 )
             }) {
@@ -2852,6 +2855,16 @@ impl Game {
                     return Err("counter replacement requires transaction authority".into());
                 }
                 self.apply_counter_placement_effect(effect)?
+            }
+            ProposedEvent::ProliferateCounters {
+                object,
+                plus_one,
+                lore,
+            } => {
+                if !matches!(authority, BatchAuthority::PlaceCounters) {
+                    return Err("proliferation requires complete batch authority".into());
+                }
+                self.apply_proliferate(*object, plus_one, *lore)?
             }
             ProposedEvent::PutPlusOneCounters { object, amount } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {

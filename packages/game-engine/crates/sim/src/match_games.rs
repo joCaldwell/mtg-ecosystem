@@ -448,6 +448,13 @@ impl Strategy<'_> {
             PlayerRequest::ForcedSacrifice { candidates, .. } => PlayerResponse::ForcedSacrifice {
                 object: self.sacrifice_choice(v, candidates)?,
             },
+            PlayerRequest::Proliferate { candidate, .. } => PlayerResponse::Proliferate {
+                object: candidate.clone(),
+                include: v
+                    .objects
+                    .iter()
+                    .any(|o| o.handle == *candidate && o.controller == v.viewer),
+            },
             PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
                 perform: self.optional_effect(
                     v,

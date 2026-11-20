@@ -109,6 +109,8 @@ mod each_player_draw;
 mod entry_graveyard_exile;
 mod land_entry_gain_life;
 mod land_entry_scry;
+mod instruction_schema;
+pub mod proliferate;
 pub use controlled_land_entry::{controlled_land_entry_trigger, controlled_land_query};
 pub use land_entry_scry::land_entry_scry_trigger;
 mod land_sacrifice_draw;
@@ -588,6 +590,7 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    ProliferateV1,
     DividedPlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -1207,6 +1210,9 @@ pub enum Instruction {
         maximum_targets: u32,
         source_block: u32,
     },
+    Proliferate {
+        source_block: u32,
+    },
     PutPlusOneCounters {
         on: CounterRecipient,
         amount: Quantity,
@@ -1514,6 +1520,7 @@ impl Instruction {
             Self::CreateCreatureTokens { source_block, .. }
             | Self::CreatePredefinedTokens { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
+            | Self::Proliferate { source_block }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. }
             | Self::GrantSourceKeywords { source_block, .. } => *source_block,
@@ -3296,7 +3303,9 @@ impl Definition {
         land_entry_gain_life::validate(self)?;
         land_entry_scry::validate(self)?;
         land_reclamation::validate(self)?;
-        controlled_land_entry::validate(self)?;
+        if !proliferate::validate(self)? {
+            controlled_land_entry::validate(self)?;
+        }
         other_land_entry::validate(self)?;
         opponent_count_entry::validate(self)?;
         reveal_land_entry::validate(self)?;
@@ -4352,6 +4361,7 @@ impl Definition {
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::CreatePredefinedTokens { .. }
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
+                            | Instruction::Proliferate { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
@@ -5609,6 +5619,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::Demonstrate { .. }
             | Instruction::LookTopMayRevealForMana { .. }
             | Instruction::RevealAndCast { .. }
+            | Instruction::Proliferate { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
@@ -6346,6 +6357,7 @@ fn add_program_requirements_for_source_pump(
                 Capability::CastSpellColorCountersV1
             }
             Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
+            Instruction::Proliferate { .. } => Capability::ProliferateV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
@@ -7929,6 +7941,7 @@ pub fn catalog_schema() -> serde_json::Value {
     land_entry_gain_life::extend_schema(&mut schema);
     land_entry_scry::extend_schema(&mut schema);
     controlled_land_entry::extend_schema(&mut schema);
+    proliferate::extend_schema(&mut schema);
     land_reclamation::extend_schema(&mut schema);
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
@@ -8255,6 +8268,7 @@ mod tests {
             CreatureTokensV1,
             MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
+            ProliferateV1,
             DividedPlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
@@ -8734,6 +8748,7 @@ mod tests {
         definitions.push(land_entry_gain_life::witness());
         definitions.push(land_entry_scry::witness());
         definitions.push(controlled_land_entry::witness());
+        definitions.push(proliferate::witness());
         definitions.push(land_reclamation::witness());
         definitions.push(entry_copy::registry_witness());
         definitions.push(land_sacrifice_draw::witness());

@@ -90,6 +90,7 @@ mod equipped_events_tests;
 #[cfg(test)]
 mod phase1_sequences_tests;
 mod predefined_token_templates;
+mod proliferate;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
@@ -440,6 +441,7 @@ mod control;
 mod controlled_land_entry;
 mod land_reclamation;
 mod multiplayer;
+mod restricted_mana;
 pub use multiplayer::*;
 mod permitted_history;
 mod stored_history;
@@ -1365,6 +1367,10 @@ pub enum Response {
     OptionalEffect {
         perform: bool,
     },
+    Proliferate {
+        object: ObjectId,
+        include: bool,
+    },
     OptionalRecursion {
         perform: bool,
     },
@@ -1628,6 +1634,11 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
     },
+    Proliferate {
+        decision_id: u64,
+        player: PlayerId,
+        candidate: ObjectId,
+    },
     OptionalRecursion {
         decision_id: u64,
         player: PlayerId,
@@ -1800,6 +1811,7 @@ impl Request {
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
+            | Self::Proliferate { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
             | Self::OpeningPlacement { decision_id, .. }
@@ -1854,6 +1866,7 @@ impl Request {
             | Self::SearchLandBattlefield { player, .. }
             | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
+            | Self::Proliferate { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
             | Self::OpeningPlacement { player, .. }
@@ -2005,6 +2018,11 @@ pub enum ProposedEvent {
     },
     ApplyCounterPlacementEffect {
         effect: CounterPlacementEffectKey,
+    },
+    ProliferateCounters {
+        object: ObjectId,
+        plus_one: Quantity,
+        lore: bool,
     },
     PutPlusOneCounters {
         object: ObjectId,
@@ -2267,6 +2285,13 @@ pub enum EventOutcome {
         objects: Vec<ObjectId>,
         controller: PlayerId,
         token: Box<mtg_contracts::CreatureToken>,
+    },
+    Proliferated {
+        object: ObjectId,
+        previous_plus_one: Quantity,
+        current_plus_one: Quantity,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lore: Option<LoreChange>,
     },
     PlusOneCountersPlaced {
         object: ObjectId,

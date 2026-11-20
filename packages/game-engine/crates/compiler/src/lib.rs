@@ -112,6 +112,7 @@ mod pain_mana;
 mod phase1_sequences_tests;
 mod power_entry_draw;
 mod power_filtered_removal;
+mod proliferate;
 mod repeated_target_modes;
 mod restricted_mana;
 mod reveal_land_entry;
@@ -1660,7 +1661,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             }]
         )
     });
-    let abilities = if has_conditional_fetch {
+    let abilities = if let Some(trigger) = proliferate::lower(&source, &result)? {
+        vec![Ability::BoundTrigger(trigger)]
+    } else if has_conditional_fetch {
         fetched_land_untap::decoded_activation(&canonical_abilities)?
     } else if let Some(program) = composition {
         vec![Ability::ComposedSpell(program)]

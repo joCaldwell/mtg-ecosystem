@@ -111,10 +111,10 @@ pub(super) fn bind(d: &Definition, source: &Value, binding: &Value) -> Result<()
     graph.result(&trigger, "objects", "same-objects", Some(&expr["filter"]));
     for (index, instruction) in d.triggered[0].program.instructions.iter().enumerate() {
         let step = format!("{root}/effects/0/steps/{index}");
-        let operation = if matches!(instruction, Instruction::DrawCards { .. }) {
-            "draw"
-        } else {
-            "gain-life"
+        let operation = match instruction {
+            Instruction::DrawCards { .. } => "draw",
+            Instruction::Proliferate { .. } => "keyword-action",
+            _ => "gain-life",
         };
         graph.reference(
             &format!("{step}/who"),
@@ -131,7 +131,9 @@ pub(super) fn bind(d: &Definition, source: &Value, binding: &Value) -> Result<()
                 Some(&json!({"cls":"card"})),
             );
         }
-        graph.result(&step, "quantity", "measured-quantity", None);
+        if operation != "keyword-action" {
+            graph.result(&step, "quantity", "measured-quantity", None);
+        }
     }
     graph.validate(
         binding,
@@ -172,4 +174,21 @@ mod tests {
             );
         }
     }
+}
+
+#[test]
+fn proliferate_landfall_uses_the_complete_archived_controller_binding() {
+    let manifest = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+    let source = include_str!("../../../tests/fixtures/b45fdeab-00cc-4422-af9f-66f30a880a7c.json");
+    let CompileResult::Lowered { definition } = compile(manifest, source) else {
+        panic!("{:?}", compile(manifest, source));
+    };
+    assert_eq!(
+        definition.triggered,
+        [mtg_contracts::proliferate::landfall()]
+    );
+    let mut omitted = (*definition).clone();
+    omitted.triggered.clear();
+    omitted.capabilities = omitted.requirements();
+    assert!(omitted.validate().is_err());
 }
