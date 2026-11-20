@@ -27,11 +27,11 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "c3363f6d9de36539d2e423e6f4f313be26ecfc803821bbcb963ee19cf8d3b5ff"
+      "sha256": "99694fcfd0a4025c0a66aa970eece2d4179a0ca4355343c64d7b9508a46ef028"
     },
     {
       "path": "docs/game-engine-current.md",
-      "sha256": "6e35c86688f6098e3417d2ca977c4f7ddea1cdcb7d319bcb0c81a424b8b1001b"
+      "sha256": "d33f9fdca95d1a6ce89a031847d4269de6b02db5ae3b5a75884ab5d342ddb4e7"
     },
     {
       "path": "docs/game-engine-server.md",
@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "3e7f3535246752bc988aa102454c29aadcb4c756bde080a30af44c6bf9b858b3"
+      "sha256": "342f8a41ff293706b755f4821d122c6a58946880490a769759e88b593d046e64"
     },
     {
       "path": "packages/game/web/src/decisions/controls.ts",
@@ -87,7 +87,7 @@
     },
     {
       "path": "packages/game/tests/browser/decision-controls.spec.ts",
-      "sha256": "49ad22bb9d9b36687a1028d846aaa79791a2ad3ed482bb16d4b3b42d00dbf9a0"
+      "sha256": "7921a0d4ac46fad6cb48ac6e1f7fba1a519a1ba6cecf773b241df055cd277cd4"
     },
     {
       "path": "packages/game/fixtures/foundations-opening/provenance.json",

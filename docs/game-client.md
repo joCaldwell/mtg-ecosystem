@@ -1,11 +1,10 @@
 # Game client contracts, delivery and acceptance
 
-`packages/game/web` owns the existing generated-protocol decision/session adapters, a qualified
-captured preview and a standalone React/Vite harness. `game-ui` owns shared
-permitted display with scoped styles and host React. `multiverse` owns product
-account UX, navigation, Home, deck editor and Play setup; `deck-builder` retains
-the existing auth/Actor/SQLite backend. Rust host/core own admission, legality,
-visibility and durable execution. Product sign-in does not grant a Rust seat.
+`packages/game/web` owns generated-protocol decision/session adapters, a qualified
+captured preview and a standalone harness; `game-ui` owns shared permitted display;
+`multiverse` owns product UX and Play setup; `deck-builder` retains the
+auth/Actor/SQLite backend. Rust host/core own admission, legality, visibility and
+durable execution. Product sign-in does not grant a Rust seat.
 Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-launch) and [client setup](../packages/game/README.md).
 
 ## Delivered scope and remaining gates
@@ -14,17 +13,17 @@ The standalone App imports an operator-issued single-seat file. Product
 `@multiverse/game/session` uses the same router-free table with an Actor-authorized
 File. Non-query decisions use local drafts, with producer context required for
 source-dependent choices. The [decision inventory](../packages/game/fixtures/decision-controls/coverage.json)
-records request coverage. Priority and mana windows use bounded action discovery
-and submit named beginnings only when their scope and meaning are supplied.
+records request coverage; priority and mana windows use bounded
+[action discovery](#core-action-discovery).
 
 One exact foundations release passed [hosted completion](game-client-evidence.md#hosted-completion).
 Launch requires deck admission, private provisioning and three owned automated
-seats. Unsupported automation pauses.
-The owner-scoped record confirms pauses and results after shutdown. A retained
-table can be read-only while the host independently resolves any pending command.
+seats; unsupported automation pauses. The owner-scoped record confirms pauses and
+results after shutdown, and a retained table may be read-only while the host
+resolves any pending command.
 
-The product preview uses a captured sample and local choices. Solo playtester
-briefs/components are outside this client.
+The product preview uses a captured sample and local choices; the solo
+playtester is outside this client.
 
 ## Package, privacy and presentation boundaries
 
@@ -118,94 +117,52 @@ terminal and never erase ambiguity. SDK itself has no journal/retry policy.
 ## Core action discovery
 
 `PlayerSession::action_beginnings(token, scope, page_size, budget)` discovers only
-`Priority` and `Mana` initiation, including nested permanent-mana payment. Other
-requests return `unsupported_window`. Setup, pending inputs and concessions retain
-existing query-boundary rejections. The host authorizes the viewer; core has no
-HTTP/auth/clock/database dependency.
+`Priority` and `Mana` initiation; other requests return `unsupported_window`. The
+host authorizes the viewer; core has no HTTP/auth/clock/database dependency.
+`ActionScope` is `Window` or one permitted `Object { object: ObjectHandle }`.
+Emitted beginnings pass the existing response validator; submission validates
+again. Cast is not affordability, and initiation completeness covers no later
+target/payment/X choice or strategy ranking.
 
-`ActionScope` is `Window` or one permitted `Object { object: ObjectHandle }`;
-object scope omits global beginnings. Priority enumerates Pass, then objects in
-lexical handle order: PlayLand, Cast, ActivateMana and ascending compiled activated-
-ability indices. Mana enumerates FinishMana(false), FinishMana(true), then each
-permitted ActivateMana. Every emitted beginning passes the existing budgeted
-response validator; rejected-response text/receipts are discarded. Submission must
-validate again. Cast is not affordability, FinishMana retains payment/reversal
-semantics, and initiation completeness is not every later target/payment choice.
-No strategy ranking or complete target/payment/X combinations are supplied.
-
-`ActionQueryResult::outcome()` borrows its permitted outcome; `into_parts()` returns
-that plus optional opaque `ActionContinuation`. Only the outcome serializes. The
-host stores the continuation behind its authenticated cursor and calls
-`resume_actions`; it cannot inspect, clone, serialize or manufacture continuation
-state through the public API. Dropping/cancelling it discards scratch, never a
-command, receipt or durable recovery record. Restart restarts discovery.
+`ActionQueryResult::into_parts()` returns the permitted outcome plus an optional
+opaque `ActionContinuation` that the host keeps behind its authenticated cursor
+for `resume_actions`. Dropping it discards scratch, never a command or durable
+record; restart restarts discovery.
 
 | Native outcome | Meaning |
 | --- | --- |
-| `complete { page }` | Scope exhausted; combine all preceding incremental pages |
-| `incomplete { page, required_minimum: 1 }` | Page/work capacity stopped discovery; continuation exists |
+| `complete { page }` | Scope exhausted; combine all preceding pages |
+| `incomplete { page, required_minimum: 1 }` | Capacity stopped discovery; continuation exists |
 | `stale` | Viewer/token/executor/state binding no longer matches; no private reason |
-| `unavailable { reason }` | Unsupported/invalid boundary, viewer, page size or object scope, or invariant failure; no trusted partial menu |
+| `unavailable { reason }` | Invalid boundary, viewer, page size or scope, or invariant failure; no partial menu |
 
-Pages echo token/scope and never repeat entries. Exactly filling a page is still
-incomplete even on its last candidate; only a resumed `complete` establishes
-exhaustion, possibly with an empty final page. Native page size is 1–64 entries,
-not a byte/time/total-cardinality bound. Zero budget initializes/enumerates nothing
-and returns incomplete with null context; an echoed token is not validation.
-One initialization unit checks token/scope and builds context. Invalid viewer/
-page size and existing setup/concession guards may reject before initialization.
-Each syntax candidate costs one step, its existing validator resumes one unit at
-a time, and a final unit detects exhaustion. Continuation retains at most one
-candidate/validator, object cursor and context, never accumulated emitted entries.
-Logical work is not a CPU-instruction or constant-time guarantee. Unlimited budget
-is trusted native-only use; transport ceilings are independently stricter below.
+Pages never repeat entries; a full page is still incomplete. Native pages hold
+1–64 entries; budgets count logical work, not CPU time.
 
-Context is `priority` or `mana { cost, source }`. Mana source uses the nested
-mana-ability source or the ordinary current stack source's existing permitted handle.
-`ActionLabel` retains `unavailable` and adds `available { text, source? }`: core owns
-action wording, and optional source descriptions use offline compiler bindings.
-Cast and nonintrinsic activations without a bound source label remain unavailable.
-Intrinsic land mana uses the runtime's CR 305.6 production query and an explicit
-core-authored source description naming the produced color.
-Labels grant no affordability, target, payment or submission permission.
+Context is `priority` or `mana { cost, source }`. `ActionLabel` is `unavailable`
+or `available { text, source? }`: core owns wording from offline compiler
+bindings, and activations without a bound source label stay unavailable. Labels
+grant no affordability, target, payment or submission permission.
 
-`Observation.decision_context` is optional for historical projections. Its optional
-`source` supplies kind (`spell`, `activated`, `triggered`, `mana_ability`, `effect`),
-Oracle identity, optional existing object handle/ability index and complete source
-text. Compiler `SourceLabels` retains exact Oracle text, verified normalized source
-blocks (self references may be `~`) and lowerer-owned activated/triggered/mana/static
-indices. Standalone choose-one modes retain exact ordered option text. Schema 1,
-mechanical capabilities and reviewed hosted/search sets stay unchanged; catalog
-and build identities change. Metadata never admits new mechanics.
+Optional `Observation.decision_context.source` supplies kind, Oracle identity,
+optional object handle/ability index and exact source text from compiler
+`SourceLabels`. Missing fields remain unavailable: never infer mode/X meaning,
+bounds or legality from text/IR/card identity. Other viewers receive no decision
+context. Metadata never admits new mechanics or qualifies live controls.
 
-Current announcement/payment/target and resolution choices receive source context.
-A resolving instruction supplies its exact source block or selected mode option; prevention
-allocation and damage replacement candidate labels use the actual effect origin.
-Trigger-order candidates carry optional ability labels. Missing fields remain
-unavailable: do not infer mode/X meaning, optional instructions, numeric bounds or
-legality from text/IR/card identity. Setup/combat/rule choices use their supplied
-candidates and quantities; a different viewer receives no decision context.
-Native source-backed metadata does not qualify live controls or complete games.
-
-Discovery traverses only the viewer's existing published handle map and rechecks
-visibility/incarnation; it never scans private IDs for order, mints handles,
-republishes views, advances rules/history/cursors or submits receipts. Continuations
-bind viewer and private executor/state identity; fork/restore/semantic changes
-invalidate them even if a public token matches. No state digest/private identity
-enters permitted output, and private object counts cannot affect public work
-transcripts. Host scheduling/quotas/serialization remain outside core. Exact native
-source/schema qualification and preserved failures are in [evidence](game-client-evidence.md#core-action-discovery-evidence).
+Discovery traverses only the viewer's published handles; it never mints handles,
+advances rules/history/cursors or submits receipts. Continuations bind viewer and
+private executor/state identity, so fork/restore invalidates them even if the
+public token matches. No private identity affects permitted output. Qualification is in
+[evidence](game-client-evidence.md#core-action-discovery-evidence).
 
 ## Action discovery transport
 
-Rust DTOs/routes embed the native outcomes above. HTTP authenticates the viewer
-and forwards to the exclusive match worker; it never computes rules.
-`POST /v1/matches/{match_id}/actions/query` accepts `start {token,scope,page_size,work}`,
-`continue {cursor,work}` or `cancel {cursor}` by `operation`; no URL query/viewer/
-unknown/duplicate fields. `complete`, `incomplete`, `stale`, nested `unavailable`
-and `cancelled` retain exact meanings. Partial/limited is never a complete empty menu.
-An emitted beginning passes the native initiation validator; submission must still
-validate and later targets/payment can fail. Action labels and decision descriptions follow the producer contract above.
+HTTP authenticates and forwards to the exclusive match worker without computing
+rules. `POST /v1/matches/{match_id}/actions/query` accepts `start`,
+`continue` or `cancel` by `operation`, with no URL query, viewer or unknown fields.
+Outcomes keep the native meanings plus `cancelled`; partial is never a complete
+empty menu.
 
 | Transport resource | Bound |
 | --- | --- |
@@ -218,56 +175,27 @@ validate and later targets/payment can fail. Action labels and decision descript
 | Cursor | 256 random bits, lowercase hex, rotated/consumed once on continuation |
 | Deadlines | Five-second body read, 25-second HTTP request; existing IPC isolation |
 
-Quota exhaustion never changes rules/clock status. Cancel own live cursor is quota
-exempt. Unknown/foreign/expired/replayed/recovered cursors are stale without private
-reason. Replacement executor clears scratch even if public token stays equal;
-quotas survive normal commits. Abort controls one fetch/body, not confirmed server
-cancellation; inaccessible scratch expires. No durable query continuation exists.
-A successful clock-only Tick while still Waiting preserves the exact executor and
-scratch only when rules boundary and full digest are unchanged. Pause, expiry and
-rules changes still invalidate them; durable clock debit continues.
-Discovery changes no Game/head/publications/ready flags or remaining seat budget;
-worker processing excludes busy time, but independent clock ticks continue.
-No universal completion, constant-time or timing-side-channel guarantee follows.
-
-SDK `queryActions` makes one validated POST, with no pagination/retry. Session binds
-viewer, exact context/generation, scope, token and continuation history independently.
-The browser production proxy admits the exact POST action-query route (including
-cursor cancellation) and queued-command cancel route. Other routes remain blocked.
+Quota exhaustion never changes rules/clock status. Unknown, foreign, expired or
+replayed cursors are stale without a private reason. Abort controls one fetch, not
+server cancellation; no durable continuation exists. Discovery changes no game
+state or seat budget, with no timing-side-channel guarantee. SDK `queryActions`
+makes one validated POST with no pagination/retry.
 
 ### Session-owned query controller
 
-The sole read owner constructs immutable `ActionQueryContext` only after ownership,
-manifest, actual viewer and identity checks. It carries opaque authorization/
-generation identities, ReadBinding, qualified schema digest and permitted token.
-Inject current context, a closure over the original authorized SDK, monotonic time,
-abortable operation/wait and sanitized error classification. No credential is stored.
-Synchronize synchronously before owner/token/generation/seat replacement; stop/await
-cleanup before releasing ownership. Cleanup must use the captured previous SDK.
+The sole read owner builds immutable `ActionQueryContext` only after ownership,
+manifest, viewer and identity checks; it stores no credential. Replacing owner,
+token, generation or seat invalidates synchronously; cleanup uses the captured
+previous SDK, and late completions issue no I/O after the Web Lock is released.
+Handles, scope and beginnings stay in memory, never in URLs, logs or storage.
+Local ceilings only tighten transport bounds; retries never replenish budget.
 
-Explicit start retains original intent/scope and returns that intent's query
-generation, even after supersession. Repeated same-context/scope starts are idempotent;
-old-generation cancellation is ignored. Late completions cannot relabel themselves
-with the latest generation. Immutable snapshots omit token/cursor/credential;
-handles/scope/beginnings remain private in-memory facts, never URL/log/storage data.
-
-Local ceilings are 16/page, 250 work/call, 32 charged attempts, 8,000 units, 256
-entries, 131,072 aggregate UTF-8 response bytes, 20 seconds/chain and four
-seconds/operation. Inter-page wait is 100 ms. Limits only decrease. At most two
-fully charged retries for HTTP 429/explicit quota wait one second each. Other
-transport/protocol failures retain uncertainty. One extra cancellation may wait
-for cooldown within four seconds. It never replenishes work or budget.
-
-ReadSession captures original CommandContext/query context/scope before discovery,
-associates only that returned query generation, and requires its issued draft,
-complete snapshot, current generation and exact scope before normal journaling.
-Pass requires a priority window and window scope. Other beginnings require
-producer-owned available labels and matching source kind/object/ability; FinishMana
-requires the supplied payment source and preserves its conditional reversal flag.
-Never fetch a fresh command context at callback time. The pure query controller
-constructs or submits no PlayerResponse. Stop invalidates synchronously and awaits
-captured-SDK cancellation/in-flight deadlines before releasing the Web Lock; late
-completions cannot issue I/O after release or replace a newer import.
+ReadSession captures the original CommandContext, query context and scope before
+discovery, and journals a beginning only with its issued draft, complete snapshot,
+current generation and exact scope. Pass requires a priority window; other
+beginnings require available labels matching source kind/object/ability. Never
+fetch a fresh command context at callback time; the query controller constructs or
+submits no PlayerResponse.
 
 ## Native delivery and operator procedure
 
@@ -277,12 +205,12 @@ public `/presentation/<sha256>.json` serves immutable prevalidated allowlisted b
 SDK verifies bounded strict JSON, digest, catalog and face identity. A 404 is
 missing metadata; corruption stops. Producer schema lives in
 `packages/game-server/tools/presentation.schema.json`; request handlers only serve
-startup-verified bytes. Operator pins `artifacts.json`, not arbitrary remote JSON. Product lifecycle instead obtains one authenticated
-public manifest per native session and uses the SDK's public Node-only
-`./presentation-producer` bridge to that same producer. It caches validated bytes
-in memory. Its exact scoped artifact GET omits native bearer only behind existing
-Actor ownership/active-identity checks before and after I/O; other v1 operations
-retain exact human-seat authorization. No browser source parsing follows.
+startup-verified bytes. Operator pins `artifacts.json`, not arbitrary remote JSON.
+Product lifecycle instead fetches one authenticated public manifest per native
+session and caches the SDK's Node-only `./presentation-producer` output in memory.
+Its scoped artifact GET omits the native bearer only behind Actor ownership and
+active-identity checks before and after I/O; other v1 operations retain exact
+human-seat authorization. No browser source parsing follows.
 
 Native `serve-client` requires numeric loopback, exact Host, absent or matching
 Origin and non-cross-site Fetch Metadata; no CORS. Vite enforces the local boundary
@@ -300,10 +228,10 @@ metadata 4 MiB and descriptor/config 4 KiB. Bundle/registry/presentation roots m
 not overlap. Unknown SPA paths return 404; source route allowlists are authority.
 Reject encoded/dot/backslash/absolute paths and static artifact queries.
 
-A native owner builds/retains exact server and `provision_client` under the Cargo
-lock, then exports `schema`, `bootstrap-schema`, `client-config-schema`, `native-info`.
-Client/SDK commands never invoke Cargo. With qualified exports, follow client README
-for explicit SDK verification and client build. From root:
+A native owner builds exact server and `provision_client` under the Cargo lock,
+then exports `schema`, `bootstrap-schema`, `client-config-schema`, `native-info`.
+Client/SDK commands never invoke Cargo; the client README owns SDK verification
+and client build. From root:
 
 ```sh
 sh scripts/engine-env.sh node packages/game-server/tools/client-artifacts.ts \
@@ -320,27 +248,21 @@ sh scripts/engine-env.sh node packages/game-server/tools/export-client.ts \
 
 Use actual exported filenames/digests and a **new 0700 private parent** for registry
 and 0600 single-seat files. Provisioner starts no bots, refuses existing paths and
-prints no capabilities. For existing provisioned matches use `export-seat`. Keep
-original operator files private, import exactly one seat at `/join`, and reimport
-after refresh. Preserve failed evidence, stop owned hosts and verify released ports.
+prints no capabilities; existing matches use `export-seat`. Keep operator files
+private, import exactly one seat at `/join`, and reimport after refresh. Preserve failed evidence, stop owned hosts and verify released ports.
 This does not deploy an online lobby, grant accounts seats or qualify a full game.
 
 ## Reproducibility and current acceptance
 
 Use pinned environment and local package locks; [client README](../packages/game/README.md)
-contains exact commands. `check` verifies types, boundaries, qualified fixtures,
-pure tests and production build. Browser fixture, IndexedDB, CSP and real native
-App/proxy tests have distinct scopes. Authenticated tests disable traces, HAR,
+contains exact commands and the distinct scopes of `check` and browser tests. Authenticated tests disable traces, HAR,
 video and automatic screenshots; receipts contain public identities/counts only.
 Keep Chromium/Firefox versions, exact source/schema/build hashes, failed attempts
 and explicit omissions. No full native matrix follows a docs/client-only edit.
 
-Current native/SDK qualification is owned by
-[`sdk-qualification.json`](../packages/game/sdk-qualification.json), separate
-from historical capture provenance, current engine HEAD and later product changes.
-Use one qualified SDK throughout checks; never replace it with historical schemas
-to make fixtures pass.
+[`sdk-qualification.json`](../packages/game/sdk-qualification.json) owns current
+native/SDK qualification, separate from historical capture provenance. Use one
+qualified SDK throughout checks; never substitute historical schemas to pass fixtures.
 
-[Source-qualified opening and product evidence](game-client-evidence.md) retains
-exact producer/build identities, actual checks, proof locations, failures and
-omissions. Read it before reusing acceptance; it is not required contract onboarding.
+[Client evidence](game-client-evidence.md) retains exact identities, checks, proof
+locations, failures and omissions; read it before reusing acceptance.
