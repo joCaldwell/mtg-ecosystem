@@ -57,8 +57,8 @@ Protege’s copying with independent choices and exact ownership.
 
 ### M9 Add linked permissions, bestow and Sagas
 
-Complete Mosswort's private linked hideaway permission, Chromanticore bestow/type/
-attachment transitions and Thunder's lore/chapters/final sacrifice.
+Mosswort has paid hideaway and linked-play witnesses. Complete Chromanticore’s
+bestow transitions and Thunder’s chapters.
 
 ### M10 Complete phasing and remaining effects
 

@@ -9,6 +9,11 @@ impl Game {
             Frame::ResolutionChoice {
                 choice:
                     ResolutionChoice::LibraryOrder { player, looked, .. }
+                    | ResolutionChoice::Hideaway {
+                        player,
+                        looked,
+                        bottom: None,
+                    }
                     | ResolutionChoice::LibrarySelect { player, looked, .. }
                     | ResolutionChoice::Scry { player, looked, .. }
                     | ResolutionChoice::Surveil { player, looked, .. },

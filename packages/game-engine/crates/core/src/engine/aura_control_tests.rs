@@ -1216,3 +1216,6 @@ mod demonstrate_tests;
 
 #[path = "grant_hand_cast_cascade_tests.rs"]
 mod grant_hand_cast_cascade_tests;
+
+#[path = "hideaway_tests.rs"]
+mod hideaway_tests;

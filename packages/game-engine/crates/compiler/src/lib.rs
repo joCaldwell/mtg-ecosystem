@@ -64,6 +64,7 @@ mod library_order_tests;
 mod library_selection;
 #[cfg(test)]
 mod library_selection_tests;
+mod linked_hideaway;
 mod nonland_exile_life;
 mod normalization;
 mod opponent_life_drain;
@@ -203,6 +204,8 @@ enum Ability {
     // The complete source and its exact graph are verified before emission.
     #[serde(skip)]
     ControlledCreatureSpellCopy,
+    #[serde(skip)]
+    LinkedHideaway,
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
@@ -1484,7 +1487,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     )?;
     let controller_window =
         controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
-    let abilities = if controller_window.is_some() {
+    let has_linked_hideaway = linked_hideaway::validate(&source, &shape, &result, &binding)?;
+    let abilities = if has_linked_hideaway {
+        (0..4).map(|_| Ability::LinkedHideaway).collect()
+    } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
     } else if creative_technique::candidate(&source, &shape) {
         vec![Ability::Demonstrate, Ability::RevealAndCast]
@@ -1848,7 +1854,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            let remaining_abilities = if grants_land_mana {
+            let remaining_abilities = if has_linked_hideaway {
+                use mtg_contracts::linked_hideaway;
+                labels.triggered.push(0);
+                labels.statics.push(1);
+                labels.mana.push(2);
+                labels.activated.push(3);
+                definition.triggered.push(linked_hideaway::entry());
+                definition.static_abilities.push(linked_hideaway::tapped());
+                definition.mana_abilities.push(linked_hideaway::mana());
+                definition.activated.push(linked_hideaway::play());
+                &[]
+            } else if grants_land_mana {
                 labels.statics.push(0);
                 definition
                     .static_abilities

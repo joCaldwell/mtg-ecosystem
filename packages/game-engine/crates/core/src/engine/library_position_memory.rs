@@ -83,6 +83,7 @@ impl Game {
                     ProposedEvent::BottomRevealedCards { order, .. } => {
                         order.len() <= 1 || !order.contains(id)
                     }
+                    ProposedEvent::Hideaway { looked, .. } => !looked.contains(id),
                     ProposedEvent::Setup { .. } => false,
                     _ => true,
                 }
