@@ -242,4 +242,5 @@ Controller window/hand cast `02b35e35`:73 exact, 65/42/38.
 Receipts: `generated/ramos/{combat-cast-protection-main121,reparsed-audit}/`.
 Leyline `b9a27f44`:76 exact, 68/45/41, `generated/ramos/opening-hybrid-main125/`.
 Leyline schema `27ce86d6`. Saga/Bestow `038172b7`:79 exact,70/47/43.
-Receipts: `generated/ramos/{saga-bestow-main128-03,saga-bestow-schema-main129}/`. Deck admission open.
+Receipts: `generated/ramos/{saga-bestow-main128-03,saga-bestow-schema-main129}/`.
+Exact admission `207af2f9`, 85 definitions, IR1/75/52/48. Seed zero completed and replayed under `generated/ramos-play.SGT13TWn/` in the closing worktree.
