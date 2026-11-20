@@ -290,11 +290,8 @@ impl PartialEq for BoundModeSubset {
 impl Eq for BoundModeSubset {}
 impl BoundModeSubset {
     fn build(root: &SpellProgram, chosen: &[u32]) -> Result<Self, String> {
-        if chosen.len() > root.modes.len() {
-            return Err("too many chosen modes".into());
-        }
-        let mut indices = chosen.to_vec();
-        indices.sort_unstable();
+        let indices = mtg_contracts::modal_targets::ModeCount::OneOrMore
+            .selected(root.modes.len(), chosen)?;
         let plan = Self {
             indices,
             compiled: Default::default(),
@@ -362,6 +359,12 @@ impl Game {
             || top.mode_subset.is_some()
         {
             return Err("unauthorized mode subset".into());
+        }
+        let Some(Request::Modes { candidates, .. }) = self.modes_request()? else {
+            return Err("missing printed mode choices".into());
+        };
+        if indices.iter().any(|index| !candidates.contains(index)) {
+            return Err("a selected mode has no legal target".into());
         }
         BoundModeSubset::build(self.root_program_for(top)?, indices)
     }
