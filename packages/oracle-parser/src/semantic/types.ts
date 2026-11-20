@@ -198,6 +198,7 @@ export type BindingNode = NodeBase & (
       exclude: "all-player-choices" | "own-choices"; cardinality: "many" }
   | { node: "intervening-condition-pool"; scope: string; filter: ObjectFilter; cardinality: "many";
       timing: "trigger-check-and-resolution" }
+  | { node: "entering-kicker-x"; scope: string; source: string; kicker: string; announced: string }
   | { node: "bounded-payment-amount"; scope: string; payment: string; payer: string; minimum: 0; maximum: string }
   | { node: "destroyed-permanents"; scope: string; event: string; destination: "graveyard";
       information: "before-move"; cardinality: "many" }

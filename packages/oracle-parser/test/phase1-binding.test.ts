@@ -1685,3 +1685,37 @@ describe("local repeated decisions and intrinsic choices", () => {
     assert.ok(graph.nodes.some(node => node.id === source && node.node === "source"));
   });
 });
+
+describe("spell costs referenced afterward", () => {
+  it("reads two last-known values of the actual required cast sacrifice", () => {
+    const graph = analyze("As an additional cost to cast this spell, sacrifice a creature.\n"
+      + "You draw cards equal to the sacrificed creature's power, then you gain life equal to its toughness.", "Instant");
+    boundCard(graph);
+    const paid = bound(graph, "/costs/0/what");
+    assert.equal(bound(graph, "/steps/0/amount/of"), paid);
+    assert.equal(bound(graph, "/steps/1/amount/of"), paid);
+  });
+
+  it("does not read a cast sacrifice when resolution could be the competing producer", () => {
+    const graph = analyze("As an additional cost to cast this spell, sacrifice a creature.\n"
+      + "Sacrifice a creature. You draw cards equal to the sacrificed creature's power, then you gain life equal to its toughness.", "Instant");
+    const paid = bound(graph, "/costs/0/what");
+    assert.ok(!graph.references.some(ref => ref.path.endsWith("/amount/of") && ref.binding === "bound" && ref.target === paid));
+  });
+
+  it("reads X from the linked kicker payment of the spell that became the permanent", () => {
+    const graph = analyze("Kicker {X}\nWhen this creature enters, if it was kicked, create X 1/1 green Saproling creature tokens.",
+      "Creature");
+    boundCard(graph);
+    const x = graph.nodes.find(node => node.node === "entering-kicker-x");
+    assert.ok(x);
+    assert.equal(x.announced, bound(graph, "/cost/0/symbols/0"));
+    assert.equal(x.id, bound(graph, "/steps/0/count"));
+  });
+
+  it("does not expose an old kicker X to an unrelated later trigger", () => {
+    const graph = analyze("Kicker {X}\nAt the beginning of your upkeep, create X 1/1 green Saproling creature tokens.", "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "entering-kicker-x"));
+  });
+});

@@ -359,6 +359,7 @@ interface Context {
   eventPredicate?: true;
   sourceExclusionPath?: string;
   sacrificedCost?: Candidate;
+  enteringKickerX?: string;
   stackCopies?: StackCopyCapture[];
   previousEffect?: string;
   precedingSentence?: { path: string; steps: Effect[] };
@@ -689,7 +690,7 @@ class Analyzer {
   /** The latest choice from a pool in each ability, for "the rest". */
   readonly poolSelections = new Map<string, { pool: Candidate; selected: Candidate; path: string }>();
   /** Kicker abilities printed on each face, with their costs (CR 702.33e). */
-  readonly kickers = new Map<string, { id: string; you: string; costs: string[] }[]>();
+  readonly kickers = new Map<string, { id: string; you: string; costs: string[]; announcedX?: string }[]>();
   /** Faces with an X in the mana cost or an additional cost (CR 107.3a). */
   readonly xFaces = new Set<string>();
   /** Faces whose type line is a permanent type (CR 110.4). */
@@ -831,6 +832,8 @@ class Analyzer {
       const expression = value as Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" }>;
       if (context.barrier) this.unresolved(expression, path, "unsupported-scope", context.barrier, ["107.3"]);
       else if (expression.amount === "x" && context.x) this.bound(expression, path, context.x, ["107.3c"]);
+      else if (expression.amount === "x" && context.enteringKickerX)
+        this.bound(expression, path, context.enteringKickerX, ["107.3m", "400.7d", "702.33e"]);
       else if (expression.amount === "x" && context.triggerX) this.bound(expression, path, context.triggerX, ["701.37c"]);
       else if (expression.amount === "x" && context.announcedX) this.bound(expression, path, context.announcedX, ["107.3a"]);
       else if (expression.amount === "that-much") {
@@ -1454,6 +1457,10 @@ class Analyzer {
         "On cast, the trigger controller may copy the spell. If they do, they choose an opponent who also copies it. Each may choose new targets for their own copy as it is put onto the stack.",
         ["702.144a", "707.10", "707.10c"]);
     const own: Context = { ...context, you, objects: [], players: [], quantities: [], x: undefined };
+    if (instance.keyword === "kicker" && isDeepStrictEqual(instance.cost, [{ cost: "mana", symbols: ["X"] }])) {
+      own.announcedX = this.node({ id: this.id(path, "announced-x"), path, node: "announced-number",
+        scope: this.id(path, "keyword"), chooser: you, announcement: "cast", rules: ["107.3a", "601.2b", "702.33a"] });
+    }
     this.definitions(instance.bindings, child(path, "bindings"), own);
     for (const [key, value] of Object.entries(instance)) {
       if (key === "keyword" || key === "bindings") continue;
@@ -2867,7 +2874,7 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, lookedCardChoice: undefined, performedDecision: undefined, groupChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
+      sacrificedCost: undefined, enteringKickerX: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, lookedCardChoice: undefined, performedDecision: undefined, groupChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
       copiedCards: undefined, linkedCopies: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, targetPlayerGroup: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined, lifeGain: undefined, resolutionPaymentX: undefined,
@@ -3209,6 +3216,18 @@ class Analyzer {
       "Look privately at the top card, offer its public reveal only when eligible, and allocate the printed amount among its colors only after revealing it. Put the looked-at card into hand in either branch.",
       ["105.2", "106.1a", "107.4e", "107.4f", "400.1", "608.2c", "608.2d", "609.3", "701.20"]);
   }
+  private castSacrifice(ability: Ability, abilities: Ability[] | undefined, path: string): Candidate | undefined {
+    const additional = abilities?.flatMap((sibling, index) => sibling.kind === "additional-cost" ? [{ sibling, index }] : []);
+    if (additional?.length !== 1 || containsEffect(ability, "sacrifice")) return;
+    const [{ sibling, index }] = additional;
+    const [cost] = sibling.costs;
+    if (sibling.costs.length !== 1 || sibling.optional || sibling.variableConstraints?.length || sibling.costModifications?.length ||
+        cost.cost !== "sacrifice" || cost.what.ref !== "filter" ||
+        !isDeepStrictEqual(cost.what.filter, { types: ["creature"] }) || objectCardinality(cost.what) !== "one") return;
+    const siblings = path.slice(0, path.lastIndexOf("/"));
+    return this.at(`${siblings}/${index}/costs/0/what`);
+  }
+
   private exileCastingDiscount(ability: Extract<Ability, { kind: "additional-cost" }>, path: string, context: Context): boolean {
     if (!ability.optional || ability.variableConstraints?.length || ability.costs.length !== 1 ||
         ability.costModifications?.length !== 1) return false;
@@ -4320,12 +4339,22 @@ class Analyzer {
         remainder = { path: at, candidate: { id, domain: "object", cardinality: "many" }, rules };
         this.engineFeature("optional-look-remainder", path, "Use all remaining looked-at cards. When the choice was declined, use the full pool.", rules);
       }
+      const sacrificed = context.spellAbility && precedingEffect && context.sacrificedCost && effect.effect === "gain-life" &&
+        effect.who.player === "you" && isDeepStrictEqual(effect.amount, { amount: "attribute", attribute: "toughness", of: { ref: "it" } }) &&
+        this.at(`${precedingEffect}/amount/of`)?.id === context.sacrificedCost.id &&
+        context.objects.every(candidate => candidate.description?.cls === "card" || candidate.id === context.sacrificedCost?.id) &&
+        !context.departed?.length &&
+        this.result.nodes.some(node => node.id === this.id(precedingEffect, "event") && node.node === "event" && node.operation === "draw")
+        ? { path: `${path}/amount/of`, candidate: context.sacrificedCost, rules: ["601.2h", "608.2h", "701.21a", "707.10"] } : undefined;
+      if (sacrificed) this.engineFeature("event-history", path,
+        "Retain the same sacrificed permanent's characteristics from the spell's actually paid additional cost.", sacrificed.rules);
       const chosenCard = cardChoice && effect.effect === "grant-play-permission" &&
         effect.permission.who.player === "you" && !effect.permission.fromAmong &&
         isDeepStrictEqual(effect.permission.what, { ref: "that", filter: { cls: "card" } })
         ? { path: `${path}/permission/what`, candidate: cardChoice.result, rules: ["400.7j", "608.2c", "608.2d"] } : undefined;
-      this.walk(effect, path, count || effect.effect === "distribute-counters" || chosenCard || suspension || remainder
-        ? { ...context, resolutionCount: count, distributedCount: effect.effect === "distribute-counters", boundOperand: chosenCard ?? suspension ?? remainder } : context);
+      this.walk(effect, path, count || effect.effect === "distribute-counters" || chosenCard || suspension || remainder || sacrificed
+        ? { ...context, resolutionCount: count, distributedCount: effect.effect === "distribute-counters",
+            boundOperand: chosenCard ?? suspension ?? remainder ?? sacrificed } : context);
     }
     // CR 608.2d: "[player] may" is decided while the instruction is applied;
     // declining it produces no results, as any impossible instruction would.
@@ -5091,6 +5120,16 @@ class Analyzer {
       }
       case "triggered":
         this.trigger(ability.trigger, child(path, "trigger"), context);
+        const kickers = this.kickers.get(context.face);
+        if (!context.announcedX && kickers?.length === 1 && kickers[0].announcedX && !definesX(ability) &&
+            ability.trigger.trigger === "enters" && (ability.trigger.what.ref === "self" || ability.trigger.what.ref === "this") &&
+            ability.condition?.condition === "kicked" && ability.condition.what.ref === "it" && costHasX(ability.effects)) {
+          const at = child(path, "condition");
+          const rules = ["107.3m", "400.7d", "607.2", "702.33e"];
+          context.enteringKickerX = this.node({ id: this.id(at, "entering-kicker-x"), path: at, node: "entering-kicker-x",
+            scope: context.ability, source: context.source, kicker: kickers[0].id, announced: kickers[0].announcedX, rules });
+          this.engineFeature("event-history", at, "Track the original spell's kicker payment and announced X through its own entry.", rules);
+        }
         if (ability.trigger.trigger === "becomes-status" && ability.trigger.status === "monstrous" &&
             (ability.trigger.what.ref === "self" || ability.trigger.what.ref === "this") &&
             costHasX(ability.effects) && !definesX(ability)) {
@@ -5109,6 +5148,7 @@ class Analyzer {
         this.sentences(ability.effects, child(path, "effects"), context);
         break;
       case "spell": {
+        context.sacrificedCost = this.castSacrifice(ability, cardAbilities, path);
         const first = ability.effects[0]?.steps[0];
         if (cardAbilities?.length === 1 && first?.effect === "copy-stack-object") {
           const { abilityWord, ...paragraph } = ability;
@@ -5386,7 +5426,9 @@ export function analyzeCardBindings(input: CardBindingInput): CardBindingAnalysi
         const at = `${path}/abilities/${abilityIndex}/keywords/${keywordIndex}`;
         const costs = "additionalCosts" in keyword && Array.isArray(keyword.additionalCosts) ? keyword.additionalCosts.map(cost => JSON.stringify(cost))
           : ["cost" in keyword ? JSON.stringify(keyword.cost) : ""];
-        list.push({ id: analyzer.id(at, "keyword"), you: analyzer.id(at, "you"), costs });
+        list.push({ id: analyzer.id(at, "keyword"), you: analyzer.id(at, "you"), costs,
+          ...(keyword.keyword === "kicker" && isDeepStrictEqual(keyword.cost, [{ cost: "mana", symbols: ["X"] }])
+            ? { announcedX: analyzer.id(at, "announced-x") } : {}) });
         analyzer.kickers.set(analyzer.id(path, "face"), list);
       });
     });
