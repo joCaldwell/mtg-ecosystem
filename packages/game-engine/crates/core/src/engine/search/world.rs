@@ -375,6 +375,11 @@ impl SampleBuildWork {
                     phased_out: None,
                     attached_to: None,
                     attachment_timestamp: None,
+                    battlefield_entry_turn: row
+                        .visible
+                        .as_ref()
+                        .filter(|v| v.entered_this_turn)
+                        .map(|_| self.game.state.rules.turn.number),
                     keyword_timestamp: None,
                     plus_one_counters: Quantity::zero(),
                     deathtouch_damage: false,
