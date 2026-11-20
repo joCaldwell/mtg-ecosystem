@@ -56,7 +56,7 @@ impl<'a> LandSearch<'a> {
     }
 }
 impl Game {
-    fn land_search_for(&self, frame: &Resolving) -> Option<LandSearch<'_>> {
+    fn land_search_for<'a>(&'a self, frame: &'a Resolving) -> Option<LandSearch<'a>> {
         LandSearch::instruction(
             self.program_for(&frame.spell)
                 .ok()?
@@ -247,6 +247,12 @@ impl Game {
             }
     }
     pub(super) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
+        if !self
+            .targeting_characteristics(entry)
+            .is_ok_and(|source| !self.protected_from(object, source))
+        {
+            return false;
+        }
         match self
             .program_for(entry)
             .ok()

@@ -24,19 +24,16 @@ impl Game {
         }
         self.validate_cast_permission(player)?;
         let object = self.state.rules.objects.get(&card).ok_or("invalid cast")?;
+        let definition = self.definition(card)?;
         if !(object.zone == (Zone::Hand { owner: player })
             || (object.zone == (Zone::Command { owner: player })
                 && self.state.rules.commanders.history(card).is_some()))
             || self.state.rules.cards[&card].owner != player
-            || self.definition(card)?.spell.is_none()
+            || definition.spell.is_none()
         {
             return Err("invalid or unsupported cast".into());
         }
-        let program = self
-            .definition(card)?
-            .spell
-            .as_ref()
-            .ok_or("missing cast program")?;
+        let program = definition.spell.as_ref().ok_or("missing cast program")?;
         // CR 601.2/702.8a: only the permission authority supplies timing/zone
         // access. Global prohibitions still apply to every eventual authority.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -50,7 +47,7 @@ impl Game {
         {
             return Err("no payable sacrifice cost".into());
         }
-        if !self.has_target_domain(program, player) {
+        if !self.has_target_domain(program, player, &definition.characteristics) {
             return Err("no legal target for this proposal".into());
         }
         Ok(SpellAnnouncement {
@@ -145,6 +142,7 @@ impl Game {
             death_controller: None,
             sacrificed: None,
             sacrificed_set: vec![],
+            mode_subset: None,
             mode: None,
             effect_source_handles,
             source_facts: Some(self.object_before(source)?),
@@ -204,6 +202,7 @@ impl Game {
             .modes
             .is_empty()
             && stack.mode.is_none()
+            && stack.mode_subset.is_none()
         {
             return Ok(Frame::Modes { cast });
         }

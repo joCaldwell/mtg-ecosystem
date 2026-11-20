@@ -1,4 +1,6 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+pub mod commander_modal_keyword;
+pub use commander_modal_keyword::akromas_will_program;
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -45,6 +47,8 @@ mod artifact_modal;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
+mod set_exile;
+pub use set_exile::{SetExileClause, set_exile_modes};
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -62,8 +66,10 @@ mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
+mod keyword_removal_wipe;
 mod library_selection;
 mod nonland_exile_life;
+pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wipe_source};
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
@@ -183,6 +189,19 @@ pub struct ManaCost {
     pub generic: Quantity,
     pub colored: Vec<Color>,
 }
+impl ManaCost {
+    fn printed_fixed_cost(&self) -> String {
+        let mut text = String::new();
+        if self.generic != Quantity::zero() || self.colored.is_empty() {
+            text.push_str(&format!("{{{}}}", self.generic));
+        }
+        for color in &self.colored {
+            text.push_str(&format!("{{{color:?}}}"));
+        }
+        text
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -355,6 +374,7 @@ pub enum Capability {
     HandActivationV1,
     DiscardSourceCostV1,
     AnyDamageTargetV1,
+    RemoveIndestructibleV1,
     PlayerOrPlaneswalkerTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
@@ -371,6 +391,8 @@ pub enum Capability {
     SelfDiesV1,
     InterveningIfV1,
     ModalChoiceV1,
+    CommanderModalKeywordGrantV1,
+    NonemptyModeSubsetV1,
     DefenderV1,
     FlyingV1,
     ReachV1,
@@ -506,6 +528,8 @@ pub enum ObjectSet {
     NonlandPermanents,
     OpponentNonlandPermanents,
     Enchantments,
+    Artifacts,
+    GraveyardCards,
     AttackingCreatures,
     OpponentCreatures,
     FlyingCreatures,
@@ -671,6 +695,9 @@ impl CreatureToken {
             && self.subtypes.iter().any(|s| {
                 unsupported_rules_subtype(s) || matches!(s.as_str(), "Aura" | "Equipment")
             }))
+            || self
+                .keywords
+                .contains(&KeywordAbility::ProtectionFromEachColor)
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
@@ -764,6 +791,9 @@ pub enum Instruction {
     MoveSet {
         set: ObjectSet,
         action: SetMove,
+        source_block: u32,
+    },
+    RemoveOpponentNonlandIndestructible {
         source_block: u32,
     },
     DestroySet {
@@ -1155,6 +1185,7 @@ impl Instruction {
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
+            Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1470,6 +1501,7 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
+    OneOrMoreModes,
     Instructions,
     Permanent,
 }
@@ -2015,6 +2047,7 @@ pub enum KeywordAbility {
     #[serde(rename = "double strike")]
     DoubleStrike,
     Menace,
+    ProtectionFromEachColor,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -2034,6 +2067,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "first strike" => Ok(Self::FirstStrike),
             "double strike" => Ok(Self::DoubleStrike),
             "menace" => Ok(Self::Menace),
+            "protection_from_each_color" => Ok(Self::ProtectionFromEachColor),
             "hexproof" => Ok(Self::Hexproof),
             "shroud" => Ok(Self::Shroud),
 
@@ -2053,6 +2087,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "first strike",
                     "double strike",
                     "menace",
+                    "protection_from_each_color",
                     "hexproof",
                     "shroud",
                 ],
@@ -2131,6 +2166,7 @@ fn static_creature_modification_valid(
         || (*scope == CreatureScope::Enchanted && !aura)
         || (*scope == CreatureScope::Controller
             && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
+        || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -2509,7 +2545,7 @@ impl Definition {
             add_program_requirements(&mut set, &ability.program);
         }
         for keyword in &self.keywords {
-            set.insert(intrinsic_keyword_capability(*keyword));
+            set.extend(intrinsic_keyword_capability(*keyword));
         }
         for a in &self.static_abilities {
             if let StaticEffect::GrantSpellCascade {
@@ -2597,6 +2633,7 @@ impl Definition {
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
         artifact_modal::validate(self)?;
+        set_exile::validate(self)?;
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
@@ -2641,7 +2678,7 @@ impl Definition {
                     && (!matches!(
                         self.characteristics.kind,
                         CardKind::Instant | CardKind::Sorcery
-                    ) || !ordinary_keyword_grant(p))
+                    ) || !(ordinary_keyword_grant(p) || akromas_will_program(p)))
             })
         {
             return Err("unsupported complete temporary keyword definition".into());
@@ -2949,6 +2986,12 @@ impl Definition {
         {
             return Err("keywords require creature characteristics".into());
         }
+        if self
+            .keywords
+            .contains(&KeywordAbility::ProtectionFromEachColor)
+        {
+            return Err("protection from each color requires the commander modal grant".into());
+        }
         if self.keywords.contains(&KeywordAbility::Flash) && c.kind == CardKind::Land {
             return Err("flash on lands is outside supported casting semantics".into());
         }
@@ -2987,8 +3030,10 @@ impl Definition {
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
         own_graveyard_card_return::validate_definition(self)?;
+        commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
@@ -3817,12 +3862,18 @@ impl Definition {
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
                     || p.timing != cast_timing
-                    || p.resolution != SpellResolution::Instructions
+                    || !matches!(
+                        p.resolution,
+                        SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                    )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
                     return Err("invalid spell functioning zone or empty program".into());
                 }
-                validate_instruction_program(p)?;
+                // The closed modal grant was validated as a whole, including its protected child.
+                if !akromas_will_program(p) {
+                    validate_instruction_program(p)?;
+                }
             }
         }
         Ok(())
@@ -4394,7 +4445,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         if p.modes.len() < 2
             || !p.targets.is_empty()
             || !p.instructions.is_empty()
-            || p.resolution != SpellResolution::Instructions
+            || !matches!(
+                p.resolution,
+                SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+            )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
         }
@@ -4403,7 +4457,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             if !child.modes.is_empty()
                 || child.timing != p.timing
                 || child.functioning_zone != p.functioning_zone
-                || child.resolution != p.resolution
+                || child.resolution != SpellResolution::Instructions
                 || child.instructions.is_empty()
             {
                 return Err("nested, empty, or inconsistent modal program".into());
@@ -4492,6 +4546,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     for instruction in &p.instructions {
         let binding = match instruction {
             Instruction::MoveSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -5060,8 +5115,9 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|m| has_controller_discard(&m.program))
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
-fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Capability {
-    match keyword {
+fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
+    Some(match keyword {
+        KeywordAbility::ProtectionFromEachColor => return None,
         KeywordAbility::Flash => Capability::FlashV1,
         KeywordAbility::Defender => Capability::DefenderV1,
         KeywordAbility::Flying => Capability::FlyingV1,
@@ -5076,7 +5132,7 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Capability {
         KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
         KeywordAbility::Menace => Capability::MenaceV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
-    }
+    })
 }
 // One primitive mapping for targeted and set grants, including schema closure.
 fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Capability> {
@@ -5131,6 +5187,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if akromas_will_program(program) {
+            set.insert(Capability::CommanderModalKeywordGrantV1);
+        }
+        if program.resolution == SpellResolution::OneOrMoreModes {
+            set.insert(Capability::NonemptyModeSubsetV1);
+        }
         for mode in &program.modes {
             add_program_requirements(set, &mode.program);
         }
@@ -5241,6 +5303,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::RemoveOpponentNonlandIndestructible { .. } => {
+                Capability::RemoveIndestructibleV1
+            }
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -5733,7 +5798,10 @@ pub fn catalog_schema() -> serde_json::Value {
         .clone();
     for value in intrinsic_keywords {
         let keyword: KeywordAbility = serde_json::from_value(value.clone()).unwrap();
-        let capability = intrinsic_keyword_capability(keyword);
+        let Some(capability) = intrinsic_keyword_capability(keyword) else {
+            schema["$defs"]["Definition"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"const":value}}]});
+            continue;
+        };
         schema["$defs"]["Definition"].as_object_mut().unwrap()
             .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
             .push(serde_json::json!({
@@ -5746,7 +5814,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // separate battlefield grant to other controlled permanents.
     schema["$defs"]["CreatureToken"]["properties"]["additional_types"] = serde_json::json!({"type":"array","maxItems":1,"items":{"enum":["artifact","enchantment"]}});
     extend_multitype_token_schema(&mut schema);
-    schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
+    schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible","protection_from_each_color"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let permanent_grant_effect = serde_json::json!({
         "const": StaticEffect::GrantOtherControlledPermanentsIndestructible
@@ -5779,14 +5847,14 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
-            "properties":{"keywords":{"items":{"not":{"const":"flash"}}}},
+            "properties":{"keywords":{"items":{"not":{"enum":["flash","protection_from_each_color"]}}}},
             "if":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}},
             "then":{"properties":{"scope":{"const":"equipped"},"power":{"const":"0"},"toughness":{"const":"0"},"keywords":{"const":["indestructible"]},"restrictions":{"const":[]}}}
         }}}));
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible),{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
             serde_json::json!({"if":permanent_grant,"then":{"properties":{
                 "characteristics":{"properties":{"kind":{"const":"creature"}}},
                 "static_abilities":{"maxItems":1},"activated":{"maxItems":0},
@@ -5858,7 +5926,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
             "targets":{"maxItems":0},"instructions":{"maxItems":0},
-            "resolution":{"const":"instructions"},
+            "resolution":{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},
             "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
                 "modes":{"maxItems":0},"instructions":{"minItems":1},
                 "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
@@ -6413,7 +6481,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordAbility"}]}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
-        "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
+        "spell":{"anyOf":[{"$ref":"#/$defs/CommanderModalKeywordProgram"},{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}]}
     }}));
     // Optional fields deserialize null as None. Only a non-null cost/restriction
     // selects this family; a selected counter cost must then be a positive quantity.
@@ -6571,7 +6639,7 @@ pub fn catalog_schema() -> serde_json::Value {
     ]});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"anyOf":[set_grant_program,{"required":["instructions"],"properties":{"instructions":{"contains":controller_set}}}]},
-        "then":set_family_program
+        "then":{"anyOf":[set_family_program,{"$ref":"#/$defs/CommanderModalKeywordChild"}]}
     }));
     // Recursion fences every mode, trigger and activation as well as top-level spells.
     schema["$defs"]["KeywordGrantFreeProgram"]["properties"]["instructions"]["items"]["not"]["properties"]
@@ -6636,7 +6704,7 @@ pub fn catalog_schema() -> serde_json::Value {
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
         ]},"else":{"if":{"$ref":"#/$defs/HasActivatedSetKeyword"},
             "then":{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordDefinition"},
-            "else":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}}
+            "else":{"if":{"not":{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}},"then":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}}}
     }));
     sacrifice_set::schema(&mut schema);
     // Keep the Aura-control operation and capability paired with its complete
@@ -6775,6 +6843,7 @@ pub fn catalog_schema() -> serde_json::Value {
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     targeted_discard::extend_schema(&mut schema);
+    set_exile::extend_schema(&mut schema);
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
@@ -6788,6 +6857,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
@@ -6812,6 +6882,7 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    commander_modal_keyword::extend_schema(&mut schema);
     divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
@@ -7011,6 +7082,7 @@ mod tests {
             DiscardSourceCostV1,
             AnyDamageTargetV1,
             PlayerOrPlaneswalkerTargetV1,
+            RemoveIndestructibleV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
             LifeGainV1,
@@ -7032,6 +7104,8 @@ mod tests {
             SelfDiesV1,
             InterveningIfV1,
             ModalChoiceV1,
+            CommanderModalKeywordGrantV1,
+            NonemptyModeSubsetV1,
             DefenderV1,
             FlyingV1,
             ReachV1,
@@ -7177,6 +7251,52 @@ mod tests {
             token.toughness = 7.into();
         }
         creator.capabilities = creator.requirements();
+        let mut menu = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Sorcery
+                    && !d.x_mana_cost
+                    && d.keywords.is_empty()
+                    && d.triggered.is_empty()
+                    && d.static_abilities.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-open-mode-catalog.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        menu.source_labels = None;
+        assert_eq!(source["mana_cost"], "{0}");
+        menu.characteristics.mana_cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![],
+        };
+        menu.name = source["name"].as_str().unwrap().into();
+        menu.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        menu.provenance.printing_id = source["id"].as_str().unwrap().into();
+        menu.provenance.source_json = canonical(source).unwrap();
+        menu.provenance.source_sha256 = sha256(menu.provenance.source_json.as_bytes());
+        menu.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        menu.provenance.ast_sha256 =
+            sha256(format!("[{}]", menu.provenance.abilities_json).as_bytes());
+        let timing = if source["type_line"] == "Sorcery" {
+            menu.characteristics.kind = CardKind::Sorcery;
+            SpellTiming::MainPhase
+        } else {
+            menu.characteristics.kind = CardKind::Instant;
+            SpellTiming::Instant
+        };
+        menu.spell = Some(
+            set_exile_modes(source["oracle_text"].as_str().unwrap(), timing)
+                .unwrap()
+                .2,
+        );
+        menu.capabilities = menu.requirements();
+        definitions.push(menu);
         definitions.push(creator);
         // Synthetic complete typed control; exact frozen source is compiled
         // independently in compiler::ramos_m4e_tests.
@@ -7455,6 +7575,7 @@ mod tests {
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
         definitions.push(divided_plus_one_counters::witness());
+        definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
@@ -7690,6 +7811,12 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
+        let sweep = definitions
+            .iter()
+            .find(|d| d.name == "Planar Cleansing")
+            .unwrap()
+            .clone();
+        definitions.push(keyword_removal_wipe::witness(sweep));
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

@@ -154,6 +154,7 @@ impl Game {
             death_controller: None,
             sacrificed: None,
             sacrificed_set: vec![],
+            mode_subset: None,
             mode: None,
             effect_source_handles: vec![],
             source_facts: { Some(self.object_before(object)?) },

@@ -1252,6 +1252,7 @@ impl Game {
                         death_controller: trigger.death_controller,
                         sacrificed: None,
                         sacrificed_set: vec![],
+                        mode_subset: None,
                         mode: None,
                         effect_source_handles: vec![],
                         source_facts: Some(trigger.source_facts.clone()),
@@ -1327,7 +1328,7 @@ impl Game {
                 placement,
                 stack_id,
             } => {
-                if !self.has_target_domain(self.program()?, self.top()?.controller) {
+                if !self.top_has_target_domain()? {
                     self.state.rules.pending = None;
                     let top = self
                         .state

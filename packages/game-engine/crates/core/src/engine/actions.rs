@@ -128,12 +128,26 @@ impl Game {
             + entry.stack_targets.len()
             + entry.entity_targets.len()
     }
-    pub(super) fn has_target_domain(&self, program: &SpellProgram, player: PlayerId) -> bool {
+    pub(super) fn top_has_target_domain(&self) -> Result<bool, String> {
+        let top = self.top()?;
+        Ok(self.has_target_domain(
+            self.program_for(top)?,
+            top.controller,
+            self.targeting_characteristics(top)?,
+        ))
+    }
+
+    pub(super) fn has_target_domain(
+        &self,
+        program: &SpellProgram,
+        player: PlayerId,
+        source: &Characteristics,
+    ) -> bool {
         if !program.modes.is_empty() {
             return program
                 .modes
                 .iter()
-                .any(|mode| self.has_target_domain(&mode.program, player));
+                .any(|mode| self.has_target_domain(&mode.program, player, source));
         }
         match program.targets.first().map(|target| target.domain) {
             None => true,
@@ -150,12 +164,10 @@ impl Game {
             }
             Some(
                 TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
-            ) => self
-                .state
-                .rules
-                .objects
-                .values()
-                .any(|o| self.permanent_target_legal(o.id, player, &program.targets[0])),
+            ) => self.state.rules.objects.values().any(|o| {
+                !self.protected_from(o.id, source)
+                    && self.permanent_target_legal(o.id, player, &program.targets[0])
+            }),
             Some(
                 domain @ (TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard),
             ) => self
@@ -164,18 +176,20 @@ impl Game {
                 .objects
                 .values()
                 .any(|object| self.graveyard_target_legal(object, player, domain)),
-            Some(TargetDomain::BlockingBattlefieldCreature) => self
-                .state
-                .rules
-                .blocking_creatures
-                .iter()
-                .any(|o| self.is_blocking_creature(*o) && self.targetable_by(*o, player)),
+            Some(TargetDomain::BlockingBattlefieldCreature) => {
+                self.state.rules.blocking_creatures.iter().any(|o| {
+                    self.is_blocking_creature(*o)
+                        && self.targetable_by(*o, player)
+                        && !self.protected_from(*o, source)
+                })
+            }
             Some(
                 domain @ (TargetDomain::BattlefieldCreature
                 | TargetDomain::ControlledBattlefieldCreature),
             ) => self.state.rules.objects.values().any(|o| {
                 self.is_battlefield_creature(o.id)
                     && self.targetable_by(o.id, player)
+                    && !self.protected_from(o.id, source)
                     && (domain != TargetDomain::ControlledBattlefieldCreature
                         || o.controller == player)
             }),
@@ -186,7 +200,7 @@ impl Game {
             entry
                 .entity_targets
                 .iter()
-                .map(|t| self.entity_target_legal(*t, entry.controller))
+                .map(|t| self.entity_target_legal(*t, entry))
                 .collect()
         } else if !entry.stack_targets.is_empty() {
             entry
@@ -314,8 +328,8 @@ impl Game {
         ability: u32,
     ) -> Result<(), String> {
         let source = self.current(object)?;
-        let ability = self
-            .definition(object.card)?
+        let definition = self.definition(object.card)?;
+        let ability = definition
             .activated
             .get(ability as usize)
             .ok_or("unknown activated ability")?;
@@ -357,7 +371,7 @@ impl Game {
         {
             return Err("no payable sacrifice permanent".into());
         }
-        if !self.has_target_domain(&ability.program, player) {
+        if !self.has_target_domain(&ability.program, player, &definition.characteristics) {
             return Err("no eligible ability targets".into());
         }
         Ok(())
@@ -1005,6 +1019,7 @@ impl Game {
             | Instruction::MoveSet { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }

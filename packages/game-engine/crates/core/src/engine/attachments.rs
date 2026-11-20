@@ -131,6 +131,15 @@ impl Game {
                 .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
     }
     pub(super) fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
+        self.timestamped_static_modifications(target)
+            .into_iter()
+            .map(|(effect, _)| effect)
+            .collect()
+    }
+    fn timestamped_static_modifications(
+        &self,
+        target: ObjectId,
+    ) -> Vec<(&StaticEffect, Option<u64>)> {
         let Ok(permanent) = self.current(target) else {
             return vec![];
         };
@@ -153,7 +162,7 @@ impl Game {
                                     && o.id != target
                                     && o.controller == permanent.controller =>
                             {
-                                Some(&a.effect)
+                                Some((&a.effect, o.keyword_timestamp))
                             }
                             StaticEffect::ModifyCreatures { scope, .. }
                                 if creature
@@ -179,7 +188,7 @@ impl Game {
                                         }
                                     } =>
                             {
-                                Some(&a.effect)
+                                Some((&a.effect, o.keyword_timestamp))
                             }
                             _ => None,
                         })
@@ -192,7 +201,30 @@ impl Game {
             .definition(object.card)
             .map(|d| d.keywords.clone())
             .unwrap_or_default();
-        for effect in self.static_modifications(object) {
+        let present = self
+            .current(object)
+            .is_ok_and(|o| o.zone == Zone::Battlefield);
+        let latest_removal = present
+            .then(|| {
+                self.state
+                    .rules
+                    .effects
+                    .iter()
+                    .filter_map(|effect| match &effect.kind {
+                        ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp }
+                            if targets.contains(&object) =>
+                        {
+                            Some((effect.id, *timestamp))
+                        }
+                        _ => None,
+                    })
+                    .max()
+            })
+            .flatten();
+        if latest_removal.is_some() {
+            keywords.retain(|keyword| *keyword != KeywordAbility::Indestructible);
+        }
+        for (effect, timestamp) in self.timestamped_static_modifications(object) {
             let grants: &[KeywordAbility] = match effect {
                 StaticEffect::ModifyCreatures {
                     keywords: grants, ..
@@ -203,6 +235,12 @@ impl Game {
                 _ => continue,
             };
             for keyword in grants {
+                if *keyword == KeywordAbility::Indestructible
+                    && latest_removal
+                        .is_some_and(|(_, removed_at)| timestamp.unwrap_or(0) <= removed_at)
+                {
+                    continue;
+                }
                 if !keywords.contains(keyword) {
                     keywords.push(*keyword);
                 }
@@ -230,6 +268,11 @@ impl Game {
             };
             if let Some(grants) = grants {
                 for keyword in grants {
+                    if *keyword == KeywordAbility::Indestructible
+                        && latest_removal.is_some_and(|(removed_id, _)| effect.id <= removed_id)
+                    {
+                        continue;
+                    }
                     if !keywords.contains(keyword) {
                         keywords.push(*keyword);
                     }
@@ -254,11 +297,16 @@ impl Game {
                         && self.has_keyword(object, KeywordAbility::Hexproof)))
         })
     }
-    pub(super) fn entity_target_legal(&self, target: TargetEntity, controller: PlayerId) -> bool {
+    pub(super) fn entity_target_legal(&self, target: TargetEntity, entry: &StackInstance) -> bool {
         self.entity_legal(target)
             && match target {
                 TargetEntity::Player { .. } => true,
-                TargetEntity::Object { object } => self.targetable_by(object, controller),
+                TargetEntity::Object { object } => {
+                    self.targetable_by(object, entry.controller)
+                        && self
+                            .targeting_characteristics(entry)
+                            .is_ok_and(|source| !self.protected_from(object, source))
+                }
             }
     }
     pub(super) fn attachment_sbas(
@@ -272,7 +320,8 @@ impl Game {
             .values()
             .filter(|o| o.zone == Zone::Battlefield)
         {
-            let subtypes = &self.definition(o.id.card)?.characteristics.subtypes;
+            let source = &self.definition(o.id.card)?.characteristics;
+            let subtypes = &source.subtypes;
             let legal = match o.attached_to {
                 Some(target) => {
                     target != o.id
@@ -280,6 +329,7 @@ impl Game {
                             t.zone == Zone::Battlefield && self.is_live(t.controller)
                         })
                         && self.attachment_target_type_valid(o.id.card, target.card)?
+                        && !self.protected_from(target, source)
                 }
                 None => false,
             };

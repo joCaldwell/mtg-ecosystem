@@ -384,7 +384,7 @@ fn search_spool_every_prefix_and_result_matches_full_old_vec_and_generic_actual_
         scratch(&directory, &mut reference, &work.data).unwrap();
         if reference.history.len() == 1 || (reference.history.len() == 2 && checkpoints == 1) {
             let saved = game.save_work(&work).unwrap();
-            let meta = serde_json::json!({"work_version":31,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":game.state_digest().unwrap(),"data":reference.data().unwrap()});
+            let meta = serde_json::json!({"work_version":33,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":game.state_digest().unwrap(),"data":reference.data().unwrap()});
             assert_eq!(
                 bytes(
                     |out| replaced(&meta, &["data", "task", "history"], out, &mut |out| {
@@ -413,7 +413,7 @@ fn search_spool_every_prefix_and_result_matches_full_old_vec_and_generic_actual_
                 let Query::Search { sampling_seed, .. } = &query else {
                     unreachable!()
                 };
-                let full = serde_json::json!({"context":OldContext {context_version:31,observation:reference.observation.as_deref().unwrap(),permitted_history:&old,open_decklists:&reference.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}});
+                let full = serde_json::json!({"context":OldContext {context_version:33,observation:reference.observation.as_deref().unwrap(),permitted_history:&old,open_decklists:&reference.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}});
                 let old_meta = reference.result(&game).unwrap();
                 let new_meta = actual_result(&context).unwrap();
                 let expected = canonical(&full).unwrap();

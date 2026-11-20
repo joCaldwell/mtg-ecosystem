@@ -98,6 +98,8 @@ pub enum EventGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectBefore {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1005,7 +1007,8 @@ impl Game {
                         stack.insert(effect.origin.stack_id);
                     }
                     match &effect.kind {
-                        ResolvedEffectKind::PumpSet { targets, .. }
+                        ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
+                        | ResolvedEffectKind::PumpSet { targets, .. }
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
@@ -1293,6 +1296,7 @@ impl Game {
             .map(|object| {
                 let o = self.current(object)?;
                 Ok(ObjectBefore {
+                    keyword_timestamp: o.keyword_timestamp,
                     keywords: { self.current_keywords(object) },
                     deathtouch_damage: o.deathtouch_damage,
                     object,
@@ -1939,6 +1943,8 @@ impl Game {
             Object {
                 attached_to: None,
                 attachment_timestamp: None,
+                keyword_timestamp: (*destination == Zone::Battlefield)
+                    .then_some(self.state.rules.next_batch_id),
                 plus_one_counters: Quantity::zero(),
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
@@ -2107,6 +2113,7 @@ impl Game {
                         .current(*target)
                         .is_ok_and(|o| self.is_live(o.controller))
                     || !self.targetable_by(*target, source.controller)
+                    || self.protected_from(*target, &definition.characteristics)
                 {
                     return Err("invalid attached Aura entry".into());
                 }
@@ -2144,6 +2151,8 @@ impl Game {
                                 o.zone == Zone::Battlefield && self.is_live(o.controller)
                             })
                             && self.attachment_target_type_valid(object.card, t.card)?
+                            && !self
+                                .protected_from(*t, &self.definition(object.card)?.characteristics)
                     }
                     None => true,
                 };
@@ -2174,6 +2183,9 @@ impl Game {
                 if previous != *target {
                     o.attached_to = *target;
                     o.attachment_timestamp = allocation.map(|(timestamp, _)| timestamp);
+                    if target.is_some() {
+                        o.keyword_timestamp = Some(self.state.rules.next_batch_id);
+                    }
                     if let Some((_, next)) = allocation {
                         self.state.rules.next_attachment_timestamp = next;
                     }
@@ -2896,6 +2908,10 @@ impl Game {
                 DamageRecipient::Creature { object } => {
                     if !self.is_battlefield_creature(object) {
                         return Err("invalid creature damage recipient".into());
+                    }
+                    if self.protected_from(object, &self.definition(d.source.card)?.characteristics)
+                    {
+                        return Err("protection requires the damage transaction".into());
                     }
                     (1, object.card.0)
                 }

@@ -107,6 +107,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
         death_controller: None,
         sacrificed: None,
         sacrificed_set: vec![],
+        mode_subset: None,
         mode: None,
         effect_source_handles: g.capture_trigger_source_handles(source).unwrap(),
         source_facts: None,
@@ -209,7 +210,7 @@ fn permanent_target_kernel_control_type_zone_incarnation_targetability_and_prefl
     let (g, _, _) = kernel(PAIR, 1);
     let entry = frame(&g).spell;
     let p = g.program_for(&entry).unwrap();
-    assert!(g.has_target_domain(p, PlayerId(0)));
+    assert!(g.has_target_domain(p, PlayerId(0), g.targeting_characteristics(&entry).unwrap()));
     for id in [1, 2, 4] {
         assert!(g.object_target_legal(&entry, object(&g, id)));
     }
