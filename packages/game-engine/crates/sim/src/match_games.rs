@@ -122,6 +122,11 @@ impl Strategy<'_> {
                 return Err("counter placement replacement choices outside this policy".into());
             }
 
+            PlayerRequest::HandCast { candidates, .. } => candidates
+                .first()
+                .cloned()
+                .map(|card| PlayerResponse::Cast { card })
+                .unwrap_or(PlayerResponse::Pass),
             PlayerRequest::HandReturn { .. }
             | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }

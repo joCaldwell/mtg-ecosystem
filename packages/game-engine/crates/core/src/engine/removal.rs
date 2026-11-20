@@ -23,6 +23,7 @@ impl Game {
     fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
         match frame {
             Frame::RevealAndCast { progress } => Some(&mut progress.frame),
+            Frame::HandCast { frame, .. } => Some(frame.as_mut()),
             Frame::Cascade { progress }
             | Frame::LandEntry {
                 origin: EntryOrigin::Cascade { progress },
@@ -87,7 +88,7 @@ impl Game {
                     } else {
                         entry.targets.get(slot).is_some_and(|id| {
                             self.current(*id)
-                                .is_ok_and(|object| object.zone == Zone::Battlefield)
+                                .is_ok_and(|object| object.present_on_battlefield())
                         })
                     }
             })
@@ -112,7 +113,7 @@ impl Game {
         f: &PermanentFilter,
     ) -> bool {
         self.current(object).is_ok_and(|o| {
-            o.zone == Zone::Battlefield
+            o.present_on_battlefield()
                 && (!f.opponent || o.controller != controller)
                 && (!f.tapped || o.tapped)
         }) && self.definition(object.card).is_ok_and(|d| {

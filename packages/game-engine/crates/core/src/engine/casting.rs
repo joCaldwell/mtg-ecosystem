@@ -40,15 +40,10 @@ impl Game {
         if program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
-        if program
-            .additional_sacrifice
-            .as_ref()
-            .is_some_and(|filter| self.sacrifice_candidates(player, filter).is_empty())
+        if let Some(reason) =
+            self.spell_proposal_obstacle(program, player, &definition.characteristics)
         {
-            return Err("no payable sacrifice cost".into());
-        }
-        if !self.has_target_domain(program, player, &definition.characteristics) {
-            return Err("no legal target for this proposal".into());
+            return Err(reason.into());
         }
         Ok(SpellAnnouncement {
             player,
@@ -56,6 +51,28 @@ impl Game {
             cast_from: object.zone,
             completion: CastCompletion::Priority,
         })
+    }
+
+    // Priority and resolution permissions differ on timing and origin. Once
+    // those are established, target and mandatory sacrifice availability are
+    // properties of the same proposed spell.
+    pub(super) fn spell_proposal_obstacle(
+        &self,
+        program: &SpellProgram,
+        player: PlayerId,
+        source: &Characteristics,
+    ) -> Option<&'static str> {
+        if program
+            .additional_sacrifice
+            .as_ref()
+            .is_some_and(|filter| self.sacrifice_candidates(player, filter).is_empty())
+        {
+            return Some("no payable sacrifice cost");
+        }
+        if !self.has_target_domain(program, player, source) {
+            return Some("no legal target for this proposal");
+        }
+        None
     }
 
     pub(super) fn validate_priority_spell_cast(
@@ -91,6 +108,23 @@ impl Game {
         })
     }
 
+    pub(super) fn announce_combat_hand_spell(
+        &mut self,
+        frame: Box<Resolving>,
+        object: ObjectId,
+    ) -> Result<(), String> {
+        let player = frame.spell.controller;
+        if !self.hand_cast_candidates(&frame)?.contains(&object) {
+            return Err("unavailable hand spell".into());
+        }
+        self.begin_spell_announcement(SpellAnnouncement {
+            player,
+            original_object: object,
+            cast_from: Zone::Hand { owner: player },
+            completion: CastCompletion::HandTrigger { frame },
+        })
+    }
+
     // CR 601.2a-i: one proposal constructor owns the move, fresh stack identity
     // and unfinished payment marker. No cast occurrence is emitted here.
     fn begin_spell_announcement(&mut self, announcement: SpellAnnouncement) -> Result<(), String> {
@@ -104,6 +138,7 @@ impl Game {
         self.check_stack_capacity(1)?;
         let alternative_cost = match &completion {
             CastCompletion::Priority => None,
+            CastCompletion::HandTrigger { .. } => Some(cascade::AlternativeCost::WithoutManaCost),
             CastCompletion::Resolution { permission, .. } => Some(permission.alternative_cost),
         };
         let total_cost = match alternative_cost {
@@ -113,6 +148,13 @@ impl Game {
             }
         };
         let id = StackId(self.state.rules.next_stack_id);
+        let hand_cast_permission =
+            match &completion {
+                CastCompletion::HandTrigger { frame } => Some(Box::new(
+                    self.hand_cast_permission(frame, original_object, id)?,
+                )),
+                _ => None,
+            };
         self.state.rules.next_stack_id = self
             .state
             .rules
@@ -136,6 +178,7 @@ impl Game {
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost,
+            hand_cast_permission,
             x: (alternative_cost.is_some() && self.definition(card)?.x_mana_cost)
                 .then(Quantity::zero),
             death_controller: None,
@@ -250,7 +293,7 @@ impl Game {
     }
     pub(super) fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
         for source in self.state.rules.objects.values().filter(|o| {
-            o.zone == Zone::Battlefield
+            o.present_on_battlefield()
                 && o.controller == self.state.rules.turn_owner
                 && o.controller != player
         }) {
@@ -366,7 +409,7 @@ impl Game {
                     continue;
                 }
                 let source = match self.current(receipt.object) {
-                    Ok(o) if o.zone == Zone::Battlefield && o.tapped => Some(o.id),
+                    Ok(o) if o.present_on_battlefield() && o.tapped => Some(o.id),
                     Ok(_) => return Err("casting reversal source changed unexpectedly".into()),
                     Err(_) if !self.is_live(self.state.rules.cards[&receipt.object.card].owner) => {
                         None
@@ -420,6 +463,7 @@ impl Game {
         };
         self.state.rules.frame = match cast.completion {
             CastCompletion::Priority => Frame::Priority,
+            CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
             CastCompletion::Resolution {
                 permission,
                 progress,

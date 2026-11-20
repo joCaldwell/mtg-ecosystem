@@ -142,12 +142,18 @@ impl Game {
     }
 
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
-        let during_resolution = matches!(cast.completion, CastCompletion::Resolution { .. });
+        let during_resolution = !matches!(cast.completion, CastCompletion::Priority);
         match self.pay_announcement_costs(&cast)? {
             AnnouncementPayment::Completed(completed) => match cast.completion {
                 CastCompletion::Priority => {
                     self.state.rules.priority = completed.controller;
                     self.state.rules.frame = Frame::Priority;
+                }
+                CastCompletion::HandTrigger { frame } => {
+                    self.state.rules.frame = Frame::HandCast {
+                        frame,
+                        child: Some(completed.stack_id),
+                    };
                 }
                 CastCompletion::Resolution {
                     permission,
@@ -192,6 +198,7 @@ impl Game {
         cast: &Casting,
     ) -> Result<AnnouncementPayment, String> {
         let stack = self.top()?.clone();
+        self.validate_hand_cast_child(&stack)?;
         self.validate_cost_lock(&stack)?;
         self.validate_additional_cost_entry(&stack)?;
         if stack.id != cast.stack_id

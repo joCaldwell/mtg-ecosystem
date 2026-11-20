@@ -160,12 +160,19 @@ impl Game {
         }
         match program.targets.first().map(|target| target.domain) {
             None => true,
+            Some(TargetDomain::AnyDamageTarget) => {
+                self.live_players()
+                    .into_iter()
+                    .any(|p| self.targetable_player(p))
+                    || self.state.rules.objects.values().any(|o| {
+                        self.is_battlefield_creature(o.id) && !self.protected_from(o.id, source)
+                    })
+            }
             Some(
-                TargetDomain::AnyDamageTarget
-                | TargetDomain::AnyPlayer
-                | TargetDomain::PlayerOrPlaneswalker,
-            ) => !self.live_players().is_empty(),
-            Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
+                domain @ (TargetDomain::AnyPlayer
+                | TargetDomain::PlayerOrPlaneswalker
+                | TargetDomain::OpponentPlayer),
+            ) => !self.eligible_players(domain, player).is_empty(),
             Some(
                 TargetDomain::StackSpell
                 | TargetDomain::ControlledCreatureSpell
@@ -347,7 +354,7 @@ impl Game {
         if !self.is_live(player)
             || match ability.functioning_zone {
                 FunctioningZone::Battlefield => {
-                    source.zone != Zone::Battlefield || source.controller != player
+                    !source.present_on_battlefield() || source.controller != player
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
                 FunctioningZone::Stack => true,
@@ -1066,6 +1073,13 @@ impl Game {
             Instruction::RevealAndCast { source_block } => {
                 self.begin_library_shuffle(frame, source_block)
             }
+            Instruction::OfferHandCastWithoutManaCost { .. } => {
+                self.state.rules.frame = Frame::HandCast {
+                    frame: Box::new(frame),
+                    child: None,
+                };
+                Ok(())
+            }
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,
@@ -1111,6 +1125,34 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
+            Instruction::FreezeControllerLifeUntilNextTurn { source_block } => {
+                let actual = self.commit(
+                    ProposedEvent::FreezeLifeUntilNextTurn {
+                        player: frame.spell.controller,
+                    },
+                    Self::wipe_cause(&frame, source_block),
+                )?;
+                self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    },
+                )
+            }
+            Instruction::PhaseOutControllerPermanents { source_block } => {
+                let actual = self.commit(
+                    ProposedEvent::PhaseOutControlled {
+                        controller: frame.spell.controller,
+                    },
+                    Self::wipe_cause(&frame, source_block),
+                )?;
+                self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    },
+                )
+            }
             i @ (Instruction::UntapControllerLands { .. }
             | Instruction::ExileTargetGraveyard { .. }
             | Instruction::MoveSet { .. }
@@ -1179,6 +1221,7 @@ impl Game {
             }
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
+            | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),

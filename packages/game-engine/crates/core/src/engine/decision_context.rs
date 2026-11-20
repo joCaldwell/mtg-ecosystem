@@ -214,6 +214,7 @@ impl Game {
             (Frame::RevealAndCast { progress }, PlayerRequest::OptionalEffect { .. }) => {
                 &progress.frame.spell
             }
+            (Frame::HandCast { frame, .. }, PlayerRequest::HandCast { .. }) => &frame.spell,
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
