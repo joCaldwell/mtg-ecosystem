@@ -61,7 +61,7 @@ bestow transitions and Thunder’s chapters.
 
 ### M10 Complete phasing and remaining effects
 
-Teferi and Archangel have paid witnesses. Complete Coalition's repeated modes and Progenitus replacement.
+Teferi, Archangel and Progenitus have paid witnesses. Complete Coalition’s repeated modes.
 
 ### M11 Qualify the exact deck and host it
 
