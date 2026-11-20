@@ -366,6 +366,7 @@ impl SampleBuildWork {
             self.game.state.rules.objects.insert(
                 id,
                 Object {
+                    phased_out: None,
                     attached_to: None,
                     attachment_timestamp: None,
                     plus_one_counters: Quantity::zero(),

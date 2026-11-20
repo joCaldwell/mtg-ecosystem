@@ -314,7 +314,7 @@ impl Game {
         if !self.is_live(player)
             || match ability.functioning_zone {
                 FunctioningZone::Battlefield => {
-                    source.zone != Zone::Battlefield || source.controller != player
+                    !source.present_on_battlefield() || source.controller != player
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
                 FunctioningZone::Stack => true,

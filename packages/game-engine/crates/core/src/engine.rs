@@ -23,8 +23,8 @@ pub use match_admission::*;
 mod commander_policy;
 mod optional_costs;
 mod phasing;
-pub use phasing::{PhaseReturn, PhasingSchedule};
 pub use commander_policy::policy_digest;
+pub use phasing::{PhaseReturn, PhasingSchedule};
 #[cfg(test)]
 mod activated_permanent_return_tests;
 #[cfg(test)]
@@ -874,6 +874,8 @@ struct Card {
 #[serde(deny_unknown_fields)]
 struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    phased_out: Option<PhaseReturn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     attached_to: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachment_timestamp: Option<u64>,
@@ -888,6 +890,11 @@ struct Object {
     default_controller: PlayerId,
     zone: Zone,
     tapped: bool,
+}
+impl Object {
+    fn present_on_battlefield(&self) -> bool {
+        self.zone == Zone::Battlefield && self.phased_out.is_none()
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2281,6 +2288,7 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
                         plus_one_counters: Quantity::zero(),
@@ -2508,7 +2516,7 @@ impl Game {
             .ok_or_else(|| "stale or absent object incarnation".into())
     }
     fn is_battlefield_creature(&self, id: ObjectId) -> bool {
-        self.current(id).is_ok_and(|o| o.zone == Zone::Battlefield)
+        self.current(id).is_ok_and(|o| o.present_on_battlefield())
             && self
                 .characteristics(id)
                 .is_ok_and(|c| c.kind == CardKind::Creature)
@@ -3427,6 +3435,17 @@ impl Game {
     }
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
+        if self
+            .state
+            .rules
+            .objects
+            .values()
+            .any(|object| object.phased_out.is_some())
+        {
+            return Err(
+                "phasing restoration requires executable source and replay authority".into(),
+            );
+        }
         let s = &self.state;
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.

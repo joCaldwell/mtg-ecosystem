@@ -374,7 +374,7 @@ impl Game {
             .mana_abilities
             .get(index as usize)
             .ok_or("missing mana ability")?;
-        if o.zone != Zone::Battlefield
+        if !o.present_on_battlefield()
             || o.controller != player
             || !self.is_live(player)
             || (a.costs.tap && o.tapped)
@@ -711,7 +711,7 @@ impl Game {
         cause: BatchCause,
     ) -> Result<(), String> {
         let o = self.current(source)?;
-        if o.zone != Zone::Battlefield || o.controller != player || (costs.tap && o.tapped) {
+        if !o.present_on_battlefield() || o.controller != player || (costs.tap && o.tapped) {
             return Err("permanent cost source changed".into());
         }
         if costs
@@ -912,6 +912,7 @@ impl Game {
                 self.state.rules.objects.insert(
                     r.source.object.card,
                     Object {
+                        phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
                         id: r.source.object,

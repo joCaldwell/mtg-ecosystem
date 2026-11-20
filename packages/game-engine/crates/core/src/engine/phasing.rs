@@ -10,7 +10,8 @@ pub struct PhasingSchedule {
     members: BTreeMap<ObjectId, PhaseReturn>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum PhaseReturn {
     Direct { controller_at_phase_out: PlayerId },
     Indirect { attached_to: ObjectId },
@@ -139,6 +140,61 @@ impl PhasingSchedule {
     }
 }
 
+impl Game {
+    fn installed_phasing(&self) -> PhasingSchedule {
+        PhasingSchedule {
+            members: self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter_map(|o| o.phased_out.map(|status| (o.id, status)))
+                .collect(),
+        }
+    }
+
+    // No source may emit this transition until the remaining consumers and
+    // replay boundary accept its status. One rules operation updates the set.
+    #[allow(dead_code)]
+    fn phase_out_controller_permanents(
+        &mut self,
+        controller: PlayerId,
+    ) -> Result<Vec<ObjectId>, String> {
+        let mut schedule = self.installed_phasing();
+        let ids = schedule.phase_out_controlled(self, controller)?;
+        for &id in &ids {
+            self.state
+                .rules
+                .objects
+                .get_mut(&id.card)
+                .unwrap()
+                .phased_out = schedule.return_condition(id);
+            self.remove_from_combat(id);
+        }
+        self.reconcile_controllers()?;
+        Ok(ids)
+    }
+
+    pub(super) fn phase_in_for_next_untap(
+        &mut self,
+        previous_owner: PlayerId,
+    ) -> Result<(), String> {
+        let mut schedule = self.installed_phasing();
+        if schedule.members.is_empty() {
+            return Ok(());
+        }
+        for id in schedule.phase_in_at_untap(self, previous_owner)? {
+            self.state
+                .rules
+                .objects
+                .get_mut(&id.card)
+                .unwrap()
+                .phased_out = None;
+        }
+        self.reconcile_controllers()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +250,15 @@ mod tests {
         );
         assert_eq!(schedule.phase_in_at_untap(&game, PlayerId(3)).unwrap(), ids);
         assert_eq!(game.state, before);
+        assert_eq!(
+            game.phase_out_controller_permanents(PlayerId(0)).unwrap(),
+            ids
+        );
+        assert_eq!(game.zone(bear), Some(Zone::Battlefield));
+        assert!(!game.current(bear).unwrap().present_on_battlefield());
+        assert_eq!(game.current(plate).unwrap().attached_to, Some(bear));
+        game.phase_in_for_next_untap(PlayerId(3)).unwrap();
+        assert!(game.current(bear).unwrap().present_on_battlefield());
+        assert_eq!(game.current(plate).unwrap().attached_to, Some(bear));
     }
 }

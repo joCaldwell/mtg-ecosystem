@@ -125,7 +125,7 @@ impl Game {
 
     pub(super) fn target_is_creature(&self, object: ObjectId) -> bool {
         self.current(object)
-            .is_ok_and(|o| o.zone == Zone::Battlefield)
+            .is_ok_and(|o| o.present_on_battlefield())
             && self
                 .definition(object.card)
                 .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
@@ -134,7 +134,7 @@ impl Game {
         let Ok(permanent) = self.current(target) else {
             return vec![];
         };
-        if permanent.zone != Zone::Battlefield {
+        if !permanent.present_on_battlefield() {
             return vec![];
         }
         let creature = self.target_is_creature(target);
@@ -142,7 +142,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
             .flat_map(|o| {
                 self.definition(o.id.card).into_iter().flat_map(move |d| {
                     d.static_abilities
@@ -222,7 +222,7 @@ impl Game {
                 } if targets.contains(&object)
                     && self
                         .current(object)
-                        .is_ok_and(|o| o.zone == Zone::Battlefield) =>
+                        .is_ok_and(|o| o.present_on_battlefield()) =>
                 {
                     Some(keywords)
                 }
@@ -247,8 +247,11 @@ impl Game {
     }
     pub(super) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
         // CR 702.11b/18a apply only while the ability functions on battlefield.
+        if self.current(object).is_ok_and(|o| o.phased_out.is_some()) {
+            return false;
+        }
         !self.current(object).is_ok_and(|o| {
-            o.zone == Zone::Battlefield
+            o.present_on_battlefield()
                 && (self.has_keyword(object, KeywordAbility::Shroud)
                     || (o.controller != controller
                         && self.has_keyword(object, KeywordAbility::Hexproof)))
@@ -270,15 +273,15 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
         {
             let subtypes = &self.definition(o.id.card)?.characteristics.subtypes;
             let legal = match o.attached_to {
                 Some(target) => {
                     target != o.id
-                        && self.current(target).is_ok_and(|t| {
-                            t.zone == Zone::Battlefield && self.is_live(t.controller)
-                        })
+                        && self
+                            .current(target)
+                            .is_ok_and(|t| t.present_on_battlefield() && self.is_live(t.controller))
                         && self.attachment_target_type_valid(o.id.card, target.card)?
                 }
                 None => false,
@@ -324,7 +327,7 @@ impl Game {
                     && self.object_target_legal(&frame.spell, target)
                     && self
                         .current(object)
-                        .is_ok_and(|o| o.zone == Zone::Battlefield && o.attached_to != Some(target))
+                        .is_ok_and(|o| o.present_on_battlefield() && o.attached_to != Some(target))
                 {
                     self.commit(
                         ProposedEvent::Attach {

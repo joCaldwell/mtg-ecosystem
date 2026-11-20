@@ -173,6 +173,8 @@ impl Game {
             return Err("unsupported phase transition boundary".into());
         }
         let (next, owner) = self.next_turn_state()?;
+        let upcoming_untap = next.step == TurnStep::Untap;
+        let previous_owner = self.state.rules.turn_owner;
         let mut children = self
             .live_players()
             .into_iter()
@@ -187,6 +189,9 @@ impl Game {
             BatchCause::TurnProgression,
             EventGroup::Ordered { children },
         )?;
+        if upcoming_untap {
+            self.phase_in_for_next_untap(previous_owner)?;
+        }
         self.state.rules.passes.clear();
         self.state.rules.cleanup_repeat = false;
         self.state.rules.frame = Frame::EnterStep;
@@ -242,7 +247,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && self.is_live(o.controller))
+            .filter(|o| o.present_on_battlefield() && self.is_live(o.controller))
         {
             let controlled = source.controller == player;
             for ability in &self.definition(source.id.card)?.static_abilities {
@@ -289,7 +294,7 @@ impl Game {
                     .objects
                     .values()
                     .filter(|object| {
-                        object.zone == Zone::Battlefield
+                        object.present_on_battlefield()
                             && object.tapped
                             && Some(object.controller) == self.state.rules.active
                     })

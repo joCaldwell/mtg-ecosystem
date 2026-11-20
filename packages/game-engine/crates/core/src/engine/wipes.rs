@@ -13,7 +13,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
             .filter(|o| {
                 let Ok(d) = self.definition(o.id.card) else {
                     return false;
@@ -124,7 +124,7 @@ impl Game {
         let mut destroyed_creatures = 0;
         let occurrences = objects
             .into_iter()
-            .filter(|o| self.current(*o).is_ok_and(|o| o.zone == Zone::Battlefield))
+            .filter(|o| self.current(*o).is_ok_and(|o| o.present_on_battlefield()))
             .map(|object| {
                 let owner = self.state.rules.cards[&object.card].owner;
                 match action {
@@ -340,7 +340,7 @@ impl Game {
             Instruction::UntapControllerLands { source_block } => {
                 let mut occurrences = Vec::new();
                 for object in self.state.rules.objects.values() {
-                    if object.zone == Zone::Battlefield
+                    if object.present_on_battlefield()
                         && object.tapped
                         && object.controller == frame.spell.controller
                         && self
