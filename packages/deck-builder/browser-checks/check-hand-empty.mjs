@@ -62,7 +62,14 @@ try{
   const openingRules=await picked.locator(rules).boundingBox();assert(openingRules&&openingRules.y>=identity.y+identity.height-1,'native card focus shows the rules preview below the identity');
   const headers=await hand.locator('[data-object-id] > header').evaluateAll(nodes=>nodes.map(h=>{const rect=h.getBoundingClientRect(),type=h.querySelector('[class*="_type_"]').getBoundingClientRect(),style=getComputedStyle(h);return {fullIdentity:type.bottom<=rect.bottom+1,background:style.backgroundColor,opaque:!style.backgroundColor.startsWith('rgba('),opacity:style.opacity,shrink:style.flexShrink};}));
   assert(headers.every(h=>h.fullIdentity&&h.opaque&&h.opacity==='1'&&h.shrink==='0'),'every hand identity retains full type height and an opaque background over scrolled rules');
-  await shoot(page,join(out,`selected-identity-${width}.png`),{full:false});await picked.press('Shift+F10');await page.getByRole('menu').waitFor();await page.keyboard.press('Escape');await settle(page,watch);assert.equal((await axe(page)).length,0);assert.equal(watch.errors.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await shoot(page,join(out,`selected-identity-${width}.png`),{full:false});
+  const cardMenu = page.getByRole('menu');
+  await picked.click({button: 'right'});
+  await cardMenu.getByRole('menuitem', {name: 'Move to battlefield', exact: true}).hover({timeout: 3000});
+  await page.keyboard.press('Escape');
+  await cardMenu.waitFor({state: 'hidden'});
+  assert.ok(await picked.evaluate(el => el === document.activeElement));
+  await picked.press('Shift+F10');await cardMenu.waitFor();await page.keyboard.press('Escape');await settle(page,watch);assert.equal((await axe(page)).length,0);assert.equal(watch.errors.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   results.push({width,geometry,forward_clicks:forward,playing_moves:playingMoves,all_seven_cards_visible:true,scroll_is_presentation_only:true,native_enter_space:true,selection_and_menu_preserved:true,rules_preview_and_full_inspection:true,axe:0,overflow:false});await context.close();
   const empty=await newContext(browser,{origin,vp:VIEWPORTS[width],user:2,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}}),p=await empty.newPage(),w=watchPage(p);
   await p.goto(origin+'/inbox');await settle(p,w);await p.getByRole('heading',{name:'Nothing is waiting on you',level:2}).waitFor();assert.equal(await p.locator('[class*="_split_"]').count(),0);

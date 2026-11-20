@@ -13,6 +13,8 @@ export interface PopoverProps extends Omit<HTMLAttributes<HTMLDivElement>, "chil
   align?: "start" | "end";
   /** Never narrower than the anchor, as a dropdown under its trigger. */
   fitAnchor?: boolean;
+  /** Use the app's outside-press and Escape handling even in the native top layer. */
+  manualDismiss?: boolean;
   children: ReactNode;
 }
 
@@ -24,6 +26,7 @@ export function Popover({
   placement = "below",
   align = "start",
   fitAnchor = false,
+  manualDismiss = false,
   children,
   className,
   onKeyDown,
@@ -37,7 +40,7 @@ export function Popover({
   // label forwards its click and reopening the controlled dropdown. Retain
   // manual dismissal for labelled controls while still using the top layer.
   const labelledAnchor = typeof HTMLButtonElement !== "undefined" && anchor instanceof HTMLButtonElement && !!anchor.labels?.length;
-  const nativeDismiss = nativePopover && !labelledAnchor && typeof ToggleEvent !== "undefined" && "source" in ToggleEvent.prototype;
+  const nativeDismiss = nativePopover && !manualDismiss && !labelledAnchor && typeof ToggleEvent !== "undefined" && "source" in ToggleEvent.prototype;
   const anchored = nativePopover && typeof CSS !== "undefined" && CSS.supports("position-area: block-end");
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const closeRef = useRef(onClose);

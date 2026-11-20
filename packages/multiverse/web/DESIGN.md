@@ -196,6 +196,7 @@ or about this app.
   Portals inside dialogs stay in that dialog's DOM/inertness boundary. Synchronize
   native dismissal with controlled state. Nested Escape dismisses only the active
   overlay; screen hotkeys defer. Labelled triggers keep deliberate toggle behavior.
+  Context menus dismiss on a new outside press, so the opening release keeps them visible.
 - **Explainer** opens a named region, focuses its explanation, and dismisses on
   Close/Escape/outside focus/click with trigger return. Keep the trigger's Tab place.
 - **Menu** uses feature-detected native focusgroup or one legacy ARIA keyboard
