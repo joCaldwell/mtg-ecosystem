@@ -43,6 +43,13 @@ pub enum VisibleTriggerAbility {
         oracle_id: String,
         static_ability_index: u32,
     },
+    TemporaryGrant {
+        source: VisibleTarget,
+        oracle_id: String,
+        triggered_ability_index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effect: Option<EffectHandle>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -900,36 +907,53 @@ impl Game {
         ability: EffectiveTriggerAbility,
         grant: Option<&CascadeGrantProvenance>,
     ) -> Result<VisibleTriggerAbility, String> {
-        match ability {
+        let grant_source = match ability {
             EffectiveTriggerAbility::Intrinsic { index } => {
-                Ok(VisibleTriggerAbility::Intrinsic { index })
+                return Ok(VisibleTriggerAbility::Intrinsic { index });
             }
+            EffectiveTriggerAbility::Granted { grant_source, .. }
+            | EffectiveTriggerAbility::TemporaryGrant { grant_source, .. } => grant_source,
+        };
+        let grant = grant.ok_or("missing public grant provenance")?;
+        let source = VisibleTarget {
+            announced: grant
+                .source_handles
+                .get(viewer.0 as usize)
+                .ok_or("missing grant source handle")?
+                .clone(),
+            current: self.handle_for(viewer, grant_source).ok(),
+        };
+        let oracle_id = self
+            .state
+            .rules
+            .cards
+            .get(&grant_source.card)
+            .ok_or("missing grant physical source")?
+            .oracle_id
+            .clone();
+        Ok(match ability {
             EffectiveTriggerAbility::Granted {
-                grant_source,
                 static_ability_index,
-            } => {
-                let grant = grant.ok_or("missing public grant provenance")?;
-                Ok(VisibleTriggerAbility::Granted {
-                    source: VisibleTarget {
-                        announced: grant
-                            .source_handles
-                            .get(viewer.0 as usize)
-                            .ok_or("missing grant source handle")?
-                            .clone(),
-                        current: self.handle_for(viewer, grant_source).ok(),
-                    },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&grant_source.card)
-                        .ok_or("missing grant physical source")?
-                        .oracle_id
-                        .clone(),
-                    static_ability_index,
-                })
-            }
-        }
+                ..
+            } => VisibleTriggerAbility::Granted {
+                source,
+                oracle_id,
+                static_ability_index,
+            },
+            EffectiveTriggerAbility::TemporaryGrant {
+                effect,
+                triggered_ability_index,
+                ..
+            } => VisibleTriggerAbility::TemporaryGrant {
+                source,
+                oracle_id,
+                triggered_ability_index,
+                effect: self
+                    .effect_handle(viewer, &EffectKey::Resolved { id: effect })
+                    .ok(),
+            },
+            EffectiveTriggerAbility::Intrinsic { .. } => unreachable!(),
+        })
     }
     pub(super) fn player_entity(
         &self,

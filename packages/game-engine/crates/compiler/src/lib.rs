@@ -52,6 +52,7 @@ mod fixed_mill;
 mod fixed_mill_tests;
 mod graveyard_battlefield_return;
 mod group_discard;
+mod hand_cast_cascade;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
@@ -206,6 +207,8 @@ enum Ability {
     DividedPlusOneCountersModal,
     #[serde(skip)]
     CommanderModalKeyword,
+    #[serde(skip)]
+    HandCastCascade,
     #[serde(skip)]
     ControllerWindowBlock,
     #[serde(rename = "additional-cost")]
@@ -1472,6 +1475,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let abilities = if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
+    } else if let Some(abilities) = hand_cast_cascade::lower(&source, &shape, &result, &binding)? {
+        abilities
     } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
         vec![Ability::CommanderModalKeyword]
     } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
@@ -1821,6 +1826,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::HandCastCascade => {
+                        labels.triggered.push(source_block(block)?);
+                        definition
+                            .triggered
+                            .push(mtg_contracts::hand_cast_cascade::hand_cast_cascade_ability());
+                    }
                     Ability::CastPayerDraw { generic } => {
                         labels.triggered.push(source_block(block)?);
                         definition
