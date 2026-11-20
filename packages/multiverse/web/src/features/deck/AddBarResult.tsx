@@ -54,7 +54,7 @@ export function AddBarResult({ result, id, highlighted, onPick, onHighlight }: A
         {onMaybe && <Chip>maybe list</Chip>}
         {proposed && <Chip tone="agent">proposed</Chip>}
         {memories > 0 && <Chip tone="agent">memory</Chip>}
-        {lastRejection && <Chip tone="cut">rejected r{lastRejection.revision}</Chip>}
+        {lastRejection && <Chip tone="cut">Previously rejected</Chip>}
       </span>
       <span className={said ? styles.said : styles.text}>
         {said ? `You said: “${said}”` : oneLine(card.oracle_text)}

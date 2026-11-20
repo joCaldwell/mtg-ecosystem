@@ -2,6 +2,6 @@
 .liveSurface > :first-child { flex: 0 0 auto; }
 .liveSurface > :last-child { flex: 1; min-height: 0; }
 .page { max-inline-size: 760px; padding: var(--game-space-6); }
-.page h1 { font-size: 1.5rem; margin-block-start: 0; }
+.page :is(h1, h2) { font-size: 1.5rem; margin-block-start: 0; }
 .page p { color: var(--game-soft); }
 @media (max-width: 1099px) { .liveSurface { height: auto; min-height: 100%; } }

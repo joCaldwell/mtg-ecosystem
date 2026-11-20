@@ -42,7 +42,7 @@ export function ChecksPanel({ checks, headingLevel = 2 }: { checks: Finding[]; h
                   {f.title}
                 </div>
                 <div className={styles.detail}>
-                  {f.detail}
+                  {f.key === "power_assessment_stale" ? "Cards changed after this assessment. Reassess before comparing it with the target." : f.detail}
                   {f.card_name && (
                     <>
                       {" "}

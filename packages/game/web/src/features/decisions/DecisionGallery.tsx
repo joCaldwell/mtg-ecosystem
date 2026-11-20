@@ -30,7 +30,6 @@ export function DecisionGallery({ request, labels, binding, source, cards }: {
   const candidates = removed ? ['lab-b', 'lab-c'] : ['lab-a', 'lab-b', 'lab-c'];
   const complete = (value: DecisionCompletion) => setReceipt(JSON.stringify(value, null, 2));
   return <GameSurface className={styles.gallery}>
-    <span className="eyebrow">Multiverse / isolated fixture gallery</span>
     <h1>Decision drafts</h1>
     <p className={styles.intro}>Review and confirm local drafts without sending game actions. Live opening choices are available separately on the live table.</p>
     <p><Link to="/fixtures/decisions#table">Try opening choices on the table</Link></p>
@@ -63,7 +62,7 @@ export function DecisionGallery({ request, labels, binding, source, cards }: {
       <DecisionPanel binding={labBinding} request={{ request: 'modes', token: labBinding.token, player: binding.seat, candidates: [0, 1] }} labels={[]} onComplete={complete} />
       <p className={styles.source}>Costs, target eligibility and lethal damage remain core-owned. Source-dependent controls remain unavailable when their producer context or labels are missing.</p>
     </section>
-    </div><div className={styles.gallerySide}><Inspector card={cards.find(card => card.inspectionId === inspected) ?? null} onClose={() => {
+    </div><div className={styles.gallerySide}><Inspector diagnostics card={cards.find(card => card.inspectionId === inspected) ?? null} onClose={() => {
       setInspected(null);
       // A player may collapse the hand while inspection remains open. Reveal
       // the exact originating button before returning keyboard focus to it.

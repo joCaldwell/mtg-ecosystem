@@ -1,0 +1,41 @@
+.seat {
+  min-inline-size: 0;
+  display: grid;
+  align-content: start;
+  padding: var(--game-space-1) var(--game-space-4);
+  border-inline-end: 1px solid var(--game-line);
+  border-block-start: 2px solid transparent;
+}
+.seat:last-child { border-inline-end: 0; }
+.seat[data-viewer] { background: var(--game-raised); }
+.seat[data-priority] { border-block-start-color: var(--game-accent); }
+.seatTop { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--game-space-1) var(--game-space-2); }
+.seat h2 { font-size: var(--game-text-body); margin: 0; }
+.seat h2 span { color: var(--game-accent); font-weight: 500; }
+.life { font: 1.125rem/1 var(--game-mono); }
+.life small { font: var(--game-text-small) var(--game-sans); color: var(--game-muted); margin-inline-start: var(--game-space-1); }
+.seat p { color: var(--game-muted); font-size: var(--game-text-small); margin: 0; }
+.seat p b { color: var(--game-soft); font: inherit; font-family: var(--game-mono); }
+.seat p > span { margin-inline: var(--game-space-1); }
+.seatDetails { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--game-space-2); }
+.commanders { display: flex; flex-wrap: wrap; min-inline-size: 0; gap: 0 var(--game-space-2); }
+.commanderLink {
+  min-block-size: 1.5rem;
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
+  color: var(--game-soft);
+  font-size: var(--game-text-small);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.commanderLink:is(:hover, [aria-pressed='true']) { color: var(--game-accent); text-decoration: underline; text-underline-offset: 3px; }
+@container game-table (max-width: 68.6875rem) { .seat { padding-inline: var(--game-space-3); } }
+@container game-table (max-width: 44.9375rem) {
+  .seat { border-block-end: 1px solid var(--game-line); }
+  .seat:nth-child(2n) { border-inline-end: 0; }
+  .commanderLink { min-block-size: 2.75rem; }
+}
+@media (pointer: coarse) { .commanderLink { min-block-size: 2.75rem; } }
+@media (forced-colors: active) { .seat[data-priority] { border-block-start-color: Highlight; } }

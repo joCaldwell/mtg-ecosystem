@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { parseSeatBootstrap, type SeatResume } from '@multiverse/game-server-sdk/browser';
+import { parseSeatBootstrap, type PresentationArtifact, type SeatResume } from '@multiverse/game-server-sdk/browser';
 
 const paths = (process.env.MTG_CLIENT_SEAT_FILES ?? '').split(',').filter(Boolean);
 if (paths.length !== 4) throw new Error('Supply four private single-seat bootstrap paths in MTG_CLIENT_SEAT_FILES');
@@ -31,11 +31,25 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty com
       page.on('pageerror', () => errors.push('page-error'));
       page.on('console', message => { if (message.type() === 'error') errors.push('console-error'); });
       await page.addInitScript(() => { (window as unknown as { cspViolations: number }).cspViolations = 0; document.addEventListener('securitypolicyviolation', () => { (window as unknown as { cspViolations: number }).cspViolations++; }); });
+      let artifact: Promise<PresentationArtifact> | undefined;
+      const publicPrints = new Set<string>();
+      page.on('response', response => {
+        if (response.status() === 200 && /^\/presentation\/[^/]+\.json$/.test(new URL(response.url()).pathname))
+          artifact = response.json() as Promise<PresentationArtifact>;
+      });
+      await page.route(url => url.origin !== new URL(baseURL).origin, async route => {
+        const request = route.request();
+        const permitted = publicPrints.has(request.url()) && request.resourceType() === 'image' &&
+          !request.headers()['referer'] && !request.headers()['authorization'];
+        // Assert without printing URLs, and keep the authenticated witness offline.
+        expect(permitted).toBe(true);
+        await route.fulfill({ contentType: 'image/gif', body: Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64') });
+      });
       page.on('request', request => {
         requests++; methods.push(request.method());
         // Compare without printing credential-bearing strings on assertion failure.
         expect(seats.every(seat => !request.url().includes(seat.bootstrap.capability))).toBe(true);
-        expect(new URL(request.url()).origin === new URL(baseURL).origin).toBe(true);
+        expect(new URL(request.url()).origin === new URL(baseURL).origin || publicPrints.has(request.url())).toBe(true);
       });
       const resumeResponse = page.waitForResponse(response => response.url().endsWith('/resume') && response.status() === 200);
       const response = await page.goto('/join');
@@ -52,13 +66,20 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty com
       const hand = read.state.observation.view.objects.filter(object => object.zone.zone === 'hand');
       expect(hand.every(object => object.owner === seat.bootstrap.viewer)).toBe(true);
       expect(hand.length).toBeGreaterThan(0);
+      const metadata = await artifact;
+      for (const object of read.state.observation.view.objects) {
+        if (object.token || !['command', 'battlefield', 'stack'].includes(object.zone.zone)) continue;
+        const printing = metadata?.cards.find(card => card.oracle_id === object.oracle_id);
+        const url = printing?.faces.length === 1 ? printing.faces[0]?.image_url : null;
+        if (url && /^https:\/\/cards\.scryfall\.io\/normal\/(front|back)\//.test(url)) publicPrints.add(url);
+      }
       await expect(page.getByRole('heading', { name: `Connected · Seat ${seat.bootstrap.viewer + 1}`, exact: true })).toBeVisible();
       await page.getByRole('link', { name: 'Open live table' }).click();
       await expect(page.getByRole('heading', { name: 'Commander table', exact: true })).toBeVisible();
       await expect(page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button')).toHaveCount(hand.length);
       await expect(page.getByText('Opening choices are ready. Nothing is sent until you confirm.', { exact: true })).toBeVisible();
+      const decision = page.getByRole('region', { name: 'Opening hand', exact: true });
       if (read.state.observation.decision?.request === 'mulligan') {
-        const decision = page.locator('section[aria-labelledby="decision-title"]');
         const keep = decision.getByRole('radio', { name: 'Keep hand', exact: true });
         await keep.check();
         const card = page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button').last();
@@ -71,7 +92,7 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty com
       }
       const input = page.getByRole('button', { name: 'Jump to decision' });
       await input.focus(); await page.keyboard.press('Enter');
-      await expect(page.locator('section[aria-labelledby="decision-title"]')).toBeFocused();
+      await expect(decision).toBeFocused();
       expect(await storage(page)).toEqual({ ...emptyStorage, databases: 1 });
       expect(await page.evaluate(() => (window as unknown as { cspViolations: number }).cspViolations)).toBe(0);
       expect(errors).toEqual([]);
@@ -118,7 +139,7 @@ test('closing owner releases lock; missing Web Locks stops before authenticated 
 test('missing metadata remains usable; mismatched metadata digest fails closed (injected HTTP faults)', async ({ page }) => {
   await page.route('**/v1/matches/*/presentation', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
   await join(page); await page.getByRole('link', { name: 'Open live table' }).click();
-  await expect(page.getByText('Presentation metadata unavailable. Observed identity and characteristics remain available.')).toBeVisible();
+  await expect(page.getByText('Printed card details unavailable.')).toBeVisible();
   const card = page.getByRole('region', { name: 'Command zone', exact: true }).getByRole('button').first();
   await card.focus(); await page.keyboard.press('Enter');
   await expect(page.getByRole('complementary', { name: 'Card inspector' }).getByText('Power', { exact: true })).toBeVisible();

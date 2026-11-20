@@ -12,11 +12,10 @@ export function OnboardingPatterns() {
       <Text as="p" tone="muted">Tab reaches every trigger. Enter or Space opens it; Escape closes popovers and dialogs. The drawer and sheet trap focus and return it to their trigger. Hover and keyboard focus use the selection ring.</Text>
       <Section heading="h3" title="Contextual details">
         <KeyValue items={[
-          ["History", <Text mono size="sm">r95</Text>],
           ["Review status", "Unreviewed"],
           ["Primary slot", <Select aria-label="Example primary slot" options={[{ value: "support", label: "Support" }]} value="support" onChange={() => undefined} />],
           ["Secondary slots", <MultiSelect compact label="Example secondary slots" options={[{ value: "one", label: "Utility" }]} value={secondary} onChange={setSecondary} />],
-          ["Updated", <Text size="sm" title="Recorded at r95">Today</Text>],
+          ["Updated", <Text size="sm">Today</Text>],
         ]} />
       </Section>
       <Explainer title="Proposals" label="How proposals work">Accept or reject proposed changes with an optional reason. Help appears only for unfamiliar concepts and names the question it answers.</Explainer>

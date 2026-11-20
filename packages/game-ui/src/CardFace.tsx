@@ -1,6 +1,6 @@
 import surface from './surface.module.css';
-import type { CardView } from './table-model.ts';
-import { cardName } from './table-model.ts';
+import { CardPrint } from './CardPrint.tsx';
+import { cardName, type CardView } from './table-model.ts';
 import styles from './CardFace.module.css';
 
 export function CardFace({ card, selected, onInspect, compact = false }: {
@@ -9,12 +9,16 @@ export function CardFace({ card, selected, onInspect, compact = false }: {
   compact?: boolean;
   onInspect: (id: string, trigger: HTMLButtonElement) => void;
 }) {
-  return <button type="button" className={`${surface.surface} ${styles.card} ${compact ? styles.compact : ''}`} aria-label={`Inspect ${cardName(card)}`}
+  const label = `Inspect ${cardName(card)}${card.tapped ? ' (tapped)' : ''}`;
+  return <button type="button" className={`${surface.surface} ${styles.card} ${compact ? styles.compact : ''}`} aria-label={label}
     aria-pressed={selected} onClick={event => onInspect(card.inspectionId, event.currentTarget)}>
     <span className={styles.heading}>{cardName(card)}</span>
-    <span className={styles.mana}>{card.printedMana === '' ? 'No printed mana cost' : card.printedMana ?? 'Mana cost unavailable'}</span>
-    <span className={styles.text}>{card.oracleText === '' ? 'No printed rules text' : card.oracleText ?? 'Source text unavailable'}</span>
+    {card.printedMana !== '' && <span className={styles.mana}>{card.printedMana ?? 'Mana cost unavailable'}</span>}
     <span className={styles.type}>{card.printedType ?? 'Type unavailable'}</span>
-    <span className={styles.inspect}>Inspect card <span aria-hidden="true">↗</span></span>
+    {!compact && <>
+      <span className={styles.text}>{card.oracleText === '' ? 'No printed rules text' : card.oracleText ?? 'Source text unavailable'}</span>
+      <CardPrint source={card.printImage} className={styles.print} />
+    </>}
+    {card.tapped && <span className={styles.tapped}>Tapped</span>}
   </button>;
 }

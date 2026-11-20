@@ -52,3 +52,8 @@
 
 .gallery nav a { display: inline-flex; align-items: center; min-block-size: 1.5rem; }
 @media (pointer: coarse) { .gallery nav a { min-block-size: 2.75rem; } }
+.srOnly { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; overflow: clip; clip-path: inset(50%); white-space: nowrap; }
+.hint:empty, .announcement:empty { margin: 0; }
+.livePanel .option { border: 1px solid var(--game-card-edge); border-radius: var(--game-radius); }
+.livePanel .options { gap: var(--game-space-2); }
+.livePanel .complete { inline-size: 100%; }
