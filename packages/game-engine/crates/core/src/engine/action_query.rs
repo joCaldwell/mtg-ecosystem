@@ -237,9 +237,11 @@ impl Game {
                         cost,
                         source: mana_ability_source
                             .or_else(|| {
-                                self.top()
-                                    .ok()
-                                    .and_then(|entry| self.handle_for(viewer, entry.source).ok())
+                                match &self.state.rules.frame {
+                                    Frame::CounterUnless { frame, .. } => Some(&frame.spell),
+                                    _ => self.top().ok(),
+                                }
+                                .and_then(|entry| self.handle_for(viewer, entry.source).ok())
                             })
                             .map_or(ActionSourceContext::Unavailable, |object| {
                                 ActionSourceContext::Available { object }

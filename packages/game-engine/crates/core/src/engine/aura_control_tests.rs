@@ -1189,3 +1189,7 @@ mod graveyard_battlefield_return_tests;
 
 #[path = "own_graveyard_card_return_tests.rs"]
 mod own_graveyard_card_return_tests;
+
+#[cfg(test)]
+#[path = "counter_unless_generic_tests.rs"]
+mod counter_unless_generic_tests;
