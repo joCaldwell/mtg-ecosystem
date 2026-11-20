@@ -233,14 +233,14 @@ impl Game {
             card,
             incarnation: 0,
         };
-        self.state.rules.cards.insert(
+        Arc::make_mut(&mut self.state.rules.cards).insert(
             card,
             Card {
                 owner: controller,
                 oracle_id: identity.definition.oracle_id.clone(),
             },
         );
-        self.state.rules.tokens.insert(card, identity);
+        Arc::make_mut(&mut self.state.rules.tokens).insert(card, identity);
         self.state.rules.objects.insert(
             card,
             Object {

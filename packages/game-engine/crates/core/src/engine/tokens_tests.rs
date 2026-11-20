@@ -1199,14 +1199,14 @@ fn capacity_release_probe() {
         let id = CardId(first.0 + i as u32);
         let mut token = identity.clone();
         token.definition.oracle_id = format!("token:{}", id.0);
-        g.state.rules.cards.insert(
+        Arc::make_mut(&mut g.state.rules.cards).insert(
             id,
             Card {
                 owner: PlayerId(0),
                 oracle_id: token.definition.oracle_id.clone(),
             },
         );
-        g.state.rules.tokens.insert(id, token);
+        Arc::make_mut(&mut g.state.rules.tokens).insert(id, token);
     }
     let tokens::TokenTemplate::Created(spec) = identity.spec else {
         panic!("expected a created token")
@@ -1322,14 +1322,14 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
         let id = CardId(first.0 + i as u32);
         let mut identity = token.clone();
         identity.definition.oracle_id = format!("token:{}", id.0);
-        g.state.rules.cards.insert(
+        Arc::make_mut(&mut g.state.rules.cards).insert(
             id,
             Card {
                 owner: PlayerId(0),
                 oracle_id: identity.definition.oracle_id.clone(),
             },
         );
-        g.state.rules.tokens.insert(id, identity);
+        Arc::make_mut(&mut g.state.rules.tokens).insert(id, identity);
     }
     assert_eq!(g.allocated_capacity_count(), 0);
     let before = g.state.rules.tokens.clone();

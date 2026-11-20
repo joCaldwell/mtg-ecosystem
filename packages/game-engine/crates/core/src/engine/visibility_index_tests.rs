@@ -72,7 +72,7 @@ fn indexed_visibility_refresh_keeps_handles_until_visibility_or_incarnation_chan
     let before = game.state.clone();
     for viewer in (0..4).map(PlayerId) {
         let knowledge = &game.state.knowledge.visibility[viewer.0 as usize];
-        for (handle, object) in &knowledge.handles.entries {
+        for (handle, object) in knowledge.handles.entries.iter() {
             assert_eq!(game.handle_for(viewer, *object).unwrap().0, *handle);
         }
     }

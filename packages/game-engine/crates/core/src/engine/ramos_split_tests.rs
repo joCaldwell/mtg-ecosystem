@@ -208,10 +208,7 @@ fn ramos_split_paid_zero_one_two_identity_reveal_privacy_restore_replay() {
                         QueryResult::Rejected(_)
                     ));
                     let mut nonbasic = g.fork();
-                    nonbasic
-                        .state
-                        .rules
-                        .cards
+                    Arc::make_mut(&mut nonbasic.state.rules.cards)
                         .get_mut(&candidates[0].card)
                         .unwrap()
                         .oracle_id = YARGLE.into();

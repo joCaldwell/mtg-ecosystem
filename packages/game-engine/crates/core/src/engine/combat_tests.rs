@@ -578,17 +578,11 @@ fn hidden_library_order_and_opponent_hand_do_not_change_public_projection() {
         .reverse();
     let a = right.state.rules.cards[&CardId(18)].oracle_id.clone();
     let b = right.state.rules.cards[&CardId(19)].oracle_id.clone();
-    right
-        .state
-        .rules
-        .cards
+    Arc::make_mut(&mut right.state.rules.cards)
         .get_mut(&CardId(18))
         .unwrap()
         .oracle_id = b;
-    right
-        .state
-        .rules
-        .cards
+    Arc::make_mut(&mut right.state.rules.cards)
         .get_mut(&CardId(19))
         .unwrap()
         .oracle_id = a;

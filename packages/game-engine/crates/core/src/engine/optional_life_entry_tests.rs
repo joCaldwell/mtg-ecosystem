@@ -586,7 +586,10 @@ fn optional_entry_paid_spell_source_owner_departure_keeps_the_frozen_root() {
             } => frame.spell.source,
             _ => panic!(),
         };
-        g.state.rules.cards.get_mut(&source.card).unwrap().owner = PlayerId(1);
+        Arc::make_mut(&mut g.state.rules.cards)
+            .get_mut(&source.card)
+            .unwrap()
+            .owner = PlayerId(1);
         g.concede(PlayerId(1)).unwrap();
         let _ = g.advance(Budget::new(1));
         assert!(matches!(g.state.rules.frame, Frame::LandEntry { .. }));

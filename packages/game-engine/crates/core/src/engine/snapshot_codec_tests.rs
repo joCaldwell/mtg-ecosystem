@@ -276,10 +276,7 @@ fn snapshot_codec_unchanged_reader_rejects_full_rehashed_shape_and_state_forgeri
         );
     }
     let mut forged: Snapshot = strict_read(&canonical(&value).unwrap()).unwrap();
-    forged
-        .state
-        .rules
-        .cards
+    Arc::make_mut(&mut forged.state.rules.cards)
         .get_mut(&CardId(0))
         .unwrap()
         .oracle_id = "unknown".into();

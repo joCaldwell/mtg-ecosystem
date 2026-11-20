@@ -194,13 +194,15 @@ fn player_types_hide_other_hands_and_library_identities_and_frames() {
 fn identical_permitted_histories_produce_identical_contexts_with_different_hidden_ids() {
     let original = Game::new(prepared());
     let mut other = original.fork();
-    let physical = other.state.rules.cards.remove(&CardId(1)).unwrap();
+    let physical = Arc::make_mut(&mut other.state.rules.cards)
+        .remove(&CardId(1))
+        .unwrap();
     let mut object = other.state.rules.objects.remove(&CardId(1)).unwrap();
     object.id = ObjectId {
         card: CardId(99),
         incarnation: 42,
     };
-    other.state.rules.cards.insert(CardId(99), physical);
+    Arc::make_mut(&mut other.state.rules.cards).insert(CardId(99), physical);
     other.state.rules.objects.insert(CardId(99), object);
     other.refresh_visibility().unwrap();
     assert_ne!(

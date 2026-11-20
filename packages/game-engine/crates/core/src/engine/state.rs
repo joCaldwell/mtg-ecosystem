@@ -40,6 +40,30 @@ macro_rules! state_layout {
         }
     };
 }
+// Private ownership only: staged forks share tables that change only when a
+// token is created. Serialized shape and typed equality remain the map's own.
+mod shared_map {
+    use super::*;
+    pub(super) fn serialize<K: Serialize, V: Serialize, S: serde::Serializer>(
+        value: &Arc<BTreeMap<K, V>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.as_ref().serialize(serializer)
+    }
+    pub(super) fn deserialize<'de, K, V, D>(
+        deserializer: D,
+    ) -> Result<Arc<BTreeMap<K, V>>, D::Error>
+    where
+        K: Deserialize<'de> + Ord,
+        V: Deserialize<'de>,
+        D: serde::Deserializer<'de>,
+    {
+        BTreeMap::deserialize(deserializer).map(Arc::new)
+    }
+    pub(super) fn is_empty<K, V>(value: &Arc<BTreeMap<K, V>>) -> bool {
+        value.is_empty()
+    }
+}
 fn initial_attachment_timestamp() -> u64 {
     1
 }
@@ -50,8 +74,8 @@ state_layout! {
     rules {
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
         mana_ability_uses: BTreeSet<mana_permanents::ManaAbilityUse>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        tokens: BTreeMap<CardId, tokens::TokenIdentity>,
+        #[serde(default, skip_serializing_if = "shared_map::is_empty", with = "shared_map")]
+        tokens: Arc<BTreeMap<CardId, tokens::TokenIdentity>>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         entry_copies: BTreeMap<CardId, BTreeMap<u32, copiable_identity::EntryCopy>>,
         // Deterministic conservative charge for inputs and potential detailed
@@ -94,7 +118,8 @@ state_layout! {
         revision: u64,
         rule_steps: u64,
         players: Vec<Player>,
-        cards: BTreeMap<CardId, Card>,
+        #[serde(with = "shared_map")]
+        cards: Arc<BTreeMap<CardId, Card>>,
         objects: BTreeMap<CardId, Object>,
         active: Option<PlayerId>,
         turn_owner: PlayerId,

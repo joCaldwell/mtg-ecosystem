@@ -224,7 +224,7 @@ impl SampleBuildWork {
                 .insert(card, row.history.clone());
         }
         let mut unused = BTreeMap::<_, BTreeSet<_>>::new();
-        for (id, card) in &game.state.rules.cards {
+        for (id, card) in game.state.rules.cards.iter() {
             unused
                 .entry((card.owner, card.oracle_id.clone()))
                 .or_default()

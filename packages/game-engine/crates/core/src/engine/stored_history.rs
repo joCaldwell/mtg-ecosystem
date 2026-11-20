@@ -513,13 +513,13 @@ impl StoredPermittedView {
             let mut rows = previous
                 .objects
                 .iter()
-                .map(|r| (r.handle.0.clone(), r.clone()))
+                .map(|r| (r.handle.0.as_str(), r))
                 .collect::<BTreeMap<_, _>>();
             for row in Arc::make_mut(&mut self.data.objects) {
-                if let Some(old) = rows.remove(&row.handle.0)
-                    && old == *row
+                if let Some(old) = rows.remove(row.handle.0.as_str())
+                    && *old == *row
                 {
-                    *row = old;
+                    *row = old.clone();
                 }
             }
         }

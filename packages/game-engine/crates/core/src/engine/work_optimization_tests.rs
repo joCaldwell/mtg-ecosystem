@@ -588,6 +588,7 @@ fn compare_with_profile(game: &Game, query: Query, profile: Option<&mut LegalPro
         let mut reference = work.data.clone();
         assert!(work.cache.effects.is_none());
         assert!(work.cache.last_object.is_none());
+        assert!(work.cache.projection.is_none());
         // Budget0 leaves pure accelerators completely lazy and wire unchanged.
         let QueryResult::Incomplete {
             work: zero,
@@ -600,6 +601,7 @@ fn compare_with_profile(game: &Game, query: Query, profile: Option<&mut LegalPro
         work = zero;
         assert!(work.cache.effects.is_none());
         assert!(work.cache.last_object.is_none());
+        assert!(work.cache.projection.is_none());
         let mut checkpoints = 0;
         loop {
             let expected = reference_resume(game, &mut reference, Budget::new(quantum));
