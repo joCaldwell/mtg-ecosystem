@@ -39,7 +39,14 @@ impl Game {
                 return Advance::Fault(reason);
             }
             let Some(steps) = next.state.rules.rule_steps.checked_add(1) else {
-                return Advance::Fault("execution boundary resource limit".into());
+                // Rule-boundary overflow latches a fault like other execution failures.
+                let reason = String::from("execution boundary resource limit");
+                self.state.rules.typed_fault = None;
+                self.state.rules.frame = Frame::Fault {
+                    reason: reason.clone(),
+                };
+                self.state_token = Arc::new(());
+                return Advance::Fault(reason);
             };
             next.state.rules.rule_steps = steps;
             if let Err(reason) = next.refresh_visibility() {

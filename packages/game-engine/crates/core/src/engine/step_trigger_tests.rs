@@ -513,7 +513,13 @@ fn d2c_failed_transition_rolls_back_turn_mana_handles_and_collection() {
     let token = g.state_token.clone();
     let before = g.fork();
     assert!(g.transition_turn_step().is_err());
-    assert_eq!(g.state, before.state);
+    // A failed direct batch rolls everything back except its typed resource fault.
+    let mut expected = before.state.clone();
+    expected.rules.typed_fault = Some(RuleFault::TriggerIdCapacityExceeded {
+        next: u64::MAX,
+        additional: 1,
+    });
+    assert_eq!(g.state, expected);
     assert_eq!(g.trace, before.trace);
     assert!(Arc::ptr_eq(&g.state_token, &token));
 }
