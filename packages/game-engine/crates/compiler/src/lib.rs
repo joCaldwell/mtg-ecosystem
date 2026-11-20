@@ -33,6 +33,7 @@ pub mod coverage;
 mod creature_entry_return;
 mod diagnostics;
 mod distinct_permanent_colors;
+mod divided_plus_one_counters;
 mod draw_discard;
 #[cfg(test)]
 mod draw_discard_tests;
@@ -185,6 +186,8 @@ enum Ability {
     // Only the whole-source adapter can introduce this bound trigger.
     #[serde(skip)]
     CastPayerDraw { generic: Quantity },
+    #[serde(skip)]
+    DividedPlusOneCountersModal,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1425,7 +1428,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)?
+    let abilities = if divided_plus_one_counters::validate(&shape, &result, &binding)? {
+        vec![Ability::DividedPlusOneCountersModal]
+    } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)?
     {
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
@@ -2106,6 +2111,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     labels.statics.push(source_block(block)?);
                     definition.static_abilities.push(a);
+                    continue;
+                }
+                if let Ability::DividedPlusOneCountersModal = ability {
+                    program = divided_plus_one_counters_modal_program();
                     continue;
                 }
                 if let Ability::CounterUnlessGeneric { generic } = ability {
