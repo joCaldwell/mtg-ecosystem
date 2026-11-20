@@ -99,7 +99,7 @@ fn temporary_flying_rejects_activation_and_trigger_contexts() {
         d.capabilities = d.requirements();
         assert_eq!(
             d.validate().unwrap_err(),
-            "temporary indestructible requires an ordinary single-target spell"
+            "unsupported complete temporary keyword definition"
         );
     }
 }

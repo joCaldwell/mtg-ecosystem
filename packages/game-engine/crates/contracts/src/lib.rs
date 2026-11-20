@@ -8595,6 +8595,7 @@ mod tests {
         definitions.push(counter_unless_generic::witness());
         definitions.push(graveyard_shuffle::witness());
         definitions.push(modal_targets::witness());
+        definitions.push(repeated_target_modes::witness());
         definitions.push(creature_planeswalker_return::witness());
         definitions.push(controlled_creature_spell_copy::witness());
         definitions.push(creative_technique::witness());

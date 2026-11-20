@@ -50,10 +50,22 @@ fn controller_counted_draw_complete_costs_quantities_and_extra_clause_rejection(
         );
         assert!(controller_counted_draw_program(d.spell.as_ref().unwrap()));
     }
-    assert!(matches!(
-        compile(HEADER, BONES),
-        CompileResult::Unsupported { .. }
-    ));
+    // The complete sequence is supported. It must still reject a parse
+    // that drops the printed life loss after scrying and drawing.
+    let incomplete = tests::changed_source(BONES, |r| {
+        let result = &mut r["faces"][0]["result"];
+        result["abilities"][0]["effects"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(1);
+        result["lines"][0]["ability"] = result["abilities"][0].clone();
+    });
+    let result = compile(HEADER, &incomplete);
+    assert!(
+        matches!(&result, CompileResult::Unsupported { path, reason }
+            if path == "scalar sequence" && reason == "requires complete ordinary printed and typed steps"),
+        "{result:?}"
+    );
 }
 #[test]
 fn controller_counted_draw_preserves_legacy_one_two_and_targeted_draws() {

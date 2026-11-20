@@ -416,7 +416,7 @@ fn temporary_combat_keyword_contexts_reject_with_recomputed_requirements() {
                 d.capabilities = d.requirements();
                 assert_eq!(
                     d.validate().unwrap_err(),
-                    "temporary indestructible requires an ordinary single-target spell",
+                    "unsupported complete temporary keyword definition",
                     "{kind:?}/{domain:?}/{modifier}"
                 );
             }
@@ -437,7 +437,7 @@ fn temporary_combat_keyword_contexts_reject_with_recomputed_requirements() {
                 d.capabilities = d.requirements();
                 assert_eq!(
                     d.validate().unwrap_err(),
-                    "temporary indestructible requires an ordinary single-target spell",
+                    "unsupported complete temporary keyword definition",
                     "{name}/{domain:?}/{modifier}"
                 );
             }

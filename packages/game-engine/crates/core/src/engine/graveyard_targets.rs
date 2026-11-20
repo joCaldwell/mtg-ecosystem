@@ -2,6 +2,18 @@
 //! cards in that player's graveyard. Recheck the announced incarnations only.
 use super::*;
 
+/// The paid target instruction alone can authorize appending multiple
+/// graveyard cards before shuffling. The bound group is kept private here.
+pub(super) struct GraveyardShuffleMoves {
+    cause: BatchCause,
+    group: EventGroup,
+}
+impl GraveyardShuffleMoves {
+    pub(super) fn into_batch(self) -> (BatchCause, EventGroup) {
+        (self.cause, self.group)
+    }
+}
+
 impl Game {
     pub(super) fn player_graveyard_card(&self, object: &Object, player: PlayerId) -> bool {
         object.zone == (Zone::Graveyard { owner: player })
@@ -118,6 +130,23 @@ mod tests {
                     .is_err()
             );
         }
+        let before = g.state_digest().unwrap();
+        let occurrences = cards
+            .iter()
+            .map(|object| ProposedEvent::Move {
+                object: *object,
+                destination: Zone::Library { owner },
+            })
+            .collect();
+        assert_eq!(
+            g.commit_batch(
+                BatchCause::Fixture,
+                EventGroup::Simultaneous { occurrences }
+            )
+            .unwrap_err(),
+            "unsupported simultaneous read/write dependency"
+        );
+        assert_eq!(g.state_digest().unwrap(), before);
         let moved = g
             .move_object_for(ids[0], Zone::Hand { owner }, BatchCause::Fixture)
             .unwrap();
@@ -276,10 +305,10 @@ impl Game {
                     },
                 })
                 .collect();
-            self.commit_batch(
-                Self::staple_cause(&frame, block),
-                EventGroup::Simultaneous { occurrences },
-            )?;
+            self.commit_graveyard_shuffle_moves(GraveyardShuffleMoves {
+                cause: Self::staple_cause(&frame, block),
+                group: EventGroup::Simultaneous { occurrences },
+            })?;
         }
         self.begin_player_library_shuffle(frame, player, block)
     }

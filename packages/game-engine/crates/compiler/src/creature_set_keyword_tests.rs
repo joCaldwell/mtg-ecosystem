@@ -319,11 +319,24 @@ fn creature_set_keyword_program_boundaries_and_separated_sentences_reject() {
                 .unwrap()
                 .insert(0, json!({"text":text,"ok":true,"ability":cost}));
         });
-        assert!(
-            matches!(compile(HEADER,&additional),CompileResult::Unsupported {path,..} if path=="definition"),
-            "{} additional cost",
-            w.name
-        );
+        let result = compile(HEADER, &additional);
+        if w.modifier.is_some() && w.set == ObjectSet::ControllerCreatures {
+            // The exact controller-creature pump binding checks the source
+            // before definition validation can reject the added cost.
+            assert!(
+                matches!(&result, CompileResult::Unsupported { path, reason, .. }
+                    if path == "binding"
+                        && reason == "requires the spell controller's exact creature-set pump"),
+                "{} additional cost: {result:?}",
+                w.name
+            );
+        } else {
+            assert!(
+                matches!(&result, CompileResult::Unsupported { path, .. } if path == "definition"),
+                "{} additional cost: {result:?}",
+                w.name
+            );
+        }
         if w.modifier.is_some() {
             let split = changed_ability(w.raw, |a| {
                 let steps = a["effects"][0]["steps"].clone();

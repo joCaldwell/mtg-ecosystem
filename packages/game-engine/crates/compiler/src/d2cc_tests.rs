@@ -154,7 +154,6 @@ fn d2cc_unknown_qualifiers_self_cast_copy_ordinals_color_and_optional_reject() {
     for what in [
         serde_json::json!({"ref":"this","noun":"spell"}),
         serde_json::json!({"cls":"spell","targets":{"ref":"this","noun":"creature"}}),
-        serde_json::json!({"cls":"spell","colors":["blue"]}),
         serde_json::json!({"cls":"spell","own":true}),
         serde_json::json!({"cls":"spell","types":["planeswalker"]}),
         serde_json::json!({"cls":"spell","allOf":[]}),
@@ -162,6 +161,28 @@ fn d2cc_unknown_qualifiers_self_cast_copy_ordinals_color_and_optional_reject() {
         serde_json::json!({"cls":"spell","properties":[{"property":"mana-value","comparison":{"op":"ge","value":{"amount":"fixed","value":4}}}]}),
     ] {
         mutations.push(changed(|a| a["trigger"]["what"] = what));
+    }
+    for (what, expected) in [
+        (
+            serde_json::json!({"cls":"spell","colors":["blue","red"]}),
+            "expected one standalone spell color",
+        ),
+        (
+            serde_json::json!({"cls":"spell","colors":["blue"],"types":["creature"]}),
+            "expected one standalone spell color",
+        ),
+        (
+            serde_json::json!({"cls":"spell","colors":["chartreuse"]}),
+            "unknown spell color",
+        ),
+    ] {
+        let raw = changed(|a| a["trigger"]["what"] = what);
+        let result = compile(MANIFEST, &raw);
+        assert!(
+            matches!(&result, CompileResult::Unsupported { path, reason, .. }
+                if path == "trigger.what.colors" && reason == expected),
+            "{result:?}"
+        );
     }
     mutations.push(changed(|a| {
         a["trigger"].as_object_mut().unwrap().remove("who");
