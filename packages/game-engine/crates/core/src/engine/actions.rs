@@ -1000,6 +1000,20 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
+            Instruction::FreezeControllerLifeUntilNextTurn { source_block } => {
+                let actual = self.commit(
+                    ProposedEvent::FreezeLifeUntilNextTurn {
+                        player: frame.spell.controller,
+                    },
+                    Self::wipe_cause(&frame, source_block),
+                )?;
+                self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    },
+                )
+            }
             Instruction::PhaseOutControllerPermanents { source_block } => {
                 let actual = self.commit(
                     ProposedEvent::PhaseOutControlled {

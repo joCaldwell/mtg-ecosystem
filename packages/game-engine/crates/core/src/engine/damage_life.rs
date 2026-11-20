@@ -568,6 +568,9 @@ impl Game {
         };
         let mut total = Quantity::zero();
         for occurrence in &losses.occurrences {
+            if matches!(occurrence.actual, EventOutcome::LifeChangeProhibited { .. }) {
+                continue;
+            }
             let EventOutcome::LifeLost { amount, .. } = &occurrence.actual else {
                 return Err("missing opponent life loss outcome".into());
             };
@@ -795,10 +798,7 @@ impl Game {
                 if !self.is_live(player) {
                     return Err("departed damage recipient".into());
                 }
-                let life = &mut self.state.rules.players[player.0 as usize].life;
-                let previous = life.clone();
-                life.subtract(&damage.amount);
-                (previous, life.clone())
+                self.state.rules.players[player.0 as usize].lose_life(&damage.amount)
             }
             DamageRecipient::Creature { object } => {
                 if !self.is_battlefield_creature(object) {

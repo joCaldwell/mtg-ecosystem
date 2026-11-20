@@ -71,6 +71,8 @@ pub struct DecisionToken(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisiblePlayer {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub life_frozen_until_next_turn: bool,
     /// Public viewer handles, grouped by physical owner (CR406.1–3).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exile: Vec<ObjectHandle>,
@@ -1002,6 +1004,7 @@ impl Game {
             .map_err(|_| "zone count resource limit".to_string())
         };
         Ok(VisiblePlayer {
+            life_frozen_until_next_turn: p.life_frozen_until_next_turn,
             exile: vec![],
             library_shuffles: self
                 .state

@@ -99,6 +99,8 @@ impl Game {
             };
             if self.has_keyword(appearance, KeywordAbility::Lifelink)
                 && self.is_live(appearance.controller)
+                && !self.state.rules.players[appearance.controller.0 as usize]
+                    .life_frozen_until_next_turn
             {
                 gains
                     .entry((d.source.object, appearance.controller))

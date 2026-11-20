@@ -214,6 +214,7 @@ mod tests {
                 commanders: vec![],
                 priority: Some(player),
                 players: vec![mtg_core::VisiblePlayer {
+                    life_frozen_until_next_turn: false,
                     exile: vec![],
                     library_shuffles: 0,
                     player,

@@ -1479,10 +1479,9 @@ impl Game {
         for ((kind, id), amount) in totals {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
-                let x = &mut self.state.rules.players[player.0 as usize].life;
-                let before = x.clone();
-                x.subtract(&amount);
-                (DamageRecipient::Player { player }, before, x.clone())
+                let (before, after) =
+                    self.state.rules.players[player.0 as usize].lose_life(&amount);
+                (DamageRecipient::Player { player }, before, after)
             } else {
                 let o = self
                     .state

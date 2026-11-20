@@ -635,6 +635,7 @@ impl Prepared {
         self.catalog.definitions.iter().any(|d| {
             d.capabilities
                 .contains(&Capability::ControlledPermanentPhasingV1)
+                || d.capabilities.contains(&Capability::ControllerLifeFreezeV1)
         })
     }
 
@@ -869,11 +870,30 @@ impl Prepared {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Player {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    life_frozen_until_next_turn: bool,
     failed_draw: bool,
     life: Quantity,
     mana: BTreeMap<Color, Quantity>,
     status: PlayerStatus,
     last_known: Option<PlayerLastKnown>,
+}
+impl Player {
+    fn can_pay_life(&self, amount: &Quantity) -> bool {
+        *amount == Quantity::zero()
+            || (*amount > Quantity::zero()
+                && !self.life_frozen_until_next_turn
+                && self.life >= *amount)
+    }
+    // CR 119.8, 120.3a: damage still occurs at its full amount. Only the
+    // resulting life change is prohibited.
+    fn lose_life(&mut self, amount: &Quantity) -> (Quantity, Quantity) {
+        let previous = self.life.clone();
+        if !self.life_frozen_until_next_turn {
+            self.life.subtract(amount);
+        }
+        (previous, self.life.clone())
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1596,6 +1616,9 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    FreezeLifeUntilNextTurn {
+        player: PlayerId,
+    },
     PhaseOutControlled {
         controller: PlayerId,
     },
@@ -1823,6 +1846,12 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    LifeFrozenUntilNextTurn {
+        player: PlayerId,
+    },
+    LifeChangeProhibited {
+        player: PlayerId,
+    },
     PermanentsPhasedOut {
         controller: PlayerId,
         members: Vec<(ObjectId, PhaseReturn)>,
@@ -2374,6 +2403,7 @@ impl Game {
                 rule_steps: 0,
                 players: (0..4)
                     .map(|p| Player {
+                        life_frozen_until_next_turn: false,
                         failed_draw: false,
                         life: prepared.config.initial_life(PlayerId(p)),
                         mana: BTreeMap::new(),
@@ -3496,6 +3526,18 @@ impl Game {
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
         self.validate_phasing_state()?;
+        if self.state.rules.players.iter().any(|p| {
+            p.life_frozen_until_next_turn
+                && (p.status != PlayerStatus::Live
+                    || !self
+                        .prepared
+                        .catalog
+                        .definitions
+                        .iter()
+                        .any(|d| d.capabilities.contains(&Capability::ControllerLifeFreezeV1)))
+        }) {
+            return Err("life freeze requires a live player and a supporting catalog".into());
+        }
         let s = &self.state;
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.

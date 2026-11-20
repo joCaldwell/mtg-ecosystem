@@ -47,6 +47,7 @@ mod reactive_tests {
             priority: Some(player),
             players: (0..4)
                 .map(|i| mtg_core::VisiblePlayer {
+                    life_frozen_until_next_turn: false,
                     exile: vec![],
                     library_shuffles: 0,
                     player: PlayerId(i),

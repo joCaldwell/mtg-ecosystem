@@ -255,13 +255,26 @@ mod tests {
     use super::*;
     use crate::engine::equipped_indestructible_tests::{equip, object, prepared};
 
-    #[test]
-    fn paid_controller_phasing_replays_status_and_normal_untap_with_stable_handles() {
-        use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
-        let catalog = Catalog::read(include_str!(
+    fn synthetic_game(freeze: bool) -> Game {
+        let mut catalog = Catalog::read(include_str!(
             "../../../../tests/fixtures/synthetic-controlled-phasing-ir.json"
         ))
         .unwrap();
+        if freeze {
+            let life = Catalog::read(include_str!(
+                "../../../../tests/fixtures/synthetic-controller-life-freeze-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0);
+            catalog.definitions[0] = life;
+        }
+        let spell = catalog.definitions[0].oracle_id.clone();
+        let land = catalog.definitions[1].oracle_id.clone();
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog.validate().unwrap();
         let mut config = ScenarioConfig::turns_permanents();
         config.profile = "synthetic-controlled-phasing".into();
         config.initial.turn_step = TurnStep::PrecombatMain;
@@ -274,7 +287,11 @@ mod tests {
         ] {
             config.cards.push(CardSetup {
                 id: CardId(config.cards.len() as u32),
-                oracle_id: catalog.definitions[definition].oracle_id.clone(),
+                oracle_id: if definition == 0 {
+                    spell.clone()
+                } else {
+                    land.clone()
+                },
                 owner: PlayerId(seat),
                 controller: PlayerId(seat),
                 zone,
@@ -284,7 +301,7 @@ mod tests {
             for _ in 0..4 {
                 config.cards.push(CardSetup {
                     id: CardId(config.cards.len() as u32),
-                    oracle_id: catalog.definitions[1].oracle_id.clone(),
+                    oracle_id: land.clone(),
                     owner: seat,
                     controller: seat,
                     zone: Zone::Library { owner: seat },
@@ -298,7 +315,88 @@ mod tests {
             config,
             match_config: None,
         };
-        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Game::with_trace(prepared, TraceMode::Detailed)
+    }
+
+    #[test]
+    fn paid_life_freeze_retains_damage_blocks_positive_payment_and_expires_on_next_turn() {
+        use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
+        let mut g = synthetic_game(true);
+        request(&mut g, 1);
+        cast(&mut g, 1, 0, vec![]);
+        let player = PlayerId(0);
+        assert!(
+            g.visible_player(player)
+                .unwrap()
+                .life_frozen_until_next_turn
+        );
+        assert!(
+            !g.visible_player(PlayerId(1))
+                .unwrap()
+                .life_frozen_until_next_turn
+        );
+        recover(&g);
+        let mut probe = g.fork();
+        let amount = Quantity::from(3);
+        let source = probe.object_before(object(&probe, 2)).unwrap();
+        let outcome = probe
+            .apply_noncombat_damage(&NoncombatDamageOccurrence {
+                source,
+                controller: PlayerId(1),
+                recipient: DamageRecipient::Player { player },
+                amount: amount.clone(),
+            })
+            .unwrap();
+        assert!(
+            matches!(outcome,EventOutcome::NoncombatDamageDealt{result,..} if result.previous==result.current)
+        );
+        for event in [
+            ProposedEvent::GainLife {
+                player,
+                amount: amount.clone(),
+            },
+            ProposedEvent::LoseLife {
+                player,
+                amount: amount.clone(),
+            },
+        ] {
+            assert_eq!(
+                probe.commit(event, BatchCause::Fixture).unwrap(),
+                EventOutcome::LifeChangeProhibited { player }
+            );
+        }
+        assert!(!probe.state.rules.players[0].can_pay_life(&amount));
+        assert!(probe.state.rules.players[0].can_pay_life(&Quantity::zero()));
+        for _ in 0..600 {
+            let r = request(&mut g, 1);
+            if !g
+                .visible_player(player)
+                .unwrap()
+                .life_frozen_until_next_turn
+            {
+                break;
+            }
+            let response = match r {
+                Request::Priority { .. } => Response::Pass,
+                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                other => panic!("unexpected turn request {other:?}"),
+            };
+            answer(&mut g, 1, response);
+        }
+        assert!(
+            !g.visible_player(player)
+                .unwrap()
+                .life_frozen_until_next_turn
+        );
+        assert_eq!(g.state.rules.turn_owner, player);
+        assert!(g.state.rules.players[0].can_pay_life(&amount));
+        recover(&g);
+    }
+
+    #[test]
+    fn paid_controller_phasing_replays_status_and_normal_untap_with_stable_handles() {
+        use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
+        let mut g = synthetic_game(false);
         request(&mut g, 1);
         let land = object(&g, 1);
         let opposing = object(&g, 2);

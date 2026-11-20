@@ -269,6 +269,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    ControllerLifeFreezeV1,
     ControlledPermanentPhasingV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
@@ -784,6 +785,9 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    FreezeControllerLifeUntilNextTurn {
+        source_block: u32,
+    },
     PhaseOutControllerPermanents {
         source_block: u32,
     },
@@ -1183,7 +1187,8 @@ impl Instruction {
             | Self::Scry { source_block, .. }
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
-            Self::PhaseOutControllerPermanents { source_block }
+            Self::FreezeControllerLifeUntilNextTurn { source_block }
+            | Self::PhaseOutControllerPermanents { source_block }
             | Self::MoveSet { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
@@ -4532,7 +4537,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
     for instruction in &p.instructions {
         let binding = match instruction {
-            Instruction::PhaseOutControllerPermanents { .. }
+            Instruction::FreezeControllerLifeUntilNextTurn { .. }
+            | Instruction::PhaseOutControllerPermanents { .. }
             | Instruction::MoveSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
@@ -5287,6 +5293,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::FreezeControllerLifeUntilNextTurn { .. } => {
+                Capability::ControllerLifeFreezeV1
+            }
             Instruction::PhaseOutControllerPermanents { .. } => {
                 Capability::ControlledPermanentPhasingV1
             }
@@ -7008,6 +7017,7 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            ControllerLifeFreezeV1,
             ControlledPermanentPhasingV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
@@ -7570,6 +7580,14 @@ mod tests {
         definitions.push(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/synthetic-controlled-phasing-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controller-life-freeze-ir.json"
             ))
             .unwrap()
             .definitions

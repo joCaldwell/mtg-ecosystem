@@ -194,6 +194,7 @@ impl SampleBuildWork {
                 .players
                 .get_mut(row.player.0 as usize)
                 .ok_or_else(|| invariant("public player"))?;
+            p.life_frozen_until_next_turn = row.life_frozen_until_next_turn;
             p.life = row.life.clone();
             p.mana = row.mana.clone();
             p.status = row.status;

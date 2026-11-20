@@ -507,6 +507,10 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             keys.extend(objects.iter().map(|o| FactKey::Object(o.card)));
             (keys.clone(), keys)
         }
+        ProposedEvent::FreezeLifeUntilNextTurn { player } => {
+            let keys = BTreeSet::from([FactKey::Life(*player)]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::PhaseOutControlled { .. } => {
             let keys = BTreeSet::from([FactKey::Effects, FactKey::Turn]);
             (keys.clone(), keys)
@@ -722,6 +726,7 @@ fn collect<'a>(
                             | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
+                            | ProposedEvent::FreezeLifeUntilNextTurn { .. }
                             | ProposedEvent::PhaseOutControlled { .. }
                             | ProposedEvent::ClearDamage
                             | ProposedEvent::ConsumeDeathtouchWindow { .. }
@@ -1189,6 +1194,9 @@ impl Game {
                 ProposedEvent::ConsumeDeathtouchWindow { objects: checked } => {
                     objects.extend(checked);
                 }
+                ProposedEvent::FreezeLifeUntilNextTurn { player } => {
+                    players.insert(*player);
+                }
                 ProposedEvent::PhaseOutControlled { controller } => {
                     players.insert(*controller);
                     objects.extend(
@@ -1484,10 +1492,13 @@ impl Game {
             }
         }
         collect(&group, self, 0, self.event_group_limit(), &mut events)?;
-        if events
-            .iter()
-            .any(|e| matches!(e, ProposedEvent::PhaseOutControlled { .. }))
-        {
+        if events.iter().any(|e| {
+            matches!(
+                e,
+                ProposedEvent::PhaseOutControlled { .. }
+                    | ProposedEvent::FreezeLifeUntilNextTurn { .. }
+            )
+        }) {
             let Frame::Resolve { frame } = &self.state.rules.frame else {
                 return Err("phase-out requires a resolving spell".into());
             };
@@ -1496,12 +1507,11 @@ impl Game {
                 || frame.spell.paid.is_none()
                 || frame.cursor != 0
                 || self.top()? != &frame.spell
-                || !matches!(
-                    self.program_for(&frame.spell)?.instructions.as_slice(),
-                    [Instruction::PhaseOutControllerPermanents { source_block: 0 }]
-                )
                 || cause != Self::wipe_cause(frame, 0)
-                || !matches!(&group,EventGroup::Occurrence{proposed:ProposedEvent::PhaseOutControlled{controller}} if *controller==frame.spell.controller)
+                || !matches!((&group,self.program_for(&frame.spell)?.instructions.as_slice()),
+                    (EventGroup::Occurrence{proposed:ProposedEvent::PhaseOutControlled{controller:player}},[Instruction::PhaseOutControllerPermanents{source_block:0}]) |
+                    (EventGroup::Occurrence{proposed:ProposedEvent::FreezeLifeUntilNextTurn{player}},[Instruction::FreezeControllerLifeUntilNextTurn{source_block:0}])
+                    if *player==frame.spell.controller)
             {
                 return Err("phase-out requires the paid controller instruction".into());
             }
@@ -2049,7 +2059,11 @@ impl Game {
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
-        if matches!(proposed, ProposedEvent::PhaseOutControlled { .. }) {
+        if matches!(
+            proposed,
+            ProposedEvent::PhaseOutControlled { .. }
+                | ProposedEvent::FreezeLifeUntilNextTurn { .. }
+        ) {
             return Err("phase-out requires an authorized instruction batch".into());
         }
         if matches!(
@@ -2327,10 +2341,20 @@ impl Game {
             | ProposedEvent::CommitDamage { .. }
             | ProposedEvent::CleanupEffects) => self.apply_effect_event(event)?,
             ProposedEvent::NoncombatDamage { damage } => self.apply_noncombat_damage(damage)?,
+            ProposedEvent::FreezeLifeUntilNextTurn { player } => {
+                if !self.is_live(*player) {
+                    return Err("departed frozen life recipient".into());
+                }
+                self.state.rules.players[player.0 as usize].life_frozen_until_next_turn = true;
+                EventOutcome::LifeFrozenUntilNextTurn { player: *player }
+            }
             ProposedEvent::GainLife { player, amount }
             | ProposedEvent::LoseLife { player, amount } => {
                 if !self.is_live(*player) || *amount <= Quantity::zero() {
                     return Err("invalid life change".into());
+                }
+                if self.state.rules.players[player.0 as usize].life_frozen_until_next_turn {
+                    return Ok(EventOutcome::LifeChangeProhibited { player: *player });
                 }
                 let life = &mut self.state.rules.players[player.0 as usize].life;
                 let previous = life.clone();
@@ -2748,6 +2772,7 @@ impl Game {
                 let previous_owner = std::mem::replace(&mut self.state.rules.turn_owner, *owner);
                 self.state.rules.active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
+                    self.state.rules.players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.state.rules.mana_ability_uses.clear();
                     self.state.rules.cast_history = [triggers::TurnCastHistory::default(); 4];
                     for o in self.state.rules.objects.values_mut() {
@@ -2994,10 +3019,9 @@ impl Game {
         for ((kind, id), amount) in totals {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
-                let life = &mut self.state.rules.players[player.0 as usize].life;
-                let previous = life.clone();
-                life.subtract(&amount);
-                (DamageRecipient::Player { player }, previous, life.clone())
+                let (previous, current) =
+                    self.state.rules.players[player.0 as usize].lose_life(&amount);
+                (DamageRecipient::Player { player }, previous, current)
             } else {
                 let object = self
                     .state

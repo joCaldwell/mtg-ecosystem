@@ -3,10 +3,13 @@ use super::*;
 use serde_json::{Value, json};
 
 fn contains(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::PhaseOutControllerPermanents { .. }))
-        || p.modes.iter().any(|m| contains(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            Instruction::PhaseOutControllerPermanents { .. }
+                | Instruction::FreezeControllerLifeUntilNextTurn { .. }
+        )
+    }) || p.modes.iter().any(|m| contains(&m.program))
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
@@ -17,16 +20,37 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     if !uses
         && !d.provenance.abilities_json.contains("phase-out")
         && !d.provenance.source_json.contains("phase out")
+        && !d.provenance.source_json.contains("life total can")
+        && !d.provenance.abilities_json.contains("cant-lose-life")
         && !d.provenance.source_json.contains("\\u")
     {
         return Ok(());
     }
     let source: Value = strict_read(&d.provenance.source_json)?;
     let text = source["oracle_text"].as_str().unwrap_or("");
-    let clause = "All permanents you control phase out.";
     let ast: Value = strict_read(&d.provenance.abilities_json)?;
-    let expected = json!([{"kind":"spell","effects":[{"steps":[{"effect":"phase-out","what":{"ref":"all","filter":{"cls":"permanent","control":"you"}}}]}]}]);
-    if !uses && !text.contains(clause) && !ast.to_string().contains("\"phase-out\"") {
+    let freeze = "Until your next turn, your life total can't change.";
+    let phase = "All permanents you control phase out.";
+    let (clause, expected, instruction) = if text == freeze {
+        let rules=["cant-gain-life","cant-lose-life"].map(|rule|json!({"effect":"player-rule","rule":{"who":{"player":"you"},"rule":rule},"duration":{"duration":"your-next-turn"}}));
+        (
+            freeze,
+            json!([{"kind":"spell","effects":[{"steps":[{"effect":"simultaneous","steps":rules}]}]}]),
+            Instruction::FreezeControllerLifeUntilNextTurn { source_block: 0 },
+        )
+    } else {
+        (
+            phase,
+            json!([{"kind":"spell","effects":[{"steps":[{"effect":"phase-out","what":{"ref":"all","filter":{"cls":"permanent","control":"you"}}}]}]}]),
+            Instruction::PhaseOutControllerPermanents { source_block: 0 },
+        )
+    };
+    if !uses
+        && !text.contains(phase)
+        && !text.contains(freeze)
+        && !ast.to_string().contains("\"phase-out\"")
+        && !ast.to_string().contains("cant-lose-life")
+    {
         return Ok(());
     }
     let c = &d.characteristics;
@@ -71,10 +95,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         || !p.modes.is_empty()
         || p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
-        || !matches!(
-            p.instructions.as_slice(),
-            [Instruction::PhaseOutControllerPermanents { source_block: 0 }]
-        )
+        || p.instructions.as_slice() != [instruction]
         || d.source_labels.as_ref().is_some_and(|l| {
             *l != SourceLabels {
                 text: clause.into(),
@@ -89,13 +110,27 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn schema(s: &mut Value) {
-    let op =
-        json!({"required":["op"],"properties":{"op":{"const":"phase_out_controller_permanents"}}});
-    let cap = json!({"contains":{"const":Capability::ControlledPermanentPhasingV1}});
-    let free = json!({"$ref":"#/$defs/ControllerPhaseFree"});
-    s["$defs"]["ControllerPhaseFree"] = json!({"properties":{"instructions":{"not":{"contains":op}},"modes":{"items":{"properties":{"program":free}}}}});
-    let shape = json!({"required":["spell","capabilities"],"properties":{"capabilities":cap,"spell":{"type":"object","properties":{"instructions":{"minItems":1,"maxItems":1,"items":{"allOf":[op,{"properties":{"source_block":{"const":0}}}]}},"resolution":{"const":"instructions"},"functioning_zone":{"const":"stack"},"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0}}});
-    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}},{"properties":{"provenance":{"properties":{"source_json":{"pattern":"All permanents you control phase out\\."}}}}}]},"then":shape}));
+    for (name, capability, free_name, pattern) in [
+        (
+            "phase_out_controller_permanents",
+            Capability::ControlledPermanentPhasingV1,
+            "ControllerPhaseFree",
+            "All permanents you control phase out",
+        ),
+        (
+            "freeze_controller_life_until_next_turn",
+            Capability::ControllerLifeFreezeV1,
+            "ControllerLifeFreezeFree",
+            "Until your next turn, your life total can't change",
+        ),
+    ] {
+        let op = json!({"required":["op"],"properties":{"op":{"const":name}}});
+        let cap = json!({"contains":{"const":capability}});
+        let free = json!({"$ref":format!("#/$defs/{free_name}")});
+        s["$defs"][free_name] = json!({"properties":{"instructions":{"not":{"contains":op}},"modes":{"items":{"properties":{"program":free}}}}});
+        let shape = json!({"required":["spell","capabilities"],"properties":{"capabilities":cap,"spell":{"type":"object","properties":{"instructions":{"minItems":1,"maxItems":1,"items":{"allOf":[op,{"properties":{"source_block":{"const":0}}}]}},"resolution":{"const":"instructions"},"functioning_zone":{"const":"stack"},"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0}}});
+        s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}},{"properties":{"provenance":{"properties":{"source_json":{"pattern":pattern}}}}}]},"then":shape}));
+    }
 }
 
 #[cfg(test)]

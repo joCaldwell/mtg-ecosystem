@@ -46,9 +46,7 @@ impl Game {
             || object.controller != player
             || !self.is_live(player)
             || object.tapped
-            || life.is_negative()
-            || (*life > Quantity::zero()
-                && self.state.rules.players[player.0 as usize].life < *life)
+            || !self.state.rules.players[player.0 as usize].can_pay_life(life)
         {
             return Err("unpayable source tap, life and sacrifice cost".into());
         }
