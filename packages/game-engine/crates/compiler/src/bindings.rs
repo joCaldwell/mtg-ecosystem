@@ -45,6 +45,26 @@ impl<'a> Bindings<'a> {
         id
     }
 
+    /// Attachment references are derived relative to the owning ability, but
+    /// carry the path of the expression that references the attachment.
+    pub(super) fn enchanted_creature(&mut self, root: &str) -> String {
+        let scope = self.id(root, "ability");
+        let id = format!("{scope}/attached-to");
+        let path = format!("{root}/effect/what");
+        let rules = ["301.5f", "303.4m"];
+        self.nodes.push(
+            json!({"id":id,"path":path,"node":"derived-object","scope":scope,
+            "role":"attached-to","of":self.id("/source","object"),"rules":rules}),
+        );
+        self.reference_rules(
+            &path,
+            &json!({"ref":"enchanted","noun":"creature"}),
+            &id,
+            &rules,
+        );
+        id
+    }
+
     pub(super) fn reference(&mut self, path: &str, expression: &Value, target: &str, rule: &str) {
         self.reference_rules(path, expression, target, &[rule]);
     }

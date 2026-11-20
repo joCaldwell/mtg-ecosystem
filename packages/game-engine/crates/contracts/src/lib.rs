@@ -1,6 +1,8 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
+mod bestow;
+pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative, canonical_bestow_program};
 mod cascade_land_entry;
 mod granted_land_mana;
 pub mod hand_cast_cascade;
@@ -27,6 +29,8 @@ pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_entry;
+mod saga;
+pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
 mod fixed_creature_activation;
 pub use fixed_creature_activation::{
     FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
@@ -373,11 +377,14 @@ pub enum Capability {
     CompositeActivationCostV1,
     CastEnchantmentV1,
     AuraControlV1,
+    BestowV1,
     TemporaryPowerToughnessV1,
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
+    SagaChaptersV1,
+    DelayedControllerCreatureEntryV1,
     NormalLayoutV1,
     ColorHybridCostV1,
     BasicLandManaV1,
@@ -808,6 +815,10 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    RegisterControllerCreatureEntryThisTurn {
+        program: Box<SpellProgram>,
+        source_block: u32,
+    },
     Hideaway {
         count: u32,
         source_block: u32,
@@ -1292,7 +1303,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::Hideaway { source_block, .. }
+            Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
+            | Self::Hideaway { source_block, .. }
             | Self::PlayHideawayLinked { source_block, .. }
             | Self::GrantHandCastCascade { source_block }
             | Self::OfferHandCastWithoutManaCost { source_block }
@@ -1486,6 +1498,10 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    Bestow {
+        cost: ManaCost,
+        program: SpellProgram,
+    },
     GrantControllerLandsAnyColorMana,
     MayBeginOnBattlefield,
     GrantControllerLandsAllBasicTypes,
@@ -1850,6 +1866,10 @@ pub enum CascadeThreshold {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    DelayedControllerCreatureEntry,
+    SagaChapter {
+        number: std::num::NonZeroU32,
+    },
     /// CR 702.85a and 702.144a: functions on the casting spell itself, on the stack.
     SelfSpellCast,
     /// One occurrence per damaged player and simultaneous combat-damage event.
@@ -2094,6 +2114,8 @@ impl TriggerCondition {
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
+            Self::DelayedControllerCreatureEntry => "delayed_controller_creature_entry",
+            Self::SagaChapter { .. } => "saga_chapter",
             Self::SelfSpellCast => "self_spell_cast",
             Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
@@ -2464,7 +2486,17 @@ pub fn is_canonical_cascade_program(program: &SpellProgram) -> bool {
 }
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
-        let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
+        let mut set = BTreeSet::from([
+            if self
+                .triggered
+                .iter()
+                .any(|t| matches!(t.condition, TriggerCondition::SagaChapter { .. }))
+            {
+                Capability::SagaChaptersV1
+            } else {
+                Capability::NormalLayoutV1
+            },
+        ]);
         if !self.characteristics.hybrid_mana.is_empty() {
             set.insert(Capability::ColorHybridCostV1);
         }
@@ -2643,6 +2675,10 @@ impl Definition {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
+                TriggerCondition::DelayedControllerCreatureEntry => {
+                    Capability::DelayedControllerCreatureEntryV1
+                }
+                TriggerCondition::SagaChapter { .. } => Capability::SagaChaptersV1,
                 TriggerCondition::SelfSpellCast
                     if is_canonical_cascade_program(&ability.program) =>
                 {
@@ -2702,6 +2738,22 @@ impl Definition {
             set.extend(intrinsic_keyword_capability(*keyword));
         }
         for a in &self.static_abilities {
+            if let StaticEffect::ModifyCreatures {
+                scope: CreatureScope::Enchanted,
+                keywords,
+                ..
+            } = &a.effect
+                && bestow_alternative(self).is_some()
+            {
+                set.extend(
+                    keywords
+                        .iter()
+                        .filter_map(|k| intrinsic_keyword_capability(*k)),
+                );
+            }
+            if let StaticEffect::Bestow { program, .. } = &a.effect {
+                add_program_requirements(&mut set, program);
+            }
             if let StaticEffect::GrantSpellCascade {
                 eligibility,
                 program,
@@ -2719,6 +2771,7 @@ impl Definition {
             }
             let static_capability = match a.effect {
                 StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
+                StaticEffect::Bestow { .. } => Capability::BestowV1,
                 StaticEffect::CascadeLandEntry => Capability::CascadeLandEntryV1,
                 StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
@@ -2779,6 +2832,7 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
@@ -2815,6 +2869,7 @@ impl Definition {
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
+        bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
         hand_cast_cascade::validate_definition(self)?;
@@ -3143,7 +3198,9 @@ impl Definition {
             return Err("unsupported or noncanonical combined card types".into());
         }
         for subtype in &c.subtypes {
-            if unsupported_rules_subtype(subtype) {
+            if unsupported_rules_subtype(subtype)
+                && !(subtype == "Saga" && self.capabilities.contains(&Capability::SagaChaptersV1))
+            {
                 return Err(format!("subtype:{}", subtype.to_lowercase()));
             }
         }
@@ -3642,10 +3699,12 @@ impl Definition {
                     "cast-entry condition requires the entering creature's own trigger".into(),
                 );
             }
-            if matches!(
-                p.instructions.as_slice(),
-                [Instruction::OfferHandCastWithoutManaCost { .. }]
-            ) {
+            if matches!(ability.condition, TriggerCondition::SagaChapter { .. })
+                || matches!(
+                    p.instructions.as_slice(),
+                    [Instruction::OfferHandCastWithoutManaCost { .. }]
+                )
+            {
                 // The whole definition gate binds this one operation to the source's own combat event.
                 validate_instruction_program(p)?;
                 continue;
@@ -3847,7 +3906,8 @@ impl Definition {
                         ..
                     }
                 )
-        }) && c.kind != CardKind::Enchantment
+        }) && bestow_alternative(self).is_none()
+            && c.kind != CardKind::Enchantment
             && !equipment
             && !(sacrifice && c.kind == CardKind::Creature)
             && !(wipes && matches!(c.kind, CardKind::Instant | CardKind::Sorcery))
@@ -3857,7 +3917,10 @@ impl Definition {
         if self.static_abilities.iter().any(|a| {
             if a.effect == StaticEffect::MayBeginOnBattlefield {
                 a.functioning_zone != FunctioningZone::Hand
-            } else if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
+            } else if matches!(
+                a.effect,
+                StaticEffect::ReduceSelfGenericCost { .. } | StaticEffect::Bestow { .. }
+            ) {
                 a.functioning_zone != FunctioningZone::Stack
             } else if matches!(
                 a.effect,
@@ -3965,7 +4028,12 @@ impl Definition {
                 continue;
             }
             if matches!(a.effect, StaticEffect::ModifyCreatures { .. }) {
-                if !static_creature_modification_valid(c.kind, equipment, aura, &a.effect) {
+                if !static_creature_modification_valid(
+                    c.kind,
+                    equipment,
+                    aura || bestow_alternative(self).is_some(),
+                    &a.effect,
+                ) {
                     return Err("invalid static creature modification".into());
                 }
             } else if equipment || aura {
@@ -4978,7 +5046,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::Hideaway { .. }
+            Instruction::RegisterControllerCreatureEntryThisTurn { .. }
+            | Instruction::Hideaway { .. }
             | Instruction::PlayHideawayLinked { .. }
             | Instruction::GrantHandCastCascade { .. }
             | Instruction::OfferHandCastWithoutManaCost { .. }
@@ -5529,6 +5598,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         ) {
             set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
+        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. } = instruction {
+            add_program_requirements(set, program);
+        }
         if matches!(
             instruction,
             Instruction::Cascade { .. } | Instruction::RevealAndCast { .. }
@@ -5581,6 +5653,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
+            }
+            Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
+                Capability::DelayedControllerCreatureEntryV1
             }
             Instruction::Hideaway { .. } => Capability::HideawayV1,
             Instruction::PlayHideawayLinked { .. } => Capability::LinkedExilePlayV1,
@@ -7193,6 +7268,7 @@ pub fn catalog_schema() -> serde_json::Value {
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
+    saga::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     hand_cast_cascade::extend_schema(&mut schema);
@@ -7223,6 +7299,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
         opening_placement::permit_composition(&mut schema);
     }
+    bestow::extend_schema(&mut schema);
     colored_library_search::extend_schema(&mut schema);
     opening_placement::schema(&mut schema);
     opening_placement::permit_composition(&mut schema);
@@ -7385,6 +7462,8 @@ mod tests {
             CastHistoryV1,
             CastManaValueSweepV1,
             RandomBottomV1,
+            SagaChaptersV1,
+            DelayedControllerCreatureEntryV1,
             NormalLayoutV1,
             ColorHybridCostV1,
             BasicLandManaV1,
@@ -7453,6 +7532,7 @@ mod tests {
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
+            BestowV1,
             TemporaryPowerToughnessV1,
             CombatDamagePreventionV1,
             DamageBudgetPreventionV1,
@@ -7930,6 +8010,7 @@ mod tests {
         definitions.push(cascade_land_entry::witness());
         definitions.push(hand_cast_cascade::witness());
         definitions.push(linked_hideaway::witness());
+        definitions.push(bestow::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
@@ -7944,6 +8025,7 @@ mod tests {
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
+        definitions.push(saga::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));

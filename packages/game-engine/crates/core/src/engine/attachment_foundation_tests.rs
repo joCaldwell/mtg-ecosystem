@@ -450,3 +450,42 @@ fn timestamp_validation_and_canonical_digest_bind_the_new_private_fields() {
         digest(&forged_counter.state).unwrap()
     );
 }
+
+#[test]
+fn bestowed_host_departure_restores_same_chromanticore() {
+    let mut p = super::equipped_indestructible_tests::prepared(
+        &[("Grizzly Bears", false), ("Grizzly Bears", false)],
+        false,
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/ramos/695ee4fe-356d-47fb-9442-d171b618151c.json"),
+    ) else {
+        panic!("frozen Chromanticore must lower")
+    };
+    let printed = definition.characteristics.clone();
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let c = Arc::make_mut(&mut p.catalog);
+    c.definitions.push(*definition);
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(c).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    let source = object(&g, 0);
+    let host = object(&g, 1);
+    // Seed only the established attachment. The casting lane witnesses entry.
+    let permanent = g.state.rules.objects.get_mut(&source.card).unwrap();
+    permanent.attached_to = Some(host);
+    permanent.attachment_timestamp = Some(1);
+    g.state.rules.next_attachment_timestamp = 2;
+    g.validate_attachment_state().unwrap();
+    let aura = g.characteristics(source).unwrap();
+    assert_eq!(aura.subtypes, ["Aura"]);
+    assert_eq!((aura.power, aura.toughness), (None, None));
+    assert_eq!(g.characteristics(host).unwrap().power, Some(6.into()));
+    move_card(&mut g, 1, Zone::Exile);
+    assert_eq!(g.zone(source), Some(Zone::Battlefield));
+    assert_eq!(g.current(source).unwrap().attached_to, None);
+    assert_eq!(g.characteristics(source).unwrap(), printed);
+    g.validate_attachment_state().unwrap();
+}

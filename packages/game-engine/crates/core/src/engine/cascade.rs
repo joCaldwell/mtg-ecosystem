@@ -8,6 +8,7 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum AlternativeCost {
+    Bestow,
     WithoutManaCost,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

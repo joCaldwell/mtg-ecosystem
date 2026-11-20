@@ -1333,6 +1333,7 @@ fn choice_defender_probe_requires_other_attack_eligibility_without_changing_root
         restrictions: vec![],
         token: None,
         plus_one_counters: Quantity::zero(),
+        lore_counters: 0.into(),
         characteristics: Some(defender.characteristics.clone()),
         marked_damage: Quantity::zero(),
         attack_ready: true,
