@@ -62,7 +62,7 @@ export function parseDefiniteCardExileCounters(c: Cursor): { what: ObjectRef[]; 
 /** Called after the complete exile object list and optional source zone.
  * All objects belong to one simultaneous move and linked return group.
  * Other event forms fail until their semantics have dedicated representation. */
-export function parseExileUntil(c: Cursor, what: ObjectRef[], from?: ZoneRef): Effect | null {
+export function parseExileUntil(c: Cursor, what: ObjectRef[], from?: ZoneRef): Extract<Effect, { effect: "exile-until" }> | null {
   return c.attempt(c => {
     if (!what.length || c.word("until") === null) return null;
     const eventObject = parseObjectRef(c);

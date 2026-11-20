@@ -1744,6 +1744,32 @@ class Analyzer {
       "Shuffle the controller's library, reveal through the first nonland or exhaustion, exile the match and put the other revealed cards on the bottom in random order. If the exile successor exists, the resolving spell's controller may cast that card during resolution without paying its mana cost if legal.",
       ["400.7j", "601.2", "608.2c", "608.2d", "608.2g", "609.3", "701.20", "701.24"]);
   }
+  libraryTopMana(effect: Extract<Effect, { effect: "look-top-may-reveal-for-mana" }>, path: string, context: Context): void {
+    this.walk(effect, path, context);
+    const controller = this.at(child(path, "who"));
+    const library = child(path, "library");
+    const reveal = child(path, "reveal");
+    const revealIf = child(path, "revealIf");
+    const to = child(path, "to");
+    const libraryOwner = this.at(child(library, "owner"));
+    const handOwner = this.at(child(to, "owner"));
+    if (!controller || !libraryOwner || !handOwner) return;
+
+    const lookEvent = this.event(library, context, "look-at", combine([controller], [libraryOwner]));
+    const looked = this.eventResult(library, lookEvent, "objects", "one", "same-objects", { cls: "card" });
+    const revealEvent = this.event(reveal, context, "reveal", [controller, looked],
+      { optional: true, decider: controller.id, conditional: true, requiresResult: looked.id });
+    this.node({ id: this.id(revealIf, "eligibility"), path: revealIf, node: "colored-mana-symbol-count",
+      scope: context.ability, card: looked.id, guardedEvent: revealEvent, comparison: effect.revealIf,
+      rules: ["107.4e", "107.4f", "202.1", "608.2d"] });
+    const revealed = this.eventResult(reveal, revealEvent, "objects", "one", "same-objects", { cls: "card" }, looked.id);
+    this.event(child(path, "mana"), context, "add-mana", [controller, revealed],
+      { conditional: true, requiresResult: revealed.id });
+    this.event(to, context, "move-zone", [looked, handOwner], { requiresResult: looked.id });
+    this.engineFeature(effect.effect, path,
+      "Look privately at the top card, offer its public reveal only when eligible, and allocate the printed amount among its colors only after revealing it. Put the looked-at card into hand in either branch.",
+      ["105.2", "106.1a", "107.4e", "107.4f", "400.1", "608.2c", "608.2d", "609.3", "701.20"]);
+  }
   definitions(bindings: Sentence["bindings"], path: string, context: Context): void {
     if (!bindings) return;
     for (const [index, binding] of bindings.entries()) {
@@ -1901,6 +1927,7 @@ class Analyzer {
       return;
     }
     const plain = !effect.optional && !effect.forEach && !effect.forEachVote;
+    if (plain && effect.effect === "look-top-may-reveal-for-mana") { this.libraryTopMana(effect, path, context); return; }
     if (plain && effect.effect === "modal" && !effect.allowRepeat && !effect.unchosen && !effect.distinctTargetPlayers) { this.modal(effect, path, context); return; }
     if (plain && effect.effect === "choice") { this.choice(effect, path, context); return; }
     if (plain && effect.effect === "flip-coin" && !effect.until && effect.outcomes?.length && effect.count.amount === "fixed" && effect.count.value === 1) {
@@ -2046,7 +2073,7 @@ class Analyzer {
       case "distribute-counters":
       case "exchange-life-totals":
       case "exchange-values": case "exchange-zones": case "choose-random": case "choose-friend-or-foe":
-      case "scan-library": case "grant-look-permission": case "self-replacement":
+      case "scan-library": case "grant-look-permission": case "self-replacement": case "look-top-may-reveal-for-mana":
         this.diagnostic("unsupported-scope", path, "This instruction's event/result associations are not yet established.", ["608.2c"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
