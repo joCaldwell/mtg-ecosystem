@@ -276,9 +276,7 @@ impl Game {
         };
         self.grant_program(grant_source, static_ability_index)?;
         self.validate_grant_source_facts(grant_source, fact, &grant.source_handles)?;
-        let cost = &cast.spell.characteristics.mana_cost;
-        let mut mana_value = cost.generic.clone();
-        mana_value.add(&Quantity::from(cost.colored.len() as i64));
+        let mut mana_value = cast.spell.characteristics.printed_mana_value();
         if self.definition(cast.spell.object.card)?.x_mana_cost {
             mana_value.add(cast.x.as_ref().ok_or("missing granted spell X")?);
         }

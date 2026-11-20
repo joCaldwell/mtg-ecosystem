@@ -147,9 +147,7 @@ impl Game {
         {
             return self.stack_mana_value(spell);
         }
-        let cost = &cast.spell.characteristics.mana_cost;
-        let mut value = cost.generic.clone();
-        value.add(&Quantity::from(cost.colored.len() as i64));
+        let mut value = cast.spell.characteristics.printed_mana_value();
         if let Some(x) = &cast.x {
             value.add(x);
         }
@@ -182,10 +180,10 @@ impl Game {
         Ok(())
     }
     fn nonstack_mana_value(&self, object: ObjectId) -> Result<Quantity, String> {
-        let cost = &self.definition(object.card)?.characteristics.mana_cost;
-        let mut value = cost.generic.clone();
-        value.add(&Quantity::from(cost.colored.len() as i64));
-        Ok(value) // undefined X is zero outside stack (CR202.3e)
+        Ok(self
+            .definition(object.card)?
+            .characteristics
+            .printed_mana_value())
     }
     fn cascade_hit(&self, object: ObjectId, threshold: &Quantity) -> Result<bool, String> {
         Ok(!self
@@ -716,6 +714,7 @@ impl Game {
                 stored_history::payload_charge(frame)
             }
             Frame::AdditionalCosts { cast }
+            | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
             | Frame::Modes { cast }
             | Frame::Targets { cast }
@@ -745,6 +744,7 @@ impl Game {
                     ..
                 } => (progress.as_ref(), None, false),
                 Frame::AdditionalCosts { cast }
+                | Frame::HybridCost { cast }
                 | Frame::AnnounceX { cast }
                 | Frame::Modes { cast }
                 | Frame::Targets { cast }

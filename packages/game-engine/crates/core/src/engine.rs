@@ -643,6 +643,19 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn has_nonland_color_grant(&self) -> bool {
+        self.catalog.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::ControllerNonlandColorsV1)
+        })
+    }
+    fn includes_opening_placement(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::OpeningPlacementV1))
+    }
+
     // Existing reviewed catalogs keep their exact private snapshot envelope.
     // The headless land-type family can retain new unpaid selection frames.
     fn has_land_type_grant(&self) -> bool {
@@ -948,6 +961,8 @@ impl Object {
 struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cost_lock: Option<costs::CostLock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hybrid_colors: Vec<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1093,6 +1108,9 @@ enum Frame {
     AnnounceX {
         cast: Casting,
     },
+    HybridCost {
+        cast: Casting,
+    },
     SacrificeCost {
         cast: Casting,
     },
@@ -1206,6 +1224,9 @@ pub enum ManaAbilityIdentity {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    OpeningPlacement {
+        object: Option<ObjectId>,
+    },
     AdditionalCosts {
         selected: Vec<String>,
     },
@@ -1232,6 +1253,9 @@ pub enum Response {
     },
     AnnounceX {
         value: Quantity,
+    },
+    HybridCost {
+        colors: Vec<Color>,
     },
     SacrificeCost {
         object: ObjectId,
@@ -1360,6 +1384,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    OpeningPlacement {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
     HandCast {
         player: PlayerId,
         decision_id: u64,
@@ -1407,6 +1436,11 @@ pub enum Request {
     AnnounceX {
         decision_id: u64,
         player: PlayerId,
+    },
+    HybridCost {
+        decision_id: u64,
+        player: PlayerId,
+        symbols: Vec<ColorHybridSymbol>,
     },
     SacrificeCost {
         decision_id: u64,
@@ -1611,6 +1645,7 @@ impl Request {
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
             Self::AdditionalCosts { decision_id, .. }
+            | Self::HybridCost { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
@@ -1622,6 +1657,7 @@ impl Request {
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
+            | Self::OpeningPlacement { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
             | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
@@ -1656,6 +1692,7 @@ impl Request {
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
             Self::AdditionalCosts { player, .. }
+            | Self::HybridCost { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
             | Self::ManaColor { player, .. }
@@ -1667,6 +1704,7 @@ impl Request {
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
+            | Self::OpeningPlacement { player, .. }
             | Self::BottomOpening { player, .. }
             | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
@@ -2411,6 +2449,7 @@ pub struct SnapshotWriteInfo {
 }
 pub struct Game {
     catalog_has_land_type_grant: bool,
+    catalog_has_nonland_color_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     state: State,
@@ -2571,6 +2610,7 @@ impl Game {
         };
         let mut game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2593,6 +2633,7 @@ impl Game {
     pub fn fork(&self) -> Self {
         Self {
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
+            catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
@@ -2922,6 +2963,15 @@ impl Game {
                 player: self.top()?.controller,
                 candidates: self.program()?.optional_additional_costs.clone(),
             },
+            Frame::HybridCost { .. } => Request::HybridCost {
+                decision_id: self.state.rules.revision,
+                player: self.top()?.controller,
+                symbols: self
+                    .definition(self.top()?.source.card)?
+                    .characteristics
+                    .hybrid_mana
+                    .clone(),
+            },
             Frame::AnnounceX { .. } => Request::AnnounceX {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
@@ -2974,6 +3024,19 @@ impl Game {
             } else {
                 Err("invalid optional cost announcement".into())
             };
+        }
+        if let Frame::HybridCost { cast } = &self.state.rules.frame {
+            let entry = self.top()?;
+            if let Response::HybridCost { colors } = response
+                && entry.id == cast.stack_id
+                && entry.controller == player
+                && entry.kind.is_spell()
+                && entry.alternative_cost.is_none()
+                && entry.hybrid_colors.is_empty()
+            {
+                return self.validate_hybrid_colors(entry.source.card, colors);
+            }
+            return Err("invalid hybrid mana announcement".into());
         }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
@@ -3274,6 +3337,25 @@ impl Game {
             Frame::Setup => self.setup_step()?,
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
             Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
+            Frame::HybridCost { cast } => {
+                let input = self
+                    .state
+                    .rules
+                    .pending
+                    .take()
+                    .ok_or("missing hybrid cost choice")?;
+                self.validate_response(input.player, &input.response)?;
+                let Response::HybridCost { colors } = input.response else {
+                    return Err("missing hybrid cost response".into());
+                };
+                self.state
+                    .rules
+                    .stack
+                    .last_mut()
+                    .ok_or("missing hybrid spell")?
+                    .hybrid_colors = colors;
+                self.state.rules.frame = self.spell_announcement_frame(cast)?;
+            }
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
             Frame::CounterPlacement { .. } => self.counter_placement_step()?,
@@ -3623,7 +3705,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 68,
+            snapshot_version: 69,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3665,7 +3747,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 68
+        if s.snapshot_version != 69
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3675,6 +3757,7 @@ impl Game {
         }
         let game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
@@ -3839,6 +3922,7 @@ impl Game {
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::TriggerTargets { .. }
                         | Frame::AdditionalCosts { .. }
+                        | Frame::HybridCost { .. }
                         | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
@@ -3887,6 +3971,7 @@ impl Game {
         }
         match self.underlying_mana_frame(&s.rules.frame) {
             Frame::AdditionalCosts { cast }
+            | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
             | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
@@ -3923,6 +4008,7 @@ impl Game {
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame),
                         Frame::AdditionalCosts { .. }
+                            | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
                             | Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
@@ -3940,6 +4026,7 @@ impl Game {
                 if matches!(
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::AdditionalCosts { .. }
+                        | Frame::HybridCost { .. }
                         | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }

@@ -38,6 +38,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
         state_token: Arc::new(()),
         in_rule_step: false,
         catalog_has_land_type_grant: game.catalog_has_land_type_grant,
+        catalog_has_nonland_color_grant: game.catalog_has_nonland_color_grant,
     }
 }
 fn complete(game: &Game, mut value: QueryResult) -> QueryValue {

@@ -1039,7 +1039,9 @@ impl Game {
                             libraries.insert(*player);
                             objects.extend(bottom);
                         }
-                        SetupAction::Declare { .. } | SetupAction::Finish => {}
+                        SetupAction::PassOpeningActions { .. }
+                        | SetupAction::Declare { .. }
+                        | SetupAction::Finish => {}
                     }
                 }
                 ProposedEvent::CreateEffect { effect } => {
@@ -1496,6 +1498,33 @@ impl Game {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
+        if cause == BatchCause::Setup
+            && let EventGroup::Occurrence {
+                proposed:
+                    ProposedEvent::Move {
+                        object,
+                        destination,
+                    },
+            } = &group
+        {
+            let input = self
+                .state
+                .rules
+                .pending
+                .as_ref()
+                .ok_or("missing opening placement authority")?;
+            if *destination != Zone::Battlefield
+                || input.response
+                    != (Response::OpeningPlacement {
+                        object: Some(*object),
+                    })
+            {
+                return Err(
+                    "opening placement move does not match selected hand incarnation".into(),
+                );
+            }
+            self.validate_setup_response(input.player, &input.response)?;
+        }
         let entry = self.prepare_entry_batch(&cause, &group)?;
         let mut events = vec![];
         {
@@ -2286,8 +2315,7 @@ impl Game {
                                 o.present_on_battlefield() && self.is_live(o.controller)
                             })
                             && self.attachment_target_type_valid(object.card, t.card)?
-                            && !self
-                                .protected_from(*t, &self.definition(object.card)?.characteristics)
+                            && !self.protected_from(*t, self.color_layer(*object)?.as_ref())
                     }
                     None => true,
                 };
@@ -3099,8 +3127,7 @@ impl Game {
                     if !self.is_battlefield_creature(object) {
                         return Err("invalid creature damage recipient".into());
                     }
-                    if self.protected_from(object, &self.definition(d.source.card)?.characteristics)
-                    {
+                    if self.protected_from(object, self.color_layer(d.source)?.as_ref()) {
                         return Err("protection requires the damage transaction".into());
                     }
                     (1, object.card.0)

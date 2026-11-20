@@ -449,6 +449,7 @@ impl Game {
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
         if let Frame::AdditionalCosts { cast }
+        | Frame::HybridCost { cast }
         | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
@@ -476,6 +477,7 @@ impl Game {
             };
         }
         if let Frame::AdditionalCosts { cast }
+        | Frame::HybridCost { cast }
         | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
@@ -493,6 +495,7 @@ impl Game {
             let proposing = matches!(
                 self.state.rules.frame,
                 Frame::AdditionalCosts { .. }
+                    | Frame::HybridCost { .. }
                     | Frame::AnnounceX { .. }
                     | Frame::Modes { .. }
                     | Frame::EntityTargets { .. }
