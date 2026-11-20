@@ -259,8 +259,14 @@ export type BindingNode = NodeBase & (
   | { node: "payment-alternatives"; scope: string; payer: string; options: Extract<Cost, { cost: "choice" }>["options"] }
   | { node: "class-level"; scope: string; source: string; payer: string; level: number; requiresLevel: number;
       timing: "sorcery"; abilities: string[] }
-  | { node: "attack-declaration"; scope: string; event: string; actor: string; defender: string;
+  | { node: "attack-declaration"; scope: string; event: string; actor: string; defender?: string; attackers?: string;
       filter?: ObjectFilter; count?: Extract<Trigger, { trigger: "player-attacks" }>["count"] }
+  | { node: "attack-declaration-count"; scope: string; attackers: string; defendingPlayer: string;
+      defendingPlaneswalkers: string; minimum: number; lookup: "current-or-last-known"; timing: "trigger-check-and-resolution" }
+  | { node: "entrant-control-exchange"; scope: string; entrant: string; chooser: string; target: string; event: string;
+      targetRestrictions: "recheck-at-resolution"; execution: "both-live-and-different-controllers" }
+  | { node: "damage-history-draw"; scope: string; event: string; player: string; target: string; departure: string;
+      window: "this-turn"; sourceController: "at-damage"; order: "active-player-then-turn-order" }
   | { node: "attack-payment"; scope: string; payer: string; eligible: string;
       rule: Extract<Extract<StaticEffect, { static: "combat-rule" }>["rule"], { rule: "declaration-cost" }> }
   | { node: "additional-stack-copy"; scope: string; actor: string; mayRetarget: boolean }
@@ -312,7 +318,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount" | "commander-mana-rider" | "numeric-roll" | "random-aura-attachment" | "vote-outcome" | "actual-destination-count" | "weighted-modal-selection" | "existing-counter-kind";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount" | "commander-mana-rider" | "numeric-roll" | "random-aura-attachment" | "vote-outcome" | "actual-destination-count" | "weighted-modal-selection" | "existing-counter-kind" | "quoted-source-reference" | "entrant-control-exchange";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

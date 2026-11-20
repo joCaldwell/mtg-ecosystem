@@ -2038,3 +2038,77 @@ describe("proposed replacement events and resolution choices", () => {
     assert.ok(!graph.nodes.some(node => node.node === "existing-counter-kind"));
   });
 });
+
+describe("declared attacks, entrants, and departed fight sources", () => {
+  it("rechecks the exact declared attackers through their current or last-known defenders", () => {
+    const graph = analyze("Whenever an opponent attacks with creatures, if two or more of those creatures are attacking you and/or "
+      + "planeswalkers you control, draw a card.", "Creature");
+    boundCard(graph);
+    const count = graph.nodes.find(node => node.node === "attack-declaration-count");
+    assert.ok(count && count.minimum === 2);
+    assert.equal(count.attackers, bound(graph, "/fromAmong"));
+    assert.equal(count.defendingPlaneswalkers, bound(graph, "/attacking/1/what"));
+    assert.equal(count.lookup, "current-or-last-known");
+    assert.equal(count.timing, "trigger-check-and-resolution");
+    assert.equal(count.attackers, graph.nodes.find(node => node.node === "attack-declaration")?.attackers);
+  });
+
+  it("does not drop a separately stated declaration defender from the trigger", () => {
+    const graph = analyze("Whenever an opponent attacks a player with creatures, if two or more of those creatures are attacking "
+      + "you and/or planeswalkers you control, draw a card.", "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "attack-declaration-count"));
+  });
+
+  const trade = "Whenever an artifact, creature, or enchantment enters, its controller chooses target permanent another player controls "
+    + "that shares a card type with it. Exchange control of those permanents.";
+
+  it("makes the entrant controller choose and keeps that entrant distinct from the target", () => {
+    const graph = analyze(trade, "Enchantment");
+    boundCard(graph);
+    const exchange = graph.nodes.find(node => node.node === "entrant-control-exchange");
+    assert.ok(exchange && exchange.entrant !== exchange.target);
+    assert.equal(exchange.chooser, bound(graph, "/what/chosenBy"));
+    assert.equal(exchange.entrant, bound(graph, "/what/chosenBy/of"));
+    assert.equal(exchange.entrant, bound(graph, "/steps/0/what/0"));
+    assert.equal(exchange.target, bound(graph, "/steps/0/what/1"));
+    assert.equal(exchange.execution, "both-live-and-different-controllers");
+    const predicate = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(predicate?.timing === "target-legality");
+    assert.deepEqual(predicate.operand, { kind: "object", object: exchange.entrant, information: "current-or-last-known" });
+  });
+
+  it("requires a matching entrant rather than inheriting an unrelated trigger", () => {
+    const result = parseOracleText(trade, "Fixture", { typeLine: "Enchantment", includeSourceProvenance: true });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "triggered");
+    ability.trigger = { trigger: "attacks", what: { ref: "this", noun: "creature" } };
+    const graph = analyzeResult(result, "Enchantment");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "entrant-control-exchange"));
+  });
+
+  const fight = 'Other creatures have "Whenever this creature attacks, you may have it fight Fixture."';
+  const draw = "When Fixture leaves the battlefield, each player draws cards equal to the amount of damage dealt to Fixture "
+    + "this turn by sources they controlled.";
+
+  it("distinguishes the named granting creature from the attacking recipient and from later incarnations", () => {
+    const graph = analyze(fight + "\n" + draw, "Creature");
+    boundCard(graph);
+    const named = bound(graph, "/effects/0/steps/0/b");
+    assert.notEqual(named, bound(graph, "/effects/0/steps/0/a"));
+    assert.ok(graph.nodes.some(node => node.node === "source" && node.id === named));
+    const history = graph.nodes.find(node => node.node === "damage-history-draw");
+    assert.ok(history && history.target === named && history.sourceController === "at-damage");
+    assert.equal(history.player, bound(graph, "/sourceControllerAtDamage"));
+    assert.equal(history.target, bound(graph, "/amount/to"));
+    assert.ok(graph.nodes.some(node => node.id === history.departure && node.node === "event" && node.operation === "trigger:leaves"));
+  });
+
+  it("does not redirect a recipient's reference to the creature granting the ability", () => {
+    const graph = analyze(fight.replace("fight Fixture", "fight itself"), "Creature");
+    assert.equal(bound(graph, "/effects/0/steps/0/a"), bound(graph, "/effects/0/steps/0/b"));
+    assert.ok(!graph.engineFeatures.some(feature => feature.feature === "quoted-source-reference"));
+  });
+});
