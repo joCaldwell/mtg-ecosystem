@@ -123,6 +123,29 @@ try {
       assert.ok(await page.evaluate(() => document.activeElement?.isConnected));
     });
 
+    await check(`${mode}: context menu survives a quick right-click`, async () => {
+      const trigger = page.getByRole("button", { name: "Right-click for actions", exact: true });
+      const menu = page.getByRole("menu", { name: "Example actions", exact: true });
+      const copy = menu.getByRole("menuitem", { name: "Copy", exact: true });
+      await trigger.click({ button: "right" });
+      await copy.hover({ timeout: 3000 });
+      await copy.click();
+      await absent(menu);
+      assert.ok(await page.getByText("Copy selected", { exact: true }).isVisible());
+
+      await trigger.press("Shift+F10");
+      await menu.waitFor();
+      assert.ok(await copy.evaluate(element => element === document.activeElement));
+      await page.keyboard.press("Escape");
+      await absent(menu);
+      assert.ok(await trigger.evaluate(element => element === document.activeElement));
+
+      await trigger.click({ button: "right" });
+      await menu.waitFor();
+      await page.mouse.click(2, 2);
+      await absent(menu);
+    });
+
     await check(`${mode}: multiselect uses real searchable checkboxes`, async () => {
       const trigger = page.getByRole("button", { name: "Select tags…, Example tags", exact: true });
       await trigger.click();

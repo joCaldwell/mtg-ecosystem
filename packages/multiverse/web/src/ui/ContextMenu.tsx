@@ -48,7 +48,8 @@ export function ContextMenu({ target, label, items, onClose }: ContextMenuProps)
   if (!target) return null;
   return <>
     <span ref={setAnchor} className={styles.anchor} style={{ left: target.x, top: target.y }} />
-    <Popover anchor={anchor} open onClose={close}>
+    {/* Right-click can open on press. Its release must not light-dismiss the new menu. */}
+    <Popover anchor={anchor} open onClose={close} manualDismiss>
       <div ref={list} role="menu" aria-label={label} className={menuStyles.list} onKeyDown={keyDown}>
         <div className={styles.heading}>{label}</div>
         {items.map((item) => <button
