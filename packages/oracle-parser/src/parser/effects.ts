@@ -53,6 +53,7 @@ import { foldCoinFlipOutcome, parseDivisionTargets, parseQuantityOp, parseRandom
 import { clashOutcomeHasClash, parseClashOutcomeCondition, parseKeywordActionStep } from "./keyword-actions.ts";
 import { parseBeheldCondition } from "./behold.ts";
 import { parseVoteResultCondition, parseVoteRiderChoice, voteReferencesResolved } from "./votes.ts";
+import { parseSecretChoiceDamage } from "./secret-choices.ts";
 import { parseOnePile, parsePileStep, pileReferencesResolved } from "./piles.ts";
 import { parseSearchZones } from "./search.ts";
 import { parseLibraryScan } from "./library-scan.ts";
@@ -67,7 +68,7 @@ import { isPluralTargetPlayers, parsePluralTargetPlayers } from "./player-target
 import { forEachContinuationsScoped, parseForEach, parseGoadedCombatTrigger } from "./for-each.ts";
 import { parseExceptFor } from "./filter-exceptions.ts";
 import { parseCommanderCastUnit, parseHistoryUnit } from "./history-amounts.ts";
-import { parseTemporal } from "./temporal.ts";
+import { parseTemporal, parseUpkeepInsertion } from "./temporal.ts";
 import { foldRetainedTypeSentence, parseResolvingCharacteristics } from "./resolving-characteristics.ts";
 import { parseBecomeChoice } from "./characteristic-choices.ts";
 import { parseOtherPlayerMay, parsePlayerGroupActor, performedBy } from "./player-actors.ts";
@@ -133,7 +134,7 @@ export interface EffectContext {
    * newly created/quoted body. The marker is immutable across backtracking. */
   stackCopyInput?: StackCopyInputProof;
   /** The current body belongs to one proven trigger, never a nested body. */
-  triggerScope?: "cast" | "leaves-self" | "dies-self" | "adds-mana-chosen" | "taps-for-mana-chosen" | "stack-single-target" | "enters-permanent";
+  triggerScope?: "cast" | "leaves-self" | "dies-self" | "adds-mana-chosen" | "taps-for-mana-chosen" | "stack-single-target" | "enters-permanent" | "first-upkeep";
   /** Only result-table row parsers set this; fresh nested bodies do not inherit it. */
   allowRollAgain?: boolean;
   /** Actor of an elided imperative verb after "[player] may"; set only while
@@ -156,6 +157,10 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
   const previousSubject = ctx.lastSubject;
   const previousPlayer = ctx.lastPlayer;
   const result = c.attempt((c): Sentence[] | null => {
+    const addedStep = ctx.triggerScope === "first-upkeep" && parseUpkeepInsertion(c);
+    if (addedStep) return [{ steps: [addedStep] }];
+    const secretChoice = parseSecretChoiceDamage(c);
+    if (secretChoice) return [{ steps: [secretChoice] }];
     const reselection = ctx.triggerScope === "stack-single-target" && parseRandomReselectionOfSingleTarget(c);
     if (reselection) return [{ steps: [reselection] }];
     const exchange = ctx.triggerScope === "enters-permanent" && parseEnteredPermanentExchange(c);

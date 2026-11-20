@@ -99,6 +99,14 @@ function parsePhaseTrigger(c: Cursor): Trigger | null {
     if (c.words("end", "of", "combat")) return { trigger: "phase", phase: "end-of-combat", whose: "each-player" };
     if (!c.words("the", "beginning", "of")) return null;
 
+    // CR 500.11, 503.1: the first actual upkeep in each turn.
+    // https://magic.wizards.com/en/news/feature/edge-of-eternities-release-notes
+    const firstUpkeep = c.attempt((c): Trigger | null => {
+      if (!c.word("enchanted") || c.possessive("player") === null || !c.words("first", "upkeep", "each", "turn")) return null;
+      return { trigger: "phase", phase: "upkeep", whose: { player: "enchanted-player" }, firstEachTurn: true };
+    });
+    if (firstUpkeep) return firstUpkeep;
+
     // "each of your postcombat main phases": every such phase of that one
     // player's turns, the occurrences the singular possessive form denotes
     // (CR 500.8, 505.1a: a turn can have several of one phase).
@@ -969,6 +977,8 @@ function parseQualifiedTrigger(c: Cursor): Trigger | null {
   return c.attempt((c): Trigger | null => {
     const first = parseSingleTrigger(c);
     if (!first) return null;
+    // This complete ordinal form has no supported trailing restriction.
+    if (first.trigger === "phase" && first.firstEachTurn) return first;
     let result = first;
     let ownTurn: TurnOwner | undefined;
     const occurrence = c.attempt(c => {
