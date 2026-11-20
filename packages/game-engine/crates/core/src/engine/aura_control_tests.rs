@@ -1211,3 +1211,5 @@ mod cast_payer_draw_tests;
 
 #[path = "controlled_creature_spell_copy_tests.rs"]
 mod controlled_creature_spell_copy_tests;
+#[path = "demonstrate_tests.rs"]
+mod demonstrate_tests;
