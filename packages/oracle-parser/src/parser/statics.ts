@@ -49,7 +49,7 @@ import { parsePartySize } from "./quantities.ts";
 import { parseCommanderCastUnit } from "./history-amounts.ts";
 import { withConditionDifference } from "./condition-differences.ts";
 import {
-  isTargetedPlayerRef, parseAmount, parseCondition, parseDuration,
+  isTargetedPlayerRef, parseAmount, parseComparison, parseCondition, parseDuration,
   isPluralPlayerRef, parseCounterSpec, parseEqualTo, parsePooledEachFilter, parseObjectRef, parsePlayerRef,
 } from "./refs.ts";
 import { parseStaticSubjectList } from "./subject-lists.ts";
@@ -526,6 +526,62 @@ function staticContinuationTokens(tokens: Token[], subject: ObjectRef, subjectTo
   return tokens;
 }
 
+/** CR 305.6, 611.3a, 702.14a–e: one ability per distinct basic land
+ * subtype in the current source set, including subtypes on nonbasic lands. */
+function parseLandwalkForBasicLandTypes(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    if (!c.words("for", "each", "basic", "land", "type", "among")) return null;
+    const among = parseObjectRef(c);
+    if (among?.ref !== "each" || among.filter.types?.length !== 1 || among.filter.types[0] !== "land" || !c.punct(",")) return null;
+    const what = parseStaticSubject(c);
+    if (!what || (what.ref !== "self" && what.ref !== "this") || !c.words("has", "landwalk", "of", "that", "type")) return null;
+    c.punct(".");
+    return c.done() ? { static: "landwalk-for-basic-land-types", what, among } : null;
+  });
+}
+
+/** CR 702.142a–b: the usual attack prerequisite still applies. Only the
+ * normal per-ability activation count changes, on the source's own turns. */
+function parseBoastLimit(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    const what = parseStaticSubject(c);
+    if (what?.ref !== "each" || what.filter.types?.length !== 1 || what.filter.types[0] !== "creature" ||
+        !c.words("can", "boast", "twice", "during", "each", "of", "your", "turns", "rather", "than", "once")) return null;
+    c.punct(".");
+    return c.done() ? { static: "keyword-activation-limit", what, keyword: "boast", maximum: 2, normally: 1, during: "your-turn" } : null;
+  });
+}
+
+/** The single characteristic predicate applies to a union of subject
+ * domains (CR 109.2, 110.1, 112.1, 611.3a, 613.1). A single object may
+ * qualify via multiple arms, but receives only one copy of the effect. */
+function parseCharacteristicSubjectUnion(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    const generalColorSubject = c.attempt((c): ObjectRef | null => {
+      if (!c.words("all", "cards", "that", "aren't", "on", "the", "battlefield") || !c.punct(",") ||
+          c.word("spells") === null || !c.punct(",") || !c.words("and", "permanents") || !c.isWord("are")) return null;
+      return { ref: "all", filter: { anyOf: [
+        { cls: "card", outsideZone: { zone: "battlefield" } }, { cls: "spell" }, { cls: "permanent" },
+      ] } };
+    });
+    const what = generalColorSubject ?? c.attempt((c): ObjectRef | null => {
+      if (!c.words("each", "non-equipment", "artifact", "and", "non-aura", "enchantment", "you", "control", "with", "mana", "value"))
+        return null;
+      const comparison = parseComparison(c);
+      if (!comparison || !c.isWord("is")) return null;
+      return { ref: "each", filter: { anyOf: [
+        { types: ["artifact"], nonSubtypes: ["Equipment"] },
+        { types: ["enchantment"], nonSubtypes: ["Aura"] },
+      ], control: "you", properties: [{ property: "mana-value", comparison }] } };
+    });
+    if (!what) return null;
+    const group = parseStaticModifiers(c, what);
+    if (!group || group.condition || group.conditionScope) return null;
+    c.punct(".");
+    return c.done() ? { static: "modify", what, modifiers: group.modifiers } : null;
+  });
+}
+
 function parseStaticBase(c: Cursor): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
     const entryCopy = parseEntryCopy(c, parseGainedAbilities);
@@ -785,6 +841,8 @@ function parseStaticBase(c: Cursor): StaticEffect | null {
         ...(binding ? { bindings: [{ variable: "x" as const, value: binding }] } : {}) });
     });
     if (modify) return modify;
+    const supportedScope = parseLandwalkForBasicLandTypes(c) ?? parseBoastLimit(c) ?? parseCharacteristicSubjectUnion(c);
+    if (supportedScope) return supportedScope;
 
     return c.fail("static ability");
   });

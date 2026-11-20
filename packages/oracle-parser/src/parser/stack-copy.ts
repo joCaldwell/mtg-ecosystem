@@ -2,10 +2,11 @@
 // activated. It retains the original decisions and an ability's source;
 // choosing new targets does not change modes or damage division.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Amount, Effect, ObjectFilter, ObjectRef, PlayerRef, Trigger } from "../ast.ts";
+import type { Amount, Effect, ObjectFilter, ObjectRef, PlayerRef, Sentence, Trigger } from "../ast.ts";
+import { canonicalSubtypeName } from "../vocab.ts";
 import { Cursor } from "./cursor.ts";
 import type { Token } from "../lexer.ts";
-import { parseAmount, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { parseAmount, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
 import { parseStackCopyExceptions } from "./entry-copy.ts";
 
 type CopyEffect = Extract<Effect, { effect: "copy-stack-object" }>;
@@ -18,6 +19,9 @@ export interface StackCopyInputProof {
   readonly token: Token;
   readonly event: "cast" | "activate";
   readonly casterIsYou?: true;
+  /** A complete opening cast-trigger reference, usable only for its exact
+   * copy continuation; ordinary copies of "that spell" keep their AST. */
+  readonly castContinuation?: { singleTargetSubtype?: string };
 }
 
 function containsTarget(value: unknown): boolean {
@@ -54,6 +58,19 @@ export function prepareStackCopyInput(c: Cursor, trigger: Trigger): StackCopyInp
   const event = uniqueStackTriggerEvent(trigger);
   if (!event) return undefined;
   const body = new Cursor(c.tokens.slice(c.pos));
+  if (trigger.trigger === "cast" && trigger.who.player === "a-player") {
+    const begins = body.words("that", "player", "copies") || body.words("each", "other", "player", "copies");
+    if (begins) {
+      const token = body.peek();
+      if (!token || !body.words("that", "spell")) return undefined;
+      const original = "ref" in trigger.what ? undefined : trigger.what.targetsOnly;
+      const singleTargetSubtype = original && "ref" in original && original.ref === "filter"
+        && original.count.amount === "fixed" && original.count.value === 1 && !original.upTo &&
+        Object.keys(original.filter).length === 1 && original.filter.subtypes?.length === 1 ? original.filter.subtypes[0] : undefined;
+      return { token, event: "cast", castContinuation: { ...(singleTargetSubtype ? { singleTargetSubtype } : {}) } };
+    }
+    body.pos = 0;
+  }
   if (!body.words("you", "may")) body.word("you");
   if (body.word("copy") === null) return undefined;
   const token = body.peek();
@@ -105,6 +122,31 @@ function copyResult(c: Cursor): Extract<ObjectRef, { ref: "copy-result" }> | nul
   });
 }
 
+/** CR 115.9c and 707.10d: one copy per additional legal target; every
+ * target slot of that copy points to the same permanent. A bare quantity
+ * multiplied by a count would lose both eligibility and the correspondence. */
+function parseFixedCopyTargets(c: Cursor, subtype: string): NonNullable<CopyEffect["fixedTargets"]> | null {
+  return c.attempt(c => {
+    if (!c.words("for", "each", "other")) return null;
+    const filter = parseFilter(c);
+    if (!filter || Object.keys(filter).length !== 1 || filter.subtypes?.length !== 1 || filter.subtypes[0] !== subtype
+      || !c.words("that", "spell", "could", "target") || !c.punct(".")
+      || !c.words("each", "copy", "targets", "a", "different", "one", "of", "those")) return null;
+    const plural = c.anyWord();
+    if (!plural || plural.value === subtype.toLowerCase() || canonicalSubtypeName(plural.raw) !== subtype
+      || (!c.done() && !c.isPunct("."))) return null;
+    return { kind: "one-per-legal-target", filter, exclude: "original-target", allTargetSlots: true, order: "copy-controller" };
+  });
+}
+
+/** CR 707.10c: these choices belong to each copy controller before that
+ * player's copy reaches the stack. The cast-trigger player is the one
+ * player excluded from the copying group. */
+function parseOtherPlayersRetarget(c: Cursor): boolean {
+  return !!c.attempt(c => c.punct(".") && c.words("each", "of", "those", "players", "may", "choose",
+    "new", "targets", "for", "their", "copy") && (c.done() || c.isPunct(".")) ? true : null);
+}
+
 /** Generic sentence code owns coordinated optional groups only for its
  * consumed "you may". An explicit different player's may needs its own group
  * scope before more coordinated instructions can safely be supported. */
@@ -138,11 +180,26 @@ export function parseStackCopy(c: Cursor, previousActor?: PlayerRef, proof?: Sta
     const copied: CopyEffect = { effect: "copy-stack-object", what, who: by.who, count,
       ...(copyExceptions ? { copyExceptions } : {}),
       ...(by.optional ? { optional: true } : {}), ...(by.decidedBy ? { decidedBy: by.decidedBy } : {}) };
+    const continuation = proof && proof.token === inputToken ? proof.castContinuation : undefined;
+    if (continuation && !copied.optional && !copyExceptions && count.amount === "fixed" && count.value === 1) {
+      const castSpell = { ref: "trigger-event-object" as const, event: "cast" as const };
+      if (by.who.player === "that-player" && continuation.singleTargetSubtype) {
+        const fixedTargets = parseFixedCopyTargets(c, continuation.singleTargetSubtype);
+        if (fixedTargets) return { ...copied, what: castSpell, fixedTargets };
+      }
+      if (by.who.player === "filtered" && by.who.base.player === "each-player" && by.who.filter.other &&
+        Object.keys(by.who.filter).length === 1 && parseOtherPlayersRetarget(c)) {
+        const who: PlayerRef = { player: "filtered", base: { player: "each-player" }, filter: { otherThan: { player: "that-player" } } };
+        return { ...copied, what: castSpell, who, retarget: { who, optional: true } };
+      }
+    }
     // "… and may choose new targets for the copy": the copying player's own
     // option for each copy as it is created (CR 707.10c).
     const retarget = c.attempt(c => {
       if (!c.words("and", "may", "choose") || !(c.words("new", "targets", "for") || c.words("a", "new", "target", "for"))) return null;
       const what = copyResult(c);
+      if (what?.number === "singular" && by.optional && by.who.player === "each-opponent")
+        c.words("they", "control");
       const after: Effect = { effect: "choose-new-targets", what: what ?? { ref: "it" }, who: by.who, timing: "copy-creation", optional: true };
       return what && foldCopyRetarget(copied, after);
     });
@@ -196,4 +253,30 @@ export function foldCopyRetarget(before: Effect, after: Effect): CopyEffect | nu
     || after.effect !== "choose-new-targets" || before.retarget
     || after.timing !== "copy-creation" || after.forEach || after.duration) return null;
   return { ...before, retarget: { who: after.who, ...(after.optional ? { optional: true as const } : {}) } };
+}
+
+/** CR 608.2c and 707.10c: count the opponents who really copied the spell
+ * in the immediately preceding offer. Each of your resulting copies has
+ * its own optional new-target choice; none is a separate resolution action. */
+export function parseOpponentCopyBonus(c: Cursor, previous: Sentence | undefined): Sentence | null {
+  return c.attempt(c => {
+    if (!previous || previous.condition || previous.otherwise || previous.bindings || previous.steps.length !== 1) return null;
+    const [offered] = previous.steps;
+    if (offered.effect !== "copy-stack-object" || offered.who.player !== "each-opponent" || !offered.optional ||
+      offered.forEach || offered.count.amount !== "fixed" || offered.count.value !== 1 ||
+      offered.what.ref !== "that" || offered.what.plural || offered.what.filter.cls !== "spell" ||
+      Object.keys(offered.what.filter).length !== 1) return null;
+    if (!c.words("you", "copy", "that", "spell", "once", "plus", "an", "additional", "time",
+      "for", "each", "opponent", "who", "copied", "the", "spell", "this", "way") || !c.punct(".")
+      || !c.words("you", "may", "choose", "new", "targets", "for", "the", "copies", "you", "control")
+      || !c.punct(".") && !c.done()) return null;
+    const who = { player: "you" } as const;
+    return { steps: [{
+      effect: "copy-stack-object", who, what: offered.what,
+      count: { amount: "plus", a: { amount: "fixed", value: 1 }, b: {
+        amount: "player-count", of: { player: "filtered", base: { player: "each-opponent" }, filter: { precedingAction: "performed" } },
+      } },
+      retarget: { who, optional: true },
+    }] };
+  });
 }

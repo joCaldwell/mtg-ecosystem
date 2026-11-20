@@ -97,6 +97,12 @@ export function parseDamageHistoryPredicate(c: Cursor, grammar: ReferenceGrammar
     else if (c.words("this", "combat")) window = { during: "this-combat" };
     else if (c.words("this", "way")) window = { event: "this-way" };
     else return c.fail("explicit damage-history period or event link");
+    // CR 608.2i: past ownership of the source is measured at damage,
+    // including sources that have since changed control or left play.
+    if (passive && !source && "during" in window &&
+        c.words("by", "a", "source", "you", "controlled")) {
+      source = { ref: "filter", filter: { cls: "source", control: "you" }, count: { amount: "fixed", value: 1 } };
+    }
     return passive
       ? { role: "recipient", window, ...(damage ? { damage } : {}), ...(source ? { source } : {}) }
       : { role: "source", window, ...(damage ? { damage } : {}), ...(to ? { to } : {}) };

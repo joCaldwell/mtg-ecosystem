@@ -36,6 +36,8 @@ export interface ConditionGrammar {
   /** Set for conditions of resolving instructions only: a "this way" outcome
    * test looks back at an earlier instruction of the same sequence. */
   outcomes?: true;
+  /** The immediately enclosing trigger carries a group of declared attackers. */
+  declaredAttackers?: true;
   parseAmount(c: Cursor): Amount | null;
   parseComparison(c: Cursor): Comparison | null;
   parseCount(c: Cursor): Amount | null;
@@ -259,6 +261,53 @@ function parseCountersOn(c: Cursor, g: ConditionGrammar): Condition | null {
     if (!what || what.ref === "them" || (what.ref === "that" && what.plural)) return null;
     return { condition: "is-filter", what, filter: { counterConstraints: [{ counter, comparison }] } };
   });
+}
+
+/** CR 122.1: count the permanents that each have a matching counter,
+ * rather than count the total counters among those permanents. */
+function parseCountWithCounters(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    const comparison = parseComparison(c, g);
+    if (!comparison || comparison.op !== "ge" || comparison.value.amount !== "fixed" || comparison.value.value < 2 ||
+        !c.isWord("permanents")) return null;
+    const of = g.parseFilter(c);
+    if (!of || of.cls !== "permanent" || of.zone || of.counterConstraints || !c.word("have") || !c.word("a", "an")) return null;
+    const counter = g.parseCounterSpec(c);
+    if (!counter || !c.words("counter", "on", "them")) return null;
+    return { condition: "count", of: { ...of, counterConstraints: [{ counter, comparison: { op: "ge", value: one } }] }, comparison };
+  });
+}
+
+/** CR 508.1b, 603.4, 608.2h: check each member of the referenced
+ * declaration, including its last known defender if it has left.
+ * https://magic.wizards.com/en/news/feature/core-set-2021-and-jumpstart-release-notes-2020-06-20 */
+function parseDeclaredAttackersCount(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    const comparison = parseComparison(c, g);
+    if (!comparison || comparison.op !== "ge" || comparison.value.amount !== "fixed" ||
+        comparison.value.value < 2 || !c.word("of")) return null;
+    const fromAmong = g.parseObjectRef(c);
+    if (fromAmong?.ref !== "that" || !fromAmong.plural || !fromAmong.filter ||
+        fromAmong.filter.types?.length !== 1 || fromAmong.filter.types[0] !== "creature" ||
+        Object.keys(fromAmong.filter).length !== 1 ||
+        !c.words("are", "attacking", "you", "and") || !c.punct("/") || !c.words("or", "planeswalkers", "you", "control")) return null;
+    return { condition: "count", comparison, of: {
+      fromAmong,
+      attackingLookup: "current-or-last-known",
+      attacking: [
+        { defender: "player", who: { player: "you" } },
+        { defender: "object", what: { ref: "each", filter: { types: ["planeswalker"], control: "you" } } },
+      ],
+    } };
+  });
+}
+
+/** CR 115.9a: exactly one occurrence of a target, even if a spell with
+ * multiple target slots happens to choose the same object more than once. */
+function parseSingleTargetCondition(c: Cursor): Condition | null {
+  return c.attempt(c => c.words("it", "has", "a", "single", "target") ? {
+    condition: "is-filter", what: { ref: "it" }, filter: { singleTarget: true },
+  } : null);
 }
 
 function parseQualifiedCount(c: Cursor, g: ConditionGrammar): Condition | null {
@@ -716,6 +765,24 @@ function parseZoneHistory(c: Cursor, g: ConditionGrammar): Condition | null {
 
 /** CR 700.11: a player descended if a permanent card was put into that
  * player's graveyard from anywhere this turn; it need not still be there. */
+function parseCoordinatedEntryHistory(c: Cursor, g: ConditionGrammar): Condition | null {
+  return c.attempt(c => {
+    if (!c.isWord("this")) return null;
+    const what = g.parseObjectRef(c);
+    if (what?.ref !== "this" || !c.word("or") || !c.isWord("another")) return null;
+    const other = parseZoneHistory(c, g);
+    if (other?.condition !== "zone-change-history" || other.event !== "enters" || other.subject.match !== "filter") return null;
+    const { filter } = other.subject;
+    // CR 603.6a: the coordinated subjects share the same move and moving
+    // controller; source identity remains distinct from a type match.
+    if (!filter.other || filter.types?.length !== 1 || filter.types[0] !== what.noun || Object.keys(filter).length !== 2) return null;
+    return { condition: "any-of", conditions: [
+      { ...other, subject: { match: "object", what } },
+      other,
+    ] };
+  });
+}
+
 function parseDescended(c: Cursor): Condition | null {
   return c.attempt((c): Condition | null => {
     let negate = false;
@@ -914,7 +981,8 @@ function parseAtom(c: Cursor, g: ConditionGrammar): Condition | null {
   if (dice) return dice;
   const aggregate = parseAggregateCondition(c, g) ?? parsePlayerCounters(c, g);
   if (aggregate) return aggregate;
-  return parsePutActionOutcome(c, g) ?? parseEventOutcome(c, g) ?? parseAttributeComparison(c, g) ?? parseGraveyardPosition(c, g) ?? parseCharacteristicRelationCondition(c, g) ?? parseSearchHistory(c, g) ?? parseZoneState(c, g) ?? parseKicked(c, g) ?? parseHandCount(c, g) ?? parsePersonalZoneCount(c, g) ?? parseOwnedInExile(c, g) ?? parseZoneSize(c, g) ?? parseCopularZoneCount(c, g) ?? parseQualifiedCount(c, g)
+  return parseCountWithCounters(c, g) ?? (g.declaredAttackers ? parseDeclaredAttackersCount(c, g) : null) ?? parseSingleTargetCondition(c)
+    ?? parseCoordinatedEntryHistory(c, g) ?? parsePutActionOutcome(c, g) ?? parseEventOutcome(c, g) ?? parseAttributeComparison(c, g) ?? parseGraveyardPosition(c, g) ?? parseCharacteristicRelationCondition(c, g) ?? parseSearchHistory(c, g) ?? parseZoneState(c, g) ?? parseKicked(c, g) ?? parseHandCount(c, g) ?? parsePersonalZoneCount(c, g) ?? parseOwnedInExile(c, g) ?? parseZoneSize(c, g) ?? parseCopularZoneCount(c, g) ?? parseQualifiedCount(c, g)
     ?? parseHasKeyword(c, g) ?? parseManaSpent(c, g) ?? parseDamageHistory(c, g)
     ?? parseCombatHistory(c, g) ?? parseCastObjectHistory(c, g) ?? parseZoneHistory(c, g)
     ?? parseLifeHistory(c, g) ?? parseEnergyHistory(c, g) ?? parseCastPair(c, g) ?? parseCastHistory(c, g) ?? g.parseAtomic(c);
