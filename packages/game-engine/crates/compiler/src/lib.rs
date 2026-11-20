@@ -12,6 +12,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod bestow;
 mod bindings;
 mod cascade_land_entry;
 mod cast_entry;
@@ -1464,6 +1465,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
+    if bestow::cost(&shape, &result, &binding, &r.oracle_identity)?.is_some() {
+        return Err(unsupported(
+            "abilities.bestow",
+            "bound bestow requires alternative Aura announcement and creature fallback",
+        ));
+    }
     let canonical_abilities = self_reference::canonicalize(
         result.abilities.get(),
         &binding,
