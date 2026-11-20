@@ -13,6 +13,10 @@ static HAND_CAST_CASCADE_PROGRAM: LazyLock<SpellProgram> =
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EffectiveTriggerAbility {
+    DelayedChapter {
+        chapter: u32,
+        issuer: StackId,
+    },
     Intrinsic {
         index: u32,
     },
@@ -40,6 +44,9 @@ fn trigger_grant_charge(
     grant: Option<&CascadeGrantProvenance>,
 ) -> usize {
     let history = match witness {
+        TriggerEventWitness::DelayedCreatureEntered { .. } => {
+            stored_history::payload_charge(witness)
+        }
         TriggerEventWitness::SpellCast { cast } => stored_history::payload_charge(&cast.history),
         _ => 0,
     };
@@ -69,6 +76,9 @@ pub(super) fn entry_grant_charge(entry: &StackInstance) -> usize {
 impl Game {
     pub(super) fn grant_payload_charge(&self) -> usize {
         let mut charge = 0usize;
+        for registration in &self.state.rules.delayed_chapters {
+            charge = charge.saturating_add(stored_history::payload_charge(registration));
+        }
         // Cascade/owned-child frames already charge their complete payload.
         for t in &self.state.rules.pending_triggers {
             charge = charge.saturating_add(trigger_grant_charge(
@@ -147,6 +157,15 @@ impl Game {
         ability: EffectiveTriggerAbility,
     ) -> Result<Cow<'_, mtg_contracts::TriggeredAbility>, String> {
         match ability {
+            EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                Ok(Cow::Owned(mtg_contracts::TriggeredAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    condition: TriggerCondition::DelayedControllerCreatureEntry,
+                    intervening_if: None,
+                    death_filter: None,
+                    program: self.delayed_chapter_program(source, chapter)?.clone(),
+                }))
+            }
             EffectiveTriggerAbility::Intrinsic { index } => self
                 .definition(source.card)?
                 .triggered
@@ -179,7 +198,10 @@ impl Game {
                 triggered_ability_index,
                 ..
             } => self.temporary_grant_program(grant_source, triggered_ability_index),
-            EffectiveTriggerAbility::Intrinsic { .. } => Err("expected cascade grant".into()),
+            EffectiveTriggerAbility::Intrinsic { .. }
+            | EffectiveTriggerAbility::DelayedChapter { .. } => {
+                Err("expected cascade grant".into())
+            }
         }
     }
     pub(super) fn validate_cascade_grant(
@@ -189,7 +211,11 @@ impl Game {
         witness: &TriggerEventWitness,
         grant: Option<&CascadeGrantProvenance>,
     ) -> Result<(), String> {
-        if matches!(ability, EffectiveTriggerAbility::Intrinsic { .. }) {
+        if matches!(
+            ability,
+            EffectiveTriggerAbility::Intrinsic { .. }
+                | EffectiveTriggerAbility::DelayedChapter { .. }
+        ) {
             return if grant.is_none() {
                 Ok(())
             } else {
@@ -237,7 +263,8 @@ impl Game {
                 // at cast time, independently of the grantor's current zone.
                 return Ok(());
             }
-            EffectiveTriggerAbility::Intrinsic { .. } => unreachable!(),
+            EffectiveTriggerAbility::Intrinsic { .. }
+            | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
         };
         let descriptor = self
             .definition(grant_source.card)?

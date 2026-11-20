@@ -449,7 +449,23 @@ impl Game {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            self.validate_characteristic_identity(entry.source, fact.zone, &fact.characteristics)?;
+            if entry.kind.is_spell()
+                && mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_some()
+            {
+                let bestowed = entry.alternative_cost == Some(cascade::AlternativeCost::Bestow);
+                if fact.zone != Zone::Stack
+                    || fact.characteristics
+                        != self.proposed_cast_characteristics(entry.source.card, bestowed)?
+                {
+                    return Err("snapshot bestow spell characteristics invariant".into());
+                }
+            } else {
+                self.validate_characteristic_identity(
+                    entry.source,
+                    fact.zone,
+                    &fact.characteristics,
+                )?;
+            }
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {
