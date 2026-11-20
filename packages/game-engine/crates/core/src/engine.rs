@@ -2347,7 +2347,7 @@ impl Game {
                     lands_played: 0,
                 },
                 original_seating: (0..4).map(PlayerId).collect(),
-                cast_history: [triggers::TurnCastHistory::default(); 4],
+                cast_history: std::array::from_fn(|_| triggers::TurnCastHistory::default()),
                 commanders: CommanderLedger::new(),
                 commander_returns: BTreeSet::new(),
                 control_effects: vec![],
@@ -3444,10 +3444,10 @@ impl Game {
             || s.rules.turn_owner.0 >= 4
             || s.rules.turn.number == 0
             || s.rules.active.is_some_and(|p| !self.is_live(p))
-            || s.rules
-                .cast_history
-                .iter()
-                .any(|h| h.exile_cast && !h.any_cast)
+            || s.rules.cast_history.iter().any(|h| {
+                h.mana_value.is_negative()
+                    || !h.any_cast && (h.exile_cast || h.mana_value != Quantity::zero())
+            })
             || s.rules.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.rules.priority.0 >= 4
             || (!self.is_live(s.rules.priority) && !matches!(s.rules.frame, Frame::Draw))

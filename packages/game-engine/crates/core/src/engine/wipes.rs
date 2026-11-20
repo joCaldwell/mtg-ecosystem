@@ -68,6 +68,27 @@ impl Game {
         }
         Ok(q)
     }
+    fn other_casts_mana_value(&self, spell: &StackInstance) -> Result<Quantity, String> {
+        // CR 601.2i, 608.2i: this paid spell was cast in the current turn.
+        // Cast history also includes spells cast above it, such as cascade casts.
+        // No supported effect copies a stack spell or changes its controller.
+        if !spell.kind.is_spell() || spell.paid.is_none() {
+            return Err("cast mana value sum requires a paid spell".into());
+        }
+        let mut total = self
+            .state
+            .rules
+            .cast_history
+            .get(spell.controller.0 as usize)
+            .ok_or("invalid cast history seat")?
+            .mana_value
+            .clone();
+        total.subtract(&self.stack_mana_value(spell)?);
+        if total.is_negative() {
+            return Err("cast mana value sum is missing this spell".into());
+        }
+        Ok(total)
+    }
     pub(super) fn bind_x(&mut self, cast: Casting) -> Result<(), String> {
         let input = self.state.rules.pending.take().ok_or("missing X input")?;
         self.validate_response(input.player, &input.response)?;
@@ -249,6 +270,7 @@ impl Game {
         let amount = match amount {
             WipeAmount::Fixed { value } => value.clone(),
             WipeAmount::AnnouncedX => frame.spell.x.clone().ok_or("missing announced X")?,
+            WipeAmount::OtherCastsManaValue => self.other_casts_mana_value(&frame.spell)?,
             WipeAmount::CreatureCount => Quantity::from(
                 self.objects_in_set(&ObjectSet::Creatures, frame.spell.controller)
                     .len() as i64,
@@ -625,6 +647,9 @@ impl Game {
             || match amount {
                 WipeAmount::Fixed { value } => *value != f.amount,
                 WipeAmount::AnnouncedX => frame.spell.x.as_ref() != Some(&f.amount),
+                WipeAmount::OtherCastsManaValue => {
+                    self.other_casts_mana_value(&frame.spell)? != f.amount
+                }
                 WipeAmount::CreatureCount => {
                     f.amount
                         > Quantity::from(
