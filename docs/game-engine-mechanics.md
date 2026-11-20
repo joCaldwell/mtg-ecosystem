@@ -157,7 +157,7 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
-A fixed counter tax gives the targeted spell's controller a resolution payment window.
+Counter taxes and cast-payer draws share a resolution payment window.
 X is announced nonnegative and frozen; stack mana value and supported draw, damage, life and mill effects use it.
 CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
 of BoardWipes. Every validated slot applies; the legacy creature reducer shares

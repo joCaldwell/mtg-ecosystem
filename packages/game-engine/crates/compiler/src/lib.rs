@@ -15,6 +15,7 @@ mod announced_x_effects_tests;
 mod bindings;
 mod cast_entry;
 mod cast_origin;
+mod cast_payer_draw;
 pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -181,6 +182,9 @@ enum Ability {
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
+    // Only the whole-source adapter can introduce this bound trigger.
+    #[serde(skip)]
+    CastPayerDraw { generic: Quantity },
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1421,9 +1425,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = match counter_unless_generic::lower(&shape, &result, &binding)? {
-        Some(ability) => vec![ability],
-        None => read_abilities(&canonical_abilities)?,
+    let abilities = if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)?
+    {
+        vec![ability]
+    } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
+        vec![ability]
+    } else {
+        read_abilities(&canonical_abilities)?
     };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -1734,6 +1742,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::CastPayerDraw { generic } => {
+                        labels.triggered.push(source_block(block)?);
+                        definition
+                            .triggered
+                            .push(cast_payer_draw_trigger(generic.clone()));
+                    }
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
                         definition
