@@ -14,7 +14,9 @@ it("preserves all five printed Unite modes and their announcement target templat
   });
   const result = parse(source.oracle_text);
   assert.ok(result.ok);
-  assert.deepEqual(JSON.parse(JSON.stringify(result.abilities)), faces[0].result.abilities);
+  const expected = faces[0].result;
+  assert.ok(expected.ok);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.abilities)), expected.abilities);
   const graph = analyzeCardBindings({ identity: oracleIdentity, source, faces: [{ sourceFaceIndex: 0, result }] });
   const modal = "/faces/0/abilities/0/effects/0/steps/0";
   const targets = graph.nodes.filter(node => node.node === "selection" && node.timing === "stack-announcement");

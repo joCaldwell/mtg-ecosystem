@@ -2,124 +2,42 @@
 
 These Linux host adapters run explicit ignored Rust diagnostics. They do not
 build the engine, widen its admitted profile, or establish product search
-acceptance. The deterministic production core has no dependency on these tools.
+acceptance. The deterministic production core has no dependency on them.
 
-Use the repository's pinned Rust toolchain and an optimized release build with
-overflow checks enabled. Capture actual Cargo compiler-artifact JSON with
-`cargo test --locked --release --target x86_64-unknown-linux-gnu --no-run
---message-format=json`. Keep the exact executable hashes, compiler settings,
-`mtg-sim native-source-manifest` output and complete current source inventory.
-An authority must bind those actual inputs, contracts and host-script hashes.
-Review its contents before supplying its SHA to an execution command. Each
-wrapper documents its additional authority fields in its source guard.
+Use the pinned Rust toolchain and an optimized release build with overflow
+checks enabled. Capture Cargo compiler-artifact JSON with `cargo test --locked
+--release --target x86_64-unknown-linux-gnu --no-run --message-format=json`.
+An authority must bind the actual executable hashes, compiler settings,
+`mtg-sim native-source-manifest` output, source inventory, contracts and
+host-script hashes; review it before supplying its SHA to an execution command.
+The shared guard recomputes the Build identity from current source; Cargo's
+artifact separately proves overflow checks, which the Build hash excludes. A
+successful build alone authorizes no measurement against stale sources.
 
-The shared guard recomputes the compiled Build identity from current source
-bytes and the historically hashed settings. Cargo's actual artifact separately
-proves overflow checks; that setting is not included in the historical Build
-hash. A successful build alone does not authorize a measurement against stale
-sources or a different executable.
+Python discovery omits hyphenated test names, so run each test script explicitly
+by filename, for example `python3 scripts/engine-performance/test-final-hosts-v1.py -v`.
+Tests use small fixtures and mocked children; actual enforcement also needs
+`probe-host-enforcement.py` success and timeout runs on user-systemd/cgroup v2.
 
-Run every test script explicitly; Python discovery omits the hyphenated names:
+Measurement wrappers (`run-*.py`, `host-run-*.py`, `review-*.py`) require an
+explicit execution option, an approved authority hash and a fresh output
+directory beneath a private (0700) parent; `--help` and each source guard list
+exact arguments and authority fields. The shared host enforces CPU affinity, a
+2 GiB cgroup charged-memory limit, zero swap, 128 tasks and a 120-second
+deadline, checks process RSS independently, and retains failures. A completed
+native test can still fail the resource envelope or report audit. Keep raw
+output, partial attempts and audits together outside Git.
 
-```sh
-python3 scripts/engine-performance/test_measurement_host.py
-python3 scripts/engine-performance/test_kernel_probe.py
-python3 scripts/engine-performance/test-ordinary-driver-v1.py
-python3 scripts/engine-performance/test-omniscient-driver-v1.py
-python3 scripts/engine-performance/test-dense-driver-v1.py
-python3 scripts/engine-performance/test-core-profile-v1.py
-python3 scripts/engine-performance/test-allocation-count-v1.py
-python3 scripts/engine-performance/test-legal-branch-v1.py
-python3 scripts/engine-performance/test-persistent-work-v1.py
-python3 scripts/engine-performance/test-current-pods-v1.py
-python3 scripts/engine-performance/test-host-rust-allocation-phase-v1.py
-```
-
-These tests use small fixtures and owned tiny Python children. Actual
-enforcement also needs the separately prepared `probe-host-enforcement.py`
-success and timeout runs against a working user-systemd/cgroup-v2 service.
-
-The measurement wrappers require an explicit execution option, an approved
-authority hash and a fresh output directory beneath a real private (0700)
-parent. `run-fixed-work.py` first prepares an immutable plan and requires its
-hash for execution. Other entry points are `run-ordinary-diagnostic-v1.py`,
-`run-dense-diagnostic-v1.py` and `run-omniscient-diagnostic-v1.py`; use `--help`
-for their exact arguments. Keep raw native output, resource reports, partial
-attempts and independent audits together outside Git.
-
-The shared host verifies actual CPU affinity, a 2 GiB cgroup charged-memory
-limit, zero swap, 128 tasks and a 120-second lifecycle deadline. It independently
-checks process RSS after exit, retains failures, and closes only its own unique
-service. Charged memory and process RSS are different metrics. A completed
-native test can still fail the resource envelope or semantic report audit.
-
-`run-legal-branch-v1.py` measures six genuine admitted roots (ordinary and
-naturally developed dense boards with four, three and two living seats), in
-separate selected-detail and every-branch-first-write sweeps. Retained handles
-are counted separately from completed, fully verified mutations. Keep setup
-history, each partial stage, and explicit resource shortfalls; a synthetic board
-cannot replace a failed legal root.
-
-`run-persistent-work-v1.py` retains workers across one warmup and five measured
-generations at each declared physical-worker count. It separates pool startup,
-steady execution and shutdown, and requires exact same-build trial semantics.
-`run-current-pods-v1.py` runs the released eighteen complete pod configurations
-with their existing policies, ceilings, detailed trace and checkpoints. A failed
-warmup or incomplete pod supplies no complete-game throughput denominator.
-
-These simulator wrappers require the actual Cargo feature list to be empty.
+Simulator wrappers require an empty Cargo feature list.
 `host-run-rust-allocation-phase-v1.py` instead requires a separately identified
-test executable built with `--features diagnostic-allocations`, plus a pinned
-feature-off ordinary reference and a bounded known-vector run of that same
-instrumented executable. The Build hash does not identify Cargo features:
-retain the actual Cargo artifacts and executable hashes for both variants.
-The feature is off by default, and the allocator is installed only in test
-builds. Checked raw counter differences cover Rust allocation requests inside
-the unchanged ordinary-core interval, including reallocations and deallocations;
-they are not live-heap measurements or production-allocator timing. Zero
-controls are required and are never subtracted.
+executable built with `--features diagnostic-allocations`, plus a feature-off
+reference; retain both variants' artifacts because the Build hash omits
+features. Its counts are allocation requests, not live heap or production timing.
 
-`run-core-profile-v1.py` collects CPU samples and heap traces in separate
-processes. Keep every collector warning; successful collection does not prove
-complete attribution. `run-allocation-count-v1.py` provides a lighter, direct
-GNU libc allocation-API capture for its declared dense workload. Those counts
-include the entire native harness and its correctness proofs. They are not
-isolated core counts or complete Rust allocations. An unreliable tool summary
-must not replace the independently recorded process and cgroup memory metrics.
-
-Fixed-work speedups require identical complete candidate/world trials, counts,
-outcomes, utility vectors and State hashes. Dense synthetic boards, pure
-modifier evaluators, repeated observations and repeated actual-world rollouts
-retain their declared scope. They are not legal-pod, network, strategic-strength
-or independent-hidden-world results. See
-[the measurement report](../../docs/game-engine-evidence.md) and
-[the search workload contract](../../docs/game-engine-search.md#sampler-roots-and-outcome-accounting).
-
-
-Definition diversity and shrinking-choice diagnostics use
-`run-definition-diversity-v1.py` and `run-shrinking-choices-v1.py`. Their paired
-`test-definition-diversity-v1.py` and `test-shrinking-choices-v1.py` scripts contain
-49 pure validator guards. Real runs require an explicitly supplied authority
-SHA binding the actual compiled native inventory, Cargo artifact, executable,
-all host sources and the exact workload. Preparation never starts a build or
-benchmark. Both drivers preserve the shared 120-second, 2 GiB charged-memory
-and independent RSS, swap-zero and one-CPU guards through audit and cleanup.
-
-The definition workload retains all 48 rows for synthetic payload counts
-0/8/64/256 and four source-backed interaction controls. The shrinking-choice
-workload retains all 105 attack/Edict cells, one warmup and five repetitions
-(630 total cell executions: 105 warmup and 525 measured), plus every declared
-native reference and budget/replay oracle. Synthetic payloads are not authentic card definitions;
-a partial matrix produces no complete-work throughput claim. Current actual
-results and remaining resource gaps are in `docs/game-engine-evidence.md`.
-
-
-`run-final-pod-series-v1.py` schedules the unchanged eighteen-pod batch once for
-warmup and ten times for measurement, stopping at the first failure.
-`run-final-search-primary-v1.py` and `review-final-search-primary-v1.py` bind a
-current compiled release and retain the original sixty-job quiet measurement
-and all sixty independent semantic replays. The original product limits and
-full-work denominators apply. See [the host contract](final-host-contract-v1.md)
-for exact authority fields, clock/resource scopes and cancellation behavior.
-Run `python3 -B scripts/engine-performance/test-final-hosts-v1.py -v` for the
-34 pure host guards. Guard success alone makes no native performance claim.
+`run-final-pod-series-v1.py` runs the unchanged eighteen-pod batch once as warmup
+and ten times measured, stopping at the first failure. `run-final-search-primary-v1.py`
+and `review-final-search-primary-v1.py` bind a current release to the original
+sixty-job quiet measurement and its independent semantic replays; there is no
+overwrite, resume or retry. Guard success alone makes no performance claim. See
+[engine evidence](../../docs/game-engine-evidence.md#search-hosting-and-performance)
+and [search workload](../../docs/game-engine-search.md#sampler-roots-and-outcome-accounting).

@@ -1,47 +1,52 @@
 //! Finite public-information planner for the v16 mana pool. No native state,
 //! hidden hands, library order, receipts or query recovery data are consulted.
 use super::*;
-use mtg_contracts::{KeywordAbility, ManaProduction, SingleColorManaAmount};
+use mtg_contracts::{
+    KeywordAbility, ManaAbility, ManaProduction, SingleColorManaAmount, basic_land_color,
+};
+use mtg_core::{ManaAbilityIdentity, PermittedView};
 
 #[derive(Clone)]
 pub(super) struct PlannedMana {
     pub source: ObjectHandle,
     pub color: Option<Color>,
+    pub ability: Option<ManaAbilityIdentity>,
     pub combination: Option<[Quantity; 5]>,
 }
-#[derive(Clone)]
-struct Source {
-    handle: ObjectHandle,
+struct Source<'a> {
+    object_index: usize,
+    ability: ManaAbilityIdentity,
+    handle: &'a ObjectHandle,
     land: bool,
     amount: Quantity,
     production: ManaProduction,
     colors: Vec<Color>,
-    cost: Option<ManaCost>,
+    cost: Option<&'a ManaCost>,
 }
-struct Planner {
-    sources: Vec<Source>,
-    used: Vec<usize>,
+struct Planner<'a> {
+    sources: Vec<Source<'a>>,
+    used: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
 }
-impl Planner {
+impl Planner<'_> {
     fn fund(&mut self, cost: &ManaCost) -> bool {
+        let mut required = BTreeMap::<Color, Quantity>::new();
+        for c in &cost.colored {
+            required.entry(*c).or_default().add(&1.into());
+        }
         for _ in 0..=self.sources.len() {
             if spend(cost, &self.pool).is_some() {
                 return true;
             }
-            let mut required = BTreeMap::<Color, Quantity>::new();
-            for c in &cost.colored {
-                required.entry(*c).or_default().add(&1.into());
-            }
             let deficit = required
                 .iter()
-                .find(|(c, n)| self.pool.get(c).cloned().unwrap_or_default() < **n)
+                .find(|(c, n)| self.pool.get(c).is_none_or(|amount| amount < *n))
                 .map(|(c, _)| *c);
             // Prefer rocks/dorks to lands. Fixed multi-symbol production is
             // evaluated at its full quantity, including the Signet's input cost.
             let chosen = (0..self.sources.len())
-                .filter(|i| !self.used.contains(i))
+                .filter(|i| !self.used[self.sources[*i].object_index])
                 .filter(|i| deficit.is_none_or(|c| self.sources[*i].colors.contains(&c)))
                 .min_by_key(|i| {
                     (
@@ -52,9 +57,8 @@ impl Planner {
                     )
                 });
             let Some(i) = chosen else { return false };
-            self.used.push(i);
-            let source = self.sources[i].clone();
-            if let Some(cost) = &source.cost {
+            self.used[self.sources[i].object_index] = true;
+            if let Some(cost) = self.sources[i].cost {
                 if !self.fund(cost) {
                     return false;
                 }
@@ -63,6 +67,7 @@ impl Planner {
                     self.pool.get_mut(&c).unwrap().subtract(&n);
                 }
             }
+            let source = &self.sources[i];
             let color = match source.production {
                 ManaProduction::Fixed { .. } => None,
                 _ => deficit.or_else(|| source.colors.first().copied()),
@@ -97,17 +102,18 @@ impl Planner {
                     }
                     Some(amounts)
                 } else {
-                    let symbols = match source.production {
-                        ManaProduction::Fixed { symbols } => symbols,
-                        _ => color.into_iter().collect(),
+                    let symbols = match &source.production {
+                        ManaProduction::Fixed { symbols } => symbols.as_slice(),
+                        _ => color.as_slice(),
                     };
-                    for c in symbols {
+                    for &c in symbols {
                         self.pool.entry(c).or_default().add(&source.amount);
                     }
                     None
                 };
             self.plan.push(PlannedMana {
-                source: source.handle,
+                source: source.handle.clone(),
+                ability: Some(source.ability),
                 color,
                 combination,
             });
@@ -115,145 +121,203 @@ impl Planner {
         false
     }
 }
-pub(super) fn plan(
-    catalog: &Catalog,
-    v: &mtg_core::PermittedView,
-    cost: &ManaCost,
-    exclude: Option<&ObjectHandle>,
-) -> Option<std::collections::VecDeque<PlannedMana>> {
-    let identity = v
-        .commanders
+fn commander_colors<'a>(catalog: &'a Catalog, view: &PermittedView) -> &'a [Color] {
+    view.commanders
         .iter()
-        .find(|c| c.history.owner == v.viewer)
+        .find(|c| c.history.owner == view.viewer)
         .and_then(|c| definition(catalog, &c.oracle_id).ok())
-        .map(|d| d.characteristics.color_identity.clone())
-        .unwrap_or_default();
-    let mut sources = vec![];
-    for o in &v.objects {
-        if o.zone != Zone::Battlefield
-            || o.controller != v.viewer
-            || o.phased_out
-            || o.token.is_some()
-            || exclude == Some(&o.handle)
-        {
-            continue;
+        .map_or(&[], |d| &d.characteristics.color_identity)
+}
+
+fn controlled_permanent(view: &PermittedView, object: &mtg_core::VisibleObject) -> bool {
+    object.zone == Zone::Battlefield && !object.phased_out && object.controller == view.viewer
+}
+
+fn available_tap(object: &mtg_core::VisibleObject) -> bool {
+    !object.tapped
+        && (!object
+            .characteristics
+            .as_ref()
+            .is_some_and(|c| c.has_type(CardKind::Creature))
+            || object.attack_ready
+            || object.keywords.contains(&KeywordAbility::Haste))
+}
+
+fn usable_printed(ability: &ManaAbility, object: &mtg_core::VisibleObject) -> bool {
+    ability.self_damage.is_none()
+        && !ability.costs.sacrifice
+        && (!ability.costs.tap || available_tap(object))
+        && ability
+            .costs
+            .remove_source_plus_one_counters
+            .as_ref()
+            .is_none_or(|n| object.plus_one_counters >= *n)
+        && !(ability.restriction.is_some() && object.mana_ability_used == Some(true))
+}
+
+fn production(
+    catalog: &Catalog,
+    view: &PermittedView,
+    mana: &ManaProduction,
+) -> (ManaProduction, Vec<Color>, Quantity) {
+    let mut amount = Quantity::from(1);
+    let colors = match mana {
+        ManaProduction::Fixed { symbols } => symbols.clone(),
+        ManaProduction::Choice { colors } => colors.clone(),
+        ManaProduction::AnyColor => mtg_contracts::MANA_COMBINATION_COLORS.to_vec(),
+        ManaProduction::AnyOneColor {
+            amount: single_color,
+        } => {
+            amount = match single_color {
+                SingleColorManaAmount::Fixed { quantity } => quantity.clone(),
+                SingleColorManaAmount::ControllerEnchantments => {
+                    let count = view
+                        .objects
+                        .iter()
+                        .filter(|o| {
+                            controlled_permanent(view, o)
+                                && o.characteristics
+                                    .as_ref()
+                                    .is_some_and(|c| c.has_type(CardKind::Enchantment))
+                        })
+                        .count();
+                    // An unrepresentable count is planned conservatively as no mana.
+                    Quantity::from(i64::try_from(count).unwrap_or_default())
+                }
+            };
+            mtg_contracts::MANA_COMBINATION_COLORS.to_vec()
         }
-        let d = definition(catalog, &o.oracle_id).ok()?;
-        let (production, cost, tap) = match d.mana_abilities.as_slice() {
-            [ability]
-                if ability.self_damage.is_none()
-                    && !ability.costs.sacrifice
-                    && !ability
-                        .costs
-                        .remove_source_plus_one_counters
-                        .as_ref()
-                        .is_some_and(|n| o.plus_one_counters < *n)
-                    && !(ability.restriction.is_some() && o.mana_ability_used == Some(true)) =>
-            {
-                (
-                    ability.production.clone(),
-                    ability.costs.mana.clone(),
-                    ability.costs.tap,
-                )
-            }
-            [] if d.characteristics.kind == CardKind::Land && d.characteristics.basic => (
-                ManaProduction::Fixed {
-                    symbols: vec![*d.characteristics.color_identity.first()?],
-                },
-                None,
-                true,
-            ),
-            _ => continue,
-        };
-        if tap
-            && (o.tapped
-                || (o
-                    .characteristics
-                    .as_ref()
-                    .is_some_and(|c| c.has_type(CardKind::Creature))
-                    && !o.attack_ready
-                    && !o.keywords.contains(&KeywordAbility::Haste)))
-        {
-            continue;
-        }
-        let amount = match &production {
-            ManaProduction::AnyOneColor {
-                amount: SingleColorManaAmount::Fixed { quantity },
-            } => quantity.clone(),
-            ManaProduction::AnyOneColor {
-                amount: SingleColorManaAmount::ControllerEnchantments,
-            } => {
-                let count = v
-                    .objects
-                    .iter()
-                    .filter(|object| {
-                        object.zone == Zone::Battlefield
-                            && !object.phased_out
-                            && object.controller == v.viewer
-                            && object
-                                .characteristics
-                                .as_ref()
-                                .is_some_and(|c| c.has_type(CardKind::Enchantment))
-                    })
-                    .count();
-                Quantity::from(i64::try_from(count).ok()?)
-            }
-            ManaProduction::GreatestControlledPowerCombination => v
+        ManaProduction::CommanderColor => commander_colors(catalog, view).to_vec(),
+        ManaProduction::GreatestControlledPowerCombination => {
+            amount = view
                 .objects
                 .iter()
-                .filter(|object| {
-                    object.zone == Zone::Battlefield
-                        && !object.phased_out
-                        && object.controller == v.viewer
-                })
-                .filter_map(|object| object.characteristics.as_ref())
+                .filter(|o| controlled_permanent(view, o))
+                .filter_map(|o| o.characteristics.as_ref())
                 .filter(|c| c.has_type(CardKind::Creature))
                 .filter_map(|c| c.power.as_ref())
                 .max()
                 .cloned()
-                .unwrap_or_default(),
-            _ => 1.into(),
-        };
-        if amount <= Quantity::zero() {
+                .unwrap_or_default();
+            mtg_contracts::MANA_COMBINATION_COLORS.to_vec()
+        }
+        ManaProduction::EachPermanentColor {
+            scope: mtg_contracts::PermanentColorScope::Controller,
+        } => {
+            let colors: Vec<_> = mtg_contracts::MANA_COMBINATION_COLORS
+                .into_iter()
+                .filter(|color| {
+                    view.objects.iter().any(|o| {
+                        controlled_permanent(view, o)
+                            && o.characteristics
+                                .as_ref()
+                                .is_some_and(|c| c.colors.contains(color))
+                    })
+                })
+                .collect();
+            return (
+                ManaProduction::Fixed {
+                    symbols: colors.clone(),
+                },
+                colors,
+                amount,
+            );
+        }
+        ManaProduction::OpponentLandColors => {
+            // Basic land subtypes provide a conservative lower bound on the
+            // opponent colors. Never assume that an ungrounded cycle adds any.
+            mtg_contracts::MANA_COMBINATION_COLORS
+                .into_iter()
+                .filter(|color| {
+                    view.objects.iter().any(|o| {
+                        o.zone == Zone::Battlefield
+                            && !o.phased_out
+                            && o.controller != view.viewer
+                            && view.live_turn_order.contains(&o.controller)
+                            && view.live_turn_order.contains(&o.owner)
+                            && o.characteristics.as_ref().is_some_and(|c| {
+                                c.has_type(CardKind::Land)
+                                    && c.subtypes
+                                        .iter()
+                                        .any(|s| basic_land_color(s) == Some(*color))
+                            })
+                    })
+                })
+                .collect()
+        }
+    };
+    (mana.clone(), colors, amount)
+}
+
+pub(super) fn plan(
+    catalog: &Catalog,
+    view: &PermittedView,
+    cost: &ManaCost,
+    exclude: Option<&ObjectHandle>,
+) -> Option<std::collections::VecDeque<PlannedMana>> {
+    let pool = &view.players.iter().find(|p| p.player == view.viewer)?.mana;
+    if spend(cost, pool).is_some() {
+        return Some(Default::default());
+    }
+    let mut sources = vec![];
+    for (object_index, o) in view.objects.iter().enumerate() {
+        if !controlled_permanent(view, o) || o.token.is_some() || exclude == Some(&o.handle) {
             continue;
         }
-        let colors = match &production {
-            ManaProduction::Fixed { symbols } => symbols.clone(),
-            ManaProduction::GreatestControlledPowerCombination
-            | ManaProduction::AnyColor
-            | ManaProduction::AnyOneColor { .. } => {
-                vec![Color::W, Color::U, Color::B, Color::R, Color::G]
-            }
-            ManaProduction::CommanderColor => identity.clone(),
-            ManaProduction::Choice { colors } => colors.clone(),
-            ManaProduction::OpponentLandColors | ManaProduction::EachPermanentColor { .. } => {
+        let Ok(d) = definition(catalog, &o.oracle_id) else {
+            continue;
+        };
+        let land = d.characteristics.has_type(CardKind::Land);
+        for (index, ability) in d.mana_abilities.iter().enumerate() {
+            if !usable_printed(ability, o) {
                 continue;
             }
-        };
-        if colors.is_empty() {
-            continue;
+            let (production, colors, amount) = production(catalog, view, &ability.production);
+            if colors.is_empty() || amount <= Quantity::zero() {
+                continue;
+            }
+            sources.push(Source {
+                object_index,
+                ability: ManaAbilityIdentity::Printed {
+                    index: index as u32,
+                },
+                handle: &o.handle,
+                amount,
+                land,
+                production,
+                colors,
+                cost: ability.costs.mana.as_ref(),
+            });
         }
-        sources.push(Source {
-            handle: o.handle.clone(),
-            amount,
-            land: d.characteristics.kind == CardKind::Land,
-            production,
-            colors,
-            cost,
-        });
+        if land && available_tap(o) {
+            let c = o.characteristics.as_ref().unwrap_or(&d.characteristics);
+            for color in c
+                .subtypes
+                .iter()
+                .filter_map(|subtype| basic_land_color(subtype))
+            {
+                sources.push(Source {
+                    object_index,
+                    ability: ManaAbilityIdentity::Intrinsic { color },
+                    handle: &o.handle,
+                    amount: 1.into(),
+                    land,
+                    production: ManaProduction::Fixed {
+                        symbols: vec![color],
+                    },
+                    colors: vec![color],
+                    cost: None,
+                });
+            }
+        }
     }
-    let mut p = Planner {
+    let mut planner = Planner {
         sources,
-        used: vec![],
-        pool: v
-            .players
-            .iter()
-            .find(|p| p.player == v.viewer)?
-            .mana
-            .clone(),
+        used: vec![false; view.objects.len()],
+        pool: pool.clone(),
         plan: vec![],
     };
-    p.fund(cost).then(|| p.plan.into())
+    planner.fund(cost).then(|| planner.plan.into())
 }
 
 /// Plan against the complete fixed price as each printed hybrid pip is
@@ -302,16 +366,19 @@ mod tests {
     use super::*;
     #[test]
     fn combination_source_covers_two_distinct_colored_pips() {
+        let source = ObjectHandle("two-mana-provider".into());
         let mut planner = Planner {
             sources: vec![Source {
-                handle: ObjectHandle("two-mana-provider".into()),
+                object_index: 0,
+                ability: ManaAbilityIdentity::Printed { index: 0 },
+                handle: &source,
                 land: false,
                 amount: 2.into(),
                 production: ManaProduction::GreatestControlledPowerCombination,
                 colors: mtg_contracts::MANA_COMBINATION_COLORS.to_vec(),
                 cost: None,
             }],
-            used: vec![],
+            used: vec![false],
             pool: BTreeMap::new(),
             plan: vec![],
         };
@@ -405,15 +472,7 @@ mod tests {
                 stack: vec![],
             },
         };
-        let mut strategy = Strategy {
-            catalog: &catalog,
-            policy: Policy::Develop,
-            mulligans: [0; 4],
-            mana_plan: Default::default(),
-            mana_color: None,
-            mana_combination: None,
-            hybrid_choices: vec![],
-        };
+        let mut strategy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
         assert_eq!(
             strategy.priority(&observation).unwrap(),
             PlayerResponse::Cast {

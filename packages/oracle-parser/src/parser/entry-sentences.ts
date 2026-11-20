@@ -10,6 +10,7 @@
 import type { Effect, ObjectRef, Sentence } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
 import { parseBattlefieldEntryDetails } from "./entry.ts";
+import { isPluralObjectRef } from "./quantified-selections.ts";
 
 type Subject = { number: "singular" | "plural"; noun: "pronoun" | "token" | "name" };
 
@@ -46,6 +47,23 @@ function singular(ref: ObjectRef): boolean | null {
 export function foldEntrySentence(c: Cursor, previous: Sentence): boolean {
   const step: Effect | undefined = previous.steps.at(-1);
   if (!step || previous.otherwise || step.forEach || step.forEachVote) return false;
+  if (previous.steps.length === 1 && step.effect === "move-zone" && step.to.zone === "battlefield" && !step.entry?.counters) {
+    const entry = c.attempt(c => {
+      // CR 614.12: check the prospective entrant, not its prior-zone type.
+      const creature = c.words("if", "a", "creature", "enters", "this", "way") && c.punct(",") && c.words("it", "enters");
+      const each = !creature && c.words("each", "of", "them", "enters");
+      if (!creature && !each || creature && singular(step.what) !== true || each && !isPluralObjectRef(step.what)) return null;
+      const details = parseBattlefieldEntryDetails(c);
+      const pronoun = c.tokens[c.pos - 1];
+      if (!details?.entry?.counters || Object.keys(details).length !== 1 || Object.keys(details.entry).length !== 1
+          || pronoun?.kind !== "word" || pronoun.value !== "it" || !c.punct(".") && !c.done()) return null;
+      return details.entry.counters.map(counter => ({ ...counter, ...(creature ? { entrantType: "creature" as const } : {}) }));
+    });
+    if (entry) {
+      step.entry = { ...step.entry, counters: entry };
+      return true;
+    }
+  }
   const start = c.pos;
   const subject = parseSubject(c, step.effect === "create-token" && "name" in step.token ? step.token.name : undefined);
   if (!subject || c.word(subject.number === "singular" ? "enters" : "enter") === null) { c.pos = start; return false; }

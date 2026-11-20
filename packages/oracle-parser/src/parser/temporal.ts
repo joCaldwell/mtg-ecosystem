@@ -168,6 +168,17 @@ export function parseTemporal(c: Cursor, g: Grammar): Effect[] | null {
       return { effect: "add-turns", who, count, after: { turn: "current" } };
     });
     if (turns) return [turns];
+    const steps = c.attempt((c): Effect | null => {
+      const who = g.actor(c, "get", "gets");
+      if (who?.player !== "you") return null;
+      const count = g.amount(c);
+      if (!count || count.amount === "fixed" && count.value < 0
+        || !c.words("additional", "upkeep") || c.word("step", "steps") === null
+        || !c.words("after", "this", "phase")) return null;
+      return { effect: "add-phases", after: { phase: "current" },
+        sequence: [{ phase: "beginning", count, onlyStep: "upkeep", who, requiresControllerTurn: true }] };
+    });
+    if (steps) return [steps];
     const added = c.attempt((c): Effect | null => {
       let after: ExtraPhases["after"] | null = null;
       if (c.word("after") !== null) {

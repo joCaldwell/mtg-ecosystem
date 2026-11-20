@@ -1004,7 +1004,26 @@ function parseDoubledDamage(c: Cursor): ReplacementInstruction | null {
   });
 }
 
+function parseAdditionalSpellCopy(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    if (!c.words("if", "you", "would", "copy", "a", "spell", "one", "or", "more", "times") || !c.punct(",")
+      || !c.words("instead", "copy", "it", "that", "many", "times", "plus", "an", "additional", "time") || !c.punct(".")) return null;
+    const retarget = c.words("you", "may", "choose", "new", "targets", "for", "the", "additional", "copy");
+    if (retarget && !c.punct(".") || !c.done()) return null;
+    // CR 614.1, 707.10c: one replacement augments the pending copy event.
+    return { static: "replacement", replacement: {
+      event: { event: "copy-spell", who: { player: "you" }, quantity: { op: "ge", value: { amount: "fixed", value: 1 } } },
+      occurrence: "each",
+      replace: { replacement: "add-spell-copy", ...(retarget ? { mayRetargetAdditional: true } : {}) },
+    } };
+  });
+}
+
 export function parseStaticReplacement(c: Cursor, parseBody: ReplacementBodyParser, options: StaticReplacementOptions = {}): StaticEffect | null {
+  if (!options.afterCastPermission) {
+    const copies = parseAdditionalSpellCopy(c);
+    if (copies) return copies;
+  }
   return c.attempt(c => {
     const doubled = options.afterCastPermission ? null : parseDoubledDamage(c);
     if (doubled) return c.done() ? { static: "replacement", replacement: doubled } : null;

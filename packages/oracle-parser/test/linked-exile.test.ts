@@ -83,7 +83,7 @@ describe("linked exile one-shot effects", () => {
     for (const text of [
       "Exile target creature until end of turn.",
       "Until end of turn, exile target creature.",
-      "Exile target creature until an opponent becomes the monarch.",
+      "Exile target creature until an opponent is the monarch.",
       "Exile target creature until this enchantment leaves the graveyard.",
       "Exile target creature until this enchantment leaves the battlefield or you lose the game.",
     ]) assert.equal(parseOracleText(text).ok, false, text);

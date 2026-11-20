@@ -94,6 +94,9 @@ function extractOccurrence(tokens: Token[], resolving: boolean): { tokens: Token
  * costs of equip abilities (702.6a), so they keep the activation scope. */
 function parseKeywordCostScope(tokens: Token[]): CostModificationScope | null {
   const c = new Cursor(tokens);
+  if (c.words("plotting", "cards", "from", "your", "hand") && c.done())
+    return { action: "pay-cost", cost: "plot", payer: { player: "you" }, from: { zone: "hand", owner: "your" } };
+  c.pos = 0;
   const all = c.word("all") !== null;
   const cost = c.word("equip", "flashback", "buyback", "dash", "blitz", "morph", "unlock");
   if (!cost || c.word("costs") === null) return null;
@@ -331,6 +334,9 @@ function parseCostModificationSentence(c: Cursor, mode: SentenceMode): ParsedSen
     // end the sentence so no later clause could qualify only the cost change.
     const uncounterable = mode === "static" && action === "cast" &&
       c.attempt(c => c.words("and", "can't", "be", "countered") && (c.done() || c.isPunct(".")) ? true : null) === true;
+    const flash = mode === "static" && action === "cast"
+      && c.attempt(c => c.words("and", "can", "be", "cast", "as", "though", "it", "had", "flash")
+        && (c.done() || c.isPunct(".")) ? true : null);
     let subject = c.tokens.slice(start, marker);
     // "Spells you cast this turn cost ..." states the lifetime of the
     // resolving effect inside its subject (CR 611.2a).
@@ -366,6 +372,7 @@ function parseCostModificationSentence(c: Cursor, mode: SentenceMode): ParsedSen
       if (named.ref !== "each" || named.filter.manaAbility !== undefined) return null;
       scope.abilities = { ...named, filter: { ...named.filter, manaAbility: false } };
     }
+    if (flash && (scope.action !== "cast" || !scope.occurrence || scope.spells.ref !== "each")) return null;
     if (uncounterable && !(scope.action === "cast" && scope.spells.ref === "each" && !scope.occurrence && !scope.from && !scope.notFrom))
       return null;
     const effect: Modifier = { static: "cost-modification", scope,
@@ -441,6 +448,11 @@ function parseCostModificationSentence(c: Cursor, mode: SentenceMode): ParsedSen
     const period = c.punct(".");
     if (!c.done() && !(instruction ? period : c.isWord("otherwise")))
       return c.fail("end of complete cost modification");
+    if (flash && scope.action === "cast") {
+      const both: StaticEffect = { static: "group", effects: [effect,
+        { static: "cast-timing", scope: structuredClone(scope), timing: "as-though-flash" }] };
+      return { effect: condition ? { static: "conditional", condition, effect: both } : both };
+    }
     if (uncounterable && scope.action === "cast" && scope.spells.ref === "each") {
       const uncountered: StaticEffect = { static: "cant", action: "be-countered", what: { ref: "each", filter: {
         ...scope.spells.filter, ...(scope.caster ? { cast: { by: scope.caster } } : {}) } } };

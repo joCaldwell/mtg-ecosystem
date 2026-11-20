@@ -14,7 +14,11 @@ type RetargetEffect = Extract<Effect, { effect: "choose-new-targets" }>;
 /** Ephemeral lexical proof, never serialized. Matching the original token
  * identity confines it to this first instruction even through parser retries;
  * an identical-looking later pronoun or another body cannot reuse it. */
-export interface StackCopyInputProof { readonly token: Token; readonly event: "cast" | "activate" }
+export interface StackCopyInputProof {
+  readonly token: Token;
+  readonly event: "cast" | "activate";
+  readonly casterIsYou?: true;
+}
 
 function containsTarget(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
@@ -54,7 +58,7 @@ export function prepareStackCopyInput(c: Cursor, trigger: Trigger): StackCopyInp
   if (body.word("copy") === null) return undefined;
   const token = body.peek();
   if (!token || body.word("it") === null) return undefined;
-  return { token, event };
+  return { token, event, ...(trigger.trigger === "cast" && trigger.who.player === "you" ? { casterIsYou: true } : {}) };
 }
 
 /** A copy of a card in exile/graveyard is a different operation (CR 707.12).

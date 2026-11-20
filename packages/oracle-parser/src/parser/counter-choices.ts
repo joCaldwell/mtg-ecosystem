@@ -34,7 +34,7 @@ function parseKind(c: Cursor): CounterSpec | null {
 
 export function parseCounterChoice(c: Cursor, who: PlayerRef, parseObjectRef: (c: Cursor) => ObjectRef | null): Effect | null {
   return c.attempt((c): Effect | null => {
-    if (who.player !== "you" || !c.words("your", "choice", "of")) return null;
+    const explicit = who.player === "you" && c.words("your", "choice", "of");
     const items: { article: boolean; kind: CounterSpec; noun: boolean }[] = [];
     for (let final = false; ;) {
       const article = c.word("a", "an") !== null;
@@ -50,7 +50,7 @@ export function parseCounterChoice(c: Cursor, who: PlayerRef, parseObjectRef: (c
     // first article and the final noun ("a +1/+1, first strike, or trample counter").
     const repeated = items.every(item => item.article && item.noun);
     const shared = items.every((item, i) => item.article === (i === 0) && item.noun === (i === items.length - 1));
-    if (!repeated && !shared) return null;
+    if (explicit ? !repeated && !shared : !repeated || items.length !== 2) return null;
     if (new Set(items.map(item => item.kind.type)).size !== items.length) return null;
     if (c.word("on") === null) return null;
     const on = parseObjectRef(c);

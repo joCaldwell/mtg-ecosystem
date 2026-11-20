@@ -150,6 +150,7 @@ mod optional_costs;
 mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
+pub mod composed_spell;
 mod creature_entry_return;
 mod divided_plus_one_counters;
 mod flash_end_step_draw;
@@ -161,8 +162,9 @@ mod power_entry_draw;
 pub use greatest_power::{greatest_power_ast, greatest_power_programs, greatest_power_source};
 mod power_filtered_removal;
 pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
+pub mod bulk_catalog;
 mod strict_io;
-pub use strict_io::strict_read_seekable;
+pub use strict_io::{JsonByteProof, strict_read_seekable, strict_read_seekable_verified};
 mod unlimited_hand_size;
 
 /// The sole active Card IR schema accepted and emitted by the engine.
@@ -353,6 +355,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    ComposedOrdinarySpellV1,
     PlayerGraveyardShuffleV1,
     OpeningPlacementV1,
     ExileResolvingSpellV1,
@@ -2774,6 +2777,9 @@ impl Definition {
         }
         if let Some(program) = &self.spell {
             add_program_requirements(&mut set, program);
+            if composed_spell::program(program) {
+                set.insert(Capability::ComposedOrdinarySpellV1);
+            }
         }
         if !self.mana_abilities.is_empty() {
             set.insert(Capability::PermanentManaV1);
@@ -3130,6 +3136,7 @@ impl Definition {
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
         targeted_game_loss::validate_definition(self)?;
+        composed_spell::validate(self)?;
         controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
@@ -4736,7 +4743,9 @@ pub fn temporary_creature_keyword_program(
 pub fn temporary_targeted_keyword_program(
     p: &SpellProgram,
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
-    temporary_creature_keyword_program(p).or_else(|| temporary_permanent_keyword_program(p))
+    temporary_creature_keyword_program(p)
+        .or_else(|| temporary_permanent_keyword_program(p))
+        .or_else(|| composed_spell::grant(p))
 }
 /// One controlled permanent with optional fixed controller life gain, or one
 /// artifact-or-creature target with optional fixed controller scry.
@@ -5276,10 +5285,17 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
             | Instruction::ExilePermanent { target_slot, .. }
-            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
             | Instruction::UntapPermanent { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
+            Instruction::PhaseOutTargetPermanent { target_slot, .. } => Some((
+                *target_slot,
+                if composed_spell::program(p) {
+                    p.targets[0].domain
+                } else {
+                    TargetDomain::BattlefieldPermanent
+                },
+            )),
             Instruction::TapPermanent { target_slot, .. } => {
                 let domain = p
                     .targets
@@ -5415,9 +5431,14 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 match on {
                     CounterRecipient::Source => None,
-                    CounterRecipient::Target { target_slot } => {
-                        Some((*target_slot, TargetDomain::BattlefieldCreature))
-                    }
+                    CounterRecipient::Target { target_slot } => Some((
+                        *target_slot,
+                        if composed_spell::program(p) {
+                            p.targets[0].domain
+                        } else {
+                            TargetDomain::BattlefieldCreature
+                        },
+                    )),
                 }
             }
             Instruction::GrantSourceKeywords { .. } => None,
@@ -6119,6 +6140,9 @@ fn add_program_requirements_for_source_pump(
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
+                if composed_spell::grant(program).is_some() {
+                    continue; // The ordinary sequence and keyword primitives supply closure.
+                }
                 if temporary_permanent_keyword_program(program).is_some() {
                     Capability::TemporaryPermanentKeywordProgramV1
                 } else {
@@ -7121,7 +7145,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}}}},
-        "then":{"anyOf":[{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"properties":{
+        "then":{"anyOf":[{"$ref":composed_spell::SCHEMA},{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"properties":{
             "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"enum":["battlefield_creature","controlled_battlefield_creature"]},"filter":{"type":"null"}}}},
@@ -7629,6 +7653,7 @@ pub fn catalog_schema() -> serde_json::Value {
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
+    composed_spell::extend_schema(&mut schema);
     controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
@@ -7860,6 +7885,7 @@ mod tests {
             ControllerLifeFreezeV1,
             ControlledPermanentPhasingV1,
             TargetedPhasingV1,
+            ComposedOrdinarySpellV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
@@ -8460,6 +8486,7 @@ mod tests {
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
         definitions.push(divided_plus_one_counters::witness());
+        definitions.push(composed_spell::witness());
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));

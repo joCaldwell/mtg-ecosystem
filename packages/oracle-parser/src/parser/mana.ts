@@ -381,9 +381,10 @@ export function parseAddManaEffect(c: Cursor, previousPlayer?: PlayerRef): { eff
   });
   if (eachColor) return eachColor;
   return c.attempt(c => {
-    const explicit = parsePlayerRef(c);
+    const explicit = c.attempt((c): PlayerRef | null => c.words("a", "player", "of", "your", "choice")
+      ? { player: "player-of-choice", chooser: { player: "you" } } : null) ?? parsePlayerRef(c);
     const verb = c.word("add", "adds");
-    if (!verb) return null;
+    if (!verb || explicit?.player === "player-of-choice" && verb !== "adds") return null;
     const actor = explicit ?? (verb === "add" && previousPlayer?.player !== "they" ? { player: "you" as const } : previousPlayer);
     if (!actor) return c.fail("actor of mana production");
     c.words("an", "additional");

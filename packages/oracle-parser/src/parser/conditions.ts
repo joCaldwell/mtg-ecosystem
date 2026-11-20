@@ -829,8 +829,9 @@ function parseCastHistory(c: Cursor, g: ConditionGrammar): Condition | null {
       what = rest;
     }
     const during = c.words("this", "turn") ? "this-turn" : c.words("last", "turn") ? "last-turn" : null;
-    if (!during) return null;
-    return negated({ condition: "cast-count", who: subject.who, what, comparison, during, ...(from ? { from } : {}) }, subject.negate);
+    const period = during ?? (c.words("this", "game") ? "this-game" : null);
+    if (!period) return null;
+    return negated({ condition: "cast-count", who: subject.who, what, comparison, during: period, ...(from ? { from } : {}) }, subject.negate);
   });
 }
 

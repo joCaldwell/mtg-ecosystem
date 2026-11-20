@@ -101,15 +101,7 @@ mod reactive_tests {
                 targets: vec![],
             });
         }
-        let mut s = Strategy {
-            catalog: &c,
-            policy: Policy::Develop,
-            mulligans: [0; 4],
-            mana_plan: Default::default(),
-            mana_color: None,
-            mana_combination: None,
-            hybrid_choices: vec![],
-        };
+        let mut s = Strategy::new(&c, Policy::Develop, [0; 4]);
         assert_eq!(
             s.opposing_stack(&v, false, None),
             Some(StackHandle("Goliath Sphinx".into()))
@@ -280,15 +272,7 @@ mod wipe_tests {
                 targets: vec![],
             });
         }
-        let s = Strategy {
-            catalog: &c,
-            policy: Policy::Develop,
-            mulligans: [0; 4],
-            mana_plan: Default::default(),
-            mana_color: None,
-            mana_combination: None,
-            hybrid_choices: vec![],
-        };
+        let s = Strategy::new(&c, Policy::Develop, [0; 4]);
         assert!(!c.definitions.is_empty());
         assert_eq!(
             s.opposing_stack(&v, false, None),
@@ -323,15 +307,7 @@ mod wipe_tests {
             card(&c, "Giant Spider", 1, Zone::Battlefield),
             card(&c, "Storm Crow", 2, Zone::Battlefield),
         ];
-        let s = Strategy {
-            catalog: &c,
-            policy: Policy::Develop,
-            mulligans: [0; 4],
-            mana_plan: Default::default(),
-            mana_color: None,
-            mana_combination: None,
-            hybrid_choices: vec![],
-        };
+        let s = Strategy::new(&c, Policy::Develop, [0; 4]);
         let d = |name: &str| c.definitions.iter().find(|d| d.name == name).unwrap();
         assert_eq!(
             s.choose_x(&v, d("Earthquake"), d("Earthquake").spell.as_ref().unwrap()),
@@ -397,15 +373,7 @@ fn names_and_catalog_size_do_not_select_policy_or_wipe_amounts() {
     extra.oracle_id = "unrelated".into();
     c.definitions.push(extra);
     c.definitions.reverse();
-    let s = Strategy {
-        catalog: &c,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let s = Strategy::new(&c, Policy::Develop, [0; 4]);
     let d = definition(&c, &id).unwrap();
     assert!(s.definition_ready(&v, d));
     let mut changed = d.clone();
@@ -424,15 +392,7 @@ fn names_and_catalog_size_do_not_select_policy_or_wipe_amounts() {
 fn creature_target_readiness_and_prevention_follow_programs() {
     let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
     let v = wipe_tests::view(&c);
-    let s = Strategy {
-        catalog: &c,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let s = Strategy::new(&c, Policy::Develop, [0; 4]);
     for name in ["Murder", "Disfigure", "Giant Growth", "Pacifism"] {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         assert!(
@@ -474,15 +434,7 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
         object: v.objects[0].handle.clone(),
         ability: 0,
     };
-    let mut s = Strategy {
-        catalog: &c,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let mut s = Strategy::new(&c, Policy::Develop, [0; 4]);
     assert_eq!(
         s.priority(&Observation {
             observation_version: 25,
@@ -496,15 +448,7 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
 }
 
 fn strategy(c: &Catalog) -> Strategy<'_> {
-    Strategy {
-        catalog: c,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    }
+    Strategy::new(c, Policy::Develop, [0; 4])
 }
 fn observation(view: PermittedView) -> Observation {
     Observation {
@@ -978,7 +922,7 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
             current: Some(ObjectHandle("Storm Crow".into())),
         },
     ];
-    assert!(strategy(&c).optional_effect(&v));
+    assert!(strategy(&c).optional_effect(&v, None));
     let bolt = c
         .definitions
         .iter_mut()
@@ -3489,5 +3433,56 @@ fn match_policy_hybrid_uses_offered_mana_and_only_payable_life() {
         PlayerResponse::ManaCombination {
             amounts: [0_i64, 7, 0, 0, 0].map(Quantity::from)
         }
+    );
+}
+
+#[test]
+fn failed_public_payment_skips_same_cast_until_next_turn() {
+    let catalog = mtg_compiler::catalog::embedded_catalog("mana").unwrap();
+    let mut view = wipe_tests::view(&mtg_compiler::catalog::embedded_catalog("wipes").unwrap());
+    let viewer = view.viewer;
+    view.active = Some(viewer);
+    view.turn_owner = viewer;
+    view.turn.step = TurnStep::PrecombatMain;
+    view.turn.lands_played = 1;
+    view.objects = vec![
+        wipe_tests::card(&catalog, "Sol Ring", viewer.0, Zone::Battlefield),
+        wipe_tests::card(
+            &catalog,
+            "Mind Stone",
+            viewer.0,
+            Zone::Hand { owner: viewer },
+        ),
+    ];
+    let spell = view.objects[1].handle.clone();
+    let mut observation = observation(view);
+    let mut policy = strategy(&catalog);
+    assert_eq!(
+        policy.priority(&observation).unwrap(),
+        PlayerResponse::Cast {
+            card: spell.clone()
+        }
+    );
+
+    // Exercise an announced price higher than the public preflight estimate.
+    observation.decision = Some(PlayerRequest::Mana {
+        token: mtg_core::DecisionToken("announced".into()),
+        player: viewer,
+        cost: ManaCost {
+            generic: 3.into(),
+            colored: vec![],
+        },
+        mana_ability_source: None,
+    });
+    assert_eq!(
+        policy.choose(&observation).unwrap(),
+        PlayerResponse::FinishMana { undo_mana: true }
+    );
+    assert_eq!(policy.priority(&observation).unwrap(), PlayerResponse::Pass);
+
+    observation.view.turn.number += 1;
+    assert_eq!(
+        policy.priority(&observation).unwrap(),
+        PlayerResponse::Cast { card: spell }
     );
 }

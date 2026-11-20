@@ -115,7 +115,6 @@ describe('entry copy replacements', () => {
   it('rejects unrepresented conditional, retained, multiple-model and linked-rider semantics', () => {
     for (const text of [
       start + ', except it has vanishing 3 if that creature doesn\'t have vanishing.',
-      start + ", except it enters with an additional +1/+1 counter on it if it's a creature.",
       start + ', except its power and toughness are equal to this creature\'s power and toughness.',
       start + ', except it has its other abilities.',
       start + ', except it has protection from the color of your choice.',

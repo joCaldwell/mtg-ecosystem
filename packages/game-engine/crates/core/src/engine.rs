@@ -15,6 +15,8 @@ macro_rules! definition_digest {
     };
 }
 pub use search::*;
+mod dynamic_admission;
+pub use dynamic_admission::*;
 mod match_admission;
 mod snapshot_codec;
 mod state_digest;
@@ -79,6 +81,8 @@ mod attachments_tests;
 mod aura_control_tests;
 #[cfg(test)]
 mod blocking_target_tests;
+#[cfg(test)]
+mod composed_spell_tests;
 mod counter_placement;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};

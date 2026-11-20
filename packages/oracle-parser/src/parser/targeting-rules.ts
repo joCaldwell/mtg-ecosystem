@@ -47,9 +47,21 @@ export function parseTargetingStatic(c: Cursor): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
     const pretense = parsePretense(c);
     if (!pretense) return null;
+    const targeting: StaticEffect = { static: "targeting-as-though", ...pretense };
+    const period = c.punct(".");
+    if (c.done()) return targeting;
+    if (!period) return null;
+    const [subject, ...others] = pretense.what;
+    // CR 702.21a: the printed follow-up suppresses only Ward from the
+    // previously identified permanents, independently of the targeting rule.
+    if (others.length || "player" in subject || subject.ref !== "each"
+        || !c.words("ward", "abilities", "of", "those", "creatures", "don't", "trigger")
+        || subject.filter.types?.length !== 1 || subject.filter.types[0] !== "creature") return null;
     c.punct(".");
     if (!c.done()) return c.fail("complete targeting rule");
-    return { static: "targeting-as-though", ...pretense };
+    return { static: "group", effects: [targeting, { static: "trigger-suppression",
+      abilities: { cls: "ability", abilityKind: "triggered", abilityKeyword: "ward", abilitySource: subject },
+    }] };
   });
 }
 

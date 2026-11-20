@@ -7,6 +7,9 @@ include!(concat!(env!("OUT_DIR"), "/catalog_sizes.rs"));
 pub use crate::profile_data::*;
 include!(concat!(env!("OUT_DIR"), "/match_profiles.rs"));
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
+    if name == super::dynamic_admission::DYNAMIC_PROFILE {
+        return None;
+    }
     MATCH_PROFILES.iter().find(|p| p.name == name)
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,29 +128,43 @@ fn known_ban(
     }
     Ok(())
 }
+pub(super) fn commander_eligible(c: &Characteristics, eligibility: CommanderEligibility) -> bool {
+    match eligibility {
+        CommanderEligibility::LegendaryCreature => c.legendary && c.kind == CardKind::Creature,
+    }
+}
+
+pub(super) fn deck_color_violations(
+    card: &Characteristics,
+    commander: &Characteristics,
+) -> (bool, bool) {
+    let outside_identity = card
+        .color_identity
+        .iter()
+        .any(|c| !commander.color_identity.contains(c));
+    // CR 903.5d applies independently, including to nonbasic lands.
+    let outside_land_colors = card
+        .subtypes
+        .iter()
+        .filter_map(|s| basic_land_color(s))
+        .any(|c| !commander.color_identity.contains(&c));
+    (outside_identity, outside_land_colors)
+}
+
 fn validate_deck_colors(
     player: PlayerId,
     id: &str,
     card: &Characteristics,
     commander: &Characteristics,
 ) -> Result<(), MatchAdmissionError> {
-    if card
-        .color_identity
-        .iter()
-        .any(|c| !commander.color_identity.contains(c))
-    {
+    let (outside_identity, outside_land_colors) = deck_color_violations(card, commander);
+    if outside_identity {
         return Err(MatchAdmissionError::ColorIdentity {
             player,
             oracle_id: id.into(),
         });
     }
-    //903.5d is independent of color identity, including for nonbasic lands.
-    if card
-        .subtypes
-        .iter()
-        .filter_map(|s| basic_land_color(s))
-        .any(|c| !commander.color_identity.contains(&c))
-    {
+    if outside_land_colors {
         return Err(MatchAdmissionError::BasicLandColor {
             player,
             oracle_id: id.into(),
@@ -205,17 +222,14 @@ pub fn validate_pod(
                 oracle_id: deck.commander.clone(),
             }
         })?;
-        match profile.commander_policy.eligibility {
-            CommanderEligibility::LegendaryCreature => {
-                if !commander.characteristics.legendary
-                    || commander.characteristics.kind != CardKind::Creature
-                {
-                    return Err(MatchAdmissionError::UnsupportedCommander {
-                        player,
-                        oracle_id: deck.commander.clone(),
-                    });
-                }
-            }
+        if !commander_eligible(
+            &commander.characteristics,
+            profile.commander_policy.eligibility,
+        ) {
+            return Err(MatchAdmissionError::UnsupportedCommander {
+                player,
+                oracle_id: deck.commander.clone(),
+            });
         }
         let mut total = 0u64;
         let mut counts = BTreeMap::<String, u32>::new();
@@ -280,9 +294,16 @@ pub fn validate_pod(
             .map(|(oracle_id, count)| DeckEntry { oracle_id, count })
             .collect();
     }
+    Ok(ValidatedPod {
+        config: physical_match_config(&profile.name, &normalized.decks),
+        match_config: normalized,
+    })
+}
+
+pub(super) fn physical_match_config(profile: &str, decks: &[Decklist; 4]) -> ScenarioConfig {
     let mut cards = Vec::with_capacity(400);
     let mut commanders = Vec::with_capacity(4);
-    for (seat, deck) in normalized.decks.iter().enumerate() {
+    for (seat, deck) in decks.iter().enumerate() {
         let owner = PlayerId(seat as u8);
         let mut next = seat as u32 * 100;
         commanders.push(CardId(next));
@@ -311,20 +332,17 @@ pub fn validate_pod(
         }
         debug_assert_eq!(next, (seat as u32 + 1) * 100);
     }
-    Ok(ValidatedPod {
-        config: ScenarioConfig {
-            initial: ScenarioInitial {
-                turn_step: TurnStep::Untap,
-                ..ScenarioInitial::default()
-            },
-            mode: Mode::CommanderMatch,
-            players: 4,
-            profile: profile.name.clone(),
-            commanders,
-            cards,
+    ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
         },
-        match_config: normalized,
-    })
+        mode: Mode::CommanderMatch,
+        players: 4,
+        profile: profile.into(),
+        commanders,
+        cards,
+    }
 }
 
 #[cfg(test)]

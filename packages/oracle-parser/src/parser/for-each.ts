@@ -2,7 +2,7 @@
 // CR 608.2e/f, 101.4: each action spans the members before the next action;
 // this is not a sequential JavaScript-style loop over whole instruction lists.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Effect, ObjectFilter, ObjectRef, Sentence } from "../ast.ts";
+import type { Effect, ObjectFilter, ObjectRef, PlayerRef, Sentence } from "../ast.ts";
 import type { Token } from "../lexer.ts";
 import { Cursor } from "./cursor.ts";
 import { isPluralPlayerRef, parseObjectRef, parsePlayerRef } from "./refs.ts";
@@ -113,6 +113,41 @@ function unsettledLoops(value: unknown, found: Loop[] = []): Loop[] {
   return found;
 }
 
+function searchesAnyLibrary(who: ObjectRef | PlayerRef, base: "each-player" | "each-opponent"): boolean {
+  return "player" in who && who.player === "filtered" && who.base.player === base &&
+    Object.keys(who.filter).length === 1 && who.filter.searched?.zone.zone === "library" &&
+    who.filter.searched.zone.owner === "any";
+}
+
+/** CR 701.23h: a final shuffle can refer to all players who participated
+ * in the preceding searches, including the controller's additional searches.
+ * Each player shuffles their own library once. The rule combines any
+ * repeated searches of the same library before this common shuffle. */
+function endsWithSearchersShuffling(sentences: Sentence[], index: number, loop: Loop): boolean {
+  if (index !== sentences.length - 2 || !searchesAnyLibrary(loop.each, "each-opponent") || loop.effects.length !== 1) return false;
+  const [body] = loop.effects;
+  const [search, placement] = body.steps;
+  if (body.condition || body.otherwise || body.bindings || body.steps.length !== 2 ||
+    search.effect !== "search" || search.who.player !== "you" || search.zones.selection !== "all"
+    || search.zones.of.length !== 1 || search.zones.of[0].zone !== "library" || search.zones.of[0].owner !== "your"
+    || placement.effect !== "move-zone" || placement.what.ref !== "it" || placement.to.zone !== "battlefield") return false;
+
+  const optionalSearchGroups = sentences.slice(0, index).flatMap(sentence =>
+    sentence.condition || sentence.otherwise || sentence.bindings ? [] : sentence.steps.filter(step =>
+      step.effect === "optional-group" && step.who.player === "each-opponent" && step.steps.some(action =>
+        action.effect === "search" && action.who.player === "each-opponent" && action.zones.selection === "all"
+        && action.zones.of.length === 1 && action.zones.of[0].zone === "library" && action.zones.of[0].owner === "their")));
+  if (optionalSearchGroups.length !== 1) return false;
+  const next = sentences[index + 1];
+  const [shuffle] = next.steps;
+  if (next.condition || next.otherwise || next.bindings || next.steps.length !== 1 ||
+    shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach ||
+    !searchesAnyLibrary(shuffle.who, "each-player") || shuffle.library.zone !== "library" ||
+    JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
+  shuffle.coalesceEarlierLibrarySearches = true;
+  return true;
+}
+
 /** Decides the scope of the text after each loop in a complete sentence
  * list (CR 608.2c). A loop's `effects` are done for each member; a sentence
  * after the loop's own sentence is done once, afterwards. That reading is
@@ -125,8 +160,10 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
   for (let i = 0; i < sentences.length; i++) {
     for (const loop of unsettledLoops(sentences[i])) {
       const next = sentences[i + 1];
+      if (loop !== sentences[i].steps.at(-1) || sentences[i].otherwise || !next) return false;
+      if (endsWithSearchersShuffling(sentences, i, loop)) { settled.add(loop); continue; }
       const result = memberResult(loop);
-      if (loop !== sentences[i].steps.at(-1) || sentences[i].otherwise || !next || !result) return false;
+      if (!result) return false;
       const chose = loop.effects[0].steps[0].effect === "choose-object" || loop.effects[0].steps[0].effect === "declare-target";
       if (!refersToAllResults(next, result, chose)) return false;
       settled.add(loop);

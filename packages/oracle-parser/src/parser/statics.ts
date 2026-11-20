@@ -155,10 +155,19 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
           if (!removal) return null;
           modifier = { modifier: "lose-abilities", removal };
         } else {
-          const pt = verb === "have" || verb === "has" ? parseStaticBasePt(c) ?? parseBasePt(c) : null;
+          const pt = verb === "have" || verb === "has" ? parseStaticBasePt(c) ?? parseBasePt(c) ?? c.attempt(c => {
+            // CR 613.4b: a single base stat setting leaves the other stat alone.
+            if (c.word("base") === null) return null;
+            const stat = c.word("power", "toughness");
+            if (!stat) return null;
+            const value = c.number();
+            if (value === null) return null;
+            const amount = { amount: "fixed" as const, value };
+            return stat === "power" ? { power: amount } : { toughness: amount };
+          }) : null;
           if (pt) {
             modifier = { modifier: "base-pt", ...pt,
-              ...(pt.power.amount !== "fixed" || pt.toughness.amount !== "fixed" ? { valueScope: "each-affected-object" as const } : {}) };
+              ...(pt.power && pt.power.amount !== "fixed" || pt.toughness && pt.toughness.amount !== "fixed" ? { valueScope: "each-affected-object" as const } : {}) };
             // "has base power and toughness 5/5 and vigilance": the one verb
             // also grants the listed abilities (CR 613.1f, 613.4b).
             const alsoGranted = c.attempt(c => {
@@ -378,6 +387,14 @@ function parseStaticUnbound(c: Cursor): StaticEffect | null {
     if (castReplacement) return castReplacement;
     const untapSuppression = parseStaticUntapSuppression(c);
     if (untapSuppression) return untapSuppression;
+    const damageRetention = c.attempt((c): StaticEffect | null => {
+      if (!c.words("damage", "isn't", "removed", "from")) return null;
+      const what = parseObjectRef(c);
+      if (!what || what.ref !== "self" && what.ref !== "this" || !c.words("during", "cleanup", "steps")) return null;
+      c.punct(".");
+      return c.done() ? { static: "retain-damage-during-cleanup", what } : null;
+    });
+    if (damageRetention) return damageRetention;
     const skip = parseStaticSkip(c, { player: parsePlayerRef, condition: parseCondition });
     if (skip) return skip;
     const alternative = parseStaticInsteadAlternative(c, c => parseStaticBase(c) ?? parseStaticGroup(c), (c, what) => parseStaticModifiers(c, what));
@@ -783,7 +800,7 @@ function parseAlternativeCost(c: Cursor): StaticEffect | null {
     else if (c.words("once", "each", "turn")) useLimit = { maximum: 1, period: "turn", during: "any" };
     if (useLimit && !c.punct(",")) return null;
     const conditional = c.word("if") !== null;
-    const condition = conditional ? parseCondition(c) : null;
+    let condition = conditional ? parseCondition(c) : null;
     if (conditional && (!condition || !c.punct(","))) return null;
     // "rather than pay this spell's mana cost, you may have an opponent gain
     // 3 life": the same choice with the cost stated last (Invigorate).
@@ -813,6 +830,19 @@ function parseAlternativeCost(c: Cursor): StaticEffect | null {
     } else if (c.selfrefPossessive() && c.words("mana", "cost")) {
       spells = { ref: "self" };
     } else return null;
+    if (c.word("if") !== null) {
+      if (conditional) return null;
+      condition = parseCondition(c);
+      if (!condition) return null;
+    }
+    const bindings = c.attempt(c => {
+      if (!useLimit || spells.ref !== "filter" || !spells.filter.properties?.some(
+        property => property.property === "mana-value" && property.comparison.value.amount === "x")
+        || costs.some(cost => cost.cost === "mana" && cost.symbols.includes("X"))
+        || !c.punct(",") || !c.words("where", "x", "is")) return null;
+      const value = parseAmount(c);
+      return value?.amount === "counter-count" ? [{ variable: "x" as const, value }] : null;
+    });
     c.punct(".");
     // "Spend only mana produced by Treasures to cast it this way."
     const paymentRestriction = !c.done() && (spells.ref === "this" || spells.ref === "self") ? parsePaymentRestriction(c, "cast-it-this-way") : null;
@@ -820,6 +850,6 @@ function parseAlternativeCost(c: Cursor): StaticEffect | null {
     // A per-turn limit counts uses among a class of spells, not one spell.
     if (useLimit && (spells.ref === "this" || spells.ref === "self")) return null;
     return { static: "alternative-cost", who: { player: "you" }, spells, costs, ...(condition ? { condition } : {}), ...(useLimit ? { useLimit } : {}),
-      ...(paymentRestriction ? { paymentRestriction } : {}) };
+      ...(paymentRestriction ? { paymentRestriction } : {}), ...(bindings ? { bindings } : {}) };
   });
 }

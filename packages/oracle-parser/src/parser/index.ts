@@ -22,7 +22,7 @@ import { parseCondition } from "./refs.ts";
 import { hasUnboundStaticOther, hasUnsupportedStaticConditional, hasUnsupportedStaticTargets, parseStatic } from "./statics.ts";
 import { hasAlternativeKickerTargets } from "./self-replacement.ts";
 import { hasCastingCostModes } from "./modal.ts";
-import { prepareStackCopyInput, type StackCopyInputProof } from "./stack-copy.ts";
+import { prepareStackCopyInput, uniqueStackTriggerEvent, type StackCopyInputProof } from "./stack-copy.ts";
 import { finalizeCharacteristicDefinitions } from "./characteristic-origin.ts";
 import { attachDiceTable, parseDiceTableRows } from "./dice.ts";
 import { parseClassCard, parseLevelCard } from "./level-cards.ts";
@@ -81,9 +81,9 @@ function hasOptionalAction(value: unknown): boolean {
       (value.effect === "optional-group" || value.effect === "grant-play-permission"))) return true;
   return Object.values(value).some(hasOptionalAction);
 }
-function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: StackCopyInputProof, triggered = false, definitions = false): EffectsBlock | null {
+function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: StackCopyInputProof, triggered = false, definitions = false, triggerScope?: EffectContext["triggerScope"]): EffectsBlock | null {
   return c.attempt((c): EffectsBlock | null => {
-    const ctx: EffectContext = { modalOptions: options, ...(stackCopyInput ? { stackCopyInput } : {}) };
+    const ctx: EffectContext = { modalOptions: options, ...(stackCopyInput ? { stackCopyInput } : {}), ...(triggerScope ? { triggerScope } : {}) };
     const parsed = parseSentences(c, ctx);
     if (!parsed) return null;
     // Only callers that keep it (activated abilities) ask for a definition.
@@ -331,7 +331,10 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       // tests this condition already at trigger time. A fresh target cannot
       // establish either predicate. Do not backtrack into a resolving `if`.
       if (condition && hasMatchTimeTarget(condition)) return null;
-      const block = withConditionDifference(condition ?? undefined, () => parseEffectsBlock(c, options, condition ? undefined : prepareStackCopyInput(c, trigger), true));
+      const triggerScope = uniqueStackTriggerEvent(trigger) === "cast" ? "cast"
+        : trigger.trigger === "leaves" && (trigger.what.ref === "self" || trigger.what.ref === "this") ? "leaves-self" : undefined;
+      const block = withConditionDifference(condition ?? undefined, () => parseEffectsBlock(c, options,
+        condition ? undefined : prepareStackCopyInput(c, trigger), true, false, triggerScope));
       if (block && !block.restriction && !block.permission && !block.costModifications && !block.paymentRestriction &&
           (!block.variableConstraints || mentionsX(block.sentences))) {
         return {

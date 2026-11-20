@@ -12,6 +12,7 @@
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { Amount, Condition, PlayerRef, ZoneRef } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
+import { isPluralPlayerRef } from "./refs.ts";
 
 type Difference = Extract<Amount, { amount: "minus" }>;
 
@@ -53,6 +54,8 @@ function measured(condition: Condition): Amount | null {
     }
     case "count": return { amount: "count", of: condition.of };
     case "life-total": return { amount: "life-total", of: condition.who };
+    case "player-counters": return !isPluralPlayerRef(condition.who)
+      ? { amount: "counter-count", counter: condition.counter, on: condition.who } : null;
     case "compare": return condition.value;
     case "is-filter": {
       const keys = Object.keys(condition.filter);

@@ -4,7 +4,7 @@
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import { isDeepStrictEqual } from "node:util";
-import type { Ability, Amount, CascadeExiledCards, Color, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, Color, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -14,6 +14,13 @@ import type {
 } from "./types.ts";
 
 const RULES_URL = "https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt";
+const ENTRY_CHOICE_RULES = ["400.7", "607.2d", "607.5a", "614.12a", "707.6"];
+const DESIGNATION_RULES: Readonly<Record<PlayerDesignation, string>> = {
+  monarch: "725.1",
+  initiative: "726.1",
+  "city's-blessing": "702.131c",
+  "enduring-story": "702.195b",
+};
 // Double Major's complete spell paragraph. A retarget option, another copy
 // exception or an enclosing choice would require different bindings.
 const DIRECT_CREATURE_SPELL_COPY = {
@@ -101,6 +108,83 @@ interface Candidate { id: string; cardinality: BindingCardinality; domain: "obje
   /** Meant only when nothing else is named: the card a zone-change trigger
    * saw an object become (CR 400.7e), or a discarded card. */
   triggerSuccessor?: true }
+type ChoiceEffect = Extract<Effect, { effect: "choose-value" }>;
+type ChoiceOrigin = { category: ChoiceEffect["category"]; path: string };
+type ChoiceReference = Extract<ReferenceExpression, { choice: string }>;
+
+function choiceCount(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((count, entry) => count + choiceCount(entry), 0);
+  if (!isRecord(value)) return 0;
+  if (value.effect === "choose-value") return 1;
+  return Object.values(value).reduce<number>((count, entry) => count + choiceCount(entry), 0);
+}
+
+/** A mandatory scalar choice with an unconditional value domain. */
+function simpleChoice(effect: Effect | undefined): effect is ChoiceEffect {
+  return effect?.effect === "choose-value" && Object.keys(effect).length === 3 &&
+    effect.who.player === "you" && Object.keys(effect.who).length === 1 &&
+    ["color", "card-type", "creature-type", "basic-land-type", "land-type", "parity", "number"].includes(effect.category);
+}
+
+function entryChoice(abilities: Ability[], path: string): ChoiceOrigin | undefined {
+  // CR 607.1, 607.2d: link only an unambiguous directly printed producer.
+  if (choiceCount(abilities) !== 1) return;
+  for (const [index, ability] of abilities.entries()) {
+    if (ability.kind !== "static" || ability.effect.static !== "as-enters") continue;
+    const { what, effects } = ability.effect;
+    if (!["self", "this"].includes(what.ref) || Object.keys(ability.effect).length !== 3 || effects.length !== 1) continue;
+    const [sentence] = effects;
+    if (Object.keys(sentence).length === 1 && sentence.steps.length === 1 && simpleChoice(sentence.steps[0]))
+      return { category: sentence.steps[0].category, path: `${path}/${index}/effect/effects/0/steps/0` };
+  }
+}
+
+function resolutionChoice(ability: Ability, path: string): ChoiceOrigin | undefined {
+  if (ability.kind !== "spell" && ability.kind !== "activated" && ability.kind !== "triggered" && ability.kind !== "chapter") return;
+  // A choice in another branch could supply the value. Do not substitute an earlier choice.
+  if (choiceCount(ability) !== 1) return;
+  for (const [index, sentence] of ability.effects.entries()) {
+    if (sentence.condition || sentence.otherwise || sentence.afterConditional) continue;
+    for (const [step, effect] of sentence.steps.entries())
+      if (simpleChoice(effect)) return { category: effect.category, path: `${path}/effects/${index}/steps/${step}` };
+  }
+}
+
+type QuantityUnit = Extract<BindingNode, { node: "quantity-replacement" }>["unit"];
+
+function replacementPlayer(player: PlayerRef | undefined): boolean {
+  return player !== undefined && ["you", "a-player", "an-opponent"].includes(player.player);
+}
+
+function replacementObject(object: ObjectRef | PlayerRef | undefined): boolean {
+  if (!object || !("ref" in object)) return false;
+  if (object.ref === "equipped") return object.noun === "creature";
+  return object.ref === "filter" && object.count.amount === "fixed" && object.count.value === 1 &&
+    Object.keys(object).length === 3 && Object.keys(object.filter).every(key => ["cls", "types", "control"].includes(key));
+}
+
+function quantityUnit(event: ReplacementInstruction["event"]): QuantityUnit | undefined {
+  switch (event.event) {
+    case "create-token":
+      if (event.match === "creation-event" && replacementPlayer(event.under) &&
+          isDeepStrictEqual(event.tokens, { cls: "token" }) && event.quantity.value.amount === "fixed") return "token-specification";
+      return;
+    case "tap-for-mana":
+      if (replacementObject(event.what) && (!event.by || replacementPlayer(event.by)) &&
+          (!event.quantity || event.quantity.value.amount === "fixed")) return "mana-specification";
+      return;
+    case "damage":
+      if (replacementObject(event.source) && event.to?.every(ref => "player" in ref ? replacementPlayer(ref) : replacementObject(ref)) !== false &&
+          (!event.quantity || event.quantity.value.amount === "fixed")) return "damage-source-and-recipient";
+      return;
+    case "gain-life": return replacementPlayer(event.who) ? "life-source-and-recipient" : undefined;
+    case "put-counters":
+      if (event.on.length > 0 && event.on.every(replacementObject) && (!event.by || replacementPlayer(event.by)) &&
+          event.quantity.value.amount === "fixed") return "counter-kind-and-recipient";
+      return;
+  }
+}
+
 interface Context {
   source: string; face: string; ability: string; you: string; phase: BindingPhase;
   objects: Candidate[]; players: Candidate[]; quantities: Candidate[]; x?: string;
@@ -116,6 +200,10 @@ interface Context {
   /** A scope whose capture/antecedent rules are not implemented. */
   barrier?: string;
   replacementSubjectPath?: string;
+  entryChoice?: ChoiceOrigin;
+  resolutionChoice?: ChoiceOrigin;
+  availableChoice?: ChoiceOrigin;
+  announcementOperand?: boolean;
   /** The object(s) an enclosing effect gives abilities to: a bound object or
    * group, an object it creates, or a player. */
   recipient?: { candidate: Candidate } | { created: true } | { unresolved: true };
@@ -295,6 +383,7 @@ function description(ref: ObjectRef | CascadeExiledCards): ObjectFilter | undefi
 }
 function domain(expression: ReferenceExpression): Candidate["domain"] {
   if ("player" in expression || "implicit" in expression) return "player";
+  if ("choice" in expression) return "number"; // Values never become participant antecedents.
   if ("recipient" in expression) return "object"; // Only a proven cast-spell antecedent binds this form.
   if (!("ref" in expression)) return "number";
   return expression.ref === "any-target" || ("filter" in expression && (expression.filter.orPlayer || expression.filter.orOpponent)) ? "object-or-player" : "object";
@@ -415,6 +504,26 @@ class Analyzer {
     }
     this.bound(expression, path, candidate.id, rules);
     return candidate;
+  }
+  chosenValue(expression: ChoiceReference, path: string, context: Context): void {
+    const local = context.availableChoice;
+    const origin = local ?? (context.sourceMoved ? undefined : context.entryChoice);
+    const category = origin?.category;
+    const matches = expression.choice === "chosen-value"
+      ? expression.which === "chosen" && expression.category === category
+      : expression.kind === undefined && category !== undefined &&
+        ["card-type", "creature-type", "basic-land-type", "land-type"].includes(category);
+    // CR 601.2c: a resolution choice is unavailable when targets are announced.
+    // CR 607.5a: an entry choice is undefined if that linked choice never ran.
+    if (origin && matches && !context.barrier && !(local && (context.announcementOperand || context.phase !== "resolution"))) {
+      const rules = local ? ["607.1c", "607.2d", "608.2c"] : [...ENTRY_CHOICE_RULES, "113.7a", "608.2h"];
+      this.bound(expression, path, this.id(origin.path, "value-choice"), rules);
+    } else {
+      this.unresolved(expression, path, "unsupported-reference", expression.choice === "chosen-type"
+        ? "This type needs a linked choice definition; its kind cannot be inferred from the filtered object's type."
+        : "This symbolic value requires the linked originating choice and its scope; a nearby choice is not proof of that association.",
+        expression.choice === "chosen-type" ? ["205.3e", "607.2d"] : ["607.2d"]);
+    }
   }
   walkChildren(value: Record<string, unknown>, path: string, context: Context): void {
     for (const [key, entry] of Object.entries(value)) this.walk(entry, child(path, key), context);
@@ -585,8 +694,25 @@ class Analyzer {
     // "For each evidence vote": the tally of the one vote held earlier in this ability.
     if (value.amount === "vote-count" && !(context.votes?.length === 1 && !context.barrier))
       this.diagnostic("unsupported-reference", path, "This vote count needs the one vote it tallies held earlier in the ability.", ["701.38"]);
-    if (value.amount === "devotion")
-      this.diagnostic("unsupported-number-binding", path, "Devotion needs the mana costs of the player's permanents evaluated at the CR 700.5a point in the layer system.", ["700.5", "700.5a"]);
+    if (value.amount === "devotion") {
+      const { who, colors } = value as Extract<Amount, { amount: "devotion" }>;
+      const playerPath = child(path, "who");
+      const colorPath = child(path, "colors");
+      this.walk(who, playerPath, { ...context });
+      this.walk(colors, colorPath, context);
+      const player = this.at(playerPath);
+      const rules = ["700.5", "700.5a"];
+      if (!["you", "owner", "controller", "that-player"].includes(who.player) || player?.cardinality !== "one" ||
+          (!Array.isArray(colors) && !this.at(colorPath))) {
+        this.diagnostic("unsupported-number-binding", path, "Devotion requires the player and its color operands to be bound.", rules);
+        return;
+      }
+      this.node({ id: this.id(path, "devotion"), path, node: "devotion",
+        scope: context.ability, who: player.id, colors, rules });
+      this.engineFeature("devotion", path,
+        "Compute devotion after copy, control, and text-changing effects, including effects that modify devotion.", rules);
+      return;
+    }
     if (value.amount === "mana-spent") {
       const barrier = "Mana payment quantities need the exact originating spell's payment event, including additional costs and actual colors spent.";
       this.diagnostic("unsupported-scope", path, barrier, ["400.7d", "601.2f", "601.2h", "609.4b"]);
@@ -607,10 +733,10 @@ class Analyzer {
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
-    if (value.choice === "chosen-type")
-      this.diagnostic("unsupported-reference", path, "This type needs a linked choice definition; its kind cannot be inferred from the filtered object's type.", ["205.3e", "607.2d"]);
-    if (value.choice === "chosen-value")
-      this.diagnostic("unsupported-reference", path, "This symbolic value requires the linked originating choice and its scope; a nearby choice is not proof of that association.", ["607.2d"]);
+    if (value.choice === "chosen-type" || value.choice === "chosen-value") {
+      this.chosenValue(value as ChoiceReference, path, context);
+      return;
+    }
     if ((value.condition === "you-do" || value.condition === "you-dont") && !context.linkedDecision) {
       this.diagnostic("unsupported-reference", path, "Payment/performance conditions need an explicit preceding-action link.", ["118.12"]);
     }
@@ -675,6 +801,21 @@ class Analyzer {
     }
     // State of the game or of players as a whole. Their player operands are
     // still walked, but the quantified comparison itself has no binding rule.
+    const query = value.condition;
+    if (!context.barrier && isRecord(value.who) && value.who.player === "you" &&
+        (query === "designation" || query === "completed-dungeon" || query === "opponent-count" || query === "turn-of")) {
+      const scoped = { ...context };
+      this.walkChildren(value, path, scoped);
+      const rules = query === "designation"
+        ? [DESIGNATION_RULES[value.designation as PlayerDesignation], "109.5"]
+        : query === "completed-dungeon" ? ["309.7", "608.2i"]
+        : query === "opponent-count" ? ["102.2", "102.3", "800.4"] : ["102.1", "800.4j"];
+      this.node({ id: this.id(path, "player-state"), path, node: "player-state-condition",
+        scope: context.ability, who: context.you, query, rules });
+      if (query === "completed-dungeon")
+        this.engineFeature("event-history", path, "Whether the specified player has completed a dungeon this game.", rules);
+      return;
+    }
     if (["designation", "day-night", "completed-dungeon", "full-party", "turn-of", "player-comparison", "opponent-count"].includes(String(value.condition)))
       this.diagnostic("unsupported-scope", path, "Game and player designations, turn ownership and per-player comparisons need the participating player set and its quantifier bound.", ["102.1", "102.2", "102.3", "608.2h"]);
     if (value.rule === "declaration-cost") {
@@ -975,6 +1116,33 @@ class Analyzer {
     }
     bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), scope));
   }
+  /** CR 614.5–7, 616.1: match the proposed event and modify its quantities.
+   * The pattern's participants are predicates on that event, not selections. */
+  quantityReplacement(replacement: ReplacementInstruction, path: string, context: Context): boolean {
+    const { event, replace } = replacement;
+    if (context.barrier || !context.permanentSource || replace.replacement !== "modify-quantity" ||
+        replacement.occurrence !== "each" || replacement.optional || replacement.condition) return false;
+    const { change } = replace;
+    if (change.operation === "multiply" ? !Number.isSafeInteger(change.factor) || change.factor < 1
+      : change.operation === "half" || change.amount.amount !== "fixed" || change.amount.value < 0) return false;
+    const unit = quantityUnit(event);
+    if (!unit || ((unit === "mana-specification" || unit === "token-specification") && change.operation !== "multiply")) return false;
+
+    const scope: Context = { ...context, phase: "replacement-match" };
+    const firstReference = this.result.references.length;
+    this.walk(event, child(path, "event"), scope);
+    const operands = this.result.references.slice(firstReference)
+      .flatMap(reference => reference.binding === "bound" ? [reference.target] : []);
+    const rules = ["614.1a", "614.5", "614.6", "616.1",
+      ...unit === "damage-source-and-recipient" ? ["120.4b", "614.7a"] : unit === "mana-specification" ? ["106.6a", "106.12b"]
+        : unit === "counter-kind-and-recipient" ? ["122.6", "614.16"]
+          : unit === "token-specification" ? ["111.2", "614.16"] : ["119.9", "119.10"]];
+    this.node({ id: this.id(path, "quantity-replacement"), path, node: "quantity-replacement", scope: context.ability,
+      source: context.source, match: event, change, unit, operands, rules });
+    this.engineFeature("quantity-replacement", path,
+      "Preserve the proposed event's participants and specifications, including mana restrictions and additional effects. Recheck applicable replacements and apply each at most once per event.", rules);
+    return true;
+  }
   /** CR 614.12a: choose before the proposed entrant is on the battlefield.
    * CR 707.2, 707.5: apply the model's copiable values to that entry. */
   sameTurnEntryCopy({ what, model, optional }: typeof OPTIONAL_SAME_TURN_ENTRY_COPY, path: string, context: Context): void {
@@ -1154,7 +1322,12 @@ class Analyzer {
   }
   object(expression: ObjectRef, path: string, context: Context): Candidate | undefined {
     if (expression.ref === "card-extraction-group") context = { ...context, barrier: "Separate card-extraction slots require distinct allocation, shared-pool, branch-choice and aggregate result bindings." };
-    this.walkChildren(expression as unknown as Record<string, unknown>, path, context);
+    const target = expression.ref === "target" || expression.ref === "any-target";
+    const operands = target ? { ...context, announcementOperand: true } : context;
+    const count = this.boundTargetCount(expression, context);
+    for (const [key, value] of Object.entries(expression)) {
+      if (key !== "count" || !count) this.walk(value, child(path, key), operands);
+    }
     if ("groupConstraints" in expression && expression.groupConstraints?.length) {
       this.unresolved(expression, path, "unsupported-scope", "Collective selection restrictions need a selected-group scope and legality binding; per-candidate eligibility alone is insufficient.", ["201.2b", "601.2c", "608.2d"]);
       return undefined;
@@ -1317,7 +1490,8 @@ class Analyzer {
     }
   }
   player(expression: PlayerRef, path: string, context: Context): Candidate | undefined {
-    this.walkChildren(expression as unknown as Record<string, unknown>, path, context);
+    this.walkChildren(expression as unknown as Record<string, unknown>, path,
+      expression.player === "target-player" || expression.player === "target-opponent" ? { ...context, announcementOperand: true } : context);
     if (context.barrier) {
       this.unresolved(expression, path, "unsupported-scope", context.barrier, ["109.5"]);
       return undefined;
@@ -1376,6 +1550,12 @@ class Analyzer {
     return this.selection(expression, path, context,
       expression.player === "target-player" || expression.player === "target-opponent");
   }
+  boundTargetCount(expression: ObjectRef | PlayerRef, context: Context): Extract<Amount, { amount: "chosen" }> | undefined {
+    if (!context.barrier && context.phase === "resolution" && "ref" in expression && expression.ref === "target" &&
+        expression.selectionId && !expression.chosenBy && !expression.random && expression.count?.amount === "chosen" &&
+        expression.count.minimum === 0 && expression.count.maximum === undefined)
+      return expression.count;
+  }
   selection(expression: ObjectRef | PlayerRef, path: string, context: Context, targeted: boolean): Candidate | undefined {
     if (targeted && context.phase !== "resolution") {
       this.unresolved(expression, path, "unsupported-scope", "Target declarations and target predicates outside a resolving ability need a specific announcement scope.", ["601.2c", "602.2b"]);
@@ -1390,6 +1570,7 @@ class Analyzer {
         "A target requires its parser-minted selection identity; structural equality and proximity cannot identify it.", ["601.2c"]);
       return undefined;
     }
+    let countChoice: string | undefined;
     if (targeted) {
       const previous = this.targets.get(id);
       const signature = JSON.stringify(expression);
@@ -1403,12 +1584,26 @@ class Analyzer {
         return this.bound(expression, path, id, ["601.2c"]);
       }
       this.targets.set(id, { id, path, signature });
+      const count = this.boundTargetCount(expression, context);
+      if (count) {
+        const scope = context.targetScope ?? context.ability;
+        const announcing = this.result.nodes.find(node => node.id === scope);
+        if (announcing?.node === "ability") {
+          const at = child(path, "count");
+          countChoice = this.node({ id: `${id}/count`, path: at, node: "target-count", scope, chooser: announcing.you,
+            minimum: count.minimum, rules: ["115.3", "601.2c", "602.2b", "603.3d"] });
+        } else this.diagnostic("unsupported-number-binding", child(path, "count"),
+          "The target count requires its announcing ability.", ["601.2c"]);
+      }
     }
     this.node({ id, path, node: "selection", scope: context.ability, expression, cardinality,
       ...(context.directCreatureSpellCopy?.what === expression ? { chooser: context.you } : {}),
+      ...(countChoice ? { countChoice } : {}),
       timing: targeted ? "stack-announcement" : context.phase,
-      selection: targeted ? "target" : "evaluate-reference", rules: targeted ? ["601.2c"] : ["608.2h"] });
-    const candidate = this.bound(expression, path, id, targeted ? ["601.2c"] : ["608.2h"]);
+      selection: targeted ? "target" : context.phase === "replacement-match" ? "event-participant-filter" : "evaluate-reference",
+      rules: targeted ? ["601.2c"] : context.phase === "replacement-match" ? ["614.1a"] : ["608.2h"] });
+    const candidate = this.bound(expression, path, id,
+      targeted ? ["601.2c"] : context.phase === "replacement-match" ? ["614.1a"] : ["608.2h"]);
     return { ...candidate, cardinality };
   }
   at(path: string): Candidate | undefined {
@@ -1464,8 +1659,9 @@ class Analyzer {
   modal(effect: Extract<Effect, { effect: "modal" }>, path: string, context: Context): void {
     const count = effect.count;
     if ("variable" in count) this.walk({ amount: count.variable === "x" ? "x" : "that-much" }, child(path, "count"), context);
-    this.walk(effect.conditionalCount, child(path, "conditionalCount"), context);
-    this.walk(effect.chooser, child(path, "chooser"), context);
+    const announcement = { ...context, announcementOperand: true };
+    this.walk(effect.conditionalCount, child(path, "conditionalCount"), announcement);
+    this.walk(effect.chooser, child(path, "chooser"), announcement);
     let sourceMoved = context.sourceMoved;
     effect.options.forEach((option, index) => {
       const at = child(child(path, "options"), index);
@@ -1603,7 +1799,8 @@ class Analyzer {
   nestedAbility(path: string, context: Context, kind: string, rules: string[]): Context {
     const ability = this.node({ id: this.id(path, kind), path, node: "ability", source: context.source, face: context.face,
       abilityKind: kind, you: context.you, rules });
-    return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined, decider: undefined, conditional: undefined };
+    return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
+      decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
     const delayed = this.nestedAbility(path, context, "delayed-triggered", ["603.7"]);
@@ -2180,6 +2377,15 @@ class Analyzer {
     const event = this.event(path, context, effect.effect, [...objects, ...players], {
       ...(effect.optional || context.decider ? { optional: true as const, ...(decider ? { decider } : {}) } : {}),
       ...(effect.forEach ? { repeated: "for-each" as const } : {}), ...(context.conditional ? { conditional: true as const } : {}) });
+    const preEntryChoice = context.entryChoice?.path === path;
+    if (effect.effect === "choose-value" && !context.barrier && players[0]?.cardinality === "one" &&
+        (preEntryChoice || (context.resolutionChoice?.path === path && context.phase === "resolution"))) {
+      this.node({ id: this.id(path, "value-choice"), path, node: "value-choice", scope: context.ability,
+        event, chooser: players[0].id, category: effect.category,
+        lifetime: preEntryChoice ? { kind: "source-incarnation", source: context.source, lookup: "current-or-last-known" } : { kind: "resolution" },
+        rules: preEntryChoice ? ENTRY_CHOICE_RULES : ["607.1c", "607.2d", "608.2d"] });
+      if (!preEntryChoice) context.availableChoice = context.resolutionChoice;
+    }
     if (effect.optional) context.decisions?.push(path);
     if (effect.effect === "vote") context.votes = [...(context.votes ?? []), event];
     if (objects.length || produces === "objects") context.mentionedObject = true;
@@ -2438,6 +2644,8 @@ class Analyzer {
     const permanentSource = ability.kind !== "spell" &&
       (this.permanentFaces.has(face) || this.result.nodes.some(node => node.id === source && node.node === "recipient"));
     const context: Context = { source, face, ability: id, you, permanentSource, staticAbility: ability.kind === "static",
+      entryChoice: cardAbilities && permanentSource ? entryChoice(cardAbilities, path.slice(0, path.lastIndexOf("/"))) : undefined,
+      resolutionChoice: resolutionChoice(ability, path),
       spellAbility: ability.kind === "spell",
       // "This creature can't attack unless defending player controls an
       // Island", "This creature can't be blocked as long as ...": a rule about
@@ -2546,6 +2754,8 @@ class Analyzer {
           this.selfGraveyardReplacement(`${path}/effect/replacement`, context);
           break;
         }
+        if (ability.effect.static === "replacement" &&
+            this.quantityReplacement(ability.effect.replacement, `${path}/effect/replacement`, context)) break;
         // "..., where X is ...": the static ability's own definition (CR 107.3c).
         if ("bindings" in ability.effect && Array.isArray(ability.effect.bindings)
           && !["entry-choice", "enters-with-counters", "enters-tapped", "as-enters"].includes(String(ability.effect.static)))
@@ -2644,6 +2854,12 @@ class Analyzer {
   finish(): CardBindingAnalysis {
     // A result derived from an ambiguous target cannot become a proven
     // antecedent simply because the next instruction says "it".
+    const choiceIds = new Set(this.result.nodes.filter(node => node.node === "value-choice").map(node => node.id));
+    for (const reference of this.result.references) {
+      if (reference.binding === "bound" && "choice" in reference.expression &&
+          typeof reference.expression.choice === "string" && !choiceIds.has(reference.target))
+        this.invalidNodes.set(reference.target, "unresolved-dependency");
+    }
     let changed = true;
     while (changed) {
       changed = false;
@@ -2651,6 +2867,7 @@ class Analyzer {
         const dependent = node.node === "event" ? node.inputs.some(id => this.invalidNodes.has(id)) ||
             this.result.references.some(reference => reference.path.startsWith(`${node.path}/`) && reference.binding === "unresolved") ||
             this.result.diagnostics.some(diagnostic => diagnostic.path === node.path || diagnostic.path.startsWith(`${node.path}/`))
+          : node.node === "value-choice" ? this.invalidNodes.has(node.event) || this.invalidNodes.has(node.chooser)
           : node.node === "event-result" ? this.invalidNodes.has(node.event)
           : node.node === "derived-player" ? this.invalidNodes.has(node.of)
           : node.node === "selection" || node.node === "defined-number"
