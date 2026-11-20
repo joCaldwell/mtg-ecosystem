@@ -150,8 +150,9 @@ Dynamic identities carry headless admission only.
 reads an object with a `decks` array of four seat lists. Each entry contains
 `oracle_id`, `quantity`, and `role` (`main` or `commander`). Workers share a
 single validated projection. The bulk manifest, policy, projection and
-per-case admission digest identify the benchmark. The existing worker options
-and sampled replay checks apply to both input modes.
+per-case admission digest identify the benchmark. The existing worker options,
+sampled replay checks and `--analytics-out` apply to both input modes; analytics
+group decks by sorted commander designations and physical quantities.
 
 ## Generic completion batches
 

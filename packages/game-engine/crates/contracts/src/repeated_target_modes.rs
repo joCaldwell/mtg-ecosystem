@@ -215,3 +215,60 @@ pub(super) fn schema(s: &mut Value) {
     s["$defs"]["RepeatedTargetRoot"] = json!({"type":"object","required":["resolution","modes"],"properties":{"functioning_zone":{"const":"stack"},"resolution":resolution,"modes":{"minItems":2,"items":{"oneOf":children}},"targets":{"maxItems":0},"instructions":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}});
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":cap}}}},{"required":["spell"],"properties":{"spell":{"type":"object","properties":{"resolution":{"type":"object","required":["choose_repeated_modes"]}}}}}]},"then":{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/RepeatedTargetRoot"},"capabilities":{"allOf":[{"contains":{"const":cap}},{"contains":{"const":Capability::ModalChoiceV1}}]},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0}}}}));
 }
+
+#[cfg(test)]
+pub(super) fn witness() -> Definition {
+    use serde_json::value::RawValue;
+    use std::collections::BTreeMap;
+
+    // Use the original compact source and AST subvalues, preserving the exact
+    // frozen provenance that the build's compiler/runtime witnesses use.
+    type RawFields = BTreeMap<String, Box<RawValue>>;
+    let raw: RawFields = strict_read(include_str!(
+        "../../../tests/fixtures/ramos/164651c5-b831-4070-8491-16d30ac8395b.json"
+    ))
+    .unwrap();
+    let source_json = raw["source"].get();
+    let source: Value = strict_read(source_json).unwrap();
+    let faces: Vec<RawFields> = strict_read(raw["faces"].get()).unwrap();
+    let result: RawFields = strict_read(faces[0]["result"].get()).unwrap();
+    let abilities_json = result["abilities"].get();
+    let ast = strict_read(abilities_json).unwrap();
+    let archive = accepted_manifest(include_str!(
+        "../../../tests/fixtures/archive-manifest-current.json"
+    ))
+    .unwrap();
+
+    let mut d = power_filtered_removal::witness();
+    d.source_labels = None;
+    d.name = source["name"].as_str().unwrap().into();
+    d.oracle_id = source["oracle_id"].as_str().unwrap().into();
+    d.characteristics.mana_cost = ManaCost {
+        generic: 2.into(),
+        colored: vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+    };
+    d.characteristics.colors = strict_read(&source["colors"].to_string()).unwrap();
+    d.characteristics.color_identity = strict_read(&source["color_identity"].to_string()).unwrap();
+    d.spell = Some(
+        program(
+            &d.name,
+            source["oracle_text"].as_str().unwrap(),
+            &ast,
+            SpellTiming::Instant,
+        )
+        .unwrap(),
+    );
+    d.provenance = SourceProvenance {
+        printing_id: source["id"].as_str().unwrap().into(),
+        source_index: strict_read(raw["sourceIndex"].get()).unwrap(),
+        source_sha256: strict_read(raw["sourceSha256"].get()).unwrap(),
+        ast_sha256: strict_read(raw["astSha256"].get()).unwrap(),
+        binding_sha256: strict_read(raw["bindingSha256"].get()).unwrap(),
+        archive_manifest_sha256: archive.manifest_sha256.clone(),
+        parser_sha256: archive.parser_source_sha256.clone(),
+        source_json: source_json.into(),
+        abilities_json: abilities_json.into(),
+    };
+    d.capabilities = d.requirements();
+    d
+}

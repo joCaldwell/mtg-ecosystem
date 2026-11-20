@@ -760,6 +760,7 @@ fn collect<'a>(
     depth: u32,
     limit: usize,
     out: &mut Vec<&'a ProposedEvent>,
+    library_append: bool,
 ) -> Result<(), String> {
     if depth > capacities::EVENT_GROUP_DEPTH {
         return Err("event group depth resource limit".into());
@@ -771,7 +772,7 @@ fn collect<'a>(
                 return Err("empty or oversized ordered group".into());
             }
             for child in children {
-                collect(child, game, depth + 1, limit, out)?;
+                collect(child, game, depth + 1, limit, out, false)?;
             }
         }
         EventGroup::Simultaneous { occurrences } => {
@@ -826,7 +827,20 @@ fn collect<'a>(
                 return Err("global aggregate cannot compose simultaneously".into());
             }
             out.extend(occurrences);
-            if !independent_footprints(occurrences.iter().map(|event| access(event, game))) {
+            if !independent_footprints(occurrences.iter().map(|event| {
+                let (mut reads, mut writes) = access(event, game);
+                if library_append {
+                    // CR 701.24a,c–d, 903.9b: the authorized paid shuffle
+                    // appends distinct cards from one graveyard before randomizing
+                    // the whole library. There is no placement-order operand.
+                    // This only combines append access. Prior facts, movement
+                    // outcomes, commander substitutions and other conflicts remain.
+                    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                    reads.remove(&FactKey::Libraries);
+                    writes.remove(&FactKey::Libraries);
+                }
+                (reads, writes)
+            })) {
                 return Err("unsupported simultaneous read/write dependency".into());
             }
         }
@@ -1601,6 +1615,23 @@ impl Game {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
+        self.commit_batch_inner(cause, group, false)
+    }
+
+    pub(super) fn commit_graveyard_shuffle_moves(
+        &mut self,
+        moves: super::graveyard_targets::GraveyardShuffleMoves,
+    ) -> Result<CommittedBatch, String> {
+        let (cause, group) = moves.into_batch();
+        self.commit_batch_inner(cause, group, true)
+    }
+
+    fn commit_batch_inner(
+        &mut self,
+        cause: BatchCause,
+        group: EventGroup,
+        library_append: bool,
+    ) -> Result<CommittedBatch, String> {
         if cause == BatchCause::Setup
             && let EventGroup::Occurrence {
                 proposed:
@@ -1666,7 +1697,14 @@ impl Game {
                 }));
             }
         }
-        collect(&group, self, 0, self.event_group_limit(), &mut events)?;
+        collect(
+            &group,
+            self,
+            0,
+            self.event_group_limit(),
+            &mut events,
+            library_append,
+        )?;
         if events.iter().any(|e| {
             matches!(
                 e,
@@ -1910,9 +1948,8 @@ impl Game {
                 }
             }
             EventGroup::Simultaneous { occurrences } => {
-                // Independent writes only: validate every leaf against the same
-                // pre-state before committing any leaf; no replacement ordering
-                // or aggregation of overlapping writes is inferred.
+                // Validate every leaf against the same pre-state. Collection
+                // checks independence and any explicit append authority.
                 let common = self.fork();
                 let offset = out.len();
                 let mut facts = vec![];
