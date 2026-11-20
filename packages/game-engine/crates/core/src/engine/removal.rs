@@ -171,7 +171,7 @@ impl Game {
                     .iter()
                     .find(|e| e.id == *id)
                     .is_some_and(|entry| {
-                        self.definition(entry.source.card).is_ok_and(|d| {
+                        self.copiable_definition(entry.source).is_ok_and(|d| {
                             (!controlled_creature
                                 || (entry.controller == controller
                                     && d.characteristics.has_type(CardKind::Creature)))
@@ -209,7 +209,7 @@ impl Game {
                         .ok_or("missing LKI stack target")?;
                     (
                         e.controller,
-                        self.definition(e.source.card)?.characteristics.clone(),
+                        self.copiable_definition(e.source)?.characteristics.clone(),
                     )
                 } else {
                     let object = *entry

@@ -804,7 +804,7 @@ impl Game {
         &'a self,
         origin: &EffectOrigin,
     ) -> Result<Vec<&'a SpellProgram>, String> {
-        let d = self.definition(origin.source.card)?;
+        let d = self.copiable_definition(origin.source)?;
         if let Some(index) = origin.activated_ability {
             let root = &d
                 .activated

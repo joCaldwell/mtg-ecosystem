@@ -90,7 +90,7 @@ impl Game {
                         && (selector.controller == CountController::Any
                             || object.controller == caster)
                         && self
-                            .definition(object.id.card)?
+                            .copiable_definition(object.id)?
                             .characteristics
                             .has_type(selector.kind)
                     {
@@ -204,7 +204,7 @@ impl Game {
         }
         if entry.alternative_cost.is_none()
             && !self
-                .definition(entry.source.card)?
+                .copiable_definition(entry.source)?
                 .characteristics
                 .hybrid_mana
                 .is_empty()
@@ -246,7 +246,7 @@ impl Game {
         let needs_choice = entry.kind.is_spell()
             && entry.alternative_cost.is_none()
             && !self
-                .definition(entry.source.card)?
+                .copiable_definition(entry.source)?
                 .characteristics
                 .hybrid_mana
                 .is_empty();

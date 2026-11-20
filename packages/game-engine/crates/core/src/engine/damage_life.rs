@@ -324,7 +324,7 @@ impl Game {
             return Err("targeted activation kind".into());
         };
         {
-            match &self.definition(entry.source.card)?.activated[ability as usize].cost {
+            match &self.copiable_definition(entry.source)?.activated[ability as usize].cost {
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());
@@ -357,7 +357,7 @@ impl Game {
                 && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
         });
         if !source_payable
-            || self.definition(entry.source.card)?.activated[ability as usize].cost
+            || self.copiable_definition(entry.source)?.activated[ability as usize].cost
                 != ActivationCost::TapSource
         {
             return self.reverse_cast(cast, "activation source no longer payable", true);

@@ -227,7 +227,7 @@ impl Game {
         if stack.id != cast.stack_id || !stack.kind.is_spell() || !cast.origin.is_spell() {
             return Err("spell announcement binding invariant".into());
         }
-        let definition = self.definition(stack.source.card)?;
+        let definition = self.copiable_definition(stack.source)?;
         if !definition
             .spell
             .as_ref()
@@ -305,7 +305,7 @@ impl Game {
                 && o.controller != player
         }) {
             if self
-                .definition(source.id.card)?
+                .copiable_definition(source.id)?
                 .static_abilities
                 .iter()
                 .any(|a| a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn)

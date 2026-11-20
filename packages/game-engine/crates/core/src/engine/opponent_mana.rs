@@ -19,7 +19,7 @@ impl Game {
             {
                 continue;
             }
-            let definition = self.definition(object.id.card)?;
+            let definition = self.copiable_definition(object.id)?;
             let mut characteristics = definition.characteristics.clone();
             self.apply_land_subtype_grants(object.id, &mut characteristics)?;
             if !characteristics.has_type(CardKind::Land) {

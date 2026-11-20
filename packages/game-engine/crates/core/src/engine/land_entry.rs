@@ -51,7 +51,7 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<Option<(u32, &Quantity)>, String> {
-        let d = self.definition(object.card)?;
+        let d = self.copiable_definition(object)?;
         let mut found = None;
         for (index, a) in d.static_abilities.iter().enumerate() {
             if let StaticEffect::EntersTappedUnlessPayLife { amount } = &a.effect {

@@ -57,7 +57,7 @@ impl Game {
         a: &ManaActivation,
         departed: bool,
     ) -> Result<(), String> {
-        let definition = self.definition(a.source.card)?;
+        let definition = self.copiable_definition(a.source)?;
         let branch = a.branch.ok_or("missing paid mana branch")?;
         let receipt = a.paid.as_ref().ok_or("unpaid mana damage")?;
         let [damage] = tx.entries.as_slice() else {
