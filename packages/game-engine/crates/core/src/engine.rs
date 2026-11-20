@@ -3291,6 +3291,18 @@ impl Game {
                     self.finish_spell(&stack, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
+                        Instruction::ExileResolvingSpell { .. } => {
+                            if !stack.kind.is_spell()
+                                || stack.paid.is_none()
+                                || frame.cursor as usize + 1 != program.instructions.len()
+                            {
+                                return Err(
+                                    "self exile requires the final instruction of a paid spell"
+                                        .into(),
+                                );
+                            }
+                            return self.finish_spell(&stack, true);
+                        }
                         Instruction::Cascade { source_block, .. } => {
                             return self.begin_cascade(frame, *source_block);
                         }
@@ -3393,6 +3405,13 @@ impl Game {
             let destination =
                 if resolved && self.program_for(stack)?.resolution == SpellResolution::Permanent {
                     Zone::Battlefield
+                } else if resolved
+                    && matches!(
+                        self.program_for(stack)?.instructions.last(),
+                        Some(Instruction::ExileResolvingSpell { .. })
+                    )
+                {
+                    Zone::Exile
                 } else {
                     Zone::Graveyard { owner }
                 };

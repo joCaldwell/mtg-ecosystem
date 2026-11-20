@@ -419,6 +419,20 @@ mod tests {
     }
 
     #[test]
+    fn paid_self_exile_moves_the_exact_spell_on_completion() {
+        use crate::engine::equipped_indestructible_tests::{cast, recover, request};
+        let mut game = synthetic_game(Some(include_str!(
+            "../../../../tests/fixtures/synthetic-self-exile-ir.json"
+        )));
+        request(&mut game, 1);
+        cast(&mut game, 1, 0, vec![]);
+        assert!(game.state.rules.stack.is_empty());
+        let completed = object(&game, 0);
+        assert_eq!(game.current(completed).unwrap().zone, Zone::Exile);
+        recover(&game);
+    }
+
+    #[test]
     fn paid_controller_protection_excludes_targets_and_recovers_until_next_turn() {
         use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
         let mut g = synthetic_game(Some(include_str!(

@@ -6,7 +6,8 @@ fn contains(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
         matches!(
             i,
-            Instruction::ProtectControllerUntilNextTurn { .. }
+            Instruction::ExileResolvingSpell { .. }
+                | Instruction::ProtectControllerUntilNextTurn { .. }
                 | Instruction::PhaseOutControllerPermanents { .. }
                 | Instruction::FreezeControllerLifeUntilNextTurn { .. }
         )
@@ -26,6 +27,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
             .provenance
             .source_json
             .contains("protection from everything")
+        && !d.provenance.abilities_json.contains("\"self\"")
         && !d.provenance.abilities_json.contains("everything")
         && !d.provenance.abilities_json.contains("cant-lose-life")
         && !d.provenance.source_json.contains("\\u")
@@ -38,7 +40,16 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let freeze = "Until your next turn, your life total can't change.";
     let protection = "Until your next turn, you gain protection from everything.";
     let phase = "All permanents you control phase out.";
-    let (clause, expected, instruction) = if text == freeze {
+    let self_exile = format!("Exile {}.", d.name);
+    let exile_ast =
+        json!([{"kind":"spell","effects":[{"steps":[{"effect":"exile","what":{"ref":"self"}}]}]}]);
+    let (clause, expected, instruction) = if text == self_exile {
+        (
+            self_exile.as_str(),
+            exile_ast.clone(),
+            Instruction::ExileResolvingSpell { source_block: 0 },
+        )
+    } else if text == freeze {
         let rules=["cant-gain-life","cant-lose-life"].map(|rule|json!({"effect":"player-rule","rule":{"who":{"player":"you"},"rule":rule},"duration":{"duration":"your-next-turn"}}));
         (
             freeze,
@@ -59,6 +70,8 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         )
     };
     if !uses
+        && text != self_exile
+        && ast != exile_ast
         && !text.contains(phase)
         && !text.contains(freeze)
         && !text.contains(protection)
@@ -114,7 +127,11 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         || d.source_labels.as_ref().is_some_and(|l| {
             *l != SourceLabels {
                 text: clause.into(),
-                blocks: vec![clause.into()],
+                blocks: vec![if clause == self_exile {
+                    "Exile ~.".into()
+                } else {
+                    clause.into()
+                }],
                 ..Default::default()
             }
         })
@@ -137,6 +154,12 @@ pub(super) fn schema(s: &mut Value) {
             Capability::ControllerLifeFreezeV1,
             "ControllerLifeFreezeFree",
             "Until your next turn, your life total can't change",
+        ),
+        (
+            "exile_resolving_spell",
+            Capability::ExileResolvingSpellV1,
+            "ResolvingSelfExileFree",
+            "^$",
         ),
         (
             "protect_controller_until_next_turn",
