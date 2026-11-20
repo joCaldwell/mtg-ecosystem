@@ -14,6 +14,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod basic_land_fetch;
 mod basic_landwalk;
 mod bestow;
 mod bindings;
@@ -24,6 +25,7 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
+mod checkland_entry;
 mod colored_library_search;
 mod combat_hand_cast;
 mod commander_modal_keyword;
@@ -96,6 +98,7 @@ mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
 mod saga;
+mod same_color_mana;
 mod scoped_creature_stats;
 mod self_graveyard_shuffle;
 mod self_reference;
@@ -1379,6 +1382,9 @@ enum SourceMana {
     AnyColor {
         amount: Count,
     },
+    AnyOneColor {
+        amount: serde_json::Value,
+    },
     CommanderColor {
         amount: Count,
         whose: PlayerSelector,
@@ -1692,7 +1698,11 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         }
     }
     conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
-    typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
+    let basic_ramp_spell = basic_land_fetch::spell(&result, &shape, &binding, &source)?;
+    if basic_fetch.is_none() {
+        typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    }
     cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     for (line, ability) in result.lines.iter().zip(&original) {
@@ -1725,7 +1735,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
-        typed_fetchland::validate_raw(ability, raw.get())?;
+        if basic_fetch.is_none() {
+            typed_fetchland::validate_raw(ability, raw.get())?;
+        }
     }
     controller_library::validate_fixed_cast_effects(
         &abilities,
@@ -1953,6 +1965,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if basic_ramp_spell.is_some() => {
+            definition.spell = basic_ramp_spell;
+        }
         CardKind::Sorcery | CardKind::Instant if fixed_creature_damage.is_some() => {
             definition.spell = fixed_creature_damage;
         }
@@ -2345,14 +2360,24 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                         restriction,
                         ..
                     } => {
-                        let mana = listed_mana::lower(
+                        let mana = match same_color_mana::lower(
                             ability,
-                            block,
-                            &result.lines[block].text,
+                            &result,
                             &shape,
                             &binding,
                             &definition.oracle_id,
-                        )?;
+                            &source.oracle_text,
+                        )? {
+                            Some(mana) => Some(mana),
+                            None => listed_mana::lower(
+                                ability,
+                                block,
+                                &result.lines[block].text,
+                                &shape,
+                                &binding,
+                                &definition.oracle_id,
+                            )?,
+                        };
                         let mana = match mana {
                             Some(mana) => Some(mana),
                             None => lower_mana_ability(
@@ -2379,7 +2404,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                                 "~",
                                 source_block(block)?,
                             );
-                            let activated = if let Some(loss) = artifact_loss.take() {
+                            let activated = if let Some(fetch) = basic_fetch.take() {
+                                fetch
+                            } else if let Some(loss) = artifact_loss.take() {
                                 loss
                             } else if let Some(bound) = counted_artifact_modes.remove(&block) {
                                 bound
@@ -2984,6 +3011,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
+    checkland_entry::validate_binding(&definition, &shape, &binding)?;
     land_sacrifice_draw::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell

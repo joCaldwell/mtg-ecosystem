@@ -363,6 +363,7 @@ use hand_cast::HandCastPermission;
 #[cfg(test)]
 mod cascade_tests;
 mod casting;
+mod checkland_entry;
 use cascade::{CascadeProgress, CastCompletion, CastOwner, CastPermission};
 #[cfg(test)]
 mod cast_origin_tests;
@@ -384,6 +385,7 @@ mod mana_permanents;
 mod mana_tests;
 mod mill;
 mod opponent_mana;
+mod same_color_mana;
 mod scry;
 mod successor_tuck;
 #[cfg(test)]

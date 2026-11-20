@@ -207,7 +207,9 @@ impl Game {
             ManaProduction::Fixed { symbols } | ManaProduction::Choice { colors: symbols } => {
                 symbols.clone()
             }
-            ManaProduction::GreatestControlledPowerCombination | ManaProduction::AnyColor => {
+            ManaProduction::GreatestControlledPowerCombination
+            | ManaProduction::AnyColor
+            | ManaProduction::AnyOneColor { .. } => {
                 vec![Color::W, Color::U, Color::B, Color::R, Color::G]
             }
             ManaProduction::OpponentLandColors => return self.opponent_land_mana_colors(player),
@@ -990,6 +992,10 @@ impl Game {
         a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
+        if let ManaProduction::AnyOneColor { amount } = &a.ability.production {
+            let units = self.single_color_mana_units(a.player, color, amount)?;
+            return self.produce_mana_units(a, units);
+        }
         let symbols = match &a.ability.production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
             ManaProduction::EachPermanentColor { .. } => {

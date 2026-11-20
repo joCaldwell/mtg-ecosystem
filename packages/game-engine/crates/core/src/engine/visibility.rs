@@ -399,6 +399,10 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         maximum: u32,
+        /// The searching player's private view of all searched card identities.
+        /// CR 701.23a permits inspection. Sorting preserves library order privacy.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        library: Vec<String>,
         candidates: Vec<VisibleSearchLand>,
     },
     ChooseOpponent {
@@ -2005,6 +2009,7 @@ impl Game {
                     token,
                     player: viewer,
                     maximum,
+                    library: self.search_library_identities(viewer)?,
                     candidates: candidates
                         .into_iter()
                         .map(|o| {

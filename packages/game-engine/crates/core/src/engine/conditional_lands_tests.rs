@@ -890,3 +890,12 @@ mod optional_life_entry_tests;
 
 #[path = "pain_mana_tests.rs"]
 mod pain_mana_tests;
+
+#[path = "checkland_entry_tests.rs"]
+mod checkland_entry_tests;
+
+#[path = "basic_land_fetch_tests.rs"]
+mod basic_land_fetch_tests;
+
+#[path = "same_color_mana_tests.rs"]
+mod same_color_mana_tests;

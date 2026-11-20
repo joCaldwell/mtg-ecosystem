@@ -56,6 +56,9 @@ pub(super) fn lower(effect: &SourceStaticEffect) -> Result<Option<StaticAbility>
     if condition_kind.is_none() && condition.is_none() {
         return Ok(None);
     }
+    if let Some(entry) = checkland_entry::lower(effect)? {
+        return Ok(Some(entry));
+    }
     if let Some(entry) = other_land_entry::lower(effect)? {
         return Ok(Some(entry));
     }
@@ -172,6 +175,7 @@ fn legacy_binding(effect: &SourceStaticEffect) -> Result<bool, Failure> {
         !matches!(
             entry.effect,
             StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
+                | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
         )
     }))
 }

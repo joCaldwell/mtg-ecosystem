@@ -1384,6 +1384,7 @@ impl Game {
             | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
             | Instruction::ReturnOwnGraveyardCardToHand { .. }
             | Instruction::SearchBasicLands { .. }
+            | Instruction::FetchBasicLand { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchColoredLibrary { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),

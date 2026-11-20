@@ -25,8 +25,11 @@ mod color_hybrid_cost;
 pub use color_hybrid_cost::{
     ColorHybridSymbol, HybridPayment, color_hybrid_cost, hybrid_intrinsic_keywords,
 };
+mod checkland_entry;
 mod conditional_lands;
 mod cycling;
+#[cfg(test)]
+mod wave1_mana_witnesses;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
 mod distinct_permanent_colors;
@@ -55,6 +58,8 @@ mod creative_technique;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
+mod basic_land_fetch;
+pub use basic_land_fetch::basic_land_fetch_program;
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
@@ -124,6 +129,7 @@ mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub mod source_regeneration;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
+mod same_color_mana;
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
 pub mod source_attack_pump;
@@ -384,6 +390,7 @@ pub enum Capability {
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     ListedManaChoiceV1,
+    SameColorManaV1,
     DisjointPainManaV1,
     SourceTapTriggerV1,
     ControllerCreaturePlusOneCounterReplacementV1,
@@ -412,6 +419,7 @@ pub enum Capability {
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
     ConditionalOtherLandEntryV1,
+    ConditionalLandTypeEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
     UnspentManaConversionV1,
@@ -546,6 +554,7 @@ pub enum Capability {
     GraveyardBattlefieldReturnV1,
     OwnGraveyardCardReturnV1,
     BasicLandSearchV1,
+    BasicLandFetchV1,
     BasicLandSplitSearchV1,
     ColoredLibrarySearchV1,
     TypedLandSearchV1,
@@ -1130,6 +1139,10 @@ pub enum Instruction {
         maximum: u32,
         source_block: u32,
     },
+    FetchBasicLand {
+        force_tapped: bool,
+        source_block: u32,
+    },
     CreateCreatureTokens {
         count: u32,
         token: CreatureToken,
@@ -1448,7 +1461,8 @@ impl Instruction {
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
-            Self::SearchBasicLands { source_block, .. } => *source_block,
+            Self::SearchBasicLands { source_block, .. }
+            | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
@@ -1654,6 +1668,9 @@ pub enum StaticEffect {
         comparison: LandCountComparison,
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         threshold: Quantity,
+    },
+    EntersTappedUnlessControllerLandTypes {
+        subtypes: [BasicLandType; 2],
     },
     /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
     EntersTappedUnlessPayLife {
@@ -1955,6 +1972,9 @@ pub enum ManaProduction {
         symbols: Vec<Color>,
     },
     AnyColor,
+    AnyOneColor {
+        amount: SingleColorManaAmount,
+    },
     CommanderColor,
     /// Add one mana of a color an opponent's land could produce.
     OpponentLandColors,
@@ -1966,6 +1986,12 @@ pub enum ManaProduction {
     Choice {
         colors: Vec<Color>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SingleColorManaAmount {
+    Fixed { quantity: Quantity },
+    ControllerEnchantments,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -2769,6 +2795,9 @@ impl Definition {
         }) {
             set.insert(Capability::DistinctPermanentColorsV1);
         }
+        if same_color_mana::present(self) {
+            set.insert(Capability::SameColorManaV1);
+        }
         if listed_mana_choice::present(self) {
             set.insert(Capability::ListedManaChoiceV1);
         }
@@ -3026,6 +3055,9 @@ impl Definition {
                 StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
                     Capability::ConditionalOtherLandEntryV1
                 }
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
+                    Capability::ConditionalLandTypeEntryV1
+                }
                 StaticEffect::ReduceSelfGenericCost { .. } => {
                     Capability::CountedSelfGenericCostReductionV1
                 }
@@ -3079,7 +3111,10 @@ impl Definition {
         scoped_creature_stats::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
-        typed_land_search::validate_definition(self)?;
+        let basic_land_fetch = basic_land_fetch::validate_definition(self)?;
+        if !basic_land_fetch {
+            typed_land_search::validate_definition(self)?;
+        }
         activated_source_keyword::validate(self)?;
         conditional_lands::validate_definition(self)?;
         cascade_land_entry::validate_definition(self)?;
@@ -3119,6 +3154,7 @@ impl Definition {
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
         other_land_entry::validate(self)?;
+        checkland_entry::validate(self)?;
         let land_sacrifice_draw = land_sacrifice_draw::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
@@ -3538,6 +3574,7 @@ impl Definition {
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
+        same_color_mana::validate(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
@@ -3608,6 +3645,7 @@ impl Definition {
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
             && !typed_land_search::activation_definition(self)
+            && !basic_land_fetch
             && !self.capabilities.contains(&Capability::LinkedExilePlayV1)
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
@@ -3690,7 +3728,10 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
-            if typed_land_search::activation(ability) || *ability == linked_hideaway::play() {
+            if basic_land_fetch
+                || typed_land_search::activation(ability)
+                || *ability == linked_hideaway::play()
+            {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
@@ -4184,6 +4225,7 @@ impl Definition {
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
                     | StaticEffect::ControllerScopedCreatureStats { .. }
@@ -4322,6 +4364,7 @@ impl Definition {
                 StaticEffect::EntersTapped
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
@@ -4379,6 +4422,7 @@ impl Definition {
                     if c.subtypes.is_empty() || listed_mana_choice::descriptive_land_subtype(self) {
                         self.mana_abilities.is_empty()
                             && !typed_land_search::activation_definition(self)
+                            && !basic_land_fetch
                     } else {
                         !self.mana_abilities.is_empty()
                             || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
@@ -5360,6 +5404,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::FetchBasicLand { .. } => None,
             Instruction::CreateCreatureTokens { count, token, .. } => {
                 if *count == 0 {
                     return Err("token count must be positive".into());
@@ -6069,6 +6114,7 @@ fn add_program_requirements_for_source_pump(
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
             Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
                 Capability::AnnouncedXEffectsV1
             }
@@ -6178,14 +6224,7 @@ fn add_program_requirements_for_source_pump(
     }
 }
 pub fn basic_land_color(subtype: &str) -> Option<Color> {
-    match subtype {
-        "Plains" => Some(Color::W),
-        "Island" => Some(Color::U),
-        "Swamp" => Some(Color::B),
-        "Mountain" => Some(Color::R),
-        "Forest" => Some(Color::G),
-        _ => None,
-    }
+    BasicLandType::from_subtype(subtype).map(BasicLandType::color)
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -7591,14 +7630,17 @@ pub fn catalog_schema() -> serde_json::Value {
     repeated_target_modes::schema(&mut schema);
     graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
+    basic_land_fetch::extend_schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     opponent_mana::extend_schema(&mut schema);
     distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
+    same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     other_land_entry::extend_schema(&mut schema);
+    checkland_entry::extend_schema(&mut schema);
     cascade_land_entry::extend_schema(&mut schema);
     entry_copy::extend_schema(&mut schema);
     counter_spell_controller_mill::extend_schema(&mut schema);
@@ -7986,6 +8028,7 @@ mod tests {
             GraveyardBattlefieldReturnV1,
             OwnGraveyardCardReturnV1,
             BasicLandSearchV1,
+            BasicLandFetchV1,
             BasicLandSplitSearchV1,
             ColoredLibrarySearchV1,
             TypedLandSearchV1,
@@ -8015,6 +8058,7 @@ mod tests {
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
             ConditionalOtherLandEntryV1,
+            ConditionalLandTypeEntryV1,
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
@@ -8033,6 +8077,7 @@ mod tests {
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             ListedManaChoiceV1,
+            SameColorManaV1,
             DisjointPainManaV1,
             SourceTapTriggerV1,
             ControllerCreaturePlusOneCounterReplacementV1,
@@ -8528,6 +8573,7 @@ mod tests {
         definitions.push(typed_land_search_tests::typed_search());
         definitions.push(conditional_lands::tests::land());
         definitions.push(other_land_entry::witness());
+        definitions.extend(wave1_mana_witnesses::definitions());
         definitions.push(conditional_lands::tests::optional_land());
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());
