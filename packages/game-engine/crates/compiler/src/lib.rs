@@ -13,7 +13,9 @@ mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
 mod bindings;
+mod cascade_land_entry;
 mod cast_entry;
+mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
@@ -1108,6 +1110,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    AsCascade {
+        controller: serde_json::Value,
+        choice: serde_json::Value,
+    },
     CastSpellAbilities {
         scope: serde_json::Value,
         abilities: Vec<serde_json::Value>,
@@ -1540,6 +1546,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    cascade_land_entry::validate(&abilities, &result, &shape, &binding, &source)?;
     let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
     let mut counted_artifact_modes =
         artifact_modal::bind(&result, &shape, &binding, &r.oracle_identity)?;
@@ -2369,6 +2376,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     optional_costs::append(&mut program, effects, block, &mut slots)?;
                 }
             }
+            // Multiple intrinsic instances on a spell are reviewed only with this
+            // complete sweep. Definition validation also binds source, AST and block indices.
+            if definition.triggered.len() == 2
+                && !matches!(
+                    program.instructions.as_slice(),
+                    [Instruction::DamageSet {
+                        amount: WipeAmount::OtherCastsManaValue,
+                        ..
+                    }]
+                )
+            {
+                return Err(unsupported(
+                    "abilities.keywords",
+                    "unsupported spell keyword combination",
+                ));
+            }
             definition.spell = Some(program);
         }
     }
@@ -2550,6 +2573,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         definition
             .validate()
             .map_err(|e| unsupported("definition", e))?;
+    }
+    if definition
+        .capabilities
+        .contains(&Capability::CastManaValueSweepV1)
+    {
+        cast_mana_value_sweep::validate_binding(&definition.oracle_id, &shape, &binding)?;
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
@@ -4079,8 +4108,15 @@ fn lower_wipes_step(
                 if counted {
                     return Err(unsupported("binding", "unused X"));
                 }
-                WipeAmount::Fixed {
-                    value: fixed_positive_value(amount)?,
+                if *amount
+                    == json!({"amount":"cast-mana-value-sum","who":{"player":"you"},
+                    "during":"this-turn","excluding":{"ref":"this","noun":"spell"}})
+                {
+                    WipeAmount::OtherCastsManaValue
+                } else {
+                    WipeAmount::Fixed {
+                        value: fixed_positive_value(amount)?,
+                    }
                 }
             };
             Instruction::DamageSet {
@@ -4500,6 +4536,13 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if matches!(effect, SourceStaticEffect::AsCascade { .. }) {
+        // The complete source and occurrence graph were checked before lowering.
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::CascadeLandEntry,
+        });
+    }
     if let Some(entry) = conditional_lands::lower(effect)? {
         return Ok(entry);
     }

@@ -292,6 +292,11 @@ pub enum PlayerRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana_ability_source: Option<ObjectHandle>,
     },
+    CascadeLandEntry {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     SearchLandBattlefield {
         token: DecisionToken,
         player: PlayerId,
@@ -472,6 +477,7 @@ impl PlayerRequest {
             | Self::ChooseManaAbility { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
+            | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
@@ -556,6 +562,9 @@ pub enum PlayerResponse {
     },
     SearchLands {
         objects: Vec<ObjectHandle>,
+    },
+    CascadeLandEntry {
+        object: Option<ObjectHandle>,
     },
     SearchLandBattlefield {
         object: ObjectHandle,
@@ -1488,10 +1497,21 @@ impl Game {
                 (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
             );
         }
-        if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
-            return Ok(
-                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
-            );
+        if let Some(request) = self.cascade_request()? {
+            if request.player() != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(match request {
+                Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
+                    token,
+                    player,
+                    candidates: vec![],
+                },
+                Request::OptionalEffect { player, .. } => {
+                    PlayerRequest::OptionalEffect { token, player }
+                }
+                _ => return Err("unknown cascade decision".into()),
+            }));
         }
         if let Some(Request::Modes {
             player,
@@ -2085,11 +2105,15 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 17))
-            } else if self
-                .cascade_request()?
-                .is_some_and(|r| r.player() == viewer)
+            } else if let Some(request) = self.cascade_request()?
+                && request.player() == viewer
             {
-                Some((self.state.rules.revision, 22))
+                let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
+                    23
+                } else {
+                    22
+                };
+                Some((self.state.rules.revision, kind))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
                 Some((self.state.rules.revision, 13))
             } else if self
@@ -2392,6 +2416,12 @@ impl Game {
             }),
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
+            }),
+            PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
+                object: object
+                    .as_ref()
+                    .map(|handle| self.resolve_handle(viewer, handle))
+                    .transpose()?,
             }),
             PlayerResponse::SearchLandBattlefield { object } => {
                 Ok(Response::SearchLandBattlefield {

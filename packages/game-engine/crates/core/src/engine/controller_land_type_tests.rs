@@ -118,7 +118,7 @@ fn game() -> Game {
 fn controller_land_types_preserve_membership_and_offer_independent_printed_costs() {
     let mut g = game();
     let snapshot: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-    assert_eq!(snapshot["snapshot_version"], 60);
+    assert_eq!(snapshot["snapshot_version"], 62);
     let land = g.object_id(CardId(0)).unwrap();
     let island = g.object_id(CardId(2)).unwrap();
     let off = g.object_id(CardId(4)).unwrap();
@@ -187,7 +187,7 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     else {
         panic!("chooser observation");
     };
-    assert_eq!(observation.observation_version, 38);
+    assert_eq!(observation.observation_version, 39);
     let Some(PlayerRequest::ChooseManaAbility {
         token,
         choices: offered,
@@ -237,7 +237,7 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     };
     let encoded = free.save_work(&work).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&encoded).unwrap();
-    assert_eq!(saved["work_version"], 34);
+    assert_eq!(saved["work_version"], 35);
     let restored = free.restore_work(&encoded).unwrap();
     let QueryResult::Complete(QueryValue::Validated(receipt)) =
         free.resume_work(restored, Budget::new(65536))

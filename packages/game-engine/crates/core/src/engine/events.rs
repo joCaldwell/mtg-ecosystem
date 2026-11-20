@@ -362,6 +362,7 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::DiscardCard { .. }
             | ProposedEvent::PutOnTopOwnerLibrary { .. }
             | ProposedEvent::PutInLibraryAtPosition { .. }
+            | ProposedEvent::CascadeLandEntry { .. }
             | ProposedEvent::SearchLandEntry { .. }
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
@@ -572,7 +573,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::SearchLandEntry { object, .. }
+        ProposedEvent::CascadeLandEntry { object, .. }
+        | ProposedEvent::SearchLandEntry { object, .. }
         | ProposedEvent::Move { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -956,6 +958,7 @@ impl Game {
                 }
                 ProposedEvent::DestroyPermanent { object }
                 | ProposedEvent::DestroyCreature { object }
+                | ProposedEvent::CascadeLandEntry { object, .. }
                 | ProposedEvent::SearchLandEntry { object, .. } => {
                     objects.insert(*object);
                     if let Zone::Library { owner } = self.current(*object)?.zone {
@@ -1815,7 +1818,8 @@ impl Game {
 impl Game {
     fn conditional_entry(&self, event: &ProposedEvent) -> bool {
         let object = match event {
-            ProposedEvent::SearchLandEntry { object, .. }
+            ProposedEvent::CascadeLandEntry { object, .. }
+            | ProposedEvent::SearchLandEntry { object, .. }
             | ProposedEvent::Move {
                 object,
                 destination: Zone::Battlefield,
@@ -2304,6 +2308,18 @@ impl Game {
                         owner: self.state.rules.cards[&object.card].owner,
                     },
                 })?
+            }
+            ProposedEvent::CascadeLandEntry { object, player } => {
+                let proof =
+                    entry.ok_or("cascade land entry requires prepared transaction authority")?;
+                self.apply_move(
+                    *object,
+                    Zone::Battlefield,
+                    Some(*player),
+                    true,
+                    before,
+                    Some(proof),
+                )?
             }
             ProposedEvent::SearchLandEntry { object, player } => {
                 let force_tapped = self.searched_land_force_tapped(*player)?;
@@ -2795,7 +2811,8 @@ impl Game {
                     self.expire_player_protection(*owner);
                     self.state.rules.players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.state.rules.mana_ability_uses.clear();
-                    self.state.rules.cast_history = [triggers::TurnCastHistory::default(); 4];
+                    self.state.rules.cast_history =
+                        std::array::from_fn(|_| triggers::TurnCastHistory::default());
                     for o in self.state.rules.objects.values_mut() {
                         if o.zone == Zone::Battlefield
                             && Some(o.controller) == self.state.rules.active

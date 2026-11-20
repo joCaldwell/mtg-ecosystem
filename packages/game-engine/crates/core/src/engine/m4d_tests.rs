@@ -63,7 +63,7 @@ pub(super) fn root(original: &str, library: &[&str], board: &[&str]) -> Prepared
     p
 }
 pub(super) fn flags(g: &Game, seat: usize) -> (bool, bool) {
-    let h = g.state.rules.cast_history[seat];
+    let h = &g.state.rules.cast_history[seat];
     (h.any_cast, h.exile_cast)
 }
 pub(super) fn witness(g: &Game, original: StackId) -> &triggers::CastOccurrence {
@@ -212,7 +212,7 @@ fn m4d_no_observer_ledger_strict_codec_digest_and_replay_forgery() {
     public_proof(&g);
     let bytes = g.snapshot().unwrap();
     let value: serde_json::Value = strict_read(&bytes).unwrap();
-    assert_eq!(value["snapshot_version"], 60);
+    assert_eq!(value["snapshot_version"], 62);
     assert_eq!(
         state_digest::state_digest(&g.state).unwrap(),
         digest(&g.state).unwrap()

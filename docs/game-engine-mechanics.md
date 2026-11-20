@@ -529,7 +529,7 @@ layout and its ordinary cast-kind capability. Permanent grants exclude creature-
 Attachments/Indestructible alongside Board Wipes and ordinary/family capabilities.
 Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
 `PumpSet` retains its existing behavior and Board Wipes capability.
-Battlefield commander control unlocks both modes of Akroma's Will.
+Controlling a commander allows both Akroma's Will modes.
 Protection bars colored damage, attachments, blockers and targeting.
 
 The instruction captures one full current ordered set and creates all properties
@@ -582,14 +582,15 @@ strict source/program validation.
 
 Live battlefield static grants add independent cascade instances to completed spells
 of the source's current controller using disjoint mana-value, first-cast or
-first-from-exile predicates. A constant four-seat ledger counts every successful
-cast, including observer-free and resolution casts, and resets only on a new turn.
+first-from-exile predicates. The four-seat ledger tracks completed casts and their
+mana values each turn. Call Forth excludes its own cast.
 Intrinsic indexes and grant-source incarnation/static indexes are distinct identities.
 The cast spell remains rules source; caster and grant provenance freeze at collection,
 surviving later grantor departure/control changes. Whole batches preflight IDs,
 fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
-firstness; failed proposals/payments never consume it. Complete frozen Nexus and
-Wild-Magic Sorcerer reuse canonical cascade; Yidris remains unsupported.
+firstness; failed proposals/payments never consume it. Nexus and Wild-Magic
+Sorcerer reuse cascade. Averna may put an exiled land in tapped before the cast
+offer.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,

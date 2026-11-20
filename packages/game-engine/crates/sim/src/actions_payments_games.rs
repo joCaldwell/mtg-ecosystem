@@ -225,6 +225,7 @@ impl Strategy {
             PlayerRequest::ChooseManaAbility { .. }
             | PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::CascadeLandEntry { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
