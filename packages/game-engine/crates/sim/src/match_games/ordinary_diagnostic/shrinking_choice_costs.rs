@@ -363,6 +363,7 @@ fn prepare_root(
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
         hybrid_choices: vec![],
     };
     let mut meter = Meter::default();
@@ -476,6 +477,7 @@ fn branch(
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
         hybrid_choices: vec![],
     };
     let result = (|| -> Result<(), String> {
@@ -1445,6 +1447,7 @@ fn choice_setup_policy_initial_keep_is_public_and_does_not_mutate_game() {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
         hybrid_choices: vec![],
     };
     assert!(matches!(o.decision, Some(PlayerRequest::Mulligan { .. })));

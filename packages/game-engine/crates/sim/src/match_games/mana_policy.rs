@@ -7,6 +7,7 @@ use mtg_contracts::{KeywordAbility, ManaProduction};
 pub(super) struct PlannedMana {
     pub source: ObjectHandle,
     pub color: Option<Color>,
+    pub combination: Option<[Quantity; 5]>,
 }
 #[derive(Clone)]
 struct Source {
@@ -66,16 +67,49 @@ impl Planner {
                 ManaProduction::Fixed { .. } => None,
                 _ => deficit.or_else(|| source.colors.first().copied()),
             };
-            let symbols = match source.production {
-                ManaProduction::Fixed { symbols } => symbols,
-                _ => color.into_iter().collect(),
-            };
-            for c in symbols {
-                self.pool.entry(c).or_default().add(&source.amount);
-            }
+            let combination =
+                if source.production == ManaProduction::GreatestControlledPowerCombination {
+                    let mut amounts = std::array::from_fn(|_| Quantity::zero());
+                    let mut left = source.amount.clone();
+                    for (i, c) in mtg_contracts::MANA_COMBINATION_COLORS.iter().enumerate() {
+                        if !source.colors.contains(c) {
+                            continue;
+                        }
+                        let mut need = required.get(c).cloned().unwrap_or_default();
+                        need.subtract(&self.pool.get(c).cloned().unwrap_or_default());
+                        amounts[i] = need.max(Quantity::zero()).min(left.clone());
+                        left.subtract(&amounts[i]);
+                    }
+                    let Some(surplus) = mtg_contracts::MANA_COMBINATION_COLORS
+                        .iter()
+                        .position(|c| source.colors.contains(c))
+                    else {
+                        return false;
+                    };
+                    amounts[surplus].add(&left);
+                    for (c, n) in mtg_contracts::MANA_COMBINATION_COLORS
+                        .into_iter()
+                        .zip(&amounts)
+                    {
+                        if *n > Quantity::zero() {
+                            self.pool.entry(c).or_default().add(n);
+                        }
+                    }
+                    Some(amounts)
+                } else {
+                    let symbols = match source.production {
+                        ManaProduction::Fixed { symbols } => symbols,
+                        _ => color.into_iter().collect(),
+                    };
+                    for c in symbols {
+                        self.pool.entry(c).or_default().add(&source.amount);
+                    }
+                    None
+                };
             self.plan.push(PlannedMana {
                 source: source.handle,
                 color,
+                combination,
             });
         }
         false
@@ -246,6 +280,32 @@ pub(super) fn hybrid_plan(
 mod tests {
     use super::*;
     #[test]
+    fn combination_source_covers_two_distinct_colored_pips() {
+        let mut planner = Planner {
+            sources: vec![Source {
+                handle: ObjectHandle("two-mana-provider".into()),
+                land: false,
+                amount: 2.into(),
+                production: ManaProduction::GreatestControlledPowerCombination,
+                colors: mtg_contracts::MANA_COMBINATION_COLORS.to_vec(),
+                cost: None,
+            }],
+            used: vec![],
+            pool: BTreeMap::new(),
+            plan: vec![],
+        };
+        let cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::W, Color::U],
+        };
+        assert!(planner.fund(&cost));
+        assert_eq!(
+            planner.plan[0].combination,
+            Some([1_i64, 1, 0, 0, 0].map(Quantity::from))
+        );
+        assert!(spend(&cost, &planner.pool).is_some());
+    }
+    #[test]
     fn tokens_without_oracle_ids_do_not_disable_casts_or_sacrifice_draws() {
         let catalog = mtg_compiler::catalog::embedded_catalog("mana").unwrap();
         let player = PlayerId(0);
@@ -330,6 +390,7 @@ mod tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            mana_combination: None,
             hybrid_choices: vec![],
         };
         assert_eq!(

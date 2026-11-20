@@ -159,6 +159,7 @@ struct Strategy<'a> {
     mulligans: [u8; 4],
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
+    mana_combination: Option<[Quantity; 5]>,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
 }
 impl Strategy<'_> {
@@ -247,20 +248,28 @@ impl Strategy<'_> {
                 PlayerResponse::ChooseManaAbility { ability }
             }
             PlayerRequest::ManaCombination { total, colors, .. } => {
-                let mut amounts = std::array::from_fn(|_| Quantity::zero());
-                if *total > Quantity::zero() {
-                    let color = self
-                        .mana_color
-                        .take()
-                        .filter(|c| colors.contains(c))
-                        .or_else(|| colors.first().copied())
-                        .ok_or("empty combination domain")?;
-                    let index = mtg_contracts::MANA_COMBINATION_COLORS
-                        .iter()
-                        .position(|c| *c == color)
-                        .ok_or("invalid mana combination color")?;
-                    amounts[index] = total.clone();
-                }
+                let planned = self.mana_combination.take();
+                let preferred = self.mana_color.take();
+                let amounts = if let Some(amounts) = planned.filter(|amounts| {
+                    mtg_contracts::validate_mana_combination(colors, total, amounts).is_ok()
+                }) {
+                    amounts
+                } else {
+                    let mut amounts = std::array::from_fn(|_| Quantity::zero());
+                    if *total > Quantity::zero() {
+                        let color = preferred
+                            .filter(|c| colors.contains(c))
+                            .or_else(|| colors.first().copied())
+                            .ok_or("empty combination domain")?;
+                        let index = mtg_contracts::MANA_COMBINATION_COLORS
+                            .iter()
+                            .position(|c| *c == color)
+                            .ok_or("invalid mana combination color")?;
+                        amounts[index] = total.clone();
+                    }
+                    mtg_contracts::validate_mana_combination(colors, total, &amounts)?;
+                    amounts
+                };
                 PlayerResponse::ManaCombination { amounts }
             }
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
@@ -480,6 +489,7 @@ impl Strategy<'_> {
                     PlayerResponse::FinishMana { undo_mana: true }
                 } else if let Some(next) = self.mana_plan.pop_front() {
                     self.mana_color = next.color;
+                    self.mana_combination = next.combination;
                     PlayerResponse::ActivateMana {
                         object: next.source,
                     }
@@ -803,6 +813,7 @@ pub(super) fn run(
         mulligans,
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
         hybrid_choices: vec![],
     };
     let selected_checkpoints =
@@ -1628,6 +1639,7 @@ mod admission_and_host_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            mana_combination: None,
             hybrid_choices: vec![],
         };
         let id = |name: &str| {
