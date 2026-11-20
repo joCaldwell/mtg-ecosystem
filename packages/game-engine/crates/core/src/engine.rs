@@ -330,6 +330,8 @@ pub use history::History;
 mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
+mod divided_counters;
+pub use divided_counters::CounterDivision;
 mod cascade;
 #[cfg(test)]
 mod cascade_tests;
@@ -636,7 +638,7 @@ impl Prepared {
         })
     }
     fn snapshot_version(&self) -> u32 {
-        if self.has_land_type_grant() { 56 } else { 55 }
+        if self.has_land_type_grant() { 57 } else { 56 }
     }
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
@@ -1505,6 +1507,8 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         occurrences: Vec<TargetSpec>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        counter_division: Option<CounterDivision>,
         candidates: Vec<ObjectId>,
     },
 }
@@ -2053,6 +2057,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    CounterPlacements {
+        actual: Vec<EventOutcome>,
+    },
     CounterPrevented {
         target: StackId,
     },
@@ -2436,6 +2443,7 @@ impl Game {
                 .saturating_add(self.cascade_charge())
                 .saturating_add(self.mana_continuation_charge())
                 .saturating_add(self.land_entry_charge())
+                .saturating_add(self.counter_placement_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
@@ -2641,6 +2649,7 @@ impl Game {
                     decision_id: self.state.rules.revision,
                     player: self.top()?.controller,
                     occurrences: self.program()?.targets.clone(),
+                    counter_division: None,
                     candidates: self
                         .state
                         .rules
@@ -2738,6 +2747,7 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
+                counter_division: CounterDivision::offered_by(self.program()?),
                 candidates: self
                     .state
                     .rules
@@ -2901,7 +2911,7 @@ impl Game {
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     )
-                }) || objects.len() != self.program()?.targets.len()
+                }) || !Self::object_target_count_valid(self.program()?, objects)
                     || objects
                         .iter()
                         .any(|o| !self.object_target_legal(self.top().unwrap(), *o))
@@ -3391,9 +3401,9 @@ impl Game {
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
             snapshot_version: if self.catalog_has_land_type_grant {
-                56
+                57
             } else {
-                55
+                56
             },
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
@@ -3582,7 +3592,7 @@ impl Game {
                 return Err("snapshot stack identity invariant".into());
             }
             self.validate_stack_bindings(stack)?;
-            let n = self.program_for(stack)?.targets.len();
+            let program = self.program_for(stack)?;
             if stack.announced_targets.len() != 4
                 || stack
                     .announced_targets
@@ -3611,7 +3621,7 @@ impl Game {
                     Frame::Finished { .. } | Frame::Fault { .. }
                 ) && stack.paid.is_none()));
             if !incomplete_top
-                && (self.bound_target_count(stack) != n
+                && (!self.announced_target_count_valid(program, stack)
                     || stack.paid.as_ref() != Some(&stack.total_cost))
             {
                 return Err("snapshot completed lower/top cast invariant".into());

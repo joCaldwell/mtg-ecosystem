@@ -117,7 +117,7 @@ fn game() -> Game {
 #[test]
 fn controller_land_types_preserve_membership_and_offer_independent_printed_costs() {
     let mut g = game();
-    assert_eq!(g.prepared.snapshot_version(), 56);
+    assert_eq!(g.prepared.snapshot_version(), 57);
     let land = g.object_id(CardId(0)).unwrap();
     let island = g.object_id(CardId(2)).unwrap();
     let off = g.object_id(CardId(4)).unwrap();
