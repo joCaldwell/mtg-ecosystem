@@ -132,19 +132,41 @@ mod tests {
 }
 
 impl Game {
+    fn graveyard_legality<'a>(&self, frame: &'a Resolving) -> Result<(&'a [bool], u8), String> {
+        let program = self.program_for(&frame.spell)?;
+        if let Some(children) = self.mixed_mode_children(&frame.spell)? {
+            let index = frame.cursor as usize;
+            let child = children.get(index).ok_or("missing selected shuffle mode")?;
+            let max = mtg_contracts::graveyard_shuffle::offered_by(child)
+                .ok_or("missing selected graveyard target")?;
+            let start = children[..index]
+                .iter()
+                .map(|p| p.targets.len())
+                .sum::<usize>();
+            let legal = frame
+                .legal_targets
+                .get(start..)
+                .ok_or("missing selected graveyard legality")?;
+            return Ok((legal, max));
+        }
+        Ok((
+            &frame.legal_targets,
+            mtg_contracts::graveyard_shuffle::offered_by(program)
+                .ok_or("unbound player graveyard program")?,
+        ))
+    }
     fn targeted_graveyard_moves(
         &self,
         frame: &Resolving,
         block: u32,
     ) -> Result<(PlayerId, Vec<ObjectId>), String> {
         let p = self.program_for(&frame.spell)?;
-        let maximum = mtg_contracts::graveyard_shuffle::offered_by(p)
-            .ok_or("unbound player graveyard program")?;
+        let (legal, maximum) = self.graveyard_legality(frame)?;
         if !matches!(p.instructions.get(frame.cursor as usize),Some(Instruction::ShufflePlayerGraveyard{source_block}) if *source_block==block)
             || !self.graveyard_group_structure(&frame.spell.entity_targets, maximum)
             || frame.spell.kind.is_spell() == false
             || frame.spell.paid.is_none()
-            || frame.legal_targets.len() != frame.spell.entity_targets.len()
+            || legal.len() != frame.spell.entity_targets.len()
         {
             return Err("invalid resolving graveyard shuffle".into());
         }
@@ -155,7 +177,7 @@ impl Game {
             .spell
             .entity_targets
             .iter()
-            .zip(&frame.legal_targets)
+            .zip(legal)
             .skip(1)
             .filter_map(|(target, legal)| match target {
                 TargetEntity::Object { object } if *legal => Some(*object),
@@ -170,7 +192,7 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         let (player, objects) = self.targeted_graveyard_moves(&frame, block)?;
-        if frame.legal_targets.first() != Some(&true) || !self.is_live(player) {
+        if self.graveyard_legality(&frame)?.0.first() != Some(&true) || !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
@@ -195,7 +217,7 @@ impl Game {
             .iter()
             .copied()
             .filter(|id| self.state.rules.commanders.history(id.card).is_some());
-        if frame.legal_targets.first() != Some(&true)
+        if self.graveyard_legality(frame)?.0.first() != Some(&true)
             || objects != selected
             || !commanders.eq(choices
                 .iter()

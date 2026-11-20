@@ -238,7 +238,14 @@ impl Game {
                 .is_ok_and(|c| c.has_type(CardKind::Creature))
     }
     pub(super) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
-        let spec = self.program_for(entry).ok().and_then(|p| p.targets.first());
+        let announced = matches!(self.state.rules.frame, Frame::Targets { .. })
+            && self.top().is_ok_and(|top| top.id == entry.id);
+        let program = if announced {
+            self.program()
+        } else {
+            self.program_for(entry)
+        };
+        let spec = program.ok().and_then(|p| p.targets.first());
         self.object_target_legal_for(entry, object, spec)
     }
     pub(super) fn object_target_legal_for(
