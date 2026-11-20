@@ -36,7 +36,7 @@ describe('cast origin stated by exclusion (CR 601.2a)', () => {
   });
 
   it('rejects one trailing exclusion after alternatives without their own origin', () => {
-    fails('Whenever you play a land or cast a spell from anywhere other than your hand, draw a card.', 'Enchantment');
+    fails('Whenever you play a land or cast a creature spell from anywhere other than your hand, draw a card.', 'Enchantment');
     fails('Whenever you cast a spell from anywhere, draw a card.', 'Enchantment');
   });
 });

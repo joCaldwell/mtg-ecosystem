@@ -46,6 +46,10 @@ type Loop = Extract<Effect, { effect: "for-each" }>;
  * Any other loop makes its sentence list fail there. */
 const settled = new WeakSet<Loop>();
 
+export function settleScopedContinuation(loop: Loop): void {
+  settled.add(loop);
+}
+
 /** What the loop's single action handles, when that is at most one object
  * per member: the nouns a later plural reference can use for all of them
  * together, and the event that "... this way" names. */
@@ -148,6 +152,72 @@ function endsWithSearchersShuffling(sentences: Sentence[], index: number, loop: 
   return true;
 }
 
+/** The conditional singular "it" denotes the same exiled card that was
+ * just given its own number of time counters (CR 400.7j, 608.2f, 702.62).
+ * It cannot denote the entire pool; cards that already have suspend
+ * still receive the counters from the first instruction. */
+function foldEachCardSuspend(loop: Loop, previous: Sentence, next: Sentence): boolean {
+  const [body] = loop.effects;
+  const [count] = body.steps;
+  const [grant] = next.steps;
+  const { each } = loop;
+  if (!("ref" in each) || each.ref !== "each" || each.filter.cls !== "card" ||
+    each.filter.relation?.relation !== "event-result" || each.filter.relation.event !== "exile" ||
+    each.filter.relation.scope !== "this-way" || each.filter.relation.who ||
+    loop.effects.length !== 1 || body.condition || body.otherwise || body.bindings || body.steps.length !== 1 ||
+    previous.condition || previous.otherwise || previous.steps.length !== 1 || previous.steps[0].effect !== "exile" ||
+    previous.steps[0].optional || previous.steps[0].forEach ||
+    count.effect !== "put-counters" || count.optional || count.forEach || count.upTo ||
+    count.counter.type !== "time" || count.on.ref !== "that" || count.on.filter.cls !== "card" ||
+    count.on.plural || Object.keys(count.on.filter).length !== 1 ||
+    count.count.amount !== "attribute" || count.count.attribute !== "mana-value" || count.count.of.ref !== "it" ||
+    next.conditionKind !== "if" || next.condition?.condition !== "not" ||
+    next.condition.of.condition !== "has-keyword" || next.condition.of.keyword !== "suspend" ||
+    next.condition.of.what.ref !== "it" || next.otherwise || next.bindings || next.steps.length !== 1 ||
+    grant.effect !== "gain-abilities" || !("ref" in grant.what) || grant.what.ref !== "it" ||
+    grant.optional || grant.forEach || grant.duration || grant.abilities.length !== 1 ||
+    grant.abilities[0].gained !== "keyword" || grant.abilities[0].keyword.keyword !== "suspend") return false;
+  loop.effects.push(next);
+  settled.add(loop);
+  return true;
+}
+
+/** The delayed trigger captures the targeted creature pool already tapped
+ * and goaded, including any creature that was already tapped. A qualifying
+ * damage event from any one member creates an occurrence (CR 603.2c, 603.7). */
+export function parseGoadedCombatTrigger(
+  c: Cursor, targeting: Sentence | undefined, goading: Sentence | undefined,
+): Sentence | null {
+  return c.attempt(c => {
+    if (!c.isWord("until") || !targeting || targeting.condition || targeting.otherwise || targeting.bindings ||
+      targeting.steps.length !== 1 || !goading || goading.condition || goading.otherwise || goading.bindings ||
+      goading.steps.length !== 1) return null;
+    const [loop] = targeting.steps;
+    const [goad] = goading.steps;
+    if (loop.effect !== "for-each" || !("player" in loop.each) || loop.each.player !== "each-opponent" ||
+      loop.optional || loop.effects.length !== 1 || goad.effect !== "goad" || goad.optional || goad.duration || goad.forEach ||
+      goad.what.ref !== "that" || !goad.what.plural || goad.what.filter.types?.length !== 1 ||
+      goad.what.filter.types[0] !== "creature" || Object.keys(goad.what.filter).length !== 1) return null;
+    const [body] = loop.effects;
+    if (body.condition || body.otherwise || body.bindings || body.steps.length !== 1) return null;
+    const [tap] = body.steps;
+    if (tap.effect !== "tap" || tap.optional || tap.forEach || tap.what.ref !== "target" || !tap.what.upTo ||
+      tap.what.count.amount !== "fixed" || tap.what.count.value !== 1 ||
+      tap.what.filter.types?.length !== 1 || tap.what.filter.types[0] !== "creature" ||
+      tap.what.filter.control !== "that-player" || Object.keys(tap.what.filter).length !== 2) return null;
+    if (!c.words("until", "your", "next", "turn") || !c.punct(",") ||
+      !c.words("whenever", "any", "of", "those", "creatures", "deals", "combat", "damage", "to", "a", "player") ||
+      !c.punct(",") || !c.words("draw", "a", "card") || (!c.punct(".") && !c.done())) return null;
+    return { steps: [
+      { effect: "create-delayed-trigger",
+        trigger: { trigger: "deals-damage", what: { ref: "from-pool", pool: goad.what, count: { amount: "fixed", value: 1 } },
+          combat: true, to: "any" },
+        effects: [{ steps: [{ effect: "draw", who: { player: "you" }, amount: { amount: "fixed", value: 1 } }] }],
+        occurrence: "each", targets: "delayed-ability", duration: { duration: "your-next-turn" } },
+    ] };
+  });
+}
+
 /** Decides the scope of the text after each loop in a complete sentence
  * list (CR 608.2c). A loop's `effects` are done for each member; a sentence
  * after the loop's own sentence is done once, afterwards. That reading is
@@ -162,6 +232,10 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
       const next = sentences[i + 1];
       if (loop !== sentences[i].steps.at(-1) || sentences[i].otherwise || !next) return false;
       if (endsWithSearchersShuffling(sentences, i, loop)) { settled.add(loop); continue; }
+      if (i > 0 && i === sentences.length - 2 && foldEachCardSuspend(loop, sentences[i - 1], next)) {
+        sentences.splice(i + 1, 1);
+        continue;
+      }
       const result = memberResult(loop);
       if (!result) return false;
       const chose = loop.effects[0].steps[0].effect === "choose-object" || loop.effects[0].steps[0].effect === "declare-target";

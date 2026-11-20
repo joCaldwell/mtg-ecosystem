@@ -4,10 +4,11 @@
 // has no instruction of its own: it is parsed against the spell ability it
 // modifies and forms one block with it (Brimstone Volley, Mirran Mettle).
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Ability, Sentence } from "../ast.ts";
+import type { Ability, Effect, Sentence } from "../ast.ts";
 import type { Token } from "../lexer.ts";
 import { Cursor } from "./cursor.ts";
 import { isKeywordName } from "./keywords.ts";
+import { parseCount } from "./refs.ts";
 import { parseSelfReplacement, withSelfReplacement } from "./self-replacement.ts";
 
 type BodyParser = (c: Cursor) => Sentence[] | null;
@@ -33,12 +34,49 @@ function splitAbilityWord(tokens: Token[]): { abilityWord?: string; rest: Token[
  * paragraph of several sentences has no unambiguous replaced part. The
  * replacement paragraph must be exactly one self-replacement sentence. */
 export function mergeReplacementParagraph(first: Ability, paragraph: Token[], parseBody: BodyParser): Ability | null {
-  if (first.kind !== "spell" || first.effects.length !== 1) return null;
+  if (first.kind !== "spell" || !first.effects.length) return null;
   const split = splitAbilityWord(paragraph);
   if (!split) return null;
+  const search = replaceSearchQuantity(first, split.rest, parseBody, split.abilityWord);
+  if (search) return search;
+  if (first.effects.length !== 1) return null;
   const c = new Cursor(split.rest);
   const replacement = parseSelfReplacement(c, first.effects[0], parseBody);
   if (!replacement || replacement.effect !== "self-replacement" || !c.done()) return null;
   if (split.abilityWord) replacement.abilityWord = split.abilityWord;
   return { ...first, effects: [withSelfReplacement(first.effects[0], replacement)] };
+}
+
+
+/** CR 614.15: replace the quantity of the preceding search only. Both
+ * branches still reveal and place the actual found cards, then shuffle.
+ * https://magic.wizards.com/en/news/feature/magic-origins-release-notes-2015-07-08 */
+function replaceSearchQuantity(spell: Extract<Ability, { kind: "spell" }>, tokens: Token[], parseBody: BodyParser,
+  abilityWord?: string): Ability | null {
+  const split = tokens.findIndex(t => t.kind === "word" && !t.possessive && t.value === "instead");
+  if (split < 0) return null;
+  const tail = new Cursor(tokens.slice(split + 1));
+  if (tail.word("of") === null) return null;
+  const originalAmount = parseCount(tail);
+  tail.punct(".");
+  if (originalAmount?.amount !== "fixed" || !tail.done()) return null;
+  const original = spell.effects[0];
+  const [search] = original.steps;
+  if (original.condition || original.otherwise || original.bindings || search?.effect !== "search"
+      || search.optional || search.forEach || search.for.ref !== "filter" || !search.for.upTo
+      || search.for.count.amount !== "fixed" || search.for.count.value !== originalAmount.value
+      || original.steps.slice(1).some(step => step.effect === "search" || step.effect === "self-replacement")) return null;
+  const head = new Cursor(tokens.slice(0, split));
+  const branch = parseBody(head);
+  if (!branch || !head.done() || branch.length !== 1) return null;
+  const { condition, conditionKind, steps, otherwise, bindings } = branch[0];
+  const [newSearch] = steps;
+  if (!condition || conditionKind !== "if" || otherwise || bindings || steps.length !== 1
+      || newSearch.effect !== "search" || newSearch.for.ref !== "filter" || newSearch.for.count.amount !== "fixed") return null;
+  const normalized = { ...newSearch, for: { ...newSearch.for, count: originalAmount } };
+  if (JSON.stringify(normalized) !== JSON.stringify(search)) return null;
+  const replacement: Effect = { effect: "self-replacement", original: search,
+    condition, instead: [newSearch], targetPolicy: "retain-original", ...(abilityWord ? { abilityWord } : {}) };
+  const effects = [{ ...original, steps: [replacement, ...original.steps.slice(1)] }, ...spell.effects.slice(1)];
+  return { ...spell, effects };
 }

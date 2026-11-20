@@ -17,7 +17,7 @@ import {
 import { isManaSymbol } from "../symbols.ts";
 import { Cursor } from "./cursor.ts";
 import { parseCharacteristicRelationQualifier } from "./characteristic-relations.ts";
-import { parseConditionExpression } from "./conditions.ts";
+import { parseConditionExpression, type ConditionGrammar } from "./conditions.ts";
 import { parseAttachmentCondition } from "./attachment-conditions.ts";
 import { parseBaseStatQualifier } from "./base-stats.ts";
 import { parseBlockHistoryQualifier, parseCombatActionHistoryPredicate, parseDamageHistoryPredicate } from "./history-filters.ts";
@@ -1449,7 +1449,13 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
     // that "targets only" already carries.
     const targetsOnly = c.attempt((c): ObjectRef | PlayerRef | null => {
       if (c.word("that") === null || c.word("target", "targets") === null || c.word("only") === null) return null;
-      const single = c.attempt(c => c.words("a", "single") ? parseFilter(c) : null);
+      const single = c.attempt(c => {
+        if (!c.words("a", "single")) return null;
+        // CR 109.1, 110.1, 115.9c: one distinct target in either domain.
+        const permanentOrPlayer = c.attempt(c => c.words("permanent", "or", "player") && (c.done() || c.isPunct("."))
+          ? { cls: "permanent" as const, orPlayer: true } : null);
+        return permanentOrPlayer ?? parseFilter(c);
+      });
       if (single) return { ref: "filter", filter: single, count: { amount: "fixed", value: 1 } };
       return c.attempt(parsePlayerRef) ?? parseObjectRef(c);
     });
@@ -1651,6 +1657,12 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
     // preceding participle; the cast meant is the same one.
     if (c.words("not", "cast", "this", "way") || c.words("that", "weren't", "cast", "this", "way")
       || c.words("that", "wasn't", "cast", "this", "way") || c.words("that", "weren't", "cast")) return { notCastThisWay: true };
+    // CR 305.6: a "basic land type" is one of these subtypes, regardless
+    // of whether the land has the basic supertype.
+    if (head.cls === "card" && head.types?.length === 1 && head.types[0] === "land" &&
+        c.words("with", "a", "basic", "land", "type")) return {
+      anyOf: ["Plains", "Island", "Swamp", "Mountain", "Forest"].map(type => ({ subtypes: [type] })),
+    };
     const zoneChange = parseZoneChangeRelation(c, parseZoneRef);
     if (zoneChange) return { relation: zoneChange };
     const eventRelation = parseObjectRelation(c) ?? parseDevouredRelation(c, parseObjectRef) ?? parseCountersPutRelation(c, parseCounterSpec);
@@ -2026,9 +2038,9 @@ export function parseObjectRef(c: Cursor): ObjectRef | null {
   return parseObjectRefInternal(c, false);
 }
 
-function parseSelectionFilter(c: Cursor, enabled: boolean): { filter: ObjectFilter; groupConstraints?: GroupConstraint[] } | null {
+function parseSelectionFilter(c: Cursor, enabled: boolean, singleTarget = false): { filter: ObjectFilter; groupConstraints?: GroupConstraint[] } | null {
   return c.attempt(c => {
-    const filter = parseFilter(c);
+    const filter = parseFilter(c) ?? (singleTarget ? parseOpponentPermanentTargetFilter(c) : null);
     if (!filter) return null;
     if (!enabled) return { filter };
     const groupConstraints: GroupConstraint[] = [];
@@ -2069,6 +2081,25 @@ function parseSelectionFilter(c: Cursor, enabled: boolean): { filter: ObjectFilt
       else Object.assign(filter, qualifier);
     }
     return { filter, ...(groupConstraints.length ? { groupConstraints } : {}) };
+  });
+}
+
+/** One target from a series of permanent kinds, with the opponent controller
+ * shared by the whole series. The immediate optional search by "that player"
+ * refers to the chosen target's controller, whichever kind it is (CR 109.5,
+ * 115.1c, 608.2c). "Nonbasic" still qualifies only the land alternative. */
+function parseOpponentPermanentTargetFilter(c: Cursor): ObjectFilter | null {
+  return c.attempt(c => {
+    const first = c.word("artifact", "enchantment");
+    if (!first || !c.punct(",")) return null;
+    const second = c.word(first === "artifact" ? "enchantment" : "artifact");
+    if (!second || !c.punct(",") || !c.words("or", "nonbasic", "land", "an", "opponent", "controls")) return null;
+    const end = c.pos;
+    if (!c.punct(".") || !c.words("that", "player", "may", "search", "their", "library")) return null;
+    c.pos = end;
+    return { control: "opponent", anyOf: [
+      { types: [first] }, { types: [second] }, { types: ["land"], nonSupertypes: ["basic"] },
+    ] };
   });
 }
 
@@ -2273,7 +2304,8 @@ function parseObjectRefInternal(c: Cursor, groups: boolean): ObjectRef | null {
       const other = c.word("other") !== null;
       const token = c.peek();
       if (c.word("target") === null) return null;
-      const selected = parseSelectionFilter(c, groups);
+      const singleTarget = !another && !other && !upTo && count.amount === "fixed" && count.value === 1;
+      const selected = parseSelectionFilter(c, groups, singleTarget);
       if (!selected || !validSelectionCount(count)) return null;
       if (another || other) selected.filter.other = true;
       if (another && (upTo || count.amount !== "fixed" || count.value !== 1)) return null;
@@ -2604,7 +2636,7 @@ function isSingleIndefinite(ref: ObjectRef): boolean {
     && !JSON.stringify(ref.filter).includes('"anyOf"');
 }
 
-export function parseCondition(c: Cursor, options?: { purpose?: "unless"; outcomes?: true }): Condition | null {
+export function parseCondition(c: Cursor, options?: Pick<ConditionGrammar, "purpose" | "outcomes" | "declaredAttackers">): Condition | null {
   return parseConditionExpression(c, {
     ...options,
     parseAmount, parseComparison, parseCount, parseCounterSpec, parseFilter, parseObjectRef,

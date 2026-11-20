@@ -61,11 +61,17 @@ describe("damage history on objects and players", () => {
       },
     });
   });
+  it("retains the controller as part of the historical damage source", () => {
+    assert.deepEqual(complete(parseFilter, "creatures dealt damage this turn by a source you controlled"), {
+      types: ["creature"], damageHistory: { role: "recipient", window: turn,
+        source: { ref: "filter", filter: { cls: "source", control: "you" }, count: one } },
+    });
+  });
   it("does not invent historical quantities, universal sources, or missing time windows", () => {
     for (const text of [
       "creatures dealt damage", "creatures that dealt damage last turn", "creatures dealt 3 damage this turn",
       "creatures dealt damage by three Pirates this turn", "creatures dealt damage by each creature this turn",
-      "creatures dealt damage by up to one target creature this turn", "creatures dealt damage this turn by a source you controlled",
+      "creatures dealt damage by up to one target creature this turn", "creatures dealt damage this turn by a source you control",
       "creatures that didn't deal damage this turn", "creatures that were dealt excess damage this turn",
       "creatures dealt damage by a creature and with flying this turn", "creatures dealt damage by a source you controlled this turn",
     ]) incomplete(parseFilter, text);
