@@ -1587,6 +1587,63 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
     );
 }
 
+pub(super) fn seeded_mixed_target_fixture(raw: &str) -> Prepared {
+    let mut p = typed_land_search_tests::typed_prepared(raw);
+    let mut probe = Game::new(p.clone());
+    opening(&mut probe);
+    let caster = PlayerId(0);
+    let opening_forest = probe
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| {
+            o.zone == Zone::Hand { owner: caster }
+                && probe.definition(o.id.card).unwrap().name == "Forest"
+        })
+        .unwrap()
+        .id
+        .card;
+    let oracle = |name: &str| {
+        p.catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .oracle_id
+            .clone()
+    };
+    let island = oracle("Island");
+    let plains = oracle("Plains");
+    let commander = oracle("Isamaru, Hound of Konda");
+    for card in &mut p.config.cards {
+        if card.id == opening_forest {
+            card.oracle_id = island.clone();
+        }
+        if card.owner == PlayerId(2) {
+            card.oracle_id = if matches!(card.zone, Zone::Command { .. }) {
+                commander.clone()
+            } else {
+                plains.clone()
+            };
+        }
+    }
+    let config = p.match_config.as_mut().unwrap();
+    config.decks[2].commander = commander;
+    for seat in [0, 2] {
+        let mut counts = BTreeMap::<String, u32>::new();
+        for card in p.config.cards.iter().filter(|c| c.owner == PlayerId(seat)) {
+            *counts.entry(card.oracle_id.clone()).or_default() += 1;
+        }
+        config.decks[seat as usize].cards = counts
+            .into_iter()
+            .map(|(oracle_id, count)| DeckEntry { oracle_id, count })
+            .collect();
+    }
+    p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
+    p
+}
+
 #[test]
 fn paid_target_graveyard_shuffle_moves_distinct_opposing_cards_and_replays_owner_shuffle() {
     let p = typed_land_search_tests::typed_prepared(include_str!(
