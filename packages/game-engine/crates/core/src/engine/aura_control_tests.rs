@@ -1224,3 +1224,40 @@ mod hideaway_tests;
 
 #[path = "entry_copy_tests.rs"]
 mod entry_copy_tests;
+
+#[test]
+fn land_entry_life_gain_and_fixed_creature_damage_use_existing_resolution() {
+    let p = prepared_with_sources(
+        &[
+            ("Tranquil Cove", 0, 0, true),
+            ("Breath of Fire", 0, 0, true),
+            ("Grizzly Bears", 1, 1, false),
+            ("Mountain", 0, 0, false),
+            ("Mountain", 0, 0, false),
+        ],
+        &[
+            include_str!("../../../../tests/fixtures/5d641bf6-0f93-4189-8dc1-ec7ea446dade.json"),
+            include_str!("../../../../tests/fixtures/breath-of-fire.json"),
+        ],
+    );
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    let controller = PlayerId(0);
+    let target = object(&g, 2);
+    let q = 1;
+    answer(&mut g, q, Response::PlayLand { card: CardId(0) });
+    resolve(&mut g, q, |_| {});
+    assert!(g.current(object(&g, 0)).unwrap().tapped);
+    assert_eq!(g.state.rules.players[0].life, 41.into());
+    assert_eq!(g.state.rules.players[1].life, 40.into());
+
+    cast(&mut g, q, 1, vec![TargetEntity::Object { object: target }]);
+    assert_eq!(
+        g.zone(object(&g, 2)),
+        Some(Zone::Graveyard { owner: PlayerId(1) })
+    );
+    assert_eq!(
+        g.zone(object(&g, 1)),
+        Some(Zone::Graveyard { owner: controller })
+    );
+    recover(&g);
+}
