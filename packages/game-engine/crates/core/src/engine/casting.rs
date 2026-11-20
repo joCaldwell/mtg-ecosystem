@@ -280,6 +280,7 @@ impl Game {
                     | TargetDomain::ControlledBattlefieldPermanent
                     | TargetDomain::BattlefieldPermanent
                     | TargetDomain::BattlefieldCreature
+                    | TargetDomain::CreatureOrPlaneswalker
                     | TargetDomain::BlockingBattlefieldCreature
                     | TargetDomain::OwnGraveyardCreatureCard
                     | TargetDomain::OwnGraveyardCard,

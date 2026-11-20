@@ -38,6 +38,7 @@ mod counter_spell_controller_mill_tests;
 mod counter_unless_generic;
 pub mod coverage;
 mod creature_entry_return;
+mod creature_planeswalker_return;
 mod diagnostics;
 mod distinct_permanent_colors;
 mod divided_plus_one_counters;
@@ -212,6 +213,8 @@ enum Ability {
     PlayerGraveyardShuffle,
     #[serde(skip)]
     FixedTargetModes,
+    #[serde(skip)]
+    CreaturePlaneswalkerReturn,
     #[serde(skip)]
     ControllerWindowBlock,
     #[serde(rename = "additional-cost")]
@@ -1479,7 +1482,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let graveyard_shuffle =
         graveyard_shuffle::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let fixed_modes = fixed_target_modes::lower(&shape, &result, &binding, &r.oracle_identity)?;
-    let abilities = if fixed_modes.is_some() {
+    let permanent_union =
+        creature_planeswalker_return::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let abilities = if permanent_union.is_some() {
+        vec![Ability::CreaturePlaneswalkerReturn]
+    } else if fixed_modes.is_some() {
         vec![Ability::FixedTargetModes]
     } else if graveyard_shuffle.is_some() {
         vec![Ability::PlayerGraveyardShuffle]
@@ -1771,6 +1778,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if permanent_union.is_some() => {
+            definition.spell = permanent_union;
+        }
         CardKind::Sorcery | CardKind::Instant if fixed_modes.is_some() => {
             definition.spell = fixed_modes;
         }

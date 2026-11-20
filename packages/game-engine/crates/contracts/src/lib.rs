@@ -75,6 +75,7 @@ pub use targeted_counted_draw::targeted_counted_draw_program;
 pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
 mod controller_library;
 mod counter_spell_controller_mill;
+pub mod creature_planeswalker_return;
 mod draw_discard;
 mod fixed_mill;
 mod graveyard_battlefield_return;
@@ -494,6 +495,7 @@ pub enum EvaluationStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
+    CreatureOrPlaneswalker,
     PlayerGraveyardCards {
         owner_slot: u32,
         maximum: u8,
@@ -3128,6 +3130,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        creature_planeswalker_return::validate(self)?;
         modal_targets::validate_definition(self)?;
         graveyard_shuffle::validate_definition(self)?;
         graveyard_battlefield_return::validate_definition(self)?;
@@ -4950,7 +4953,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     .domain;
                 if !matches!(
                     domain,
-                    TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                    TargetDomain::CreatureOrPlaneswalker
+                        | TargetDomain::BattlefieldCreature
+                        | TargetDomain::BattlefieldPermanent
                 ) {
                     return Err("unsupported owner-hand target domain".into());
                 }
@@ -5355,7 +5360,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
                 Capability::PermanentRemovalV1
             }
-            TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
+            TargetDomain::CreatureOrPlaneswalker | TargetDomain::BattlefieldCreature => {
+                Capability::CreatureTargetV1
+            }
             TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,

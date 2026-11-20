@@ -208,11 +208,15 @@ impl Game {
                 })
             }
             Some(
-                domain @ (TargetDomain::BattlefieldCreature
+                domain @ (TargetDomain::CreatureOrPlaneswalker
+                | TargetDomain::BattlefieldCreature
                 | TargetDomain::ControlledBattlefieldCreature),
             ) => self.state.rules.objects.values().any(|o| {
-                self.is_battlefield_creature(o.id)
-                    && self.targetable_by(o.id, player)
+                (if domain == TargetDomain::CreatureOrPlaneswalker {
+                    self.creature_or_planeswalker(o.id)
+                } else {
+                    self.is_battlefield_creature(o.id)
+                }) && self.targetable_by(o.id, player)
                     && !self.protected_from(o.id, source)
                     && (domain != TargetDomain::ControlledBattlefieldCreature
                         || o.controller == player)

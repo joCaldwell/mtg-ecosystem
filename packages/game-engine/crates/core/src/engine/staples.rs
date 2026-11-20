@@ -231,6 +231,12 @@ impl Game {
                 _ => false,
             }
     }
+    pub(super) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
+        self.current(id).is_ok_and(|o| o.present_on_battlefield())
+            && self
+                .characteristics(id)
+                .is_ok_and(|c| c.has_type(CardKind::Creature))
+    }
     pub(super) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
         if !self
             .targeting_characteristics(entry)
@@ -256,6 +262,10 @@ impl Game {
             ) => self
                 .current(object)
                 .is_ok_and(|o| self.graveyard_target_legal(o, entry.controller, domain)),
+            Some(TargetDomain::CreatureOrPlaneswalker) => {
+                self.creature_or_planeswalker(object)
+                    && self.targetable_by(object, entry.controller)
+            }
             Some(TargetDomain::ControlledBattlefieldCreature) => {
                 self.is_battlefield_creature(object)
                     && self.targetable_by(object, entry.controller)

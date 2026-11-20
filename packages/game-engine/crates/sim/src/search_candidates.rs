@@ -277,6 +277,7 @@ fn target_plans(
         | TargetDomain::ControlledBattlefieldPermanent
         | TargetDomain::BlockingBattlefieldCreature
         | TargetDomain::OwnGraveyardCreatureCard
+        | TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
         | TargetDomain::OwnGraveyardCard => {
             return Err("staples target outside foundations search".into());
