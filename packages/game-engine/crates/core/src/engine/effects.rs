@@ -24,6 +24,7 @@ pub enum EffectKey {
     Resolved { id: EffectId },
     Static { source: ObjectId, ability: u32 },
     IntrinsicProtectionFromEverything { source: ObjectId },
+    IntrinsicProtectionFromColor { source: ObjectId, color: Color },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1015,12 +1016,6 @@ impl Game {
         }
         Ok(appearance)
     }
-    // CR 702.16e,h/616.1. Every matching color prevents the full occurrence.
-    // The admitted protections have no secondary effects, so one grant needs
-    // only one candidate even for multicolored damage. Its normal ordering
-    // with finite shields and replacement effects still matters. Prepared
-    // source characteristics capture the exact source (including departure
-    // LKI). Color is invariant across all admitted continuous effects.
     pub(super) fn player_protected(&self, player: PlayerId) -> bool {
         self.state
             .rules
@@ -1037,6 +1032,9 @@ impl Game {
             .effects
             .retain(|e| !e.lasts_until_controller_turn() || e.origin.controller != player);
     }
+    // CR 702.16e,h/616.1: the existing each-color grant is represented
+    // by one candidate for matching prepared damage. Printed named-color
+    // protection uses separate identities and consumed damage-time facts.
     fn grant_prevents_damage(
         targets: &[ObjectId],
         keywords: &[KeywordAbility],
@@ -1047,13 +1045,29 @@ impl Game {
             && Self::has_color(&damage.source.characteristics)
     }
 
-    fn intrinsic_protection_source(&self, recipient: &DamageRecipient) -> Option<&Object> {
+    // CR 702.16e,g and 616.1: separate printed qualities have separate
+    // candidate identities even when a multicolored source matches both.
+    fn intrinsic_protection_keys(&self, recipient: &DamageRecipient) -> Vec<EffectKey> {
         let DamageRecipient::Creature { object } = *recipient else {
-            return None;
+            return vec![];
         };
-        self.current(object).ok().filter(|o| {
-            o.present_on_battlefield() && self.printed_protection_from_everything(object)
-        })
+        if !self
+            .current(object)
+            .is_ok_and(|o| o.present_on_battlefield())
+        {
+            return vec![];
+        }
+        let mut keys: Vec<_> = self
+            .printed_protection_colors(object)
+            .map(|color| EffectKey::IntrinsicProtectionFromColor {
+                source: object,
+                color,
+            })
+            .collect();
+        if self.printed_protection_from_everything(object) {
+            keys.push(EffectKey::IntrinsicProtectionFromEverything { source: object });
+        }
+        keys
     }
 
     fn application(
@@ -1075,12 +1089,35 @@ impl Game {
         let mut qualification = None;
         let (after, prevented, budget_before, budget_after) = match &pair.effect {
             EffectKey::IntrinsicProtectionFromEverything { source } => {
-                if self
-                    .intrinsic_protection_source(&d.recipient)
-                    .is_none_or(|o| o.id != *source)
+                if d.recipient != (DamageRecipient::Creature { object: *source })
+                    || !self
+                        .current(*source)
+                        .is_ok_and(|o| o.present_on_battlefield())
+                    || !self.printed_protection_from_everything(*source)
                 {
                     return Err("wrong intrinsic protection source".into());
                 }
+                (Quantity::zero(), d.amount.clone(), None, None)
+            }
+            EffectKey::IntrinsicProtectionFromColor { source, color } => {
+                if d.recipient != (DamageRecipient::Creature { object: *source })
+                    || !self
+                        .current(*source)
+                        .is_ok_and(|o| o.present_on_battlefield())
+                    || !self
+                        .printed_protection_colors(*source)
+                        .any(|printed| printed == *color)
+                {
+                    return Err("wrong fixed-color protection source".into());
+                }
+                let damage_source = self.damage_source_appearance(d)?;
+                if !damage_source.characteristics.colors.contains(color) {
+                    return Err("damage source outside fixed-color protection".into());
+                }
+                qualification = Some(Box::new(DamageReplacementQualification {
+                    effect_source: self.object_before(*source)?,
+                    damage_source,
+                }));
                 (Quantity::zero(), d.amount.clone(), None, None)
             }
             EffectKey::Static { source, ability } => {
@@ -1198,16 +1235,14 @@ impl Game {
         recipients.dedup();
         let keys = self.live_effect_keys();
         for (player, recipient) in recipients {
-            let intrinsic = self
-                .intrinsic_protection_source(&recipient)
-                .map(|o| EffectKey::IntrinsicProtectionFromEverything { source: o.id });
+            let intrinsic = self.intrinsic_protection_keys(&recipient);
             let pairs = tx
                 .entries
                 .iter()
                 .filter(|d| d.recipient == recipient)
                 .flat_map(|d| {
                     keys.iter()
-                        .chain(&intrinsic)
+                        .chain(intrinsic.iter())
                         .map(move |k| DamageEffectCandidate {
                             effect: k.clone(),
                             damage: d.id,
@@ -2196,6 +2231,7 @@ pub enum DamageEffectKind {
     PreventNextDamage,
     ProtectionFromEachColor,
     ProtectionFromEverything,
+    ProtectionFromColor,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -2321,14 +2357,21 @@ impl Game {
         let mut intrinsic: [Vec<EffectKey>; 4] = Default::default();
         if let Ok(tx) = self.damage_transaction() {
             for d in &tx.entries {
-                if d.amount > Quantity::zero()
-                    && let Some(source) = self.intrinsic_protection_source(&d.recipient)
-                {
-                    let key = EffectKey::IntrinsicProtectionFromEverything { source: source.id };
-                    let handles = intrinsic
-                        .get_mut(source.controller.0 as usize)
-                        .ok_or("invalid protection controller")?;
-                    if !handles.contains(&key) {
+                let Some(controller) = self.recipient_chooser(&d.recipient) else {
+                    continue;
+                };
+                if d.amount <= Quantity::zero() {
+                    continue;
+                }
+                let handles = intrinsic
+                    .get_mut(controller.0 as usize)
+                    .ok_or("invalid protection controller")?;
+                for key in self.intrinsic_protection_keys(&d.recipient) {
+                    let candidate = DamageEffectCandidate {
+                        effect: key.clone(),
+                        damage: d.id,
+                    };
+                    if !handles.contains(&key) && self.application(tx, &candidate).is_ok() {
                         handles.push(key);
                     }
                 }
@@ -2391,7 +2434,8 @@ impl Game {
     ) -> Result<VisibleEffectSource, String> {
         let (source, controller, announced) = match key {
             EffectKey::Static { source, .. }
-            | EffectKey::IntrinsicProtectionFromEverything { source } => (
+            | EffectKey::IntrinsicProtectionFromEverything { source }
+            | EffectKey::IntrinsicProtectionFromColor { source, .. } => (
                 *source,
                 self.current(*source)?.controller,
                 self.handle_for(viewer, *source)?,
@@ -2420,14 +2464,17 @@ impl Game {
                 announced,
                 current: self.handle_for(viewer, source).ok(),
             },
-            oracle_id: self
-                .state
-                .rules
-                .cards
-                .get(&source.card)
-                .ok_or("missing physical effect source")?
-                .oracle_id
-                .clone(),
+            oracle_id: if matches!(key, EffectKey::IntrinsicProtectionFromColor { .. }) {
+                self.visible_ability_oracle_id(source)?.into()
+            } else {
+                self.state
+                    .rules
+                    .cards
+                    .get(&source.card)
+                    .ok_or("missing physical effect source")?
+                    .oracle_id
+                    .clone()
+            },
             controller,
         })
     }
@@ -2649,6 +2696,7 @@ impl Game {
             EffectKey::IntrinsicProtectionFromEverything { .. } => {
                 DamageEffectKind::ProtectionFromEverything
             }
+            EffectKey::IntrinsicProtectionFromColor { .. } => DamageEffectKind::ProtectionFromColor,
             EffectKey::Static { .. } => DamageEffectKind::DoubleDamage,
             EffectKey::Resolved { id } => match self
                 .state
@@ -2689,10 +2737,17 @@ impl Game {
             self.effect_origin_view(viewer, &pair.effect)?
         };
         let allocation_required = self.needs_allocation(tx, &pair.effect);
-        Ok(VisibleDamageEffectCandidate {
-            label: self
+        let label = match pair.effect {
+            EffectKey::IntrinsicProtectionFromColor { color, .. } => {
+                fixed_color_protection::color_name(color)
+                    .map(|name| format!("Protection from {name}"))
+            }
+            _ => self
                 .effect_decision_context(viewer, &pair.effect)
                 .and_then(|c| c.instruction.map(|i| i.text)),
+        };
+        Ok(VisibleDamageEffectCandidate {
+            label,
             allocation_required,
             effect: self.effect_handle(viewer, &pair.effect)?,
             damage: self
@@ -2880,7 +2935,8 @@ impl Game {
             // At most one additional intrinsic source per original occurrence.
             || tx.applications.len() > existing_limit.saturating_add(tx.entries.len())
             || (tx.applications.len() > existing_limit && tx.applications.iter().filter(|a|
-                !matches!(a.effect, EffectKey::IntrinsicProtectionFromEverything { .. })
+                !matches!(a.effect, EffectKey::IntrinsicProtectionFromEverything { .. }
+                    | EffectKey::IntrinsicProtectionFromColor { .. })
             ).count() > existing_limit)
             || tx.allocation_groups.len() > self.effect_limit()
             || tx.id.0 >= self.state.rules.next_damage_transaction_id
@@ -3151,6 +3207,48 @@ impl Game {
                         || a.budget_after.is_some()
                     {
                         return Err("invalid intrinsic prevention prefix".into());
+                    }
+                    (Quantity::zero(), a.before.clone())
+                }
+                EffectKey::IntrinsicProtectionFromColor { source, color } => {
+                    let qualification = a
+                        .qualification
+                        .as_deref()
+                        .ok_or("missing consumed fixed-color protection facts")?;
+                    let protector = &qualification.effect_source;
+                    self.validate_characteristic_identity(
+                        protector.object,
+                        protector.zone,
+                        &protector.characteristics,
+                    )?;
+                    self.validate_source_appearance(d, &qualification.damage_source)?;
+                    // Replay proves the already-consumed recipient and damage-time
+                    // colors even when either object or its color provider left.
+                    if d.recipient != (DamageRecipient::Creature { object: *source })
+                        || protector.object != *source
+                        || protector.zone != Zone::Battlefield
+                        || !protector.characteristics.has_type(CardKind::Creature)
+                        || protector.controller.0 >= 4
+                        || protector.default_controller.0 >= 4
+                        || protector.marked_damage.is_negative()
+                        || self
+                            .state
+                            .rules
+                            .cards
+                            .get(&source.card)
+                            .is_none_or(|card| card.owner != protector.owner)
+                        || !self
+                            .printed_protection_colors(*source)
+                            .any(|printed| printed == *color)
+                        || !qualification
+                            .damage_source
+                            .characteristics
+                            .colors
+                            .contains(color)
+                        || a.budget_before.is_some()
+                        || a.budget_after.is_some()
+                    {
+                        return Err("invalid fixed-color prevention prefix".into());
                     }
                     (Quantity::zero(), a.before.clone())
                 }
