@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "342f8a41ff293706b755f4821d122c6a58946880490a769759e88b593d046e64"
+      "sha256": "ed1d7c81cb05c608ac07164061a9ff4acba4145bf992bc4985ca71814a1ccaf8"
     },
     {
       "path": "packages/game/web/src/decisions/controls.ts",
