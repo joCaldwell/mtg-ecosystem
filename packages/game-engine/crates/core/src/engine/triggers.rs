@@ -1347,6 +1347,7 @@ impl Game {
                         TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::OwnGraveyardCard
                     )
                 }) {
                     return self.bind_trigger_object_targets(placement, stack_id);
@@ -1880,6 +1881,7 @@ impl Game {
                         TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::OwnGraveyardCard
                     )
                 }))
             || !entry.stack_targets.is_empty()

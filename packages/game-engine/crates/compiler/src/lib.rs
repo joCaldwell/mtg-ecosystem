@@ -56,6 +56,7 @@ mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_costs;
+mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
@@ -2430,6 +2431,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .map_err(|e| unsupported("definition", e))?;
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
+    own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
@@ -3264,6 +3266,26 @@ fn append_spell_effects(
                             id,
                             TargetDomain::OwnGraveyardCreatureCard,
                         )?,
+                        source_block,
+                    }
+                }
+                Step::ReturnToHand { what, to, optional }
+                    if to == "your"
+                        && what["filter"]
+                            == serde_json::json!({"cls":"card","zone":{"zone":"graveyard","owner":"your"}}) =>
+                {
+                    // Definition validation binds the complete raw selector, sentence and printed block.
+                    let id = what["selectionId"].as_str().ok_or_else(|| {
+                        unsupported("effects.return", "missing graveyard card target")
+                    })?;
+                    Instruction::ReturnOwnGraveyardCardToHand {
+                        target_slot: bind_target(
+                            program,
+                            slots,
+                            id,
+                            TargetDomain::OwnGraveyardCard,
+                        )?,
+                        optional: optional.unwrap_or(false),
                         source_block,
                     }
                 }

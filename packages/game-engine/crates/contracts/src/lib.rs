@@ -76,6 +76,7 @@ pub use archives::*;
 mod creature_entry_return;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
+mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
 mod strict_io;
@@ -378,6 +379,7 @@ pub enum Capability {
     DestroyCreatureV1,
     GraveyardRecursionV1,
     GraveyardBattlefieldReturnV1,
+    OwnGraveyardCardReturnV1,
     BasicLandSearchV1,
     BasicLandSplitSearchV1,
     TypedLandSearchV1,
@@ -425,6 +427,7 @@ pub enum TargetDomain {
     /// CR 509.1g: a current blocking creature; ordinary spell pumps only.
     BlockingBattlefieldCreature,
     OwnGraveyardCreatureCard,
+    OwnGraveyardCard,
     OpponentPlayer,
     StackSpell,
     StackActivatedOrTriggeredAbility,
@@ -838,6 +841,12 @@ pub enum Instruction {
         optional: bool,
         source_block: u32,
     },
+    ReturnOwnGraveyardCardToHand {
+        target_slot: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        optional: bool,
+        source_block: u32,
+    },
     /// Own-library optional zero-to-two basics, reveal, one tapped/remaining hand, shuffle.
     SearchBasicLandsSplit {
         source_block: u32,
@@ -1106,6 +1115,7 @@ impl Instruction {
             Self::DestroyAllCreatures { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
+            Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
             Self::SearchBasicLands { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::PutPlusOneCounters { source_block, .. } => *source_block,
@@ -2874,6 +2884,7 @@ impl Definition {
         }
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
+        own_graveyard_card_return::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3415,6 +3426,7 @@ impl Definition {
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::OwnGraveyardCard
                     )
                 })
                 || p.instructions.iter().any(|instruction| {
@@ -3426,6 +3438,7 @@ impl Definition {
                             | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                            | Instruction::ReturnOwnGraveyardCardToHand { .. }
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
@@ -4539,6 +4552,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
             }
+            Instruction::ReturnOwnGraveyardCardToHand { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::OwnGraveyardCard))
+            }
             Instruction::SearchTypedLands { search, .. } => {
                 search.validate()?;
                 None
@@ -5001,6 +5017,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
+            TargetDomain::OwnGraveyardCard => Capability::OwnGraveyardCardReturnV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
@@ -5111,6 +5128,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::ReturnOwnGraveyardCreatureToHand { .. } => {
                 Capability::GraveyardRecursionV1
+            }
+            Instruction::ReturnOwnGraveyardCardToHand { .. } => {
+                Capability::OwnGraveyardCardReturnV1
             }
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
@@ -6602,6 +6622,7 @@ pub fn catalog_schema() -> serde_json::Value {
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
+    own_graveyard_card_return::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -6840,6 +6861,7 @@ mod tests {
             DestroyCreatureV1,
             GraveyardRecursionV1,
             GraveyardBattlefieldReturnV1,
+            OwnGraveyardCardReturnV1,
             BasicLandSearchV1,
             BasicLandSplitSearchV1,
             TypedLandSearchV1,
@@ -7219,6 +7241,7 @@ mod tests {
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
         definitions.push(creature_entry_return::witness());
+        definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
         definitions.push(targeted_discard::random_witness());
