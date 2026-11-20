@@ -870,6 +870,10 @@ fn paid_omnath_first_main_looks_reveals_and_puts_titanic_ultimatum_in_hand() {
         };
         o.view.objects.iter().any(|o| o.oracle_id == oracle)
             || o.view
+                .known_searched_hand
+                .iter()
+                .any(|(player, id)| *player == owner && id == &oracle)
+            || o.view
                 .known_library_positions
                 .iter()
                 .any(|p| p.oracle_id == oracle && p.position == 1 && p.library_owner == owner)
