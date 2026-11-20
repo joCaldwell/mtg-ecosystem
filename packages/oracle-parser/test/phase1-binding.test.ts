@@ -1308,6 +1308,12 @@ describe("history and linked outcomes", () => {
     assert.equal(bound(graph, "/steps/0/who"), bound(graph, "/condition/who"));
   });
 
+  it("does not use an opponent's payment as the printed you-do decision", () => {
+    const graph = analyze("Target opponent may pay 2 life. If you do, draw a card.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "decision-link"));
+  });
+
   it("rejects a preceding-action check when no adjacent payment was offered", () => {
     const graph = analyze("Whenever a creature an opponent controls dies, they may pay 3 life. Draw a card. "
       + "If they don't, return that card under your control with a finality counter on it.", "Enchantment");
@@ -1503,5 +1509,75 @@ describe("announcement counts and payment commitments", () => {
     const graph = analyze("Up to X target creatures phase out.", "Instant", "{U}");
     assert.equal(graph.referencesBound, false);
     assert.ok(!graph.nodes.some(node => node.node === "target-count"));
+  });
+});
+
+describe("player choices and exact exclusions", () => {
+  it("keeps each opponent's own choices when sacrificing the remainder", () => {
+    const graph = analyze("−9: Each opponent chooses a permanent they control of each permanent type and sacrifices the rest.", "Planeswalker");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "multiplayer-choice");
+    assert.ok(choice?.choose === "one-per-permanent-type");
+    const remainder = graph.nodes.find(node => node.node === "unchosen-permanents");
+    assert.ok(remainder?.exclude === "own-choices");
+    assert.equal(remainder.member, choice.member);
+    assert.equal(remainder.chosen, choice.result);
+  });
+
+  it("excludes the union of each player's own nonland choices from destruction", () => {
+    const graph = analyze("Each player chooses three nonland permanents they control. Destroy all other nonland permanents.", "Sorcery");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "multiplayer-choice");
+    const remainder = graph.nodes.find(node => node.node === "unchosen-permanents");
+    assert.ok(choice && remainder?.exclude === "all-player-choices");
+    assert.equal(remainder.chosen, bound(graph, "/filter/other"));
+    assert.equal(choice.result, remainder.chosen);
+  });
+
+  it("retains the order and the opponents-of-controller pool for choices that are exiled", () => {
+    const graph = analyze("I — Starting with you, each player chooses up to one permanent with mana value 3 or greater "
+      + "from among permanents your opponents control. Exile those permanents.", "Enchantment — Saga");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "multiplayer-choice");
+    assert.ok(choice?.startWith);
+    assert.equal(choice.startWith, bound(graph, "/startingWith"));
+    assert.equal(choice.result, bound(graph, "/effects/1/steps/0/what"));
+  });
+
+  it("does not find a prior exclusion set past a distinct intervening instruction", () => {
+    const graph = analyze("Each player chooses three nonland permanents they control. Each player draws a card. "
+      + "Destroy all other nonland permanents.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "unchosen-permanents"));
+  });
+
+  it("requires one entered object for a singular leave-the-battlefield replacement", () => {
+    const graph = analyze("Put two target creature cards from a graveyard onto the battlefield under your control. "
+      + "If that creature would leave the battlefield, exile it instead of putting it anywhere else.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "captured-move-replacement"));
+  });
+
+  it("does not resolve a cast replacement past a competing countered spell", () => {
+    const graph = analyze("Whenever you cast a spell from your hand, counter target spell. Exile that card with three time counters "
+      + "on it instead of putting it into your graveyard as it resolves. Then if the exiled card doesn't have suspend, it gains suspend.", "Enchantment");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "captured-move-replacement"));
+  });
+});
+
+describe("per-player action result fences", () => {
+  it("accounts for both loss events when a grouped action precedes a contextual amount", () => {
+    const graph = analyze("You lose 3 life. Any number of target players each lose 2 life. "
+      + "You gain life equal to the total life lost this way.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "event-aggregate"));
+  });
+
+  it("does not skip the group and reuse an earlier target player", () => {
+    const graph = analyze("Target player draws a card. Any number of target players each lose 2 life. They discard a card.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "ambiguous-antecedent" &&
+      diagnostic.path.endsWith("/who")));
   });
 });

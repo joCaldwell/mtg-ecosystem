@@ -354,6 +354,7 @@ interface Context {
   previousEffect?: string;
   precedingSentence?: { path: string; steps: Effect[] };
   directCardChoice?: { path: string; result: Candidate };
+  groupChoice?: { path: string; group: Candidate; member: Candidate; result: Candidate; eachType: boolean; ownNonlands: boolean };
   explicitExiledCast?: { path: string; result: Candidate };
   boundOperand?: { path: string; candidate: Candidate; rules: string[] };
   targetLegalityQuery?: true;
@@ -653,6 +654,7 @@ class Analyzer {
   /** Objects an activation cost selected ("Sacrifice a creature: …"). */
   readonly costObjects = new Set<string>();
   private readonly groupedTokenEvents = new Map<string, string>();
+  private readonly targetedPlayerGroups = new Set<string>();
   /** Event results that are the source itself ("When this creature enters"). */
   readonly sourceAliases = new Set<string>();
   /** The preceding paragraph of an instant or sorcery: its paragraphs are
@@ -1770,7 +1772,8 @@ class Analyzer {
       tracked = { kind: "one-object", object: cast.id };
       this.bound(event.what, whatPath, cast.id, rules);
     } else if (event.from === undefined && event.resolving && context.castActors?.caster.id === context.you &&
-        context.triggerObject?.event === "cast" && context.objects.length === 0 &&
+        context.triggerObject?.event === "cast" && context.objects.length === 0 && !context.departed?.length &&
+        context.lexicalAbilityPath !== undefined && path === `${context.lexicalAbilityPath}/effects/0/steps/0` &&
         isDeepStrictEqual(event.to, { zone: "graveyard", owner: "your" }) &&
         isDeepStrictEqual(event.what, { ref: "that", filter: { cls: "card" } })) {
       const cast = context.triggerObject.candidate.id;
@@ -1792,7 +1795,7 @@ class Analyzer {
       context.objects = context.objects.filter(candidate => candidate.id !== spellQuery?.id);
     } else if (!event.to && !event.resolving && isDeepStrictEqual(event.from, { zone: "battlefield" }) &&
         isDeepStrictEqual(event.what, { ref: "that", filter: { types: ["creature"] } }) &&
-        context.objects.length === 1 && context.objects[0].description?.cls === "permanent" &&
+        context.objects.length === 1 && context.objects[0].cardinality === "one" && context.objects[0].description?.cls === "permanent" &&
         context.objects[0].description.types?.includes("creature") &&
         this.result.nodes.some(node => node.node === "event-result" && node.identity === "zone-successors" && node.id === context.objects[0].id)) {
       const permanent = context.objects[0].id;
@@ -2473,6 +2476,10 @@ class Analyzer {
         owners.add(owned);
         return true;
       });
+      if (distinct.length === 1 && this.targetedPlayerGroups.has(distinct[0].id)) {
+        this.unresolved(expression, path, "unsupported-scope", "A targeted player group requires a separate continuation member scope.", ["608.2f"]);
+        return undefined;
+      }
       return this.antecedent(expression, path, distinct, "unknown", distinct.length < found.length ? ["108.3", "608.2k"] : ["608.2k"]);
     }
     if (expression.player === "that-player-or-controller") {
@@ -2815,7 +2822,7 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
+      sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, groupChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
       copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, targetPlayerGroup: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined, lifeGain: undefined, resolutionPaymentX: undefined,
@@ -3052,7 +3059,7 @@ class Analyzer {
     effect.steps.forEach((step, index) => this.effect(step, child(child(path, "steps"), index), group));
     this.blockBranchCaptures(context, [group]);
     Object.assign(context, { objects: group.objects, players: group.players, quantities: group.quantities, sourceMoved: group.sourceMoved, sourceSuccessor: group.sourceSuccessor, x: group.x });
-    context.decisions?.push(path);
+    if (decider === context.you) context.decisions?.push(path);
   }
   /** The player one object is described by ("a land an opponent controls",
    * "target card from an opponent's graveyard"), who "that player" may then
@@ -3223,14 +3230,15 @@ class Analyzer {
       // the preceding sentence (CR 608.2c, 608.2d).
       const condition = sentence.condition;
       const decisionPath = previousDecisions.length === 1 ? previousDecisions[0] : undefined;
+      const decisionEvent = decisionPath ? this.result.nodes.find(node => node.id === this.id(decisionPath, "event")) : undefined;
       const previousPayment = condition?.condition === "preceding-action" && condition.outcome === "not-performed" &&
-        condition.who.player === "they" && decisionPath
-        ? this.result.nodes.find(node => node.id === this.id(decisionPath, "event")) : undefined;
+        condition.who.player === "they" ? decisionEvent : undefined;
       const paymentCondition = previousPayment?.node === "event" && previousPayment.operation === "pay-cost" &&
         previousPayment.optional && previousPayment.scope === context.ability && previousPayment.decider &&
         this.player({ player: "they" }, `${at}/condition/who`, context)?.id === previousPayment.decider;
-      const linked = condition && (condition.condition === "you-do" || condition.condition === "you-dont" || paymentCondition)
-        ? decisionPath : undefined;
+      const yourDecision = decisionEvent?.node !== "event" || decisionEvent.decider === context.you;
+      const linked = condition && (paymentCondition ||
+        (yourDecision && (condition.condition === "you-do" || condition.condition === "you-dont"))) ? decisionPath : undefined;
       const declines = condition?.condition === "you-dont" || paymentCondition;
       const paid = !linked && condition?.condition === "you-do" ? precedingAction : undefined;
       if (paid) {
@@ -3442,6 +3450,83 @@ class Analyzer {
     return true;
   }
 
+  private multiplayerChoices(effect: Extract<Effect, { effect: "choose-object" }>, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "resolution" || context.decider || effect.optional || effect.decidedBy ||
+        effect.forEach || effect.forEachVote || (effect.who.player !== "each-player" && effect.who.player !== "each-opponent") ||
+        (effect.startingWith && effect.startingWith.player !== "you")) return false;
+    const what = effect.what;
+    if (!("ref" in what)) return false;
+    const eachType = effect.who.player === "each-opponent" && !effect.startingWith && what.ref === "each" &&
+      isDeepStrictEqual(effect.perPermanentType, { skipMissing: true, sameObjectForMultipleTypes: true }) &&
+      isDeepStrictEqual(what.filter, { cls: "permanent", controlledBy: { player: "they" } });
+    const ownNonlands = !effect.perPermanentType && !effect.startingWith && effect.who.player === "each-player" &&
+      what.ref === "filter" && !what.random && !what.groupConstraints && what.count.amount === "fixed" &&
+      isDeepStrictEqual(what.filter, { cls: "permanent", nonTypes: ["land"], controlledBy: { player: "they" } });
+    const amongOpponents = !effect.perPermanentType && effect.startingWith?.player === "you" &&
+      effect.who.player === "each-player" && what.ref === "filter" && !what.random && !what.groupConstraints &&
+      isDeepStrictEqual(what.count, { amount: "fixed", value: 1 }) && what.upTo && what.filter.cls === "permanent" &&
+      Object.keys(what.filter).every(key => ["cls", "properties", "fromAmong"].includes(key)) &&
+      isDeepStrictEqual(what.filter.fromAmong, { ref: "each", filter: { cls: "permanent", control: "opponent" } });
+    if (!eachType && !ownNonlands && !amongOpponents) return false;
+
+    const rules = ["101.4", "110.4", "608.2d", "608.2e", "609.3"];
+    const group = this.player(effect.who, child(path, "who"), context);
+    if (!group) return true;
+    const memberId = this.node({ id: this.id(path, "choice-member"), path, node: "instruction-member",
+      scope: context.ability, group: group.id, domain: "player", rules });
+    const member: Candidate = { id: memberId, domain: "player", cardinality: "one" };
+    const selector = this.object(what, child(path, "what"), { ...context, actor: member });
+    if (!selector) return true;
+    const first = effect.startingWith ? this.player(effect.startingWith, child(path, "startingWith"), context) : undefined;
+    const event = this.event(path, context, effect.effect, [member, selector], context.conditional ? { conditional: true } : {});
+    const chosen = this.eventResult(path, event, "objects", "many", "same-objects", { cls: "permanent" });
+    this.node({ id: this.id(path, "multiplayer-choice"), path, node: "multiplayer-choice", scope: context.ability, event,
+      group: group.id, member: member.id, selector: selector.id, result: chosen.id,
+      ...(first ? { startWith: first.id } : {}), choose: eachType ? "one-per-permanent-type" : "printed-count", rules });
+    this.engineFeature("multiplayer-choice", path,
+      "Make choices in the specified player order and remember each player's selections and their union.", rules);
+    context.objects = combine(context.objects, [chosen]);
+    context.groupChoice = { path, group, member, result: chosen, eachType, ownNonlands };
+    return true;
+  }
+
+  private afterMultiplayerChoices(effect: Effect, path: string, context: Context, precedingEffect?: string): boolean {
+    const choice = context.groupChoice;
+    if (context.barrier || context.decider || context.phase !== "resolution" || !choice || choice.path !== precedingEffect ||
+        effect.optional || effect.decidedBy || effect.forEach || effect.forEachVote) return false;
+    const rules = ["101.4", "608.2c", "608.2d", "608.2f"];
+    if (choice.ownNonlands && effect.effect === "destroy" && isDeepStrictEqual(effect.what, {
+      ref: "all", filter: { cls: "permanent", nonTypes: ["land"], other: true },
+    })) {
+      const what = child(path, "what");
+      const unchosen = this.node({ id: this.id(what, "unchosen-permanents"), path: what, node: "unchosen-permanents",
+        scope: context.ability, chosen: choice.result.id, filter: { cls: "permanent", nonTypes: ["land"] },
+        exclude: "all-player-choices", cardinality: "many", rules });
+      this.bound({ ref: "them" }, `${what}/filter/other`, choice.result.id, rules);
+      const selection = this.bound(effect.what, what, unchosen, rules);
+      this.event(path, context, effect.effect, [selection], context.conditional ? { conditional: true } : {});
+    } else if (choice.eachType && effect.effect === "sacrifice" &&
+        effect.who.player === "each-opponent" && !effect.chosenBy && effect.what.ref === "rest" && isDeepStrictEqual(effect.what, {
+          ref: "rest", exclude: "own-preceding-choices", of: { ref: "each", filter: { cls: "permanent", controlledBy: { player: "they" } } },
+        })) {
+      const what = child(path, "what");
+      if (!effect.what.of) return false;
+      this.bound(effect.who, child(path, "who"), choice.group.id, rules);
+      this.object(effect.what.of, child(what, "of"), { ...context, actor: choice.member });
+      const unchosen = this.node({ id: this.id(what, "unchosen-permanents"), path: what, node: "unchosen-permanents",
+        scope: context.ability, chosen: choice.result.id, member: choice.member.id,
+        filter: { cls: "permanent", controlledBy: { player: "they" } }, exclude: "own-choices", cardinality: "many", rules });
+      const selection = this.bound(effect.what, what, unchosen, rules);
+      this.event(path, context, effect.effect, [choice.member, selection], context.conditional ? { conditional: true } : {});
+    } else return false;
+    this.engineFeature("multiplayer-choice", path,
+      "Apply the action to the matching permanents outside the precisely bound preceding selections.", rules);
+    context.objects = [];
+    context.groupChoice = undefined;
+    context.mentionedObject = true;
+    return true;
+  }
+
   private targetedPlayerAction(effect: Effect, path: string, context: Context): boolean {
     if (context.barrier || context.phase !== "resolution" || context.decider || effect.optional || effect.decidedBy ||
         effect.forEach || effect.forEachVote || (effect.effect !== "lose-life" && effect.effect !== "sacrifice"))
@@ -3471,6 +3556,14 @@ class Analyzer {
       execution: { kind: "for-each", domain: group.id, member: memberId, membership: "announcement", processing: "instruction-wise" }, rules });
     this.engineFeature("group-instruction", path,
       "Apply this instruction to every still-legal member of the announced player group, separately binding their choices.", rules);
+    this.targetedPlayerGroups.add(group.id);
+    context.players = combine(context.players, [group]);
+    if (effect.effect === "lose-life") {
+      context.measuredEvents = [...(context.measuredEvents ?? []), { operation: "lose-life", event }];
+      const amounts = this.eventResult(path, event, "quantity", "unknown", "measured-quantity");
+      this.invalidNodes.set(amounts.id, "unsupported-scope");
+      context.quantities = combine(context.quantities, [amounts]);
+    }
     return true;
   }
 
@@ -3900,6 +3993,8 @@ class Analyzer {
     if (effect.effect === "reveal") context.uncertainRevealOrigin = true;
     if (this.distinctAction(effect, path, context)) return;
     if (this.relativePlayerAction(effect, path, context)) return;
+    if (this.afterMultiplayerChoices(effect, path, context, precedingEffect)) return;
+    if (effect.effect === "choose-object" && this.multiplayerChoices(effect, path, context)) return;
     if (this.targetedPlayerAction(effect, path, context)) return;
     if (effect.effect === "grant-look-permission" && this.lookAtFaceDownExile(effect, path, context)) return;
     if (effect.effect === "create-replacement" && this.moveToExileRule(effect, path, context, precedingEffect)) return;
