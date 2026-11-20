@@ -43,15 +43,22 @@ impl Game {
         source.colors.iter().any(|color| *color != Color::C)
     }
 
+    pub(super) fn printed_protection_from_everything(&self, card: CardId) -> bool {
+        self.definition(card).is_ok_and(|d| {
+            d.keywords
+                .contains(&KeywordAbility::ProtectionFromEverything)
+        })
+    }
+
     pub(super) fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
-        // The only admitted producer is a resolved GrantKeywordsSet. Most
-        // target and blocker queries run with no continuous effect rows.
-        !self.state.rules.effects.is_empty()
-            && Self::has_color(source)
-            && self
-                .current(target)
-                .is_ok_and(|o| o.zone == Zone::Battlefield)
-            && self.has_keyword(target, KeywordAbility::ProtectionFromEachColor)
+        // CR 702.16b–f,j. Printed protection from everything functions on
+        // the battlefield. Only the separate each-color grant tests color.
+        self.current(target)
+            .is_ok_and(|o| o.present_on_battlefield())
+            && (self.printed_protection_from_everything(target.card)
+                || (!self.state.rules.effects.is_empty()
+                    && Self::has_color(source)
+                    && self.has_keyword(target, KeywordAbility::ProtectionFromEachColor)))
     }
 
     // CR 608.2b: when the exact ability source has left, use its LKI,
