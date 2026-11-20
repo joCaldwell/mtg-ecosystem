@@ -357,15 +357,7 @@ fn prepare_root(
     let prepared =
         Prepared::admit_pod(catalog.clone(), config.clone()).map_err(|e| format!("admit:{e:?}"))?;
     let mut game = Game::with_trace(prepared.clone(), TraceMode::Off);
-    let mut s = Strategy {
-        catalog,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let mut s = Strategy::new(catalog, Policy::Develop, [0; 4]);
     let mut meter = Meter::default();
     let mut loop_ordinal = 0;
     let mut phase = "initial_advance";
@@ -471,15 +463,7 @@ fn branch(
     let mut g = m.timed("fork", || root.game.fork());
     m.counts.forked = 1;
     let initial = g.journal().len();
-    let mut strategy = Strategy {
-        catalog,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let mut strategy = Strategy::new(catalog, Policy::Develop, [0; 4]);
     let result = (|| -> Result<(), String> {
         let mut primary = false;
         let mut targeted = false;
@@ -1441,15 +1425,7 @@ fn choice_setup_policy_initial_keep_is_public_and_does_not_mutate_game() {
     let o = own_observation(&game, request.player(), 64, &mut m).unwrap();
     let before = game.state_digest().unwrap();
     let journal = game.replay_journal();
-    let mut strategy = Strategy {
-        catalog: &catalog,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let mut strategy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
     assert!(matches!(o.decision, Some(PlayerRequest::Mulligan { .. })));
     assert!(matches!(
         development(&catalog, &o, &mut strategy).unwrap(),

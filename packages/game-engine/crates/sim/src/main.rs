@@ -1717,6 +1717,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?)?
             );
         }
+        Some("bench-pods") => match_games::bench_pods::cli(&args[1..])?,
         Some("match-batch") if args.len() == 3 => {
             let profile = mtg_core::match_profile(&args[1]).ok_or("unknown match profile")?;
             let manifest_name = Path::new(&profile.catalog_manifest)
@@ -1916,7 +1917,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim choices-games [--recover]|effects-games [--recover]|trigger-games [--recover]|damage-life-games [--recover]|stack-costs-games [--recover]|bundle-metadata FILE|actions-payments-games [--recover]|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|catalog build MANIFEST|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim bench-pods PROFILE [OPTIONS]|choices-games [--recover]|effects-games [--recover]|trigger-games [--recover]|damage-life-games [--recover]|stack-costs-games [--recover]|bundle-metadata FILE|actions-payments-games [--recover]|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|catalog build MANIFEST|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }

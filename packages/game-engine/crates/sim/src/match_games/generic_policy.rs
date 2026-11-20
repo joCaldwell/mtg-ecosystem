@@ -2,8 +2,8 @@
 //! coarse value estimates; only core decides legality and executes rules.
 use super::*;
 use mtg_contracts::{
-    ActivationCost, CreatureRestriction, Definition, Instruction as I, KeywordAbility,
-    LifeRecipient, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
+    ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
+    KeywordAbility, LifeRecipient, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
     SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount,
     compound_indestructible_parameters,
 };
@@ -20,6 +20,36 @@ fn program_mode(p: &SpellProgram, mode: Option<u32>) -> &SpellProgram {
         .map(|m| &m.program)
         .unwrap_or(p)
 }
+fn develops_mana(instruction: &I) -> bool {
+    matches!(
+        instruction,
+        I::SearchBasicLands { .. }
+            | I::SearchBasicLandsSplit { .. }
+            | I::SearchTypedLands { .. }
+            | I::GrantLandPlaysThisTurn { .. }
+    )
+}
+
+fn requires_copy_entry_choice(definition: &Definition) -> bool {
+    definition
+        .static_abilities
+        .iter()
+        .any(|ability| ability.effect == StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn)
+}
+
+fn announced_x(instruction: &I) -> bool {
+    matches!(
+        instruction,
+        I::DamageSet {
+            amount: WipeAmount::AnnouncedX,
+            ..
+        } | I::DrawAnnouncedX { .. }
+            | I::DealDamageAnnouncedX { .. }
+            | I::MillAnnouncedX { .. }
+            | I::ChangeLifeAnnouncedX { .. }
+    )
+}
+
 fn entity_matches(visible: &VisibleEntityTarget, target: &PlayerTargetEntity) -> bool {
     match (visible, target) {
         (VisibleEntityTarget::Player { player: a }, PlayerTargetEntity::Player { player: b }) => {
@@ -278,8 +308,22 @@ impl Strategy<'_> {
         n.add(&1.into());
         n
     }
+    pub(super) fn best_permanent(
+        &self,
+        v: &PermittedView,
+        candidates: &[ObjectHandle],
+    ) -> Option<ObjectHandle> {
+        v.objects
+            .iter()
+            .filter(|o| candidates.contains(&o.handle))
+            .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
+            .map(|o| o.handle.clone())
+            .or_else(|| candidates.first().cloned())
+    }
+
     fn harmful_attachment(&self, d: &Definition) -> bool {
-        d.static_abilities.iter().any(|a| matches!(&a.effect,
+        d.static_abilities.iter().any(|a| a.effect == StaticEffect::ControlEnchantedPermanent
+            || matches!(&a.effect,
             StaticEffect::ModifyCreatures { power, toughness, restrictions, .. }
             if power.is_negative() || toughness.is_negative() || restrictions.contains(&CreatureRestriction::CantAttackOrBlock)))
     }
@@ -293,7 +337,10 @@ impl Strategy<'_> {
         p.instructions.iter().any(|i| match i {
             I::AttachEquipment { target_slot, .. }
             | I::ReturnOwnGraveyardCreatureToHand { target_slot, .. }
+            | I::ReturnOwnGraveyardCreatureToBattlefield { target_slot, .. }
+            | I::ReturnOwnGraveyardCardToHand { target_slot, .. }
             | I::PreventNextDamage { target_slot, .. } => *target_slot == slot,
+            I::DistributePlusOneCounters { .. } => slot == 0,
             I::PutPlusOneCounters {
                 on: mtg_contracts::CounterRecipient::Target { target_slot },
                 ..
@@ -310,6 +357,15 @@ impl Strategy<'_> {
             }
             | I::DrawCards {
                 recipient: Some(LifeRecipient::Target { target_slot }),
+                ..
+            }
+            | I::DrawAnnouncedX {
+                recipient: LifeRecipient::Target { target_slot },
+                ..
+            }
+            | I::ChangeLifeAnnouncedX {
+                recipient: LifeRecipient::Target { target_slot },
+                gain: true,
                 ..
             } => *target_slot == slot,
             _ => false,
@@ -349,6 +405,7 @@ impl Strategy<'_> {
                         && (authoritative_candidate
                             || v.combat.iter().any(|a| a.blockers.contains(&o.handle)))
                 }
+                TargetDomain::ControlledBattlefieldPermanent => o.controller == v.viewer,
                 TargetDomain::BattlefieldPermanent => true,
                 _ => false,
             }
@@ -384,7 +441,7 @@ impl Strategy<'_> {
                         // including self, so autonomous activations cannot cycle.
                         && definition(self.catalog, &o.oracle_id).is_ok_and(|target|
                             !target.activated.iter().any(|a| contains_untap(&a.program)))
-                }).max_by_key(|o| (self.value(o), o.handle.0.clone())).map(|o| o.handle.clone());
+                }).max_by_key(|o| (self.value(o), o.handle.0.as_str())).map(|o| o.handle.clone());
             }
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
@@ -399,7 +456,7 @@ impl Strategy<'_> {
                         && self.object_matches(v, o, t, candidates.is_some())
                         && self.flight_opportunity(v, d, o)
                 })
-                .max_by_key(|o| (self.value(o), o.handle.0.clone()))
+                .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
                 .map(|o| o.handle.clone());
         }
         if defensive_protection_spell(d, p) {
@@ -413,7 +470,7 @@ impl Strategy<'_> {
                         && self.object_matches(v, o, t, candidates.is_some())
                         && self.protection_threat(v, d, p, o)
                 })
-                .max_by_key(|o| (self.value(o), o.handle.0.clone()))
+                .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
                 .map(|o| o.handle.clone());
         }
         if pure_indestructible_equipment(d, p) {
@@ -441,7 +498,7 @@ impl Strategy<'_> {
                     && self.object_matches(v, o, t, candidates.is_some())
                     && (o.controller == v.viewer) == own
             })
-            .max_by_key(|o| (self.value(o), o.handle.0.clone()))
+            .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
             .map(|o| o.handle.clone())
     }
     // Priority in DeclareAttackers follows the actual attack and precedes the
@@ -748,7 +805,7 @@ impl Strategy<'_> {
                         && !filter.non_types.iter().any(|kind| c.has_type(*kind))
                     && !c.colors.iter().any(|color| filter.non_colors.contains(color))
             })
-        }).max_by_key(|o| (self.value(o), o.handle.0.clone())).map(|o| o.handle.clone())
+        }).max_by_key(|o| (self.value(o), o.handle.0.as_str())).map(|o| o.handle.clone())
     }
     pub(super) fn player_target(
         &self,
@@ -1062,6 +1119,7 @@ impl Strategy<'_> {
             .iter()
             .find_map(|i| match i {
                 I::DealDamage { amount, .. } => Some(amount.clone()),
+                I::DealDamageAnnouncedX { .. } => v.stack.last()?.x.clone(),
                 I::SacrificeDamage {
                     amount: SacrificeDamageAmount::Fixed { value },
                     ..
@@ -1380,14 +1438,34 @@ impl Strategy<'_> {
                 .unwrap_or(0);
         let mut best = Quantity::zero();
         let mut chosen = None;
-        for n in 1..=upper {
+        // This is a bounded policy search, including on views with extended mana production.
+        for n in 1..=upper.min(64) {
             let x = Quantity::from(n as i64);
             let mut cost = self.base_cost(v, d);
             cost.generic.add(&x);
-            if mana_policy::plan(self.catalog, v, &cost, None).is_none() {
+            if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
+                .is_none()
+            {
                 break;
             }
-            let score = self.wipe_score(v, p, &x).unwrap_or_default();
+            let score = self.wipe_score(v, p, &x).unwrap_or_else(|| {
+                let caps_draw = p
+                    .instructions
+                    .iter()
+                    .any(|instruction| matches!(instruction, I::DrawAnnouncedX { .. }));
+                if caps_draw
+                    && v.players
+                        .iter()
+                        .find(|player| player.player == v.viewer)
+                        .is_none_or(|player| n >= player.library_count as usize)
+                {
+                    Quantity::zero()
+                } else if p.instructions.iter().any(announced_x) {
+                    x.clone()
+                } else {
+                    Quantity::zero()
+                }
+            });
             if score > best {
                 best = score;
                 chosen = Some(x);
@@ -1474,15 +1552,7 @@ impl Strategy<'_> {
                 _ => {}
             }
         }
-        let x = if p.instructions.iter().any(|i| {
-            matches!(
-                i,
-                I::DamageSet {
-                    amount: WipeAmount::AnnouncedX,
-                    ..
-                }
-            )
-        }) {
+        let x = if p.instructions.iter().any(announced_x) {
             let Some(x) = self.choose_x(v, d, p) else {
                 return false;
             };
@@ -1547,17 +1617,52 @@ impl Strategy<'_> {
                 || defensive_protection_spell(d, p)
                 || temporary_flying_spell(d, p))
     }
+    pub(super) fn supported_cast_target(&self, v: &PermittedView, handle: &ObjectHandle) -> bool {
+        v.objects
+            .iter()
+            .find(|o| &o.handle == handle)
+            .and_then(|o| definition(self.catalog, &o.oracle_id).ok())
+            .is_some_and(|d| !requires_copy_entry_choice(d))
+    }
+
+    fn revealed_cast_ready(&self, v: &PermittedView) -> bool {
+        // The optional request does not identify its candidate. Exclude
+        // ambiguous exile offers when a publicly visible possibility
+        // requires an entry choice the permitted view cannot expose.
+        let mut candidates = v.objects.iter().filter(|o| {
+            o.zone == Zone::Exile
+                && o.owner == v.viewer
+                && !o.face_down
+                && o.characteristics
+                    .as_ref()
+                    .is_some_and(|c| !c.has_type(CardKind::Land))
+        });
+        let supported = |o: &VisibleObject| self.supported_cast_target(v, &o.handle);
+        candidates.next().is_some_and(supported) && candidates.all(supported)
+    }
+
     fn cast(
         &mut self,
         v: &PermittedView,
         o: &VisibleObject,
         d: &Definition,
     ) -> Option<PlayerResponse> {
+        // The pinned core can expose a trusted EntryCopy request without a
+        // permitted decision token. Avoid originating that continuation.
+        if requires_copy_entry_choice(d) {
+            return None;
+        }
+        if self.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
+            matches!(failed, PaymentAction::Cast(id, zone) if id == &d.oracle_id && *zone == o.zone)
+        }) {
+            return None;
+        }
         // The prohibition is fully public: inspect current battlefield
         // controllers and their catalog static effects, using the retained
         // turn owner rather than active-player presence (CR 800.4j).
         if v.objects.iter().any(|source| {
             source.zone == Zone::Battlefield
+                && !source.phased_out
                 && source.controller == v.turn_owner
                 && source.controller != v.viewer
                 && definition(self.catalog, &source.oracle_id).is_ok_and(|d| {
@@ -1582,15 +1687,7 @@ impl Strategy<'_> {
         }
         let mut cost = self.base_cost(v, d);
         if let Some(p) = &d.spell
-            && p.instructions.iter().any(|i| {
-                matches!(
-                    i,
-                    I::DamageSet {
-                        amount: WipeAmount::AnnouncedX,
-                        ..
-                    }
-                )
-            })
+            && p.instructions.iter().any(announced_x)
         {
             cost.generic.add(&self.choose_x(v, d, p)?);
         }
@@ -1609,10 +1706,20 @@ impl Strategy<'_> {
             cost.generic.add(&tax);
             cost.generic.add(&tax);
         }
-        let (choices, plan) =
-            mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)?;
+        let unchanged_cost = d.characteristics.hybrid_mana.is_empty()
+            && d.spell
+                .as_ref()
+                .is_none_or(|p| p.additional_sacrifice.is_none());
+        let (choices, plan) = mana_policy::hybrid_plan(
+            self.catalog,
+            v,
+            cost.clone(),
+            &d.characteristics.hybrid_mana,
+        )?;
+        self.payment.announced_cost = unchanged_cost.then_some(cost);
         self.hybrid_choices = choices;
         self.mana_plan = plan;
+        self.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
         Some(PlayerResponse::Cast {
             card: o.handle.clone(),
         })
@@ -1637,13 +1744,58 @@ impl Strategy<'_> {
         }
         Ok(None)
     }
-    pub(super) fn optional_effect(&self, v: &PermittedView) -> bool {
-        let Some((d, p)) = self.top_program(v) else {
-            return false;
-        };
+    pub(super) fn optional_effect(&self, v: &PermittedView, block: Option<u32>) -> bool {
         let Some(s) = v.stack.last() else {
             return false;
         };
+        if s.controller == v.viewer
+            && let Some(origin) = s.triggered.as_ref().map(|t| &t.ability)
+        {
+            use mtg_core::VisibleTriggerAbility;
+            let grants_cascade = match origin {
+                VisibleTriggerAbility::Granted {
+                    oracle_id,
+                    static_ability_index,
+                    ..
+                } => definition(self.catalog, oracle_id)
+                    .ok()
+                    .and_then(|d| d.static_abilities.get(*static_ability_index as usize))
+                    .is_some_and(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. })),
+                VisibleTriggerAbility::TemporaryGrant { oracle_id, .. } => {
+                    definition(self.catalog, oracle_id).is_ok_and(|d| {
+                        d.spell.as_ref().is_some_and(|p| {
+                            p.instructions
+                                .iter()
+                                .any(|i| matches!(i, I::GrantHandCastCascade { .. }))
+                        })
+                    })
+                }
+                _ => false,
+            };
+            if grants_cascade {
+                return self.revealed_cast_ready(v);
+            }
+        }
+        let Some((d, p)) = self.top_program(v) else {
+            return false;
+        };
+        let instruction = block
+            .and_then(|block| p.instructions.iter().find(|i| i.source_block() == block))
+            .or_else(|| match p.instructions.as_slice() {
+                [instruction] => Some(instruction),
+                _ => None,
+            });
+        match instruction {
+            Some(I::Cascade { .. } | I::RevealAndCast { .. }) => {
+                return self.revealed_cast_ready(v);
+            }
+            Some(I::OptionalDrawCards { .. } | I::OptionalDrawForSoleGreatestEntrant { .. })
+                if s.controller == v.viewer =>
+            {
+                return self.library_count(v) > 1;
+            }
+            _ => {}
+        }
         // Optional damage uses entity targets; optional removal uses object targets.
         if p.instructions
             .iter()
@@ -1714,12 +1866,18 @@ impl Strategy<'_> {
         occurrences: &[TargetSpec],
     ) -> Option<(&'a Definition, &'a SpellProgram)> {
         let (d, p) = self.top_program(v)?;
-        let program = p
-            .modes
+        let selected = &v.stack.last()?.selected_modes;
+        let mut children = selected
             .iter()
-            .map(|m| &m.program)
-            .find(|child| child.targets == occurrences)
-            .unwrap_or(p);
+            .filter_map(|&index| p.modes.get(index as usize));
+        let program = children
+            .find(|child| child.program.targets == occurrences)
+            .or_else(|| {
+                p.modes
+                    .iter()
+                    .find(|child| child.program.targets == occurrences)
+            })
+            .map_or(p, |child| &child.program);
         Some((d, program))
     }
     pub(super) fn choose_mode(&self, v: &PermittedView, candidates: &[u32]) -> Option<u32> {
@@ -1733,11 +1891,27 @@ impl Strategy<'_> {
                     .is_some_and(|m| self.reactive_ready(v, d, &m.program))
             })
             .or_else(|| {
-                candidates.iter().copied().find(|n| {
-                    p.modes
-                        .get(*n as usize)
-                        .is_some_and(|m| self.program_ready(v, d, &m.program))
-                })
+                candidates
+                    .iter()
+                    .copied()
+                    .filter_map(|index| {
+                        let child = &p.modes.get(index as usize)?.program;
+                        self.program_ready(v, d, child).then_some((index, child))
+                    })
+                    .min_by_key(|(index, child)| {
+                        let impact = child.instructions.iter().any(|i| {
+                            develops_mana(i)
+                                || matches!(
+                                    i,
+                                    I::CreateCreatureTokens { .. }
+                                        | I::DrawCards { .. }
+                                        | I::DrawControllerCards { .. }
+                                        | I::DistributePlusOneCounters { .. }
+                                )
+                        });
+                        (!impact, *index)
+                    })
+                    .map(|(index, _)| index)
             })
             .or_else(|| candidates.first().copied())
     }
@@ -1749,39 +1923,78 @@ impl Strategy<'_> {
         ability: usize,
     ) -> Option<PlayerResponse> {
         let a = &d.activated[ability];
-        if !self.program_ready(v, d, &a.program) {
+        let in_zone = match a.functioning_zone {
+            FunctioningZone::Battlefield => o.zone == Zone::Battlefield && !o.phased_out,
+            FunctioningZone::Hand => o.zone == (Zone::Hand { owner: v.viewer }),
+            _ => false,
+        };
+        if !in_zone
+            || self.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
+                matches!(failed, PaymentAction::Activate(handle, index) if handle == &o.handle && *index == ability)
+            })
+            || !self.program_ready(v, d, &a.program)
+        {
             return None;
         }
-        let (tap, sac, cost) = match &a.cost {
-            // This finite source family is not admitted to this policy/catalog.
-            ActivationCost::TapPayLifeSacrificeSource { .. }
-            | ActivationCost::DiscardSource { .. } => return None,
-            ActivationCost::TapSource => (true, false, zero_cost()),
-            ActivationCost::SacrificeSource => (false, true, zero_cost()),
-            ActivationCost::Mana { cost } => (false, false, cost.clone()),
-            ActivationCost::Composite { costs } => (
-                costs.tap,
-                costs.sacrifice,
-                costs.mana.clone().unwrap_or_else(zero_cost),
-            ),
-            ActivationCost::SacrificePermanent {
-                count,
-                filter,
-                mana,
-            } => {
-                if *count != 1 {
-                    return None;
+        let (tap, sac, cost) =
+            match &a.cost {
+                ActivationCost::TapPayLifeSacrificeSource { life } => {
+                    if self.library_count(v) == 0
+                        || !a.program.instructions.iter().any(develops_mana)
+                        || v.players
+                            .iter()
+                            .find(|p| p.player == v.viewer)
+                            .is_none_or(|p| p.life_frozen_until_next_turn || p.life <= *life)
+                    {
+                        return None;
+                    }
+                    (true, true, zero_cost())
                 }
-                if !self
-                    .sacrifice_objects(v, filter)
-                    .iter()
-                    .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
-                {
-                    return None;
+                ActivationCost::DiscardSource { mana } => {
+                    if self.library_count(v) < 2
+                        || !a.program.instructions.iter().any(|i| {
+                            matches!(i, I::DrawCards { .. } | I::DrawControllerCards { .. })
+                        })
+                    {
+                        return None;
+                    }
+                    (false, false, mana.clone())
                 }
-                (false, false, mana.clone().unwrap_or_else(zero_cost))
-            }
-        };
+                ActivationCost::TapSource => (true, false, zero_cost()),
+                ActivationCost::SacrificeSource => (false, true, zero_cost()),
+                ActivationCost::Mana { cost } => (false, false, cost.clone()),
+                ActivationCost::Composite { costs } => {
+                    if costs
+                        .remove_source_plus_one_counters
+                        .as_ref()
+                        .is_some_and(|n| o.plus_one_counters < *n)
+                    {
+                        return None;
+                    }
+                    (
+                        costs.tap,
+                        costs.sacrifice,
+                        costs.mana.clone().unwrap_or_else(zero_cost),
+                    )
+                }
+                ActivationCost::SacrificePermanent {
+                    count,
+                    filter,
+                    mana,
+                } => {
+                    if *count != 1 {
+                        return None;
+                    }
+                    if !self
+                        .sacrifice_objects(v, filter)
+                        .iter()
+                        .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
+                    {
+                        return None;
+                    }
+                    (false, false, mana.clone().unwrap_or_else(zero_cost))
+                }
+            };
         if tap
             && (o.tapped
                 || (d.characteristics.kind == CardKind::Creature
@@ -1804,6 +2017,7 @@ impl Strategy<'_> {
             return None;
         }
         if sac
+            && !matches!(a.cost, ActivationCost::TapPayLifeSacrificeSource { .. })
             && !self.sacrifice_worthwhile(v, &a.program, o)
             && !self.expendable(o)
             && v.turn.number < 20
@@ -1856,6 +2070,9 @@ impl Strategy<'_> {
             &cost,
             if tap || sac { Some(&o.handle) } else { None },
         )?;
+        self.payment.exclude = (tap || sac).then(|| o.handle.clone());
+        self.payment.announced_cost = Some(cost);
+        self.payment.action = Some(PaymentAction::Activate(o.handle.clone(), ability));
         Some(PlayerResponse::ActivateAbility {
             object: o.handle.clone(),
             ability: ability as u32,
@@ -1866,6 +2083,12 @@ impl Strategy<'_> {
         if self.policy == Policy::DrawOnly {
             return Ok(PlayerResponse::Pass);
         }
+        self.payment.next_priority(v);
+        self.mana_plan.clear();
+        self.mana_ability = None;
+        self.mana_color = None;
+        self.mana_combination = None;
+        self.hybrid_choices.clear();
         if let Some(r) = self.reactive_spells(v)? {
             return Ok(r);
         }
@@ -1923,7 +2146,24 @@ impl Strategy<'_> {
             }
             return Ok(PlayerResponse::Pass);
         }
-        if v.turn.lands_played == 0
+        let land_allowance = v
+            .effects
+            .iter()
+            .fold(Quantity::from(1), |mut allowance, effect| {
+                if let mtg_core::VisibleEffect::AdditionalLandPlays {
+                    origin,
+                    count,
+                    expires_in_cleanup_of_turn,
+                    ..
+                } = effect
+                    && origin.controller == v.viewer
+                    && *expires_in_cleanup_of_turn == v.turn.number
+                {
+                    allowance.add(count);
+                }
+                allowance
+            });
+        if Quantity::from(i64::from(v.turn.lands_played)) < land_allowance
             && let Some(o) = v.objects.iter().find(|o| {
                 o.zone == (Zone::Hand { owner: v.viewer })
                     && definition(self.catalog, &o.oracle_id)
@@ -1946,11 +2186,9 @@ impl Strategy<'_> {
                             | mtg_contracts::TriggerCondition::OpponentCreatureDies
                     )
                 })
-                || d.spell.as_ref().is_some_and(|p| {
-                    p.instructions
-                        .iter()
-                        .any(|i| matches!(i, I::SearchBasicLands { .. }))
-                })
+                || d.spell
+                    .as_ref()
+                    .is_some_and(|p| p.instructions.iter().any(develops_mana))
         };
         for stage in 0..5 {
             for o in &v.objects {
@@ -1987,11 +2225,10 @@ impl Strategy<'_> {
                 }
             }
         }
-        for o in v
-            .objects
-            .iter()
-            .filter(|o| o.zone == Zone::Battlefield && o.controller == v.viewer)
-        {
+        for o in v.objects.iter().filter(|o| {
+            (o.zone == Zone::Battlefield && o.controller == v.viewer)
+                || o.zone == (Zone::Hand { owner: v.viewer })
+        }) {
             let Ok(d) = definition(self.catalog, &o.oracle_id) else {
                 continue;
             };
@@ -2003,6 +2240,68 @@ impl Strategy<'_> {
         }
         Ok(PlayerResponse::Pass)
     }
+    pub(super) fn search_lands(
+        &self,
+        view: &PermittedView,
+        candidates: &[mtg_core::VisibleSearchLand],
+        maximum: usize,
+    ) -> Vec<ObjectHandle> {
+        let colors = |d: &Definition| {
+            d.characteristics
+                .subtypes
+                .iter()
+                .filter_map(|subtype| mtg_contracts::basic_land_color(subtype))
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let mut covered = view
+            .objects
+            .iter()
+            .filter(|o| o.zone == Zone::Battlefield && o.controller == view.viewer && !o.phased_out)
+            .filter_map(|o| o.characteristics.as_ref())
+            .filter(|c| c.has_type(CardKind::Land))
+            .flat_map(|c| {
+                c.subtypes
+                    .iter()
+                    .filter_map(|s| mtg_contracts::basic_land_color(s))
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut offered: Vec<_> = candidates
+            .iter()
+            .enumerate()
+            .map(|(index, candidate)| {
+                let production = definition(self.catalog, &candidate.oracle_id)
+                    .ok()
+                    .map_or_else(Default::default, colors);
+                (index, candidate, production)
+            })
+            .collect();
+        let mut chosen = Vec::with_capacity(maximum.min(offered.len()));
+        while chosen.len() < maximum && !offered.is_empty() {
+            let next = offered
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, (order, _, production))| {
+                    (
+                        production.difference(&covered).count(),
+                        std::cmp::Reverse(*order),
+                    )
+                })
+                .map(|(index, _)| index)
+                .unwrap();
+            let (_, candidate, production) = offered.swap_remove(next);
+            covered.extend(production);
+            chosen.push(candidate.handle.clone());
+        }
+        chosen
+    }
+
+    fn library_count(&self, v: &PermittedView) -> usize {
+        v.players
+            .iter()
+            .find(|p| p.player == v.viewer)
+            .map_or(0, |p| p.library_count as usize)
+    }
+
     #[cfg(test)]
     fn land_color(&self, id: &str) -> Option<Color> {
         let d = definition(self.catalog, id).ok()?;
