@@ -44,6 +44,9 @@ mod announced_x_draw;
 mod artifact_modal;
 mod counter_unless_generic;
 mod each_player_draw;
+mod entry_graveyard_exile;
+mod set_exile;
+pub use set_exile::{SetExileClause, set_exile_modes};
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -61,8 +64,10 @@ mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
+mod keyword_removal_wipe;
 mod library_selection;
 mod nonland_exile_life;
+pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wipe_source};
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
@@ -84,12 +89,14 @@ mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
 mod creature_entry_return;
+mod divided_plus_one_counters;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
 mod power_filtered_removal;
+pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -180,6 +187,19 @@ pub struct ManaCost {
     pub generic: Quantity,
     pub colored: Vec<Color>,
 }
+impl ManaCost {
+    fn printed_fixed_cost(&self) -> String {
+        let mut text = String::new();
+        if self.generic != Quantity::zero() || self.colored.is_empty() {
+            text.push_str(&format!("{{{}}}", self.generic));
+        }
+        for color in &self.colored {
+            text.push_str(&format!("{{{color:?}}}"));
+        }
+        text
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -352,6 +372,7 @@ pub enum Capability {
     HandActivationV1,
     DiscardSourceCostV1,
     AnyDamageTargetV1,
+    RemoveIndestructibleV1,
     PlayerOrPlaneswalkerTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
@@ -363,10 +384,12 @@ pub enum Capability {
     OtherCreatureEntersBattlefieldV1,
     PowerFilteredCreatureEntryV1,
     CreatureEntryReturnV1,
+    EntryGraveyardExileV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
     ModalChoiceV1,
+    NonemptyModeSubsetV1,
     DefenderV1,
     FlyingV1,
     ReachV1,
@@ -391,6 +414,7 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    DividedPlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
     GraveyardBattlefieldReturnV1,
@@ -501,6 +525,8 @@ pub enum ObjectSet {
     NonlandPermanents,
     OpponentNonlandPermanents,
     Enchantments,
+    Artifacts,
+    GraveyardCards,
     AttackingCreatures,
     OpponentCreatures,
     FlyingCreatures,
@@ -761,6 +787,9 @@ pub enum Instruction {
         action: SetMove,
         source_block: u32,
     },
+    RemoveOpponentNonlandIndestructible {
+        source_block: u32,
+    },
     DestroySet {
         set: ObjectSet,
         /// CR 701.19c: a prohibition keeps regeneration replacement effects
@@ -897,6 +926,14 @@ pub enum Instruction {
     PutSourcePlusOneCountersForCastColors {
         source_block: u32,
     },
+    /// CR 601.2c–d. Slot zero is one variable target occurrence. Announce its
+    /// distinct objects and positive shares summing to count before paying costs.
+    DistributePlusOneCounters {
+        count: Quantity,
+        minimum_targets: u32,
+        maximum_targets: u32,
+        source_block: u32,
+    },
     PutPlusOneCounters {
         on: CounterRecipient,
         amount: Quantity,
@@ -937,6 +974,10 @@ pub enum Instruction {
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
         amount: Quantity,
         duration: Duration,
+        source_block: u32,
+    },
+    ExileTargetGraveyard {
+        target_slot: u32,
         source_block: u32,
     },
     ReturnEntryTargetCreature {
@@ -1138,6 +1179,7 @@ impl Instruction {
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
+            Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1164,13 +1206,15 @@ impl Instruction {
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
             Self::SearchBasicLands { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
-            Self::PutPlusOneCounters { source_block, .. } => *source_block,
+            Self::DistributePlusOneCounters { source_block, .. }
+            | Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
-            Self::ReturnEntryTargetCreature { source_block, .. }
+            Self::ExileTargetGraveyard { source_block, .. }
+            | Self::ReturnEntryTargetCreature { source_block, .. }
             | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
@@ -1451,6 +1495,7 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
+    OneOrMoreModes,
     Instructions,
     Permanent,
 }
@@ -2578,6 +2623,7 @@ impl Definition {
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
         artifact_modal::validate(self)?;
+        set_exile::validate(self)?;
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
@@ -2591,6 +2637,7 @@ impl Definition {
         power_entry_draw::validate_definition(self)?;
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
+        entry_graveyard_exile::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2969,6 +3016,7 @@ impl Definition {
         own_graveyard_card_return::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
@@ -3299,10 +3347,13 @@ impl Definition {
                     .triggered
                     .iter()
                     .all(|a| a.condition == TriggerCondition::SelfSpellCast),
-                CardKind::Land => self
-                    .triggered
-                    .iter()
-                    .all(|a| a.condition == TriggerCondition::SelfBecomesTapped),
+                CardKind::Land => self.triggered.iter().all(|a| {
+                    a.condition == TriggerCondition::SelfBecomesTapped
+                        || (a.condition == TriggerCondition::SelfEntersBattlefield
+                            && self
+                                .capabilities
+                                .contains(&Capability::EntryGraveyardExileV1))
+                }),
             }
         {
             return Err(
@@ -3528,6 +3579,7 @@ impl Definition {
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnOwnGraveyardCardToHand { .. }
+                            | Instruction::ExileTargetGraveyard { .. }
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
@@ -3793,7 +3845,10 @@ impl Definition {
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
                     || p.timing != cast_timing
-                    || p.resolution != SpellResolution::Instructions
+                    || !matches!(
+                        p.resolution,
+                        SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                    )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
                     return Err("invalid spell functioning zone or empty program".into());
@@ -4370,7 +4425,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         if p.modes.len() < 2
             || !p.targets.is_empty()
             || !p.instructions.is_empty()
-            || p.resolution != SpellResolution::Instructions
+            || !matches!(
+                p.resolution,
+                SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+            )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
         }
@@ -4379,7 +4437,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             if !child.modes.is_empty()
                 || child.timing != p.timing
                 || child.functioning_zone != p.functioning_zone
-                || child.resolution != p.resolution
+                || child.resolution != SpellResolution::Instructions
                 || child.instructions.is_empty()
             {
                 return Err("nested, empty, or inconsistent modal program".into());
@@ -4468,6 +4526,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     for instruction in &p.instructions {
         let binding = match instruction {
             Instruction::MoveSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -4563,6 +4622,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     return Err("optional destroy requires a triggered program".into());
                 }
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
+            }
+            Instruction::ExileTargetGraveyard { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::AnyPlayer))
             }
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
             | Instruction::ExilePermanent { target_slot, .. }
@@ -4682,6 +4744,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
+            Instruction::DistributePlusOneCounters { .. } => {
+                Some((0, TargetDomain::BattlefieldCreature))
+            }
             Instruction::PutPlusOneCounters { on, amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("counter amount must be positive".into());
@@ -5069,11 +5134,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     if !program.optional_additional_costs.is_empty() {
         set.insert(Capability::OptionalAdditionalManaCostV1);
     }
-    if program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::PutSourcePlusOneCountersForCastColors { .. }))
-    {
+    if program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            Instruction::PutSourcePlusOneCountersForCastColors { .. }
+                | Instruction::DistributePlusOneCounters { .. }
+        )
+    }) {
         set.insert(Capability::PlusOneCountersV1);
     }
     if has_permanent_owner_hand(program) {
@@ -5099,6 +5166,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if program.resolution == SpellResolution::OneOrMoreModes {
+            set.insert(Capability::NonemptyModeSubsetV1);
+        }
         for mode in &program.modes {
             add_program_requirements(set, &mode.program);
         }
@@ -5209,6 +5279,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::RemoveOpponentNonlandIndestructible { .. } => {
+                Capability::RemoveIndestructibleV1
+            }
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -5274,6 +5347,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
                 Capability::CastSpellColorCountersV1
             }
+            Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantKeywords { .. } => {
                 if temporary_permanent_keyword_program(program).is_some() {
@@ -5285,6 +5359,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
+            Instruction::ExileTargetGraveyard { .. } => Capability::EntryGraveyardExileV1,
             Instruction::ReturnEntryTargetCreature { .. } => Capability::CreatureEntryReturnV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
@@ -5824,7 +5899,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
             "targets":{"maxItems":0},"instructions":{"maxItems":0},
-            "resolution":{"const":"instructions"},
+            "resolution":{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},
             "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
                 "modes":{"maxItems":0},"instructions":{"minItems":1},
                 "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
@@ -6741,6 +6816,7 @@ pub fn catalog_schema() -> serde_json::Value {
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     targeted_discard::extend_schema(&mut schema);
+    set_exile::extend_schema(&mut schema);
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
@@ -6754,6 +6830,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
@@ -6778,8 +6855,10 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
+    entry_graveyard_exile::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     schema
 }
@@ -6975,6 +7054,7 @@ mod tests {
             DiscardSourceCostV1,
             AnyDamageTargetV1,
             PlayerOrPlaneswalkerTargetV1,
+            RemoveIndestructibleV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
             LifeGainV1,
@@ -6985,6 +7065,7 @@ mod tests {
             OtherCreatureEntersBattlefieldV1,
             PowerFilteredCreatureEntryV1,
             CreatureEntryReturnV1,
+            EntryGraveyardExileV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -6995,6 +7076,7 @@ mod tests {
             SelfDiesV1,
             InterveningIfV1,
             ModalChoiceV1,
+            NonemptyModeSubsetV1,
             DefenderV1,
             FlyingV1,
             ReachV1,
@@ -7019,6 +7101,7 @@ mod tests {
             CreatureTokensV1,
             MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
+            DividedPlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
             GraveyardBattlefieldReturnV1,
@@ -7139,6 +7222,52 @@ mod tests {
             token.toughness = 7.into();
         }
         creator.capabilities = creator.requirements();
+        let mut menu = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Sorcery
+                    && !d.x_mana_cost
+                    && d.keywords.is_empty()
+                    && d.triggered.is_empty()
+                    && d.static_abilities.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-open-mode-catalog.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        menu.source_labels = None;
+        assert_eq!(source["mana_cost"], "{0}");
+        menu.characteristics.mana_cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![],
+        };
+        menu.name = source["name"].as_str().unwrap().into();
+        menu.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        menu.provenance.printing_id = source["id"].as_str().unwrap().into();
+        menu.provenance.source_json = canonical(source).unwrap();
+        menu.provenance.source_sha256 = sha256(menu.provenance.source_json.as_bytes());
+        menu.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        menu.provenance.ast_sha256 =
+            sha256(format!("[{}]", menu.provenance.abilities_json).as_bytes());
+        let timing = if source["type_line"] == "Sorcery" {
+            menu.characteristics.kind = CardKind::Sorcery;
+            SpellTiming::MainPhase
+        } else {
+            menu.characteristics.kind = CardKind::Instant;
+            SpellTiming::Instant
+        };
+        menu.spell = Some(
+            set_exile_modes(source["oracle_text"].as_str().unwrap(), timing)
+                .unwrap()
+                .2,
+        );
+        menu.capabilities = menu.requirements();
+        definitions.push(menu);
         definitions.push(creator);
         // Synthetic complete typed control; exact frozen source is compiled
         // independently in compiler::ramos_m4e_tests.
@@ -7416,7 +7545,9 @@ mod tests {
         definitions.push(power_entry_draw::witness());
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
+        definitions.push(divided_plus_one_counters::witness());
         definitions.push(creature_entry_return::witness());
+        definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
@@ -7650,6 +7781,12 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
+        let sweep = definitions
+            .iter()
+            .find(|d| d.name == "Planar Cleansing")
+            .unwrap()
+            .clone();
+        definitions.push(keyword_removal_wipe::witness(sweep));
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

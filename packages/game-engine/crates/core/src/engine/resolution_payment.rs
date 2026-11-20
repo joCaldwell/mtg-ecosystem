@@ -28,10 +28,10 @@ enum PaymentPurpose {
 }
 
 impl Game {
-    fn resolution_payment_terms(
-        &self,
-        frame: &Resolving,
-    ) -> Result<(PaymentPurpose, &Quantity, u32), String> {
+    fn resolution_payment_terms<'a>(
+        &'a self,
+        frame: &'a Resolving,
+    ) -> Result<(PaymentPurpose, &'a Quantity, u32), String> {
         match self
             .program_for(&frame.spell)?
             .instructions
@@ -114,13 +114,14 @@ impl Game {
         else {
             return self.resolve_unpaid(frame, purpose, source_block);
         };
+        let generic = generic.clone();
         self.state.rules.frame = Frame::ResolutionPayment {
             frame,
             payment: ResolutionPayment {
                 purpose,
                 payer,
                 cost: ManaCost {
-                    generic: generic.clone(),
+                    generic,
                     colored: vec![],
                 },
                 stage: ResolutionPaymentStage::Offer,

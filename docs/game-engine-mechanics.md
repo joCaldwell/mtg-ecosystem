@@ -117,7 +117,9 @@ opponent hand-size reductions draw at their controller's end step. Paid draws
 survive source sacrifice. Counted
 draws precede hand returns or simultaneous discards. Commander replacements
 precede hand-return successors. Own-graveyard card returns target exact cards;
-creature battlefield returns use ordinary entry. Discards clamp to hand size.
+creature battlefield returns use ordinary entry. Self-entry exile resolves the
+chosen player's current graveyard simultaneously before Commander SBAs.
+Discards clamp to hand size.
 Group choices stay private until one simultaneous discard before Commander SBAs.
 Each-player draws finish each seat in turn order, including failed attempts.
 Seeded random discard samples without replacement. Departure never redirects attempts.
@@ -146,13 +148,12 @@ production remain open.
 ## Casting, costs, targets and stack
 
 Stack projections run bottom to top. Saved announcement handles are historical:
-never rebind to a later incarnation or authorize a new response. Lower entries
-stay completed while the top is announced; reversal restores prior passes filtered
-by living seats. Resolving frames retain frozen instances through supported source
+they never bind successor incarnations. Lower entries stay complete during announcement. Reversal restores living players’ passes. Resolving frames retain frozen instances through supported source
 departure (CR 608.2m). Only the caster answers targets/casting mana.
 
-Targets are selected before costs. Casting always offers its mana window, even
-when already funded. FinishMana attempts full payment and cannot cancel a payable
+For one-or-more exile spells, the caster selects distinct mode indices before payment. Each selected set resolves in printed order; snapshots retain indices and reconstruct instructions from the catalog.
+
+Targets precede costs. Casting always offers a mana window. FinishMana attempts full payment and cannot cancel a payable
 spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
@@ -175,6 +176,7 @@ or draw one or two followed by a mandatory discard.
 Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
 wait for the complete invocation. Additional costs never change mana value.
 Targeted discard uses the announced player's hand.
+Divided counters bind shares before costs and commit surviving shares simultaneously.
 
 Object target slots share domain/filter because the request supplies one common
 candidate set; unequal per-slot filters reject. Entity/player/opponent/stack

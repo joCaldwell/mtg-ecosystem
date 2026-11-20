@@ -153,6 +153,8 @@ pub struct VisibleStackEntry {
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_modes: Vec<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triggered: Option<VisibleTriggered>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -324,6 +326,8 @@ pub enum PlayerRequest {
     Modes {
         token: DecisionToken,
         player: PlayerId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        one_or_more: bool,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {
@@ -432,6 +436,8 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         occurrences: Vec<TargetSpec>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        counter_division: Option<CounterDivision>,
         candidates: Vec<ObjectHandle>,
     },
     Mana {
@@ -554,6 +560,9 @@ pub enum PlayerResponse {
     },
     DamageAllocation {
         allocations: Vec<(DamageHandle, Quantity)>,
+    },
+    ModeSubset {
+        modes: Vec<u32>,
     },
     Modes {
         mode: u32,
@@ -1233,6 +1242,11 @@ impl Game {
                 .map(|_| self.stack_mana_value(instance))
                 .transpose()?,
             mode: instance.mode,
+            selected_modes: instance
+                .mode_subset
+                .as_ref()
+                .map(|s| s.indices.clone())
+                .unwrap_or_default(),
             triggered,
             entity_targets,
             handle: { Some(self.stack_handle_for(viewer, instance.id)?) },
@@ -1463,8 +1477,14 @@ impl Game {
                 (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
             );
         }
-        if let Some(Request::Modes { player, .. }) = self.modes_request()? {
+        if let Some(Request::Modes {
+            player,
+            one_or_more,
+            ..
+        }) = self.modes_request()?
+        {
             return Ok((player == viewer).then_some(PlayerRequest::Modes {
+                one_or_more,
                 token,
                 player,
                 candidates: vec![],
@@ -1783,6 +1803,7 @@ impl Game {
                     token,
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
+                    counter_division: None,
                     candidates: vec![],
                 }))
             }
@@ -1867,6 +1888,7 @@ impl Game {
                     token,
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
+                    counter_division: CounterDivision::offered_by(self.program()?),
                     candidates: vec![],
                 }))
             }
@@ -2306,6 +2328,9 @@ impl Game {
             }
             PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
                 value: value.clone(),
+            }),
+            PlayerResponse::ModeSubset { modes } => Ok(Response::ModeSubset {
+                modes: modes.clone(),
             }),
             PlayerResponse::Modes { mode } => Ok(Response::Modes { mode: *mode }),
             PlayerResponse::CounterPlacementEffect { effect } => {

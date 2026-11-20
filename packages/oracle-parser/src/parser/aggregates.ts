@@ -117,6 +117,19 @@ export function parseAggregateAmount(c: Cursor, g: AggregateGrammar): Amount | n
     if (attribute !== "power" && attribute !== "toughness" && attribute !== "mana-value") return null;
     if (their) return { amount: "attribute-sum", attribute, among: { ref: "them" } };
     if (c.word("of") === null) return null;
+    if (attribute === "mana-value") {
+      const castSum = c.attempt((c): Amount | null => {
+        if (!c.words("other", "spells")) return null;
+        if (!c.words("you've", "cast", "this", "turn") && !c.words("you", "have", "cast", "this", "turn")) return null;
+        return {
+          amount: "cast-mana-value-sum",
+          who: { player: "you" },
+          during: "this-turn",
+          excluding: { ref: "this", noun: "spell" },
+        };
+      });
+      if (castSum) return castSum;
+    }
     const among = g.parseObjectRef(c);
     return among ? { amount: "attribute-sum", attribute, among } : null;
   });

@@ -56,7 +56,7 @@ impl<'a> LandSearch<'a> {
     }
 }
 impl Game {
-    fn land_search_for(&self, frame: &Resolving) -> Option<LandSearch<'_>> {
+    fn land_search_for<'a>(&'a self, frame: &'a Resolving) -> Option<LandSearch<'a>> {
         LandSearch::instruction(
             self.program_for(&frame.spell)
                 .ok()?

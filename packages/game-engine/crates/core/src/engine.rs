@@ -32,6 +32,8 @@ mod activated_spell_counter_tests;
 mod each_player_draw;
 mod group_discard;
 #[cfg(test)]
+mod keyword_removal_wipe_tests;
+#[cfg(test)]
 mod nonland_exile_life_tests;
 #[cfg(test)]
 mod opponent_nonland_destroy_tests;
@@ -330,6 +332,8 @@ pub use history::History;
 mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
+mod divided_counters;
+pub use divided_counters::CounterDivision;
 mod cascade;
 #[cfg(test)]
 mod cascade_tests;
@@ -875,6 +879,8 @@ struct Object {
     attached_to: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachment_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
     marked_damage: Quantity,
@@ -906,6 +912,8 @@ struct StackInstance {
     sacrificed_set: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode_subset: Option<choices::BoundModeSubset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     effect_source_handles: Vec<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1188,6 +1196,9 @@ pub enum Response {
     DamageAllocation {
         allocations: Vec<(DamageId, Quantity)>,
     },
+    ModeSubset {
+        modes: Vec<u32>,
+    },
     Modes {
         mode: u32,
     },
@@ -1373,6 +1384,8 @@ pub enum Request {
     Modes {
         decision_id: u64,
         player: PlayerId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        one_or_more: bool,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {
@@ -1477,6 +1490,8 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         occurrences: Vec<TargetSpec>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        counter_division: Option<CounterDivision>,
         candidates: Vec<ObjectId>,
     },
 }
@@ -2023,6 +2038,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    CounterPlacements {
+        actual: Vec<EventOutcome>,
+    },
     CounterPrevented {
         target: StackId,
     },
@@ -2090,6 +2108,11 @@ pub enum Event {
         stack_id: StackId,
         player: PlayerId,
         value: Quantity,
+    },
+    ModeSubsetSelected {
+        stack_id: StackId,
+        player: PlayerId,
+        modes: Vec<u32>,
     },
     ModeSelected {
         stack_id: StackId,
@@ -2281,6 +2304,7 @@ impl Game {
                     Object {
                         attached_to: None,
                         attachment_timestamp: None,
+                        keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
@@ -2403,6 +2427,7 @@ impl Game {
                 .saturating_add(self.cascade_charge())
                 .saturating_add(self.mana_continuation_charge())
                 .saturating_add(self.land_entry_charge())
+                .saturating_add(self.counter_placement_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
@@ -2521,7 +2546,11 @@ impl Game {
     fn program(&self) -> Result<&SpellProgram, String> {
         self.program_for(self.top()?)
     }
-    fn program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
+    fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
+        if let Some(plan) = &stack.mode_subset {
+            return plan.program(self.root_program_for(stack)?);
+        }
+
         self.selected_program(self.root_program_for(stack)?, stack.mode)
     }
     fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
@@ -2616,6 +2645,7 @@ impl Game {
                     decision_id: self.state.rules.revision,
                     player: self.top()?.controller,
                     occurrences: self.program()?.targets.clone(),
+                    counter_division: None,
                     candidates: self
                         .state
                         .rules
@@ -2703,6 +2733,7 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
+                counter_division: CounterDivision::offered_by(self.program()?),
                 candidates: self
                     .state
                     .rules
@@ -2775,6 +2806,11 @@ impl Game {
             (&self.state.rules.frame, response)
         {
             return self.validate_damage_allocation(player, allocations);
+        }
+        if let (Frame::Modes { .. }, Response::ModeSubset { modes }) =
+            (&self.state.rules.frame, response)
+        {
+            return self.authorize_mode_subset(player, modes).map(|_| ());
         }
         if let (Frame::Modes { .. }, Response::Modes { mode }) = (&self.state.rules.frame, response)
         {
@@ -2858,7 +2894,7 @@ impl Game {
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     )
-                }) || objects.len() != self.program()?.targets.len()
+                }) || !Self::object_target_count_valid(self.program()?, objects)
                     || objects
                         .iter()
                         .any(|o| !self.object_target_legal(self.top().unwrap(), *o))
@@ -3347,7 +3383,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 55,
+            snapshot_version: 58,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3389,7 +3425,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 55
+        if s.snapshot_version != 58
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3534,7 +3570,7 @@ impl Game {
                 return Err("snapshot stack identity invariant".into());
             }
             self.validate_stack_bindings(stack)?;
-            let n = self.program_for(stack)?.targets.len();
+            let program = self.program_for(stack)?;
             if stack.announced_targets.len() != 4
                 || stack
                     .announced_targets
@@ -3563,7 +3599,7 @@ impl Game {
                     Frame::Finished { .. } | Frame::Fault { .. }
                 ) && stack.paid.is_none()));
             if !incomplete_top
-                && (self.bound_target_count(stack) != n
+                && (!self.announced_target_count_valid(program, stack)
                     || stack.paid.as_ref() != Some(&stack.total_cost))
             {
                 return Err("snapshot completed lower/top cast invariant".into());
