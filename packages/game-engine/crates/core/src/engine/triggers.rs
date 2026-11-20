@@ -112,6 +112,10 @@ pub enum TriggerEventWitness {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_source: Option<Box<ObjectBefore>>,
     },
+    Equipped {
+        attachment: AttachmentBefore,
+        occurrence: Box<TriggerEventWitness>,
+    },
     GroupedDamageDealt {
         kind: DamageKind,
         transaction: Option<DamageTransactionId>,
@@ -163,6 +167,9 @@ impl TriggerEventWitness {
             Self::CreatureEnteredWithPower { entrant, .. } => Some(entrant.object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
+            Self::Equipped {
+                occurrence: event, ..
+            } => event.subject(),
             Self::StepBegan { .. } | Self::SpellCast { .. } | Self::GroupedDamageDealt { .. } => {
                 None
             }
@@ -543,7 +550,8 @@ impl Game {
                     tapped: true,
                     ..
                 } => self.source_tap_witness(*object)?.into_iter().collect(),
-                EventOutcome::TokensCreated { objects, .. } => objects
+                EventOutcome::TokensCreated { objects, .. }
+                | EventOutcome::PredefinedTokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })
                     .collect(),
@@ -790,7 +798,12 @@ impl Game {
             {
                 let mut grouped_members = None;
                 let mut power_entry = None;
+                let mut equipped = None;
                 let matches = match &definition.condition {
+                    TriggerCondition::EquippedCombatDamage | TriggerCondition::EquippedDies => {
+                        equipped = observers.observe_equipped(object, &definition.condition, &witness);
+                        equipped.is_some()
+                    }
                     TriggerCondition::DelayedControllerCreatureEntry => false,
                     TriggerCondition::SagaChapter {number} => matches!(&witness, TriggerEventWitness::LoreAdded{change} if change.object==object.id && change.controller==object.controller && change.crosses(*number)),
                     TriggerCondition::ControlledCreatureEntersWithPower {
@@ -930,7 +943,7 @@ impl Game {
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
                 {
-                    let mut matched_witness = power_entry.unwrap_or_else(|| witness.clone());
+                    let mut matched_witness = equipped.or(power_entry).unwrap_or_else(|| witness.clone());
                     if let TriggerEventWitness::GroupedDamageDealt { members, .. } =
                         &mut matched_witness
                     {
@@ -1729,6 +1742,14 @@ impl Game {
         }
         let condition = &definition.condition;
         let valid = match witness {
+            TriggerEventWitness::Equipped {
+                attachment,
+                occurrence: event,
+            } => {
+                death_controller.is_none()
+                    && self.valid_equipped_witness(source, condition, attachment, event)
+            }
+
             TriggerEventWitness::DelayedCreatureEntered {
                 registration,
                 movement,
@@ -2025,6 +2046,8 @@ impl Game {
                         | TriggerCondition::DamageDealt { .. }
                         | TriggerCondition::SelfBecomesTapped
                         | TriggerCondition::GroupedDamageDealt { .. }
+                        | TriggerCondition::EquippedCombatDamage
+                        | TriggerCondition::EquippedDies
                         | TriggerCondition::ControlledCreatureEntersWithPower { .. } => false,
                         TriggerCondition::SelfMoved { .. } => {
                             death_controller.is_none()

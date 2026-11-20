@@ -84,8 +84,12 @@ mod blocking_target_tests;
 #[cfg(test)]
 mod composed_spell_tests;
 mod counter_placement;
+mod equipped_events;
+#[cfg(test)]
+mod equipped_events_tests;
 #[cfg(test)]
 mod phase1_sequences_tests;
+mod predefined_token_templates;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
@@ -1957,6 +1961,12 @@ pub enum ProposedEvent {
         player: PlayerId,
         index: u32,
     },
+    CreatePredefinedTokens {
+        controller: PlayerId,
+        source: ObjectId,
+        count: u32,
+        kind: mtg_contracts::PredefinedToken,
+    },
     CreateCreatureTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -2209,6 +2219,11 @@ pub enum EventOutcome {
         selected: Option<u32>,
         before: RngPosition,
         after: RngPosition,
+    },
+    PredefinedTokensCreated {
+        objects: Vec<ObjectId>,
+        controller: PlayerId,
+        kind: mtg_contracts::PredefinedToken,
     },
     TokensCreated {
         objects: Vec<ObjectId>,

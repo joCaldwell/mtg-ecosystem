@@ -350,18 +350,26 @@ impl Game {
     ) -> Result<PlayerId, String> {
         match recipient {
             None | Some(ActionRecipient::Controller) => Ok(frame.spell.controller),
-            Some(ActionRecipient::EventPlayer) => match &frame.spell.kind {
-                StackKind::Triggered {
-                    witness: TriggerEventWitness::DamageDealt { damage, .. },
-                    ..
-                } => match damage.recipient {
-                    DamageRecipient::Player { player } => Ok(player),
-                    DamageRecipient::Creature { .. } => {
-                        Err("action event requires a player damage recipient".into())
-                    }
-                },
-                _ => Err("unbound damage-recipient action".into()),
-            },
+            Some(ActionRecipient::EventPlayer) => {
+                let StackKind::Triggered { witness, .. } = &frame.spell.kind else {
+                    return Err("unbound damage-recipient action".into());
+                };
+                let event = match witness {
+                    TriggerEventWitness::Equipped {
+                        occurrence: event, ..
+                    } => event.as_ref(),
+                    other => other,
+                };
+                match event {
+                    TriggerEventWitness::DamageDealt { damage, .. } => match damage.recipient {
+                        DamageRecipient::Player { player } => Ok(player),
+                        DamageRecipient::Creature { .. } => {
+                            Err("action event requires a player damage recipient".into())
+                        }
+                    },
+                    _ => Err("unbound damage-recipient action".into()),
+                }
+            }
         }
     }
     fn discard_spec<'a>(
@@ -1408,6 +1416,7 @@ impl Game {
                 source_block,
             } => self.copy_creature_spell(frame, target_slot, source_block),
             op @ (Instruction::CreateCreatureTokens { .. }
+            | Instruction::CreatePredefinedTokens { .. }
             | Instruction::PutPlusOneCounters { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
                 self.execute_token_instruction(frame, op)

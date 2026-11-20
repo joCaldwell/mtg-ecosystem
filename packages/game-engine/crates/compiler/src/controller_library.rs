@@ -283,6 +283,13 @@ pub(super) fn validate_fixed_cast_effects(
         )
     };
     for (block, (ability, line)) in abilities.iter().zip(&result.lines).enumerate() {
+        if line.text.starts_with("When this land enters, scry ")
+            && matches!(ability, Ability::Triggered {trigger, ..}
+                if matches!(trigger.as_ref(), SourceTrigger::Enters {what: TriggerObject::This {noun}} if noun == "land"))
+        {
+            // The land-entry lowerer proves the complete source and binding.
+            continue;
+        }
         let printed = FixedCastEffect::from_line(&line.text, "~");
         let uses_scry = matches!(ability, Ability::Triggered {effects,..}
             if effects.iter().flat_map(|sentence| &sentence.steps).any(|step| matches!(step,Step::Scry {..})));

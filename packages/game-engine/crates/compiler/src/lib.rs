@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
+mod ability_sequence;
+#[cfg(test)]
+mod ability_sequence_tests;
 mod activated_artifact_draw;
 mod activated_creature_tap;
 mod activated_source_keyword;
@@ -14,6 +17,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod attachment_modifiers;
 mod basic_land_fetch;
 mod basic_landwalk;
 mod bestow;
@@ -59,6 +63,7 @@ mod draw_land_allowance;
 mod each_player_draw;
 mod entry_copy;
 mod entry_graveyard_exile;
+mod equipped_trigger;
 mod fixed_color_protection;
 mod fixed_creature_damage;
 mod fixed_mill;
@@ -231,6 +236,10 @@ struct Source {
 enum Ability {
     #[serde(skip)]
     ComposedSpell(SpellProgram),
+    #[serde(skip)]
+    BoundTrigger(TriggeredAbility),
+    #[serde(skip)]
+    BoundActivation(ActivatedAbility),
     Chapter {
         chapters: Vec<u32>,
         effects: Vec<serde_json::Value>,
@@ -1645,7 +1654,46 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     } else if controlled_creature_spell_copy::candidate(&source) {
         vec![Ability::ControlledCreatureSpellCopy]
     } else {
-        read_abilities(&canonical_abilities)?
+        if result.lines.iter().any(|l| {
+            l.text.starts_with(mtg_contracts::equipped_trigger::DAMAGE)
+                || l.text.starts_with(mtg_contracts::equipped_trigger::DIES)
+                || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
+        }) {
+            let raw: Vec<Box<RawValue>> = decode(&canonical_abilities, "abilities")?;
+            if raw.len() != result.lines.len() {
+                return Err(invalid("lines", "unaccounted equipped source block"));
+            }
+            raw.iter()
+                .enumerate()
+                .map(|(block, raw)| {
+                    if let Some(a) = ability_sequence::lower(
+                        block,
+                        &result,
+                        &shape,
+                        &binding,
+                        &r.oracle_identity,
+                        types.kind,
+                    )? {
+                        return Ok(a);
+                    }
+                    if let Some(a) = equipped_trigger::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &r.oracle_identity,
+                        &shape,
+                    )? {
+                        Ok(Ability::BoundTrigger(a))
+                    } else {
+                        serde_json::from_str(raw.get()).map_err(|_| {
+                            diagnostics::ability(raw.get(), &format!("abilities[{block}]"))
+                        })
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            read_abilities(&canonical_abilities)?
+        }
     };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -2142,7 +2190,16 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                                     &definition.oracle_id,
                                 )? {
                                     Some(ability) => ability,
-                                    None => lower_static(effect, source_block(block)?)?,
+                                    None => match attachment_modifiers::lower(
+                                        block,
+                                        &result,
+                                        &shape,
+                                        &binding,
+                                        &definition.oracle_id,
+                                    )? {
+                                        Some(ability) => ability,
+                                        None => lower_static(effect, source_block(block)?)?,
+                                    },
                                 },
                             },
                         };
@@ -2472,6 +2529,14 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                             };
                             definition.activated.push(activated);
                         }
+                    }
+                    Ability::BoundActivation(ability) => {
+                        labels.activated.push(source_block(block)?);
+                        definition.activated.push(ability.clone());
+                    }
+                    Ability::BoundTrigger(ability) => {
+                        labels.triggered.push(source_block(block)?);
+                        definition.triggered.push(ability.clone());
                     }
                     Ability::Triggered {
                         trigger,

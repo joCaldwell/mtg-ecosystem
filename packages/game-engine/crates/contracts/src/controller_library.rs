@@ -175,7 +175,10 @@ fn validate_fixed_cast_source(d: &Definition) -> Result<(), String> {
         .triggered
         .iter()
         .filter(|a| {
-            has_look(&a.program)
+            (has_look(&a.program)
+                && !ability_sequence::trigger(a, d.characteristics.kind)
+                && !(d.characteristics.kind == CardKind::Land
+                    && land_entry_gain_life::scry_ability(a)))
                 || (matches!(
                     a.condition,
                     TriggerCondition::SpellCast {
@@ -299,9 +302,14 @@ fn cast_scry_program(a: &TriggeredAbility) -> bool {
 
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
     validate_fixed_cast_source(d)?;
-    if d.activated.iter().any(|a| has_look(&a.program))
+    if d.activated
+        .iter()
+        .any(|a| has_look(&a.program) && !ability_sequence::activation(a))
         || d.triggered.iter().any(|a| {
             has_look(&a.program)
+                && !ability_sequence::trigger(a, d.characteristics.kind)
+                && !(d.characteristics.kind == CardKind::Land
+                    && land_entry_gain_life::scry_ability(a))
                 && (d.characteristics.kind != CardKind::Creature
                     || !d.characteristics.additional_types.is_empty()
                     || !cast_scry_program(a))
@@ -374,7 +382,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     }});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"not":{"$ref":"#/$defs/ScryFreeProgram"}},
-        "then":{"anyOf":[{"$ref":"#/$defs/ControllerScryProgram"},{"$ref":"#/$defs/ArtifactCreatureKeywordProgram"},{"$ref":ordinary_sequence::SCHEMA}]}
+        "then":{"anyOf":[{"$ref":"#/$defs/ControllerScryProgram"},{"$ref":"#/$defs/ArtifactCreatureKeywordProgram"},{"$ref":ordinary_sequence::SCHEMA},{"$ref":ability_sequence::SCHEMA}]}
     }));
     let has_scry = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/ScryFreeProgram"}}}});
     let draw_in_program = json!({"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"draw_cards"}}}}}}}});
@@ -418,12 +426,27 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
         "required":["program"],
         "properties":{"program":{"not":{"$ref":"#/$defs/ScryFreeProgram"}}}
     });
+    let entry_scry = json!({"allOf":[cast_scry,{"properties":{"condition":{"const":"self_enters_battlefield"}}}]});
+    let scalar_trigger = json!({"$ref":"#/$defs/ScalarAbilityTrigger"});
+    let scalar_activation = json!({"$ref":"#/$defs/ScalarAbilityActivation"});
+    let actual_cast = json!({"allOf":[cast_scry,{"not":{"anyOf":[entry_scry,scalar_trigger]}}]});
+    let has_scalar_scry = json!({"anyOf":[
+        {"required":["triggered"],"properties":{"triggered":{"contains":{"allOf":[scalar_trigger,cast_scry]}}}},
+        {"required":["activated"],"properties":{"activated":{"contains":{"allOf":[scalar_activation,cast_scry]}}}}
+    ]});
+    def.push(json!({"if":has_scalar_scry,"then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerScryV1}}}}}));
     let has_cast_scry = json!({
-        "required":["triggered"],"properties":{"triggered":{"contains":cast_scry}}
+        "required":["triggered"],"properties":{"triggered":{"contains":actual_cast}}
+    });
+    let has_entry_scry = json!({
+        "required":["characteristics","triggered"],"properties":{
+            "characteristics":{"properties":{"kind":{"const":"land"}}},
+            "triggered":{"contains":entry_scry}
+        }
     });
     def.push(json!({"properties":{
-        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/ScryFreeProgram"}}}},
-        "triggered":{"items":{"if":cast_scry,"then":{"properties":{
+        "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/ScryFreeProgram"}}},scalar_activation]}},
+        "triggered":{"items":{"if":actual_cast,"then":{"properties":{
             "condition":{"enum":cast_scry_conditions().collect::<Vec<_>>()},
             "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},
             "death_filter":{"type":"null"},"program":{"allOf":[
@@ -432,6 +455,10 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
             ]}
         }}}}
     }}));
+    def.push(json!({
+        "if":{"required":["triggered"],"properties":{"triggered":{"contains":entry_scry}}},
+        "then":{"anyOf":[has_entry_scry,has_scalar_scry]}
+    }));
     def.push(json!({"if":{"required":["provenance"],"properties":{"provenance":{"properties":{
         "source_json":{"pattern":r#"Whenever you cast a (white|blue|black|red|green) spell, scry ([0-9]+|[a-z-]+)\."#}
     }}}},"then":has_cast_scry}));
@@ -445,7 +472,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
         "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
         "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
         "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerScryV1}}]}
-    }},"else":{"if":{"not":has_cast_scry},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}}));
+    }},"else":{"if":{"not":{"anyOf":[has_cast_scry,has_entry_scry,has_scalar_scry]}},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}}));
     def.push(json!({"if":has_scry,"then":{"allOf":[
         {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
          "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
@@ -472,21 +499,28 @@ fn extend_surveil_schema(schema: &mut serde_json::Value) {
     schema["$defs"]["SpellProgram"]["allOf"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"if":contains,"then":{"anyOf":[{"$ref":"#/$defs/ControllerSurveilProgram"},{"$ref":ordinary_sequence::SCHEMA}]}}));
+        .push(json!({"if":contains,"then":{"anyOf":[{"$ref":"#/$defs/ControllerSurveilProgram"},{"$ref":ordinary_sequence::SCHEMA},{"$ref":ability_sequence::SCHEMA}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/SurveilFreeProgram"}}}});
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap();
+    let ability = |name| json!({"$ref":name});
+    let free = json!({"properties":{"program":{"$ref":"#/$defs/SurveilFreeProgram"}}});
+    let has_scalar = json!({"anyOf":[
+        {"required":["triggered"],"properties":{"triggered":{"contains":{"allOf":[ability("#/$defs/ScalarAbilityTrigger"),{"not":free}]}}}},
+        {"required":["activated"],"properties":{"activated":{"contains":{"allOf":[ability("#/$defs/ScalarAbilityActivation"),{"not":free}]}}}}
+    ]});
+    def.push(json!({"if":has_scalar,"then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerSurveilV1}}}}}));
     def.push(json!({"properties":{
-        "activated":{"items":{"properties":{"program":{"$ref":"#/$defs/SurveilFreeProgram"}}}},
-        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/SurveilFreeProgram"}}}}
+        "activated":{"items":{"anyOf":[free,ability("#/$defs/ScalarAbilityActivation")]}},
+        "triggered":{"items":{"anyOf":[free,ability("#/$defs/ScalarAbilityTrigger")]}}
     }}));
     def.push(json!({"if":has,"then":{"properties":{
         "spell":{"anyOf":[{"$ref":"#/$defs/ControllerSurveilProgram"},{"$ref":ordinary_sequence::SCHEMA}]},
         "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
         "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
         "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerSurveilV1}}]}
-    }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerSurveilV1}}}}}}));
+    }},"else":{"if":{"not":has_scalar},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerSurveilV1}}}}}}}));
     def.push(json!({"if":{"allOf":[has.clone(),{"not":{"properties":{"spell":{"$ref":ordinary_sequence::SCHEMA}}}}]},
         "then":{"properties":{"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerSurveilV1,Capability::ControllerDrawV1]}}}}}));
     def.push(json!({"if":has,"then":{"allOf":[

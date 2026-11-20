@@ -18,7 +18,7 @@ pub(super) fn validate_source(d: &Definition, fixed_activations: bool) -> Result
     if d.spell.as_ref().is_some_and(contains_untap)
         || d.activated.iter().any(|a| contains_untap(&a.program))
         || d.static_abilities.iter().any(|a| matches!(&a.effect, StaticEffect::GrantSpellCascade {program,..} if contains_untap(program)))
-        || (!gated && d.triggered.iter().any(|a| contains_untap(&a.program))) {
+        || (!gated && d.triggered.iter().any(|a| !equipped_trigger::is_equipped(a) && contains_untap(&a.program))) {
         return Err("land untap requires the complete cast-entry program".into());
     }
     let raw = &d.provenance.source_json;
@@ -109,15 +109,23 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "instructions":{"items":{"not":{"properties":{"op":{"const":"untap_controller_lands"}}}}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
+    let equipped =
+        json!({"enum":[TriggerCondition::EquippedCombatDamage,TriggerCondition::EquippedDies]});
+    let untap = json!({"required":["program"],"properties":{"program":{"not":free}}});
+    let cast_untap = json!({"allOf":[untap,{"properties":{"condition":{"not":equipped}}}]});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"spell":free,"activated":{"items":{"properties":{"program":free}}},
-            "static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},
-        "if":{"required":["triggered"],"properties":{"triggered":{"contains":{"properties":{"program":{"not":free}}}}}},
-        "then":{"properties":{"triggered":{"items":{"required":["intervening_if"],"properties":{
-            "intervening_if":{"const":InterveningCondition::SourceCastByController}
-        }}}, "capabilities":{"contains":{"const":Capability::UntapControllerLandsV1}},
-        "source_labels":{"properties":{"blocks":{"contains":{"const":format!("When ~ enters, if you cast it, {}", "untap all lands you control.")}},
-            "triggered":{"enum":[[0],[1]]},"statics":{"maxItems":0},"mana":{"maxItems":0},"spell_modes":{"maxItems":0}}}}},
+            "static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}},
+            "triggered":{"items":{"if":cast_untap,"then":{"required":["intervening_if"],"properties":{
+                "intervening_if":{"const":InterveningCondition::SourceCastByController}
+            }}}}},
+        "if":{"required":["triggered"],"properties":{"triggered":{"contains":untap}}},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::UntapControllerLandsV1}}},
+            "if":{"properties":{"triggered":{"contains":cast_untap}}},
+            "then":{"properties":{"source_labels":{"properties":{
+                "blocks":{"contains":{"const":"When ~ enters, if you cast it, untap all lands you control."}},
+                "triggered":{"enum":[[0],[1]]},"statics":{"maxItems":0},"mana":{"maxItems":0},"spell_modes":{"maxItems":0}
+            }}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::UntapControllerLandsV1}}}}}
     }));
     let block_shape = |block: u32| {
