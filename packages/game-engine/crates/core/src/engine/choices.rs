@@ -1078,6 +1078,82 @@ mod fixed_target_mode_tests {
         answer, object, pay_and_resolve, prepared, recover, request,
     };
     #[test]
+    fn paid_mixed_target_modes_place_counters_then_shuffle_opposing_graveyard_and_replay() {
+        let result = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!(
+                "../../../../tests/fixtures/ramos/9c0f7cdc-9095-40ae-bf83-75a5ffda72b9.json"
+            ),
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("{result:?}")
+        };
+        let mut p = prepared(
+            &[
+                ("Forest", true),
+                ("Forest", false),
+                ("Forest", false),
+                ("Island", false),
+                ("Grizzly Bears", false),
+                ("Forest", false),
+            ],
+            false,
+        );
+        let owner = PlayerId(1);
+        p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        p.config.cards[5].owner = owner;
+        p.config.cards[5].controller = owner;
+        p.config.cards[5].zone = Zone::Graveyard { owner };
+        let c = Arc::make_mut(&mut p.catalog);
+        c.definitions.push(*definition);
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        p.catalog_digest = digest(&*p.catalog).unwrap();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::with_trace(p, TraceMode::Detailed);
+        request(&mut g, 1);
+        let card = object(&g, 0).card;
+        let creature = object(&g, 4);
+        let buried = object(&g, 5);
+        answer(&mut g, 1, Response::Cast { card });
+        answer(&mut g, 1, Response::ModeSubset { modes: vec![3, 2] });
+        assert!(
+            matches!(request(&mut g,1),Request::Targets{candidates,..} if candidates.contains(&creature))
+        );
+        answer(
+            &mut g,
+            1,
+            Response::Targets {
+                objects: vec![creature],
+            },
+        );
+        assert!(matches!(request(&mut g, 1), Request::EntityTargets { .. }));
+        recover(&g);
+        for select_card in [false, true] {
+            let mut branch = g.fork();
+            let mut entities = vec![TargetEntity::Player { player: owner }];
+            if select_card {
+                entities.push(TargetEntity::Object { object: buried });
+            }
+            answer(&mut branch, 1, Response::EntityTargets { entities });
+            pay_and_resolve(&mut branch, 1, vec![]);
+            assert_eq!(
+                branch.current(creature).unwrap().plus_one_counters,
+                2.into()
+            );
+            assert_eq!(
+                branch.zone(object(&branch, 5)),
+                Some(if select_card {
+                    Zone::Library { owner }
+                } else {
+                    Zone::Graveyard { owner }
+                })
+            );
+            recover(&branch);
+        }
+    }
+
+    #[test]
     fn paid_exact_two_targeted_modes_bind_distinct_occurrences_and_replay_print_order() {
         let raw = include_str!("../../../../tests/fixtures/synthetic-fixed-target-modes.json");
         let result = mtg_compiler::compile(
