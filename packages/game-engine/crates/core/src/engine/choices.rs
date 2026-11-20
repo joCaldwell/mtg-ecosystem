@@ -932,6 +932,53 @@ mod fixed_target_mode_tests {
         assert!(
             matches!(&r,Request::PlayerTargets{occurrences,..} if occurrences.iter().map(|s|s.slot).collect::<Vec<_>>()==[0,1])
         );
+        let mut split = g.fork();
+        answer(
+            &mut split,
+            1,
+            Response::PlayerTargets {
+                players: vec![PlayerId(1), PlayerId(2)],
+            },
+        );
+        loop {
+            let r = request(&mut split, 1);
+            let response = match &r {
+                Request::Priority { .. } => break,
+                Request::Mana { cost, .. } if split.payment_pool(caster, cost).is_ok() => {
+                    Response::FinishMana { undo_mana: false }
+                }
+                Request::Mana { .. } => Response::ActivateMana {
+                    object: object(&split, 1),
+                },
+                Request::SpendMana { .. } => Response::SpendMana {
+                    spending: BTreeMap::from([(Color::G, 1.into())]),
+                },
+                other => panic!("unexpected paid mode request {other:?}"),
+            };
+            answer(&mut split, 1, response);
+        }
+        let id = split.top().unwrap().id;
+        recover(&split);
+        for all in [false, true] {
+            let mut branch = split.fork();
+            branch.concede(PlayerId(1)).unwrap();
+            if all {
+                branch.concede(PlayerId(2)).unwrap();
+            }
+            while !branch.state.rules.stack.is_empty() {
+                let r = request(&mut branch, 1);
+                if branch.state.rules.stack.is_empty() {
+                    break;
+                }
+                assert!(matches!(r, Request::Priority { .. }));
+                answer(&mut branch, 1, Response::Pass);
+            }
+            assert!(branch.events().iter().any(|e|matches!(e,Event::SpellCompleted{stack_id,resolved} if *stack_id==id && *resolved==!all)));
+            if !all {
+                assert_eq!(branch.state.rules.players[2].life, 38.into());
+            }
+            recover(&branch);
+        }
         // Reusing the same player across distinct occurrences is legal.
         answer(
             &mut g,
