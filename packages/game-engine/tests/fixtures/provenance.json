@@ -1634,6 +1634,16 @@
       "archive": "archive-manifest.json"
     },
     {
+      "file": "f1603384-4361-49c9-98aa-7785fc3504c4.json",
+      "oracle_id": "f1603384-4361-49c9-98aa-7785fc3504c4",
+      "record_sha256": "08b5c3fd475a3603ba92d9e699650f06a9ef8729143285fb43fb03ac06880d3e",
+      "source_sha256": "b6279b59ed6c7b5ba9ce82d218a7b3b20666e5c98ad1ab3a6d992730f550f70e",
+      "ast_sha256": "9a5d895608ce60fd1d1638cccb8405a3da29a35369f3828b82bbee3afaaee279",
+      "binding_sha256": "eead8da94504cba56156794c72f8e46c7e38f04a9f0e442576f9824b92a6b5bb",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 36507
+    },
+    {
       "file": "0c85b8f7-0bd0-4680-9ec5-d4b110460a54.json",
       "oracle_id": "0c85b8f7-0bd0-4680-9ec5-d4b110460a54",
       "record_sha256": "653b471571c91a7239db08c542958a3e00d1fd236a8bf326d3352f4abce03f4f",

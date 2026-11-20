@@ -74,6 +74,7 @@ mod hand_cast_cascade;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
+mod hybrid_filter_mana;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
 mod land_sacrifice_draw;
@@ -1670,7 +1671,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         &r.oracle_identity,
     )?;
     let disjoint_mana =
-        pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+        match hybrid_filter_mana::lower(&abilities, &result, &shape, &binding, &source)? {
+            Some(filter) => Some(filter),
+            None => pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?,
+        };
     let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
     // CR 207.2c: labels carry no rules meaning. All underlying fields must
     // still decode and lower, including conditions, costs and player relations.

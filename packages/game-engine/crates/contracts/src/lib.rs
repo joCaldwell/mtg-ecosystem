@@ -35,8 +35,10 @@ mod counted_costs;
 mod distinct_permanent_colors;
 mod opponent_mana;
 pub use opponent_mana::opponent_land_mana_family;
+mod hybrid_filter_mana;
 mod listed_mana_choice;
 mod pain_mana;
+pub use hybrid_filter_mana::{hybrid_filter_abilities, hybrid_filter_colors, hybrid_filter_source};
 pub use pain_mana::disjoint_pain_mana_family;
 pub mod basic_landwalk;
 mod cast_entry;
@@ -400,6 +402,7 @@ pub enum Capability {
     ListedManaChoiceV1,
     SameColorManaV1,
     DisjointPainManaV1,
+    HybridFilterManaV1,
     SourceTapTriggerV1,
     ControllerCreaturePlusOneCounterReplacementV1,
     AttackTriggerV1,
@@ -1990,6 +1993,9 @@ pub struct PermanentActivationCosts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
+    HybridFilter {
+        colors: [Color; 2],
+    },
     GreatestControlledPowerCombination,
     Fixed {
         symbols: Vec<Color>,
@@ -2824,6 +2830,9 @@ impl Definition {
         if listed_mana_choice::present(self) {
             set.insert(Capability::ListedManaChoiceV1);
         }
+        if hybrid_filter_colors(self).is_some() {
+            set.insert(Capability::HybridFilterManaV1);
+        }
         if disjoint_pain_mana_family(self) {
             set.extend([
                 Capability::DisjointPainManaV1,
@@ -3648,13 +3657,14 @@ impl Definition {
         {
             return Err("unsupported complete opponent-land mana family".into());
         }
+        let hybrid_filter = hybrid_filter_mana::validate(self)?;
         if self.mana_abilities.len() > 1
             || self
                 .mana_abilities
                 .iter()
                 .any(|ability| ability.self_damage.is_some())
         {
-            if !disjoint_pain_mana_family(self) {
+            if !hybrid_filter && !disjoint_pain_mana_family(self) {
                 return Err("unsupported complete disjoint pain-mana family".into());
             }
         } else {
@@ -7715,6 +7725,7 @@ pub fn catalog_schema() -> serde_json::Value {
     opponent_mana::extend_schema(&mut schema);
     distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
+    hybrid_filter_mana::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
     same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
@@ -8166,6 +8177,7 @@ mod tests {
             ListedManaChoiceV1,
             SameColorManaV1,
             DisjointPainManaV1,
+            HybridFilterManaV1,
             SourceTapTriggerV1,
             ControllerCreaturePlusOneCounterReplacementV1,
             AttackTriggerV1,
@@ -8668,6 +8680,7 @@ mod tests {
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());
         definitions.push(pain_mana::witness());
+        definitions.push(hybrid_filter_mana::witness());
         definitions.push(listed_mana_choice::witness());
         definitions.push(source_tap_damage::witness());
         definitions.push(ramos_m1_tests::ramos());
