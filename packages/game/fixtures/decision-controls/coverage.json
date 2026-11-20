@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "7f9fd151ae17ade02b3f78d2a1822ce6acf58f45a908bdcd500d7a2d2ee62a69"
+      "sha256": "3e7f3535246752bc988aa102454c29aadcb4c756bde080a30af44c6bf9b858b3"
     },
     {
       "path": "packages/game/web/src/decisions/controls.ts",
@@ -51,7 +51,7 @@
     },
     {
       "path": "packages/game/web/src/features/decisions/LocalControls.tsx",
-      "sha256": "a02a9c186efa063fe32b505a2f1f8df742c4c5bbf01dc61a24ef0744cb604a1b"
+      "sha256": "a7f9c27b8f8991d2e6cd45fc7768f0acfad865a900df6a5c174477f830eb98c1"
     },
     {
       "path": "packages/game/web/src/features/decisions/DecisionPanel.tsx",
@@ -87,7 +87,7 @@
     },
     {
       "path": "packages/game/tests/browser/decision-controls.spec.ts",
-      "sha256": "ba6bc15dc31f80d5bf950d953cc4f61a34d767419357e74cc7484a946ab6da77"
+      "sha256": "49ad22bb9d9b36687a1028d846aaa79791a2ad3ed482bb16d4b3b42d00dbf9a0"
     },
     {
       "path": "packages/game/fixtures/foundations-opening/provenance.json",

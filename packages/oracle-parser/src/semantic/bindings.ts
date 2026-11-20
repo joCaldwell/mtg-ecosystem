@@ -3,7 +3,8 @@
 // ambiguous referent. Every unsupported scope remains a reported obligation.
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Ability, Amount, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, Trigger } from "../ast.ts";
+import { isDeepStrictEqual } from "node:util";
+import type { Ability, Amount, CascadeExiledCards, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -13,6 +14,14 @@ import type {
 } from "./types.ts";
 
 const RULES_URL = "https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt";
+// Double Major's complete spell paragraph. A retarget option, another copy
+// exception or an enclosing choice would require different bindings.
+const DIRECT_CREATURE_SPELL_COPY = {
+  effect: "copy-stack-object", who: { player: "you" }, count: { amount: "fixed", value: 1 },
+  what: { ref: "target", count: { amount: "fixed", value: 1 }, selectionId: "line:0:1",
+    filter: { cls: "spell", types: ["creature"], control: "you" } },
+  copyExceptions: [{ change: "types", types: { supertypes: { operation: "remove", types: ["legendary"] } } }],
+} satisfies Effect;
 const SYMBOLIC_AMOUNTS = new Set(["x", "that-number", "that-much", "replacement-event-quantity"]);
 interface Candidate { id: string; cardinality: BindingCardinality; domain: "object" | "object-or-player" | "player" | "number"; description?: ObjectFilter;
   /** The departed object this one became in its new zone (CR 400.7e, 400.7j). */
@@ -27,6 +36,7 @@ interface Context {
   source: string; face: string; ability: string; you: string; phase: BindingPhase;
   objects: Candidate[]; players: Candidate[]; quantities: Candidate[]; x?: string;
   spellAbility?: boolean;
+  directCreatureSpellCopy?: Extract<Effect, { effect: "copy-stack-object" }>;
   sourceMoved?: boolean;
   /** The object the source became in the public zone a zone-change trigger
    * saw it move to (CR 400.7e). */
@@ -131,10 +141,10 @@ function child(path: string, part: string | number): string {
 function cardCount(amount: Amount | undefined): BindingCardinality {
   return amount?.amount === "fixed" ? amount.value === 1 ? "one" : "many" : "unknown";
 }
-function objectCardinality(ref: ObjectRef): BindingCardinality {
+function objectCardinality(ref: ObjectRef | CascadeExiledCards): BindingCardinality {
   switch (ref.ref) {
     case "self": case "this": case "it": case "enchanted": case "equipped": case "fortified": case "haunted-creature": case "targeted-by": case "trigger-event-object": case "amassed-army": return "one";
-    case "them": case "each": case "all": case "zone-cards": case "rest": case "vote-leaders": case "soulbond-pair": case "pile": return "many";
+    case "them": case "each": case "all": case "zone-cards": case "cascade-exiled-cards": case "rest": case "vote-leaders": case "soulbond-pair": case "pile": return "many";
     case "related": case "copy-result": case "choice-result": return ref.number === "singular" ? "one" : "many";
     case "that": return ref.plural ? "many" : "one";
     case "target": case "filter": case "commander": case "library-cards": case "graveyard-cards": case "from-pool": return cardCount(ref.count);
@@ -148,7 +158,7 @@ function combine(a: Candidate[], b: Candidate[]): Candidate[] {
   for (const candidate of [...a, ...b]) if (!distinct.has(candidate.id)) distinct.set(candidate.id, candidate);
   return [...distinct.values()];
 }
-function description(ref: ObjectRef): ObjectFilter | undefined {
+function description(ref: ObjectRef | CascadeExiledCards): ObjectFilter | undefined {
   if ("filter" in ref) return ref.filter;
   // CR 115.4: "any target" is a creature, player, planeswalker or battle.
   if (ref.ref === "any-target") return { anyOf: [{ types: ["creature"] }, { types: ["planeswalker"] }, { types: ["battle"] }] } as ObjectFilter;
@@ -156,7 +166,7 @@ function description(ref: ObjectRef): ObjectFilter | undefined {
   if ((ref.ref === "equipped" || ref.ref === "enchanted" || ref.ref === "fortified") && "noun" in ref && typeof ref.noun === "string"
     && ["creature", "artifact", "enchantment", "land", "planeswalker", "permanent"].includes(ref.noun))
     return ref.noun === "permanent" ? { cls: "permanent" } : { types: [ref.noun] } as ObjectFilter;
-  if (ref.ref === "library-cards" || ref.ref === "graveyard-cards" || ref.ref === "zone-cards") return { cls: "card" };
+  if (ref.ref === "library-cards" || ref.ref === "graveyard-cards" || ref.ref === "zone-cards" || ref.ref === "cascade-exiled-cards") return { cls: "card" };
   if (ref.ref === "this") {
     if (["card", "spell", "permanent", "ability"].includes(ref.noun)) return { cls: ref.noun as "card" | "spell" | "permanent" | "ability" };
     if (["creature", "artifact", "enchantment", "land", "planeswalker", "battle"].includes(ref.noun)) return { types: [ref.noun] };
@@ -376,6 +386,10 @@ class Analyzer {
       const barrier = "The excluded cast must be the resolving spell's own cast occurrence.";
       this.diagnostic("unsupported-scope", path, barrier, ["202.3e", "601.2i", "608.2i"]);
       this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    if (value.static === "as-cascade") {
+      this.cascade(value as Extract<StaticEffect, { static: "as-cascade" }>, path, context);
       return;
     }
     if (value.static === "skip-time" || value.effect === "skip-time") {
@@ -1199,6 +1213,7 @@ class Analyzer {
       this.targets.set(id, { id, path, signature });
     }
     this.node({ id, path, node: "selection", scope: context.ability, expression, cardinality,
+      ...(context.directCreatureSpellCopy?.what === expression ? { chooser: context.you } : {}),
       timing: targeted ? "stack-announcement" : context.phase,
       selection: targeted ? "target" : "evaluate-reference", rules: targeted ? ["601.2c"] : ["608.2h"] });
     const candidate = this.bound(expression, path, id, targeted ? ["601.2c"] : ["608.2h"]);
@@ -1217,6 +1232,28 @@ class Analyzer {
       : node?.node === "selection" && "ref" in node.expression ? description(node.expression)
       : "ref" in binding.expression && binding.expression.ref !== "affected-object" && binding.expression.ref !== "those-counters" ? description(binding.expression) : undefined;
     return { id: binding.target, cardinality, domain: domain(binding.expression), description: established };
+  }
+  cascade(effect: Extract<StaticEffect, { static: "as-cascade" }>, path: string, context: Context): void {
+    const choice = child(path, "choice");
+    const controllerPath = child(path, "controller");
+    const from = child(choice, "from");
+    const controller = this.player(effect.controller, controllerPath, context);
+    if (!controller) {
+      this.unresolved(effect.choice.from, from, "unresolved-dependency",
+        "The cascade occurrence requires the controller of the static ability.", ["109.5", "702.85b"]);
+      return;
+    }
+    const occurrence = this.node({ id: this.id(path, "cascade"), path, node: "cascade-occurrence",
+      scope: context.ability, controllerMatches: controller.id, rules: ["608.2c", "702.85b", "702.85c"] });
+    const decider = this.node({ id: this.id(controllerPath, "cascade-controller"), path: controllerPath,
+      node: "derived-player", scope: context.ability, role: "controller", of: occurrence, rules: ["608.2c", "702.85b"] });
+    const pool = this.node({ id: this.id(from, "pool"), path: from, node: "cascade-exiled-pool", occurrence,
+      rules: ["702.85a", "702.85b", "702.85c"] });
+    const cards = this.bound(effect.choice.from, from, pool, ["702.85b"]);
+    this.event(choice, context, "choose-and-put", [cards], { optional: effect.choice.optional, decider });
+    this.engineFeature("cascade-resolution", path,
+      "Offer the choice from this cascade's cards still in exile after exiling, before the cast decision or bottom placement.",
+      ["608.2d", "702.85b"]);
   }
   event(path: string, context: Context, operation: string, inputs: Candidate[],
     extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true } = {}): string {
@@ -1773,6 +1810,14 @@ class Analyzer {
         context.objects = []; context.players = []; context.quantities = [];
         return;
       case "copy-stack-object": case "copy-card": case "choose-new-targets":
+        if (effect === context.directCreatureSpellCopy) {
+          this.engineFeature("permanent-spell-copy", path,
+            "Recheck the target, copy its spell decisions and copiable values with the printed exception, and resolve the copy as a token permanent.",
+            ["601.2c", "608.2b", "707.9", "707.10", "707.10f"]);
+          objectPaths.push(child(path, "what")); playerPaths.push(child(path, "who"));
+          produces = "objects"; cardinality = "one"; identity = "new-objects";
+          break;
+        }
         this.diagnostic("unsupported-scope", path, "Stack-copy results and copy target-selection timing require their own binding scope.", ["707.10", "115.7"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
@@ -2066,7 +2111,7 @@ class Analyzer {
       }
     }
   }
-  ability(ability: Ability, path: string, face: string, source: string): void {
+  ability(ability: Ability, path: string, face: string, source: string, soleCardAbility = false): void {
     const id = this.id(path, "ability");
     const you = this.id(path, "you");
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
@@ -2149,6 +2194,13 @@ class Analyzer {
         this.sentences(ability.effects, child(path, "effects"), context);
         break;
       case "spell": {
+        const first = ability.effects[0]?.steps[0];
+        if (soleCardAbility && first?.effect === "copy-stack-object") {
+          const { abilityWord, ...paragraph } = ability;
+          if (abilityWord === undefined && isDeepStrictEqual(paragraph, {
+            kind: "spell", effects: [{ steps: [DIRECT_CREATURE_SPELL_COPY] }],
+          })) context.directCreatureSpellCopy = first;
+        }
         const previous = this.spellParagraph?.face === face ? this.spellParagraph.context : undefined;
         if (previous) Object.assign(context, { objects: previous.objects, players: previous.players, quantities: previous.quantities,
           departed: previous.departed, sourceMoved: previous.sourceMoved, mentionedObject: previous.mentionedObject, sourceNamed: previous.sourceNamed });
@@ -2347,7 +2399,7 @@ export function analyzeCardBindings(input: CardBindingInput): CardBindingAnalysi
       continue;
     }
     result.abilities.forEach((ability, abilityIndex) => analyzer.ability(ability,
-      child(child(path, "abilities"), abilityIndex), face, source));
+      child(child(path, "abilities"), abilityIndex), face, source, faces.length === 1 && result.abilities.length === 1));
   }
   for (const face of input.faces) if (!Number.isInteger(face.sourceFaceIndex) || face.sourceFaceIndex < 0 || face.sourceFaceIndex >= faces.length)
     analyzer.diagnostic("face-mismatch", "/faces", "A supplied parse references a nonexistent source face.", []);

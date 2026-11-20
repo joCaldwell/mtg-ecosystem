@@ -1,4 +1,4 @@
-import type { Amount, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
+import type { Amount, CascadeExiledCards, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -23,7 +23,7 @@ export type BindingCardinality = "one" | "many" | "unknown";
 export type SymbolicAmount = Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" }>;
 /** `implicit` is a player relation printed inside a filter ("an opponent
  * controls", "you don't control"). */
-export type ReferenceExpression = ObjectRef | { ref: "affected-object" } | { ref: "those-counters" } | { recipient: "they" } | PlayerRef | SymbolicAmount
+export type ReferenceExpression = ObjectRef | CascadeExiledCards | { ref: "affected-object" } | { ref: "those-counters" } | { recipient: "they" } | PlayerRef | SymbolicAmount
   | { implicit: "opponents" | "other-players" };
 
 interface NodeBase { id: string; path: string; rules: string[] }
@@ -31,6 +31,9 @@ export type BindingNode = NodeBase & (
   | { node: "source"; identity: string }
   | { node: "face"; source: string; sourceFaceIndex: number; name: string; typeLine?: string; manaCost?: string; layout: string }
   | { node: "ability"; source: string; face: string; abilityKind: string; you: string }
+  /** One resolving cascade whose controller matches the static ability's "you". */
+  | { node: "cascade-occurrence"; scope: string; controllerMatches: string }
+  | { node: "cascade-exiled-pool"; occurrence: string }
   | { node: "runtime-player"; scope: string; role: "static-source-controller" | "activator" | "spell-controller" | "trigger-controller" | "prospective-caster"
       | "special-action-player" | "targeting-player" | "card-owner" | "entering-controller" }
   /** One keyword instance of this ability line, with the kinds of ability it
@@ -45,6 +48,8 @@ export type BindingNode = NodeBase & (
    * group `of` (`each`), or the object the effect creates (CR 113.10). */
   | { node: "recipient"; scope: string; of?: string; each?: boolean; created?: true }
   | { node: "selection"; scope: string; expression: ObjectRef | PlayerRef; cardinality: BindingCardinality;
+      /** Explicit player binding for the announced target when established. */
+      chooser?: string;
       timing: BindingPhase | "stack-announcement"; selection: "target" | "evaluate-reference" }
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
@@ -107,8 +112,10 @@ export interface BindingDiagnostic {
  * - damage-prevention: shields and redirections watching future damage
  *   events (CR 609.7, 614.9, 615).
  * - characteristic-layers: characteristic changes applied in the layer system,
- *   with the affected set fixed when the effect begins (CR 611.2c, 613). */
-export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers";
+ *   with the affected set fixed when the effect begins (CR 611.2c, 613).
+ * - cascade-resolution: a choice bound to one resolving cascade and its exiled pool (CR 702.85).
+ * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f). */
+export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution" | "permanent-spell-copy";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
