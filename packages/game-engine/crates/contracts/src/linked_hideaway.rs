@@ -148,6 +148,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || c.snow
         || !c.subtypes.is_empty()
         || !c.additional_types.is_empty()
+        || !c.hybrid_mana.is_empty()
         || !c.colors.is_empty()
         || c.color_identity != [Color::G]
         || c.mana_cost.generic != Quantity::zero()
@@ -208,7 +209,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "triggered":{"const":[entry()]},"activated":{"const":[play()]},"static_abilities":{"const":[tapped()]},
             "characteristics":{"properties":{
                 "kind":{"const":"land"},"basic":{"const":false},"legendary":{"const":false},
-                "snow":{"const":false},"subtypes":{"maxItems":0},"additional_types":{"maxItems":0},
+                "snow":{"const":false},"subtypes":{"maxItems":0},"additional_types":{"maxItems":0},"hybrid_mana":{"maxItems":0},
                 "colors":{"maxItems":0},"color_identity":{"const":["G"]},"power":{"type":"null"},
                 "toughness":{"type":"null"},"mana_cost":{"const":{"generic":"0","colored":[]}}
             }},
@@ -244,6 +245,7 @@ pub(super) fn witness() -> Definition {
             generic: 0.into(),
             colored: vec![],
         },
+        hybrid_mana: vec![],
         colors: vec![],
         color_identity: vec![Color::G],
         power: None,
