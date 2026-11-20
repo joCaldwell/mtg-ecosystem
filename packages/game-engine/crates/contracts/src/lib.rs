@@ -2,8 +2,16 @@
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod cascade_land_entry;
+mod granted_land_mana;
+pub use granted_land_mana::{
+    granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
+};
 mod controller_land_types;
 pub use controller_land_types::controller_land_type_ast;
+mod colored_library_search;
+pub use colored_library_search::{
+    ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
+};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -323,6 +331,7 @@ pub enum Capability {
     ConditionalBasicLandEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
+    ControllerLandGrantedManaV1,
     ControllerLandBasicTypesV1,
     FlashV1,
     CastArtifactV1,
@@ -437,6 +446,7 @@ pub enum Capability {
     OwnGraveyardCardReturnV1,
     BasicLandSearchV1,
     BasicLandSplitSearchV1,
+    ColoredLibrarySearchV1,
     TypedLandSearchV1,
     CreatureAnthemV1,
     TargetPlayerDrawV1,
@@ -946,6 +956,10 @@ pub enum Instruction {
     SearchBasicLandsSplit {
         source_block: u32,
     },
+    SearchColoredLibrary {
+        colors: Vec<Color>,
+        source_block: u32,
+    },
     SearchTypedLands {
         search: TypedLandSearch,
         source_block: u32,
@@ -1202,6 +1216,7 @@ impl Instruction {
         match self {
             Self::Cascade { source_block, .. }
             | Self::SearchBasicLandsSplit { source_block, .. }
+            | Self::SearchColoredLibrary { source_block, .. }
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
@@ -1385,6 +1400,7 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    GrantControllerLandsAnyColorMana,
     GrantControllerLandsAllBasicTypes,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
     /// grants one independent cascade to this controller's qualifying cast.
@@ -2616,6 +2632,9 @@ impl Definition {
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
+                StaticEffect::GrantControllerLandsAnyColorMana => {
+                    Capability::ControllerLandGrantedManaV1
+                }
                 StaticEffect::GrantControllerLandsAllBasicTypes => {
                     Capability::ControllerLandBasicTypesV1
                 }
@@ -3077,10 +3096,12 @@ impl Definition {
         }
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
+        colored_library_search::validate_definition(self)?;
         own_graveyard_card_return::validate_definition(self)?;
         commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        granted_land_mana::validate_definition(self)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3676,6 +3697,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::CascadeLandEntry
+                    | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
@@ -4788,6 +4810,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::ReturnOwnGraveyardCardToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCard))
             }
+            Instruction::SearchColoredLibrary { colors, .. } => {
+                ColoredLibrarySearch::new(colors)?;
+                None
+            }
             Instruction::SearchTypedLands { search, .. } => {
                 search.validate()?;
                 None
@@ -5419,6 +5445,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ReturnOwnGraveyardCardToHand { .. } => {
                 Capability::OwnGraveyardCardReturnV1
             }
+            Instruction::SearchColoredLibrary { .. } => Capability::ColoredLibrarySearchV1,
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
@@ -6931,6 +6958,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    granted_land_mana::extend_schema(&mut schema);
     keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
@@ -6973,6 +7001,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}}}
     }));
+    colored_library_search::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7228,6 +7257,7 @@ mod tests {
             OwnGraveyardCardReturnV1,
             BasicLandSearchV1,
             BasicLandSplitSearchV1,
+            ColoredLibrarySearchV1,
             TypedLandSearchV1,
             CreatureAnthemV1,
             TargetPlayerDrawV1,
@@ -7256,6 +7286,7 @@ mod tests {
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
+            ControllerLandGrantedManaV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
@@ -7975,12 +8006,56 @@ mod tests {
         grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
         grant.capabilities = grant.requirements();
         definitions.push(grant);
+        let artifact = definitions
+            .iter()
+            .find(|d| d.name == "Sol Ring")
+            .unwrap()
+            .clone();
+        definitions.push(granted_land_mana::witness(artifact));
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")
             .unwrap()
             .clone();
         definitions.push(keyword_removal_wipe::witness(sweep));
+        let mut colored = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Sorcery
+                    && d.activated.is_empty()
+                    && !d.x_mana_cost
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-colored-library.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        colored.name = source["name"].as_str().unwrap().into();
+        colored.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        colored.provenance.printing_id = source["id"].as_str().unwrap().into();
+        colored.provenance.source_json = canonical(source).unwrap();
+        colored.provenance.source_sha256 = sha256(colored.provenance.source_json.as_bytes());
+        colored.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        colored.provenance.ast_sha256 =
+            sha256(format!("[{}]", colored.provenance.abilities_json).as_bytes());
+        colored.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        colored.characteristics.mana_cost = ManaCost {
+            generic: Quantity::zero(),
+            colored: vec![Color::G],
+        };
+        colored.characteristics.colors = vec![Color::G];
+        colored.characteristics.color_identity = vec![Color::G];
+        colored.spell = Some(colored_library_program(vec![Color::R, Color::G]));
+        colored.source_labels = None;
+        colored.characteristics.subtypes.clear();
+        colored.keywords.clear();
+        colored.static_abilities.clear();
+        colored.triggered.clear();
+        colored.capabilities = colored.requirements();
+        definitions.push(colored);
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

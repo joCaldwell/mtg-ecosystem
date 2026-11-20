@@ -197,6 +197,8 @@ pub struct KnownLibraryPosition {
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_searched_hand: Vec<(PlayerId, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
@@ -301,6 +303,13 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
+    },
+    ColoredSearch {
+        token: DecisionToken,
+        player: PlayerId,
+        library: Vec<String>,
+        colors: Vec<Color>,
+        candidates: Vec<ColoredCardCandidate>,
     },
     SearchLands {
         token: DecisionToken,
@@ -476,6 +485,7 @@ impl PlayerRequest {
             Self::LegendRule { token, .. }
             | Self::ChooseManaAbility { token, .. }
             | Self::ManaColor { token, .. }
+            | Self::ColoredSearch { token, .. }
             | Self::SearchLands { token, .. }
             | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
@@ -559,6 +569,9 @@ pub enum PlayerResponse {
     },
     ManaColor {
         color: Color,
+    },
+    ColoredSearch {
+        assignments: Vec<ColoredCardAssignment>,
     },
     SearchLands {
         objects: Vec<ObjectHandle>,
@@ -731,6 +744,8 @@ impl ObjectHandles {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(super) revealed_hand: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(super) public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -955,6 +970,10 @@ impl Game {
         if matches!(&self.state.rules.frame,
             Frame::ResolutionChoice { choice: ResolutionChoice::SearchSplit { objects, .. }, .. }
             if objects.contains(&object.id))
+        {
+            return true;
+        }
+        if matches!(&self.state.rules.frame, Frame::ResolutionChoice{choice:ResolutionChoice::ColoredSearch{revealed:Some(cards),..},..} if cards.iter().any(|(_,id)|*id==object.id))
         {
             return true;
         }
@@ -1289,6 +1308,7 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            known_searched_hand: self.publicly_searched_hand(viewer)?,
             known_library_positions: self.known_library_positions(viewer)?,
             sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
                 &self.state.rules.frame
@@ -1656,6 +1676,18 @@ impl Game {
                     token,
                     player: viewer,
                     candidates: vec![],
+                },
+                Request::ColoredSearch {
+                    library,
+                    colors,
+                    candidates,
+                    ..
+                } => PlayerRequest::ColoredSearch {
+                    token,
+                    player: viewer,
+                    library,
+                    colors,
+                    candidates,
                 },
                 Request::SearchLands {
                     maximum,
@@ -2428,6 +2460,9 @@ impl Game {
                     object: self.resolve_handle(viewer, object)?,
                 })
             }
+            PlayerResponse::ColoredSearch { assignments } => Ok(Response::ColoredSearch {
+                assignments: assignments.clone(),
+            }),
             PlayerResponse::SearchLands { objects } => Ok(Response::SearchLands {
                 objects: objects
                     .iter()

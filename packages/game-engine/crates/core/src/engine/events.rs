@@ -2989,7 +2989,7 @@ impl Game {
                 destination,
             } => self.apply_move(*object, *destination, None, false, before, entry)?,
         };
-        self.update_library_position_memory(proposed);
+        self.update_library_position_memory(proposed, &actual);
         Ok(actual)
     }
 }

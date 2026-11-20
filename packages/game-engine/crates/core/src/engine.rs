@@ -75,9 +75,11 @@ mod blocking_target_tests;
 mod counter_placement;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
+mod colored_search;
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
+pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
 mod staples;
 pub use counter_placement::*;
 use land_entry::{EntryOrigin, PreparedEntryAuthority};
@@ -349,6 +351,7 @@ mod casting_foundation_tests;
 mod controller_land_type_tests;
 #[cfg(test)]
 mod distinct_permanent_colors_tests;
+mod granted_land_mana;
 mod hand_return;
 mod intrinsic_mana;
 mod library_order;
@@ -1188,6 +1191,7 @@ enum Frame {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "ability", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaAbilityIdentity {
+    GrantedLandTap { color: Color },
     Intrinsic { color: Color },
     Printed { index: u32 },
 }
@@ -1232,6 +1236,9 @@ pub enum Response {
     },
     ManaColor {
         color: Color,
+    },
+    ColoredSearch {
+        assignments: Vec<ColoredCardAssignment>,
     },
     SearchLands {
         objects: Vec<ObjectId>,
@@ -1416,6 +1423,13 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
     },
+    ColoredSearch {
+        decision_id: u64,
+        player: PlayerId,
+        library: Vec<String>,
+        colors: Vec<Color>,
+        candidates: Vec<ColoredCardCandidate>,
+    },
     SearchLands {
         decision_id: u64,
         player: PlayerId,
@@ -1578,6 +1592,7 @@ impl Request {
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
+            | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
             | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
@@ -1620,6 +1635,7 @@ impl Request {
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
             | Self::ManaColor { player, .. }
+            | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
             | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
@@ -2605,6 +2621,13 @@ impl Game {
                 }
             }
         }
+        if self.has_granted_land_mana(object)? {
+            for color in Self::granted_land_mana_colors() {
+                if !colors.contains(&color) {
+                    colors.push(color);
+                }
+            }
+        }
         Ok(colors)
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
@@ -3193,11 +3216,7 @@ impl Game {
                         self.play_land(input.player, input.decision_id, card)?;
                     }
                     Response::ActivateMana { object } => {
-                        if self.is_permanent_mana(object) {
-                            self.begin_permanent_mana(&input, object, Frame::Priority)?;
-                        } else {
-                            self.begin_intrinsic_mana(&input, object, Frame::Priority)?;
-                        }
+                        self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
                     Response::Cast { card } => {
                         self.announce_priority_spell(input.player, card)?;
@@ -3520,7 +3539,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: if self.phased_formats { 63 } else { 62 },
+            snapshot_version: 64,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3562,7 +3581,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != if prepared.phased_formats() { 63 } else { 62 }
+        if s.snapshot_version != 64
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

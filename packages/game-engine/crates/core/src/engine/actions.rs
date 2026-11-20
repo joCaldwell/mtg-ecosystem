@@ -81,6 +81,11 @@ pub(super) enum ResolutionChoice {
         split: bool,
         source_block: u32,
     },
+    ColoredSearch {
+        player: PlayerId,
+        source_block: u32,
+        revealed: Option<Vec<(Color, ObjectId)>>,
+    },
     SearchSplit {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -403,6 +408,11 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::ColoredSearch {
+                player,
+                revealed: None,
+                ..
+            } if self.is_live(*player) => Some(self.colored_request(frame, *player)?),
             ResolutionChoice::HandReturn { player, .. } if self.is_live(*player) => {
                 Some(Request::HandReturn {
                     decision_id,
@@ -520,6 +530,26 @@ impl Game {
                 Ok(())
             } else {
                 Err("invalid optional effect choice".into())
+            });
+        }
+        if let Frame::ResolutionChoice {
+            frame,
+            choice:
+                ResolutionChoice::ColoredSearch {
+                    player: actor,
+                    revealed: None,
+                    ..
+                },
+        } = &self.state.rules.frame
+        {
+            return Some(match response {
+                Response::ColoredSearch { assignments }
+                    if player == *actor && self.is_live(player) =>
+                {
+                    self.colored_found(frame, player, assignments, self.state.rules.revision)
+                        .map(|_| ())
+                }
+                _ => Err("invalid colored library decision".into()),
             });
         }
         if let Some(result) = self.validate_staples_response(player, response) {
@@ -785,10 +815,19 @@ impl Game {
                 {
                     return self.removal_choice_step(frame, player, target, source_block);
                 }
+                if let ResolutionChoice::ColoredSearch {
+                    player,
+                    source_block,
+                    revealed,
+                } = choice
+                {
+                    return self.colored_step(frame, player, source_block, revealed);
+                }
                 if matches!(
                     choice,
                     ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::ColoredSearch { .. }
                         | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
@@ -806,6 +845,7 @@ impl Game {
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::ColoredSearch { .. }
                         | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
@@ -841,6 +881,7 @@ impl Game {
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::ColoredSearch { .. }
                     | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. }
@@ -1089,6 +1130,7 @@ impl Game {
             | Instruction::ReturnOwnGraveyardCardToHand { .. }
             | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
+            | Instruction::SearchColoredLibrary { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
             Instruction::DistributePlusOneCounters { source_block, .. } => {
                 let allocations = self.allocated_counter_targets(&frame)?;

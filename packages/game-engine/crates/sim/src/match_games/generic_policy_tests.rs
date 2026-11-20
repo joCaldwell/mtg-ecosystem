@@ -29,6 +29,7 @@ mod reactive_tests {
             }
         };
         let mut v = PermittedView {
+            known_searched_hand: vec![],
             known_library_positions: vec![],
             sacrifice_choices: vec![],
             setup: None,

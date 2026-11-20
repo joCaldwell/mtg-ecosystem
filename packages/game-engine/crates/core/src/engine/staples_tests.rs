@@ -1224,7 +1224,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             );
             for a in &d.static_abilities {
                 match &a.effect {
-                    StaticEffect::GrantControllerLandsAllBasicTypes
+                    StaticEffect::GrantControllerLandsAnyColorMana
+                    | StaticEffect::GrantControllerLandsAllBasicTypes
                     | StaticEffect::ControlEnchantedPermanent
                     | StaticEffect::CascadeLandEntry
                     | StaticEffect::GrantSpellCascade { .. }
@@ -1414,3 +1415,171 @@ mod typed_fetchland_tests;
 
 #[path = "cycling_tests.rs"]
 mod cycling_tests;
+
+#[test]
+fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
+    let raw = include_str!("../../../../tests/fixtures/synthetic-colored-library.json");
+    let mut p = typed_land_search_tests::typed_prepared(raw);
+    let chooser = PlayerId(0);
+    let forest_spell = p
+        .catalog
+        .definitions
+        .iter()
+        .find(|d| d.name == "Rampant Growth")
+        .unwrap()
+        .oracle_id
+        .clone();
+    let mut probe = Game::new(p.clone());
+    opening(&mut probe);
+    let replacement = probe
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| {
+            o.zone == (Zone::Library { owner: chooser })
+                && probe.definition(o.id.card).unwrap().name == "Swamp"
+        })
+        .unwrap()
+        .id
+        .card;
+    p.config
+        .cards
+        .iter_mut()
+        .find(|c| c.id == replacement)
+        .unwrap()
+        .oracle_id = forest_spell.clone();
+    let mut counts = BTreeMap::new();
+    for c in p.config.cards.iter().filter(|c| c.owner == chooser) {
+        *counts.entry(c.oracle_id.clone()).or_default() += 1u32;
+    }
+    p.match_config.as_mut().unwrap().decks[0].cards = counts
+        .into_iter()
+        .map(|(oracle_id, count)| DeckEntry { oracle_id, count })
+        .collect();
+    p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
+    let mut g = Game::new(p.clone());
+    let card = develop_search(&mut g, "Chromatic Survey", 1);
+    announce(&mut g, card.0, vec![]);
+    let cast = g.state.rules.stack.last().unwrap();
+    assert_eq!(cast.paid.as_ref(), Some(&cast.total_cost));
+    let shuffles = g.state.rules.match_state.as_ref().unwrap().library_shuffles;
+    let (decision, candidates) = loop {
+        let r = request(&mut g);
+        match r {
+            Request::ColoredSearch {
+                decision_id,
+                player,
+                colors,
+                library,
+                candidates,
+            } => {
+                assert_eq!(player, chooser);
+                assert_eq!(colors, [Color::R, Color::G]);
+                assert_eq!(library.len(), g.state.rules.libraries[&chooser].len());
+                assert!(library.iter().any(|id| id == FOREST));
+                assert!(!candidates.iter().any(|row| row.oracle_id == FOREST));
+                break (decision_id, candidates);
+            }
+            Request::Priority {
+                player,
+                decision_id,
+                ..
+            } => g.respond(player, decision_id, Response::Pass).unwrap(),
+            _ => panic!("unexpected search decision"),
+        }
+    };
+    assert!(g.publicly_searched_hand(PlayerId(1)).unwrap().is_empty());
+    let card = candidates
+        .into_iter()
+        .find(|c| c.oracle_id == forest_spell)
+        .unwrap();
+    let assigned = ColoredCardAssignment {
+        slot: Color::G,
+        handle: card.handle,
+    };
+    assert!(
+        g.respond(
+            chooser,
+            decision,
+            Response::ColoredSearch {
+                assignments: vec![assigned.clone(), assigned.clone()]
+            }
+        )
+        .is_err()
+    );
+    g.respond(
+        chooser,
+        decision,
+        Response::ColoredSearch {
+            assignments: vec![assigned],
+        },
+    )
+    .unwrap();
+    let _ = request(&mut g);
+    let mut concealed = g.fork();
+    let hand = concealed
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| o.id.card != replacement && o.zone == Zone::Hand { owner: chooser })
+        .unwrap()
+        .id;
+    let next = concealed.object_id(replacement).unwrap();
+    for k in &mut concealed.state.knowledge.visibility {
+        k.revealed_hand.insert(hand);
+    }
+    let event = ProposedEvent::HandReturn {
+        player: chooser,
+        count: 1.into(),
+        objects: vec![next],
+        command: vec![],
+    };
+    let hidden = EventOutcome::HandReturned {
+        player: chooser,
+        movements: vec![MoveOutcome {
+            previous: next,
+            successor: next,
+            from: Zone::Hand { owner: chooser },
+            destination: Zone::Library { owner: chooser },
+        }],
+    };
+    concealed.update_library_position_memory(&event, &hidden);
+    assert!(
+        concealed
+            .publicly_searched_hand(PlayerId(1))
+            .unwrap()
+            .is_empty()
+    );
+    let after = g.state.rules.match_state.as_ref().unwrap().library_shuffles;
+    assert_eq!(after[0], shuffles[0] + 1);
+    assert_eq!(after[1..], shuffles[1..]);
+    for viewer in 0..4 {
+        assert_eq!(
+            g.publicly_searched_hand(PlayerId(viewer)).unwrap(),
+            [(chooser, forest_spell.clone())]
+        );
+    }
+    assert_eq!(
+        g.zone(g.object_id(replacement).unwrap()),
+        Some(Zone::Hand { owner: chooser })
+    );
+    assert_eq!(
+        Game::restore(p.clone(), &g.snapshot().unwrap())
+            .unwrap()
+            .state,
+        g.state
+    );
+    assert_eq!(
+        Game::replay_to(
+            p,
+            &g.replay_journal(),
+            Some(g.rule_boundary()),
+            g.trace.mode
+        )
+        .unwrap()
+        .state,
+        g.state
+    );
+}

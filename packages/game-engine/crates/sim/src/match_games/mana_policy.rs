@@ -197,6 +197,7 @@ mod tests {
             decision_context: None,
             decision: None,
             view: mtg_core::PermittedView {
+                known_searched_hand: vec![],
                 known_library_positions: vec![],
                 sacrifice_choices: vec![],
                 setup: None,

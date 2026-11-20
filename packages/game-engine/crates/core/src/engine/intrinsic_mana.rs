@@ -24,8 +24,20 @@ impl Game {
         player: PlayerId,
         source: ObjectId,
     ) -> Result<Vec<Color>, String> {
-        let o = self.current(source)?;
+        self.validate_simple_tap_mana(player, source)?;
         let colors = self.intrinsic_mana_colors(source)?;
+        if colors.is_empty() {
+            return Err("missing unpaid intrinsic mana colors".into());
+        }
+        Ok(colors)
+    }
+
+    pub(super) fn validate_simple_tap_mana(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+    ) -> Result<(), String> {
+        let o = self.current(source)?;
         if !self.is_live(player)
             || !o.present_on_battlefield()
             || o.controller != player
@@ -33,11 +45,10 @@ impl Game {
             || (self.characteristics(source)?.has_type(CardKind::Creature)
                 && !o.attack_ready
                 && !self.has_keyword(source, KeywordAbility::Haste))
-            || colors.is_empty()
         {
-            return Err("invalid unpaid intrinsic mana source".into());
+            return Err("invalid unpaid tap mana source".into());
         }
-        Ok(colors)
+        Ok(())
     }
     pub(super) fn validate_intrinsic_choice(
         &self,
