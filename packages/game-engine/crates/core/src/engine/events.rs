@@ -2284,6 +2284,7 @@ impl Game {
                     .ok_or("missing entering Aura")?;
                 permanent.attached_to = Some(*target);
                 permanent.attachment_timestamp = Some(attachment_timestamp);
+                permanent.keyword_timestamp = Some(self.state.rules.next_batch_id);
                 self.state.rules.next_attachment_timestamp = next;
                 EventOutcome::EnteredAttached {
                     movement,
