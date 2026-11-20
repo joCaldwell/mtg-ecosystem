@@ -12,6 +12,8 @@ mod colored_library_search;
 pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
 };
+mod color_hybrid_cost;
+pub use color_hybrid_cost::{ColorHybridSymbol, color_hybrid_cost};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -240,6 +242,8 @@ pub struct Characteristics {
     /// CR 205.4g; omitted for nonsnow characteristics.
     #[serde(default, skip_serializing_if = "is_false")]
     pub snow: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     pub mana_cost: ManaCost,
     pub colors: Vec<Color>,
     pub color_identity: Vec<Color>,
@@ -250,6 +254,12 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 impl Characteristics {
+    pub fn printed_mana_value(&self) -> Quantity {
+        let mut value = self.mana_cost.generic.clone();
+        value.add(&Quantity::from((self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64));
+        value
+    }
+
     pub fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
@@ -693,6 +703,7 @@ impl CreatureToken {
     pub fn characteristics(&self) -> Characteristics {
         Characteristics {
             kind: CardKind::Creature,
+            hybrid_mana: vec![],
             additional_types: self.additional_types.clone(),
             subtypes: self.subtypes.clone(),
             basic: false,
@@ -3079,6 +3090,7 @@ impl Definition {
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         granted_land_mana::validate_definition(self)?;
+        color_hybrid_cost::validate_definition(self)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;

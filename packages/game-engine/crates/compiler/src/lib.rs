@@ -1709,6 +1709,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             legendary: types.legendary,
             snow: types.snow,
             subtypes: types.subtypes,
+            hybrid_mana: vec![],
             mana_cost: mana_cost(&source.mana_cost.replace("{X}", ""))?,
             colors: source.colors,
             color_identity: source.color_identity,
