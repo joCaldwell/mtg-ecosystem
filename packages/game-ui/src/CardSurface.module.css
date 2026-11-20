@@ -1,0 +1,15 @@
+.surface {
+  position: relative;
+  min-inline-size: 0;
+  border: 1px solid var(--game-card-edge);
+  border-radius: var(--game-radius);
+  background: linear-gradient(150deg, var(--game-raised), transparent 75%), var(--game-card);
+  color: var(--game-text);
+  transition: border-color var(--game-fast), box-shadow var(--game-fast);
+}
+.surface:is(button, [tabindex='0']):hover { border-color: var(--game-accent); }
+.surface:is([aria-pressed='true'], [data-selected='true']) {
+  border-color: var(--game-accent);
+  box-shadow: 0 0 0 2px var(--game-accent);
+}
+.surface:focus-visible { outline: 2px solid var(--game-accent); outline-offset: 2px; }

@@ -1,5 +1,5 @@
-import surface from './surface.module.css';
 import { CardPrint } from './CardPrint.tsx';
+import { CardSurface } from './CardSurface.tsx';
 import { cardName, type CardView } from './table-model.ts';
 import styles from './CardFace.module.css';
 
@@ -10,7 +10,7 @@ export function CardFace({ card, selected, onInspect, compact = false }: {
   onInspect: (id: string, trigger: HTMLButtonElement) => void;
 }) {
   const label = `Inspect ${cardName(card)}${card.tapped ? ' (tapped)' : ''}`;
-  return <button type="button" className={`${surface.surface} ${styles.card} ${compact ? styles.compact : ''}`} aria-label={label}
+  return <CardSurface as="button" type="button" className={`${styles.card} ${compact ? styles.compact : ''}`} aria-label={label}
     aria-pressed={selected} onClick={event => onInspect(card.inspectionId, event.currentTarget)}>
     <span className={styles.heading}>{cardName(card)}</span>
     {card.printedMana !== '' && <span className={styles.mana}>{card.printedMana ?? 'Mana cost unavailable'}</span>}
@@ -20,5 +20,5 @@ export function CardFace({ card, selected, onInspect, compact = false }: {
       <CardPrint source={card.printImage} className={styles.print} />
     </>}
     {card.tapped && <span className={styles.tapped}>Tapped</span>}
-  </button>;
+  </CardSurface>;
 }

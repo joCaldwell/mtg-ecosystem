@@ -20,6 +20,7 @@
   --game-mat-top: #191c17;
   --game-mat-base: #121611;
   --game-mat-edge: #101210;
+  --game-hand-surface: linear-gradient(180deg, var(--game-mat-top), var(--game-panel) 88%);
   --game-card: #111;
   --game-card-edge: rgb(255 255 255 / .16);
   --game-radius: 0.375rem;

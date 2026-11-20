@@ -6,7 +6,7 @@ import type {
   Zone,
   TableRow,
 } from "../../api/client.ts";
-import { href } from "../../app/routes.ts";
+import { GameSurface, TableMat, TablePrompt, TableRail, TableSectionHeading } from "@multiverse/game-ui";
 import {
   ROW_LABELS,
   ZONE_LABELS,
@@ -32,6 +32,7 @@ import {
   type ContextMenuTarget,
   type ContextMenuProps,
 } from "../../ui/index.ts";
+import { PlaytestHeader } from "./PlaytestHeader.tsx";
 import { SessionControls } from "./SessionControls.tsx";
 import { InspectionPanel } from "./InspectionPanel.tsx";
 import { ZoneViewer } from "./ZoneViewer.tsx";
@@ -352,7 +353,7 @@ export function PlaytestTable({
     { value: "practice" as const, label: "Practice redraws" },
   ];
   return (
-    <div
+    <GameSurface
       className={styles.page}
       onClick={(e) => {
         const target = e.target;
@@ -365,42 +366,32 @@ export function PlaytestTable({
         else setHover(null);
       }}
     >
-      <header className={styles.header}>
-        <div className={styles.identity}>
-          <a
-            className={styles.deckLink}
-            href={href({ page: "deck", deckId: s.deck_id })}
-            aria-label="Back to deck overview"
-            title="Back to deck overview"
-          >
-            <Icon name="back" />
-          </a>
-          <div className={styles.title}>
-            <h1>{s.deck_name}</h1>
-            <span>Playtest</span>
-          </div>
-        </div>
-        <PlayerSummary
-          name="You"
-          showName={false}
-          life={f.life}
-          turn={playing ? f.turn : undefined}
-          onLifeChange={
-            playing ? (value) => act({ type: "life", value }) : undefined
-          }
-        />
-        <SessionControls
-          view={v}
-          busy={busy}
-          status={c.status}
-          onAction={act}
-          onDrawSeveral={() => setDrawing(true)}
-          onCreateToken={() => setToken(true)}
-          onRandomNumber={() => setRolling(true)}
-          onRestart={() => setRestart(true)}
-          onObservation={clearSelection}
-        />
-      </header>
+      <PlaytestHeader
+        deckId={s.deck_id}
+        title={s.deck_name}
+        status={
+          <PlayerSummary
+            name="You"
+            showName={false}
+            life={f.life}
+            turn={playing ? f.turn : undefined}
+            onLifeChange={playing ? (value) => act({ type: "life", value }) : undefined}
+          />
+        }
+        actions={
+          <SessionControls
+            view={v}
+            busy={busy}
+            status={c.status}
+            onAction={act}
+            onDrawSeveral={() => setDrawing(true)}
+            onCreateToken={() => setToken(true)}
+            onRandomNumber={() => setRolling(true)}
+            onRestart={() => setRestart(true)}
+            onObservation={clearSelection}
+          />
+        }
+      />
       {deck.deck.revision !== s.deck_revision && (
         <Banner tone="warn">
           Your saved deck changed after this test began. Continue this test or start a new one with the saved deck.
@@ -417,75 +408,6 @@ export function PlaytestTable({
           </Button>
         </Banner>
       )}
-      {!playing && (
-        <div className={styles.opening} role="region" aria-label="Opening hand">
-          <div className={styles.openingStatus}>
-            <strong>
-              {f.opening.mode === "practice"
-                ? "Practice hand"
-                : f.opening.mulligans === 0
-                  ? "Opening hand"
-                  : `Mulligan ${f.opening.mulligans}`}
-            </strong>
-            <span>
-              {f.opening.mode === "practice"
-                ? "Unlimited redraws"
-                : f.opening.mulligans === 0
-                  ? "First mulligan is free"
-                  : v.computed.bottom_required
-                    ? `Bottom ${f.opening.bottom.length} of ${v.computed.bottom_required}`
-                    : "Free mulligan"}
-            </span>
-          </div>
-          {f.opening.bottom.length > 0 && (
-            <ol className={styles.bottom} aria-label="Cards to bottom, nearest the top first">
-              {f.opening.bottom.map((id) => (
-                <li key={id}>
-                  <Button
-                    size="sm"
-                    aria-label={`Keep ${s.cards[f.objects[id].oracle_id].name} in hand`}
-                    onClick={() =>
-                      act({
-                        type: "bottom",
-                        ids: f.opening.bottom.filter((x) => x !== id),
-                      })
-                    }
-                  >
-                    {s.cards[f.objects[id].oracle_id].name}
-                    <Icon name="close" size={12} />
-                  </Button>
-                </li>
-              ))}
-            </ol>
-          )}
-          <div className={styles.openingActions}>
-            <Segmented
-              label="Mulligan mode"
-              options={modeOptions}
-              value={f.opening.mode}
-              onChange={(mode) => act({ type: "mode", mode })}
-            />
-            <Button
-              disabled={busy || !v.computed.can_mulligan}
-              onClick={() => act({ type: "mulligan" })}
-            >
-              {f.opening.mode === "practice" ? "Redraw seven" : "Mulligan"}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy || !v.computed.can_keep}
-              title={
-                v.computed.can_keep
-                  ? undefined
-                  : `Choose ${v.computed.bottom_required - f.opening.bottom.length} more to bottom`
-              }
-              onClick={() => act({ type: "keep" })}
-            >
-              Keep hand
-            </Button>
-          </div>
-        </div>
-      )}
       <div
         className={styles.workspace}
         onDragStartCapture={() => setHover(null)}
@@ -495,7 +417,7 @@ export function PlaytestTable({
             : ({ "--inspection-w": `${width}px` } as CSSProperties)
         }
       >
-        <div ref={table} className={`${styles.table} ${!playing ? styles.choosing : ""} ${c.ui.viewer ? styles.viewing : ""} ${playing && f.zones.battlefield.length === 0 && !c.ui.viewer ? styles.emptyBattlefield : ""}`}>
+        <div ref={table} className={`${styles.table} ${c.ui.viewer ? styles.viewing : ""} ${f.zones.battlefield.length === 0 ? styles.emptyBattlefield : ""}`}>
           <nav className={styles.zones} aria-label="Table zones">
             {zoneButtons.map((zone) => (
               <button
@@ -520,7 +442,33 @@ export function PlaytestTable({
               </button>
             ))}
           </nav>
-          <div className={styles.surface}>
+          <TableMat className={styles.mat}>
+            <section className={styles.battlefield} aria-label="Battlefield">
+              {!playing && <>
+                <TableSectionHeading title="Battlefield" className={styles.fieldHeading} />
+                <p className={styles.emptyField}>Battlefield is empty</p>
+              </>}
+              {playing &&
+                (Object.keys(ROW_LABELS) as TableRow[]).map((row, index) => (
+                  <TableZone
+                    key={row}
+                    label={ROW_LABELS[row]}
+                    showHeader={false}
+                    heading={index === 0 && <TableSectionHeading title="Battlefield" className={styles.fieldHeading} />}
+                    count={
+                      f.zones.battlefield.filter(
+                        (id) => f.objects[id].row === row,
+                      ).length
+                    }
+                    emptyText=""
+                    onDrop={(id) => drop(id, "battlefield", row)}
+                  >
+                    {f.zones.battlefield
+                      .filter((id) => f.objects[id].row === row)
+                      .map((id) => card(id))}
+                  </TableZone>
+                ))}
+            </section>
             {railZones.length > 0 && (
               <div className={styles.rail}>
                 {railZones.map((zone) => (
@@ -536,27 +484,6 @@ export function PlaytestTable({
                 ))}
               </div>
             )}
-            <div className={styles.battlefield} aria-label="Battlefield">
-              {playing &&
-                (Object.keys(ROW_LABELS) as TableRow[]).map((row) => (
-                  <TableZone
-                    key={row}
-                    label={ROW_LABELS[row]}
-                    showHeader={false}
-                    count={
-                      f.zones.battlefield.filter(
-                        (id) => f.objects[id].row === row,
-                      ).length
-                    }
-                    emptyText=""
-                    onDrop={(id) => drop(id, "battlefield", row)}
-                  >
-                    {f.zones.battlefield
-                      .filter((id) => f.objects[id].row === row)
-                      .map((id) => card(id))}
-                  </TableZone>
-                ))}
-            </div>
             {c.ui.viewer && (
               <ZoneViewer
                 key={c.ui.viewer}
@@ -568,7 +495,7 @@ export function PlaytestTable({
                 onContextMenu={openContext}
               />
             )}
-          </div>
+          </TableMat>
           <TableZone
             label="Hand"
             count={v.computed.counts.hand}
@@ -579,7 +506,8 @@ export function PlaytestTable({
             {f.zones.hand.map((id) => card(id, true))}
           </TableZone>
         </div>
-        <aside
+        <TableRail
+          as="aside"
           className={styles.panel}
           aria-label="Inspection panel"
           onMouseEnter={() => {
@@ -598,6 +526,75 @@ export function PlaytestTable({
             onChange={setWidth}
             onReset={() => setWidth(null)}
           />
+          {!playing && (
+            <TablePrompt aria-label="Opening hand">
+              <div className={styles.openingStatus}>
+                <h2>
+                  {f.opening.mode === "practice"
+                    ? "Practice hand"
+                    : f.opening.mulligans === 0
+                      ? "Opening hand"
+                      : `Mulligan ${f.opening.mulligans}`}
+                </h2>
+                <span>
+                  {f.opening.mode === "practice"
+                    ? "Unlimited redraws"
+                    : f.opening.mulligans === 0
+                      ? "First mulligan is free"
+                      : v.computed.bottom_required
+                        ? `Bottom ${f.opening.bottom.length} of ${v.computed.bottom_required}`
+                        : "Free mulligan"}
+                </span>
+              </div>
+              {f.opening.bottom.length > 0 && (
+                <ol className={styles.bottom} aria-label="Cards to bottom, nearest the top first">
+                  {f.opening.bottom.map((id) => (
+                    <li key={id}>
+                      <Button
+                        size="sm"
+                        aria-label={`Keep ${s.cards[f.objects[id].oracle_id].name} in hand`}
+                        onClick={() =>
+                          act({
+                            type: "bottom",
+                            ids: f.opening.bottom.filter((x) => x !== id),
+                          })
+                        }
+                      >
+                        {s.cards[f.objects[id].oracle_id].name}
+                        <Icon name="close" size={12} />
+                      </Button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <div className={styles.openingActions}>
+                <Segmented
+                  label="Mulligan mode"
+                  options={modeOptions}
+                  value={f.opening.mode}
+                  onChange={(mode) => act({ type: "mode", mode })}
+                />
+                <Button
+                  disabled={busy || !v.computed.can_mulligan}
+                  onClick={() => act({ type: "mulligan" })}
+                >
+                  {f.opening.mode === "practice" ? "Redraw seven" : "Mulligan"}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={busy || !v.computed.can_keep}
+                  title={
+                    v.computed.can_keep
+                      ? undefined
+                      : `Choose ${v.computed.bottom_required - f.opening.bottom.length} more to bottom`
+                  }
+                  onClick={() => act({ type: "keep" })}
+                >
+                  Keep hand
+                </Button>
+              </div>
+            </TablePrompt>
+          )}
           <div className={styles.inspection}>
             <InspectionPanel
               controller={c}
@@ -607,7 +604,7 @@ export function PlaytestTable({
               onDeckReload={onDeckReload}
             />
           </div>
-        </aside>
+        </TableRail>
         {pinned && preview && preview !== pinned && (
           <div
             className={styles.preview}
@@ -674,6 +671,6 @@ export function PlaytestTable({
           }}
         />
       )}
-    </div>
+    </GameSurface>
   );
 }

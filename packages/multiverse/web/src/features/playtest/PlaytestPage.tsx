@@ -1,9 +1,11 @@
+import { GameSurface, TableMat } from "@multiverse/game-ui";
 import { useReportFocus } from "../../app/useReportFocus.ts";
 import { api } from "../../api/client.ts";
 import { useQuery } from "../../api/useQuery.ts";
-import { href, navigate } from "../../app/routes.ts";
-import { Button, EmptyState, Icon, Loading, Page } from "../../ui/index.ts";
+import { navigate } from "../../app/routes.ts";
+import { Button, EmptyState, Loading, Page } from "../../ui/index.ts";
 import { NewGameDialog } from "./NewGameDialog.tsx";
+import { PlaytestHeader } from "./PlaytestHeader.tsx";
 import { PlaytestTable } from "./PlaytestTable.tsx";
 import { usePlaytest } from "./usePlaytest.ts";
 import styles from "./PlaytestTable.module.css";
@@ -30,27 +32,9 @@ export function PlaytestPage({ deckId }: { deckId: number }) {
     // feels like sitting down rather than filling in a form. Closing it
     // leaves the way it came.
     return (
-      <div className={styles.page}>
-        <header className={styles.header}>
-          <div className={styles.identity}>
-            <a
-              className={styles.deckLink}
-              href={href({ page: "deck", deckId })}
-              aria-label="Back to deck overview"
-              title="Back to deck overview"
-            >
-              <Icon name="back" />
-            </a>
-            <div className={styles.title}>
-              <h1>{state.deck.name}</h1>
-              <span>Playtest</span>
-            </div>
-          </div>
-        </header>
-        <div className={styles.workspace}>
-          <div className={styles.table} />
-          <aside className={styles.panel} />
-        </div>
+      <GameSurface className={styles.page}>
+        <PlaytestHeader deckId={deckId} title={state.deck.name} />
+        <TableMat className={styles.emptyMat} />
         <NewGameDialog
           deckName={state.deck.name}
           commanders={state.cards.filter((c) => c.role === "commander" && !c.maybe)}
@@ -61,7 +45,7 @@ export function PlaytestPage({ deckId }: { deckId: number }) {
           onStart={(mode) => void controller.start(mode, !!controller.error)}
           onClose={() => navigate({ page: "deck", deckId })}
         />
-      </div>
+      </GameSurface>
     );
   return (
     <PlaytestTable

@@ -19,10 +19,10 @@ No cross-package private imports, second identity system or storage migration.
 Preserve DECKBUILDER settings, data defaults, credentials, MCP and shared URL formats.
 The deck library retains its independent source database and release behavior.
 
-Both table consumers use public `@multiverse/game-ui`; the product loads the
-qualified `@multiverse/game/preview` adapter. The host supplies React.
-No iframe, copied table, compiler/IR, trusted snapshot or bot credential enters
-that integration. Display models are local views, not gameplay wire authority.
+Live, preview and solo tables share public `@multiverse/game-ui` presentation.
+The product loads qualified `@multiverse/game/preview`; hosts supply React.
+Solo gestures and edits stay in the product. Shared display has no compiler/IR,
+trusted snapshots or bot credentials. Display models confer no gameplay authority.
 The game application consumes public deck-builder `./application` ports for the
 existing Actor, reentrant SQL reservation, human/account authorization and owned
 deck capture. Game code never imports private deck/auth modules. The legacy solo
@@ -34,7 +34,7 @@ playtester is not a game-client design reference.
 | --- | --- | --- |
 | `design` | Tokens and document styles | — |
 | `ui` | Generic controls | Design CSS variables |
-| `mtg` | Card presentation | `ui`, `domain` |
+| `mtg` | Card presentation | `ui`, `domain`, public game-ui |
 | `domain` | Pure transformations, no React/DOM | Type-only wire types from `api/client.ts` |
 | `api` | Typed HTTP, queries and change stream | API modules; type-only public backend contracts |
 | `features/x` | A screen or shared workflow | `ui`, `mtg`, `domain`, `api`, app hooks; other features only through `index.ts` |

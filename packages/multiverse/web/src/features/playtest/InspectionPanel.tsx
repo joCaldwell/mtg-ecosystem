@@ -187,31 +187,28 @@ export function InspectionPanel({
             )}
           </CardInspection>
         ) : (
-          <section>
-            <h2>{s.deck_name}</h2>
-            <details className={styles.checks}>
-              <summary>
-                Deck checks · {deck.checks.length}{" "}
-                {deck.checks.length === 1 ? "finding" : "findings"}
-              </summary>
-              <ul className={styles.findings}>
-                {deck.checks.map((finding) => (
-                  <li key={finding.key}>
-                    <Dot tone={finding.severity === "error" ? "cut" : "warn"} />
-                    <span>
-                      <strong>{finding.title}</strong> {finding.detail}
-                    </span>
-                  </li>
-                ))}
-                {!deck.checks.length && (
-                  <li>
-                    <Dot tone="add" />
-                    <span>Deck checks are clear.</span>
-                  </li>
-                )}
-              </ul>
-            </details>
-          </section>
+          <details>
+            <summary>
+              Deck checks · {deck.checks.length}{" "}
+              {deck.checks.length === 1 ? "finding" : "findings"}
+            </summary>
+            <ul className={styles.findings}>
+              {deck.checks.map((finding) => (
+                <li key={finding.key}>
+                  <Dot tone={finding.severity === "error" ? "cut" : "warn"} />
+                  <span>
+                    <strong>{finding.title}</strong> {finding.detail}
+                  </span>
+                </li>
+              ))}
+              {!deck.checks.length && (
+                <li>
+                  <Dot tone="add" />
+                  <span>Deck checks are clear.</span>
+                </li>
+              )}
+            </ul>
+          </details>
         )}
         {pinned && object && card && (
           <details className={styles.section}>
@@ -330,7 +327,7 @@ export function InspectionPanel({
         )}
         {pinned && card && (
           <section className={styles.section}>
-            <h3>Deck-card tags</h3>
+            <h2>Deck-card tags</h2>
             {entry && !object?.token ? (
               <>
                 <MultiSelect
@@ -376,7 +373,7 @@ export function InspectionPanel({
           </section>
         )}
         <section className={styles.section}>
-          <h3>Observation</h3>
+          <h2>Observation</h2>
           <p className={styles.muted}>
             About {draftCard ? draftCard.name : "the whole deck"}
           </p>
@@ -417,7 +414,7 @@ export function InspectionPanel({
           {memoryStatus && <p role="status">{memoryStatus}</p>}
         </section>
         <section className={styles.section}>
-          <h3>Existing memories</h3>
+          <h2>Existing memories</h2>
           {history.error && <p role="alert">{history.error}</p>}
           {memories.map((m) => (
             <div key={m.id} className={styles.memory}>

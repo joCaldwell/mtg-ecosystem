@@ -1,5 +1,4 @@
 .card {
-  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -8,16 +7,9 @@
   aspect-ratio: 5 / 7;
   gap: var(--game-space-2);
   padding: var(--game-space-3);
-  border: 1px solid var(--game-card-edge);
-  border-radius: var(--game-radius);
-  background: linear-gradient(150deg, var(--game-raised), transparent 75%), var(--game-card);
-  color: var(--game-text);
   text-align: start;
   cursor: pointer;
-  transition: background-color var(--game-fast), border-color var(--game-fast), box-shadow var(--game-fast);
 }
-.card:hover { border-color: var(--game-accent); }
-.card[aria-pressed='true'] { border-color: var(--game-accent); box-shadow: 0 0 0 2px var(--game-accent); }
 .heading { font-size: var(--game-text-body); font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
 .mana { font: var(--game-text-small)/1.4 var(--game-mono); color: var(--game-soft); }
 .type { padding-block-end: var(--game-space-2); border-bottom: 1px solid var(--game-line); color: var(--game-muted); font-size: var(--game-text-small); }
@@ -56,7 +48,7 @@
   color: var(--game-soft);
   font-size: var(--game-text-small);
 }
-.compact {
+.card.compact {
   inline-size: 100%;
   min-block-size: 2.5rem;
   aspect-ratio: auto;

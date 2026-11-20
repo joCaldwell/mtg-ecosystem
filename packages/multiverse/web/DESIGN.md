@@ -396,7 +396,7 @@ Art stays out of Inbox, Activity, Memories, Settings, dialogs and solo playteste
 content. Home and Play use stored land or commander art. Setup pairs compatibility with launch.
 Saved games show deck name, status and update time.
 
-The game table uses scoped public game-ui. Compact player rows show life, zone
-counts and commander links above the battlefield. Decisions and the stack share a rail. Card
-inspection opens on demand and returns focus to the selected card. Preview and
-live imagery follow the [client presentation contract](../../../docs/game-client.md#package-privacy-and-presentation-boundaries).
+Tables share game-ui chrome, playmat, card frames and zone headings. Compact
+seats show life, zone counts and commander links. The solo rail holds opening
+choices and manual inspection. Live inspection returns focus to its trigger.
+Preview/live art follows the [client presentation contract](../../../docs/game-client.md#package-privacy-and-presentation-boundaries).

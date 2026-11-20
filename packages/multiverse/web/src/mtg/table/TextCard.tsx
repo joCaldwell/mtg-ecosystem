@@ -1,4 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
+import { CardSurface } from "@multiverse/game-ui";
 import type { CardObservation } from "../../domain/table.ts";
 import { faceOf } from "../../domain/table.ts";
 import { ManaCost } from "../ManaCost.tsx";
@@ -38,13 +39,13 @@ export function TextCard({
   const [dropSide, setDropSide] = useState<"before" | "after" | null>(null);
   if (observation.visibility === "hidden")
     return (
-      <article
+      <CardSurface as="article"
         data-text-card=""
         className={`${styles.card} ${styles.hidden}`}
         aria-label={observation.label ?? "Hidden card"}
       >
         {observation.label ?? "Anonymous card"}
-      </article>
+      </CardSurface>
     );
   const { card, object, owner, controller, attachedTo, attachments } =
       observation,
@@ -90,7 +91,7 @@ export function TextCard({
     onSelect?.(e.shiftKey || e.ctrlKey || e.metaKey);
   };
   return (
-    <div
+    <CardSurface
       data-text-card=""
       className={`${styles.card} ${full ? styles.full : styles.compact} ${targeted ? styles.targeted : ""}`}
       data-selected={selected}
@@ -128,8 +129,14 @@ export function TextCard({
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           e.stopPropagation();
-          onSelect?.(e.shiftKey || e.ctrlKey || e.metaKey);
+          if (e.key === "Enter") onSelect?.(e.shiftKey || e.ctrlKey || e.metaKey);
         }
+      }}
+      onKeyUp={(e) => {
+        if (e.target !== e.currentTarget || e.key !== " " || disabled || !onSelect) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(e.shiftKey || e.ctrlKey || e.metaKey);
       }}
       onDragOver={(e) => {
         if (
@@ -194,6 +201,6 @@ export function TextCard({
       )}
       {footer && <footer className={styles.footer}>{footer}</footer>}
       {disabledReason && <small>{disabledReason}</small>}
-    </div>
+    </CardSurface>
   );
 }
