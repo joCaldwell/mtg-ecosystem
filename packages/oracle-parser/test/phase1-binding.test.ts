@@ -771,6 +771,15 @@ describe("per-event replacements and prevention", () => {
     assert.ok(!graph.nodes.some(node => node.node === "event-participant"));
   });
 
+  it("treats an explicit move to exile and airbend as competing linked producers", () => {
+    for (const second of ["Put target creature card from your graveyard into exile.", "Airbend target creature."]) {
+      const graph = analyze("When this artifact enters, exile target creature.\n"
+        + "{T}: " + second + "\n{2}: Put target creature card exiled with this artifact onto the battlefield.", "Artifact");
+      assert.equal(graph.referencesBound, false);
+      assert.ok(!graph.nodes.some(node => node.node === "linked-exile-pool"));
+    }
+  });
+
   it("applies the counter follow-up to the same recipient and the actual prevention amount", () => {
     const graph = analyze("If damage would be dealt to another creature you control, prevent that damage. "
       + "Put a +1/+1 counter on that creature for each 1 damage prevented this way.", "Creature");
@@ -830,6 +839,13 @@ describe("exact choice, payment, and zone-trigger identities", () => {
       + "where X is the amount of mana spent to cast that spell.", "Sorcery");
     assert.equal(wrong.referencesBound, false);
     assert.ok(!wrong.nodes.some(node => node.node === "cast-mana-paid"));
+  });
+
+  it("does not assign contextual cast payment past a competing spell", () => {
+    const graph = analyze("Whenever you cast a red spell, counter target spell. This enchantment deals X damage to any target, "
+      + "where X is the amount of mana spent to cast that spell.", "Enchantment");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "cast-mana-paid"));
   });
 
   it("finds the successor for the specific battlefield departure that triggered", () => {
@@ -1004,5 +1020,114 @@ describe("event-bound player sets and private access", () => {
   it("does not infer a face-down exile successor from an ordinary exile", () => {
     const graph = analyze("Exile the top card of your library. You may look at and play that card this turn.", "Sorcery");
     assert.ok(!graph.nodes.some(node => node.node === "face-down-exile-look"));
+  });
+});
+
+describe("scope and visibility fences", () => {
+  it("does not use an exile result in the branch that declines it", () => {
+    const graph = analyze("You may exile target instant card from a graveyard. If you don't, copy the exiled card.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "card-copy"));
+  });
+
+  it("will not assign the attack filter to the trigger when another player is eligible", () => {
+    const graph = analyze("Enchant player\nWhenever enchanted player is attacked, target player draws a card. "
+      + "Each opponent attacking that player creates a Treasure token.", "Enchantment — Aura");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "relative-player-group"));
+  });
+
+  it("does not evaluate characteristics of a face-down exile card without permission", () => {
+    const graph = analyze("Exile the top three cards of your library face down. For each nonland card exiled this way, "
+      + "put a number of time counters on that card equal to its mana value. If it doesn't have suspend, it gains suspend.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "filtered-result-group"));
+  });
+
+  it("requires authorization before casting a face-down exile card", () => {
+    const graph = analyze("Exile the top card of each player's library face down, then you may cast any number of spells "
+      + "from among those cards without paying their mana costs.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "sequential-cast"));
+  });
+
+  it("retains the condition on a private inspection grant", () => {
+    const graph = analyze("Exile the top card of your library face down. If you control a creature, "
+      + "you may look at and play that card this turn.", "Sorcery");
+    boundCard(graph);
+    const look = graph.nodes.find(node => node.node === "face-down-exile-look");
+    assert.ok(graph.nodes.some(node => node.id === look?.event && node.node === "event" && node.conditional));
+  });
+
+  it("does not identify revealed cards with an unrelated earlier scan", () => {
+    const graph = analyze("Reveal cards from the top of your library until you reveal a land card. "
+      + "Reveal the top card of your library. Put the revealed card into your hand.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "event-link" && node.action === "reveal"));
+  });
+});
+
+describe("search results and shared land types", () => {
+  it("uses only the actual exile successor and the actual search result", () => {
+    const graph = analyze("Exile up to one target creature you own, then search your library for a basic land card. "
+      + "Put both cards onto the battlefield under your control, then shuffle.", "Sorcery");
+    boundCard(graph);
+    const union = graph.nodes.find(node => node.node === "result-union");
+    assert.ok(union);
+    assert.equal(union.id, bound(graph, "/effects/1/steps/0/what"));
+    const [exile, search] = union.from.map(id => graph.nodes.find(node => node.id === id));
+    assert.ok(exile?.node === "event-result" && exile.identity === "zone-successors");
+    assert.ok(search?.node === "event-result" && search.identity === "same-objects");
+    assert.ok(graph.nodes.some(node => node.id === search.event && node.node === "event" && node.operation === "search"));
+  });
+
+  it("does not alias a second exile instruction to the library search", () => {
+    const name = "Fixture";
+    const typeLine = "Sorcery";
+    const result = parseOracleText("Exile up to one target creature you own, then search your library for a basic land card. "
+      + "Put both cards onto the battlefield under your control, then shuffle.", name, { typeLine, includeSourceProvenance: true });
+    assert.ok(result.ok && result.abilities[0].kind === "spell");
+    result.abilities[0].effects[0].steps[1] = {
+      effect: "exile", what: { ref: "library-cards", position: "top", of: { zone: "library", owner: "your" },
+        count: { amount: "fixed", value: 1 } },
+    };
+    const graph = analyzeCardBindings({ identity: "fixture", source: { name, type_line: typeLine, layout: "normal" },
+      faces: [{ sourceFaceIndex: 0, result }] });
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "result-union"));
+  });
+
+  it("chooses up to two basic lands whose types intersect", () => {
+    const graph = analyze("Search your library for up to two basic land cards that share a land type, "
+      + "put them onto the battlefield tapped, then shuffle.", "Sorcery");
+    boundCard(graph);
+    const shared = graph.nodes.find(node => node.node === "shared-land-type-search");
+    assert.ok(shared?.maximum === 2 && shared.characteristic === "land-type");
+    const moved = bound(graph, "/steps/1/what");
+    assert.ok(graph.nodes.some(node => node.node === "event-result" && node.id === moved && node.event === shared.event));
+  });
+
+  it("does not apply the shared land type rule to other collective predicates", () => {
+    const graph = analyze("Search your library for up to two basic land cards with different names, "
+      + "put them onto the battlefield tapped, then shuffle.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "shared-land-type-search"));
+  });
+});
+
+describe("exile qualification for card copies", () => {
+  it("applies the stated type filter to the actual exile set", () => {
+    const graph = analyze("Exile the top three cards of your library. For each instant card exiled this way, "
+      + "copy that card, then you may cast the copy without paying its mana cost.", "Sorcery");
+    boundCard(graph);
+    const pool = graph.nodes.find(node => node.node === "filtered-result-group");
+    assert.deepEqual(pool?.filter, { cls: "card", types: ["instant"] });
+  });
+
+  it("does not inspect face-down cards to choose instant copies", () => {
+    const graph = analyze("Exile the top three cards of your library face down. For each instant card exiled this way, "
+      + "copy that card, then you may cast the copy without paying its mana cost.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "card-copy"));
   });
 });

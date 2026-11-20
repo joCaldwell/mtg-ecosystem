@@ -149,7 +149,7 @@ export type BindingNode = NodeBase & (
       action: { kind: "copy"; event: string; count: number; retarget: boolean }
         | { kind: "change-targets"; scope: "all" | "one" | "any" }
         | { kind: "choose-new-targets"; timing: "resolution" | "copy-creation"; copyEvent?: string } }
-  | { node: "face-down-exile-look"; scope: string; viewer: string; card: string;
+  | { node: "face-down-exile-look"; scope: string; viewer: string; card: string; event: string;
       duration: Extract<Effect, { effect: "grant-look-permission" }>["duration"]; continuedUntil: "leaves-exile-or-shuffled" }
   | { node: "private-library-look"; scope: string; viewer: string; libraryOwner: string;
       refresh: "after-announcement-or-special-action" }
@@ -175,6 +175,9 @@ export type BindingNode = NodeBase & (
       execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }
         | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise" } }
   /** The targets that are still legal when this set of per-player targets resolves. */
+  | { node: "result-union"; scope: string; from: string[]; cardinality: "many" }
+  | { node: "shared-land-type-search"; scope: string; chooser: string; library: string; event: string;
+      filter: ObjectFilter; maximum: 2; characteristic: "land-type" }
   | { node: "relative-player-group"; scope: string; base: string; cardinality: "many";
       filter: { kind: "attacking" | "other-than"; player: string } }
   | { node: "filtered-result-group"; scope: string; pool: string; filter: ObjectFilter; cardinality: "many" }
@@ -253,7 +256,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

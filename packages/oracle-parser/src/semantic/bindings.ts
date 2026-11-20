@@ -286,9 +286,17 @@ function exileReplacementParts(replacement: ReplacementInstruction) {
   return { event, exile, life, followup };
 }
 
+function hasExileInstruction(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasExileInstruction);
+  return isRecord(value) && (
+    ["exile", "exile-until", "airbend"].includes(String(value.effect)) ||
+    (value.effect === "scan-library" && value.operation === "exile") ||
+    (value.effect === "move-zone" && isRecord(value.to) && value.to.zone === "exile") ||
+    value.keyword === "hideaway" || Object.values(value).some(hasExileInstruction));
+}
+
 function linkedExileOrigin(abilities: Ability[], siblings: string): LinkedExileOrigin | undefined {
-  const possible = abilities.flatMap((ability, index) => containsEffect(ability, "exile") ||
-    containsEffect(ability, "scan-library") || containsEffect(ability, "exile-until") ? [{ ability, index }] : []);
+  const possible = abilities.flatMap((ability, index) => hasExileInstruction(ability) ? [{ ability, index }] : []);
   if (possible.length !== 1) return;
   const [{ ability, index }] = possible;
   if (ability.kind === "static" && ability.effect.static === "replacement" &&
@@ -329,6 +337,7 @@ interface Context {
   sacrificedCost?: Candidate;
   stackCopies?: StackCopyCapture[];
   previousEffect?: string;
+  precedingSentence?: { path: string; steps: Effect[] };
   targetLegalityQuery?: true;
   interveningIf?: true;
   resolutionCount?: { path: string; operation: ResolutionCountOperation };
@@ -341,6 +350,7 @@ interface Context {
   affectedMember?: Candidate;
   scans?: ScanCapture[];
   uncertainScanOrigin?: boolean;
+  uncertainRevealOrigin?: boolean;
   copiedCards?: Candidate[];
   uncertainCardCopyOrigin?: boolean;
   announcementMember?: string;
@@ -634,7 +644,10 @@ class Analyzer {
   /** Players named only through an object's owner or controller. */
   readonly weakPlayers = new Set<string>();
   /** The antecedents just before each optional instruction, by path. */
-  readonly beforeDecision = new Map<string, Candidate[]>();
+  readonly beforeDecision = new Map<string, Pick<Context,
+    "objects" | "departed" | "players" | "quantities" | "sourceMoved" | "sourceSuccessor" | "previousEffect" |
+    "exileResults" | "uncertainExileOrigin" | "stackCopies" | "uncertainStackOrigin" | "scans" | "uncertainScanOrigin" | "uncertainRevealOrigin" |
+    "copiedCards" | "uncertainCardCopyOrigin" | "measuredEvents" | "uncertainMeasureOrigin" | "precedingSentence">>();
   /** Each face's card types, as the source's established description. */
   readonly faceTypes = new Map<string, ObjectFilter>();
   /** The latest choice from a pool in each ability, for "the rest". */
@@ -963,8 +976,12 @@ class Analyzer {
     if (value.amount === "mana-spent") {
       const what = child(path, "what");
       if (!context.barrier && context.phase === "resolution" && context.triggerObject?.event === "cast" &&
-          value.quantity === "total" && value.source === undefined &&
-          isDeepStrictEqual(value.what, { ref: "that", filter: { cls: "spell" } })) {
+          value.quantity === "total" && value.source === undefined && !context.uncertainStackOrigin &&
+          isDeepStrictEqual(value.what, { ref: "that", filter: { cls: "spell" } }) &&
+          [...context.objects, ...(context.departed ?? [])].every(candidate =>
+            candidate.id === context.triggerObject?.candidate.id ||
+            (candidate.id === context.source && !context.spellAbility) ||
+            (candidate.description !== undefined && !stackClasses(candidate.description)))) {
         const rules = ["601.2f", "601.2h", "601.2i", "603.2c", "608.2i"];
         const occurrence = context.triggerObject.candidate.id;
         this.bound({ ref: "that", filter: { cls: "spell" } }, what, occurrence, rules);
@@ -1988,7 +2005,38 @@ class Analyzer {
     });
     if (grant.gained === "keyword" && grant.costDefinition) this.walk(grant.costDefinition, child(path, "costDefinition"), { ...granted, phase: "payment" });
   }
+  private exileAndSearchPool(path: string, context: Context): string | undefined {
+    const previous = context.precedingSentence;
+    if (context.barrier || context.phase !== "resolution" || !previous || previous.steps.length !== 2) return;
+    const [exile, search] = previous.steps;
+    if (exile.effect !== "exile" || exile.what.ref !== "target" || objectCardinality(exile.what) !== "one" ||
+        exile.faceDown || exile.forEach || exile.forEachVote ||
+        search.effect !== "search" || search.optional || search.forEach || search.forEachVote || search.decidedBy ||
+        search.who.player !== "you" || !isDeepStrictEqual(search.zones, { selection: "all", of: [{ zone: "library", owner: "your" }] }) ||
+        search.for.ref !== "filter" || search.for.filter.cls !== "card" || objectCardinality(search.for) !== "one") return;
+    const exiled = this.id(`${previous.path}/steps/0`, "objects");
+    const foundPath = `${previous.path}/steps/1`;
+    const searchEvent = this.id(foundPath, "event");
+    const choice = this.at(child(foundPath, "for"));
+    const exileResult = this.result.nodes.find(node => node.node === "event-result" && node.id === exiled);
+    if (!exileResult || !choice) return;
+
+    const rules = ["400.7j", "608.2c", "609.3", "701.23b"];
+    const found = this.eventResult(foundPath, searchEvent, "objects", "one", "same-objects", choice.description);
+    const pool = this.node({ id: this.id(path, "exile-and-search"), path, node: "result-union", scope: context.ability,
+      from: [exiled, found.id], cardinality: "many", rules });
+    this.engineFeature("exile-and-search-results", path,
+      "Use only the actual exile successor and the actual library find, each of which can be absent.", rules);
+    return pool;
+  }
+
   object(expression: ObjectRef, path: string, context: Context): Candidate | undefined {
+    if (expression.ref === "related" && expression.number === "plural" &&
+        isDeepStrictEqual(expression.filter, { cls: "card" }) &&
+        expression.relation.relation === "exile-and-search-results" && expression.relation.from === "preceding-sentence") {
+      const pool = this.exileAndSearchPool(path, context);
+      if (pool) return this.bound(expression, path, pool, ["400.7j", "608.2c", "701.23b"]);
+    }
     if (!context.barrier && context.exactEventObject?.path === path &&
         (expression.ref === "replacement-event-object" || expression.ref === "prevention-event-object"))
       return this.bound(expression, path, context.exactEventObject.id, context.exactEventObject.rules);
@@ -2006,6 +2054,7 @@ class Analyzer {
     if (!context.barrier && !context.uncertainScanOrigin && context.scans?.length === 1 &&
         expression.ref === "related" && expression.relation.relation === "event-result" &&
         expression.relation.event === context.scans[0].operation && expression.filter.cls === "card" &&
+        (expression.relation.event !== "reveal" || !context.uncertainRevealOrigin) &&
         Object.keys(expression.filter).length === 1 &&
         (expression.relation.event !== "exile" || !context.exileResults?.length)) {
       const { event, pool, matches } = context.scans[0];
@@ -2178,7 +2227,8 @@ class Analyzer {
         return this.bound(expression, path, this.attachedTo(path, context), ["301.5f", "303.4m"]);
       }
       case "rest": {
-        const scan = context.scans?.length === 1 && !context.uncertainScanOrigin ? context.scans[0] : undefined;
+        const scan = context.scans?.length === 1 && !context.uncertainScanOrigin &&
+          (context.scans[0].operation !== "reveal" || !context.uncertainRevealOrigin) ? context.scans[0] : undefined;
         const explicitPool = expression.of ? this.at(child(path, "of")) : undefined;
         if (scan && (explicitPool ? explicitPool.id === scan.pool.id :
             !expression.of && !this.poolSelections.has(context.ability) &&
@@ -2406,6 +2456,14 @@ class Analyzer {
     return this.node({ id: this.id(path, "event"), path, node: "event", scope: context.ability,
       operation, inputs: inputs.map(input => input.id), availability: "when-performed", ...extra, rules: ["608.2c"] });
   }
+  private rememberDecision(path: string, context: Context): void {
+    const { objects, departed, players, quantities, sourceMoved, sourceSuccessor, previousEffect,
+      exileResults, uncertainExileOrigin, stackCopies, uncertainStackOrigin, scans, uncertainScanOrigin, uncertainRevealOrigin,
+      copiedCards, uncertainCardCopyOrigin, measuredEvents, uncertainMeasureOrigin, precedingSentence } = context;
+    this.beforeDecision.set(path, { objects, departed, players, quantities, sourceMoved, sourceSuccessor, previousEffect,
+      exileResults, uncertainExileOrigin, stackCopies, uncertainStackOrigin, scans, uncertainScanOrigin, uncertainRevealOrigin,
+      copiedCards, uncertainCardCopyOrigin, measuredEvents, uncertainMeasureOrigin, precedingSentence });
+  }
   /** Branch contexts start from the antecedents established so far; nothing a
    * branch establishes is visible to a sibling or after the construct. */
   branch(context: Context): Context {
@@ -2418,6 +2476,7 @@ class Analyzer {
       branch.uncertainStackOrigin || branch.stackCopies !== context.stackCopies);
     context.uncertainScanOrigin ||= branches.some(branch =>
       branch.uncertainScanOrigin || branch.scans !== context.scans);
+    context.uncertainRevealOrigin ||= branches.some(branch => branch.uncertainRevealOrigin);
     context.uncertainCardCopyOrigin ||= branches.some(branch =>
       branch.uncertainCardCopyOrigin || branch.copiedCards !== context.copiedCards);
     context.uncertainMeasureOrigin ||= branches.some(branch =>
@@ -2588,8 +2647,8 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined, stackCopies: undefined, previousEffect: undefined, exileResults: undefined,
-      uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined,
+      sacrificedCost: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, exileResults: undefined,
+      uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
       copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined,
       linkedExile: undefined, lexicalAbilityPath: undefined, delayedSchedule: kind === "delayed-triggered",
@@ -2691,6 +2750,7 @@ class Analyzer {
    * then performed in order (CR 608.2c-d). Their results exist only if the
    * player chose to perform them. */
   optionalGroup(effect: Extract<Effect, { effect: "optional-group" }>, path: string, context: Context): void {
+    this.rememberDecision(path, context);
     this.walk(effect.who, child(path, "who"), context);
     const decider = this.at(child(path, "who"))?.id;
     const group: Context = { ...context, decider: decider ?? "unresolved" };
@@ -2824,8 +2884,10 @@ class Analyzer {
   sentences(sentences: Sentence[], path: string, context: Context): void {
     let previousDecisions: string[] = [];
     let precedingAction: { event: string; action: "sacrifice" | "discard" } | undefined;
+    let precedingSentence: Context["precedingSentence"];
     for (const [index, sentence] of sentences.entries()) {
       const at = child(path, index);
+      context.precedingSentence = precedingSentence;
       const decisions: string[] = [];
       context.decisions = decisions;
       context.previousDecisions = previousDecisions;
@@ -2871,8 +2933,7 @@ class Analyzer {
           const branch: Context = { ...this.branch(context), conditional: true, decisions,
             players: combine(context.players, this.targetPlayersUnder(child(at, "condition"), context)),
             // "If you don't, ...": what the declined instruction would have produced does not exist.
-            ...(linked && condition?.condition === "you-dont" && branchIndex === 0 && this.beforeDecision.has(linked)
-              ? { objects: [...this.beforeDecision.get(linked)!] } : {}),
+            ...(linked && condition?.condition === "you-dont" && branchIndex === 0 ? this.beforeDecision.get(linked) : {}),
             ...(conditionSubject?.domain === "object" ? { conditionSubject: { candidate: conditionSubject,
               before: [...context.objects, ...(context.departed ?? [])].map(candidate => candidate.id) } } : {}) };
           const stepsPath = branchIndex === 0 ? child(at, "steps") : child(child(at, "otherwise"), "steps");
@@ -2911,6 +2972,7 @@ class Analyzer {
           this.effect(effect, child(child(at, "steps"), stepIndex), context);
       }
       previousDecisions = decisions;
+      precedingSentence = !condition && !sentence.otherwise && !sentence.afterConditional ? { path: at, steps: sentence.steps } : undefined;
       const [step] = sentence.steps;
       const actionPath = `${at}/steps/0`;
       precedingAction = !condition && !sentence.otherwise && !sentence.afterConditional &&
@@ -3026,8 +3088,9 @@ class Analyzer {
       return true;
     }
     const rules = ["400.7j", "406.3", "406.3a", "611.2a"];
+    const event = this.event(path, context, effect.effect, [card], context.conditional ? { conditional: true } : {});
     this.node({ id: this.id(path, "face-down-exile-look"), path, node: "face-down-exile-look", scope: context.ability,
-      viewer: context.you, card: card.id, duration, continuedUntil: "leaves-exile-or-shuffled", rules });
+      viewer: context.you, card: card.id, duration, event, continuedUntil: "leaves-exile-or-shuffled", rules });
     this.engineFeature("private-exile-look", path, "Only the bound player may inspect the card. Retain access while it stays in exile unshuffled.", rules);
     return true;
   }
@@ -3039,7 +3102,9 @@ class Analyzer {
         effect.who?.player !== "filtered" || effect.who.random) return false;
     const { who } = effect;
     const attacked = context.attackedTriggerPlayer;
-    const againstAttacked = attacked && who.base.player === "each-opponent" &&
+    const againstAttacked = attacked && !context.actor &&
+      context.players.filter(player => !this.weakPlayers.has(player.id)).every(player => player.id === attacked.id) &&
+      who.base.player === "each-opponent" &&
       isDeepStrictEqual(who.filter, { attackingPlayer: { player: "that-player" } }) &&
       (effect.effect === "create-token" && effect.count.amount === "fixed" ||
         effect.effect === "untap" && effect.what.ref === "all" && effect.what.filter.controlledBy?.player === "they" &&
@@ -3129,10 +3194,12 @@ class Analyzer {
       "copyOf" in first.token && first.token.copyOf.ref === "that";
     const exileCopy = effect.effects.length === 1 && "ref" in each && each.ref === "each" && each.filter.cls === "card" &&
       each.filter.relation?.relation === "event-result" && each.filter.relation.event === "exile" &&
-      each.filter.relation.scope === "this-way" && effect.effects[0].steps.length === 2 &&
+      each.filter.relation.scope === "this-way" && !context.exileResults?.[0]?.faceDown &&
+      Object.keys(each.filter).every(key => ["cls", "relation", "types", "nonTypes", "supertypes"].includes(key)) &&
+      effect.effects[0].steps.length === 2 &&
       first?.effect === "copy-card" && second?.effect === "play-card" && second.instruction.what.ref === "copy-result" &&
       context.exileResults?.length === 1 && !context.uncertainExileOrigin;
-    const onExiledCards = effect.effects.length === 2 && "ref" in each && each.ref === "each" &&
+    const onExiledCards = effect.effects.length === 2 && !context.exileResults?.[0]?.faceDown && "ref" in each && each.ref === "each" &&
       isDeepStrictEqual(each.filter, { nonTypes: ["land"], cls: "card", relation: { relation: "event-result", event: "exile", scope: "this-way" } }) &&
       effect.effects[0].steps.length === 1 && first?.effect === "put-counters" &&
       isDeepStrictEqual(first.on, { ref: "that", filter: { cls: "card" } }) &&
@@ -3147,12 +3214,13 @@ class Analyzer {
     const where = child(path, "each");
     let domain: Candidate | undefined;
     const exile = exileCopy || onExiledCards ? context.exileResults?.[0] : undefined;
-    if (onExiledCards && exile) {
+    if (exile && "ref" in each && each.ref === "each" && (onExiledCards || Object.keys(each.filter).length > 2)) {
       const rules = ["400.7j", "608.2c", "608.2f"];
-      const id = this.node({ id: this.id(where, "nonland-exile-members"), path: where, node: "filtered-result-group",
-        scope: context.ability, pool: exile.result.id, filter: { cls: "card", nonTypes: ["land"] }, cardinality: "many", rules });
+      const { relation, ...filter } = each.filter;
+      const id = this.node({ id: this.id(where, "eligible-exile-members"), path: where, node: "filtered-result-group",
+        scope: context.ability, pool: exile.result.id, filter, cardinality: "many", rules });
       this.bound(each, where, id, rules);
-      domain = { id, domain: "object", cardinality: "many", description: { cls: "card", nonTypes: ["land"] } };
+      domain = { id, domain: "object", cardinality: "many", description: filter };
     } else if (exile) {
       this.bound(each, where, exile.result.id, ["400.7j", "608.2c"]);
       domain = exile.result;
@@ -3240,7 +3308,7 @@ class Analyzer {
     if (context.barrier || context.decider || context.phase !== "resolution" || effect.forEach || effect.forEachVote ||
         effect.optional || effect.decidedBy || effect.who.player !== "you" ||
         effect.count.amount !== "fixed" || !Number.isSafeInteger(effect.count.value) || effect.count.value < 1 ||
-        context.exileResults?.length !== 1 || context.uncertainExileOrigin ||
+        context.exileResults?.length !== 1 || context.uncertainExileOrigin || context.exileResults[0].faceDown ||
         (effect.what.ref !== "it" && effect.what.ref !== "that" && effect.what.ref !== "related")) return false;
     const card = this.object(effect.what, child(path, "what"), context);
     if (!card || card.id !== context.exileResults[0].result.id || card.cardinality !== "one") {
@@ -3312,7 +3380,7 @@ class Analyzer {
     if (!candidate) return false;
     const chooser = this.player(effect.who, whoPath, context)!;
     if (effect.optional) {
-      this.beforeDecision.set(path, context.objects);
+      this.rememberDecision(path, context);
       context.decisions?.push(path);
     }
     context.objects = combine(context.objects, [candidate]);
@@ -3353,6 +3421,7 @@ class Analyzer {
     const precedingEffect = context.previousEffect;
     context.previousEffect = path;
     if (effect.effect === "choose-object") context.uncertainTargetOrigin = true;
+    if (effect.effect === "reveal") context.uncertainRevealOrigin = true;
     if (this.distinctAction(effect, path, context)) return;
     if (this.relativePlayerAction(effect, path, context)) return;
     if (effect.effect === "grant-look-permission" && this.lookAtFaceDownExile(effect, path, context)) return;
@@ -3409,6 +3478,7 @@ class Analyzer {
       this.walk(effect, path, { ...context, barrier });
       context.uncertainExileOrigin ||= containsEffect(effect, "exile") || containsEffect(effect, "exile-until");
       context.uncertainStackOrigin ||= containsEffect(effect, "copy-stack-object");
+      context.uncertainRevealOrigin ||= containsEffect(effect, "reveal");
       context.uncertainTargetOrigin ||= containsEffect(effect, "choose-object") || containsEffect(effect, "declare-target");
       context.objects = []; context.players = []; context.quantities = [];
       return;
@@ -3419,6 +3489,7 @@ class Analyzer {
       this.walk(effect, path, { ...context, barrier });
       context.uncertainExileOrigin ||= containsEffect(effect, "exile") || containsEffect(effect, "exile-until");
       context.uncertainStackOrigin ||= containsEffect(effect, "copy-stack-object");
+      context.uncertainRevealOrigin ||= containsEffect(effect, "reveal");
       context.uncertainTargetOrigin ||= containsEffect(effect, "choose-object") || containsEffect(effect, "declare-target");
       context.objects = []; context.players = []; context.quantities = [];
       return;
@@ -3435,7 +3506,7 @@ class Analyzer {
     if (effect.effect === "choice" && (plain || (!context.barrier && effect.optional && !effect.decidedBy &&
         !effect.forEach && !effect.forEachVote && effect.who.player === "you"))) {
       if (effect.optional) {
-        this.beforeDecision.set(path, context.objects);
+        this.rememberDecision(path, context);
         context.decisions?.push(path);
         this.event(path, context, "choose-one", [{ id: context.you, domain: "player", cardinality: "one" }],
           { optional: true, decider: context.you, ...(context.conditional ? { conditional: true as const } : {}) });
@@ -3462,12 +3533,14 @@ class Analyzer {
       this.walk(effect, path, { ...context, barrier });
       context.uncertainExileOrigin ||= containsEffect(effect, "exile") || containsEffect(effect, "exile-until");
       context.uncertainStackOrigin ||= containsEffect(effect, "copy-stack-object");
+      context.uncertainRevealOrigin ||= containsEffect(effect, "reveal");
       context.uncertainTargetOrigin ||= containsEffect(effect, "choose-object") || containsEffect(effect, "declare-target");
       context.objects = []; context.players = []; context.quantities = [];
       return;
     }
-    if (effect.optional) this.beforeDecision.set(path, context.objects);
+    if (effect.optional) this.rememberDecision(path, context);
     const castPool = !context.barrier && !context.decider && !context.uncertainExileOrigin &&
+      !context.exileResults?.[0]?.faceDown &&
       context.exileResults?.length === 1 && precedingEffect &&
       context.exileResults[0].event === this.id(precedingEffect, "event") ? context.exileResults[0].result : undefined;
     const immediateCasts = effect.effect === "play-card" && effect.optional && !effect.forEach && !effect.forEachVote &&
@@ -3477,8 +3550,26 @@ class Analyzer {
       isDeepStrictEqual(effect.instruction.what.count, { amount: "chosen", minimum: 0 }) &&
       isDeepStrictEqual(effect.instruction.alternativeCost, { cost: "without-mana-cost" }) &&
       isDeepStrictEqual(effect.instruction.fromAmong, { ref: "that", filter: { cls: "card" }, plural: true });
+    const sharedLandSearch = plain && !context.barrier && !context.decider && context.phase === "resolution" &&
+      effect.effect === "search" && effect.who.player === "you" &&
+      isDeepStrictEqual(effect.zones, { selection: "all", of: [{ zone: "library", owner: "your" }] }) &&
+      effect.for.ref === "filter" && effect.for.upTo && effect.for.count.amount === "fixed" &&
+      effect.for.count.value === 2 && isDeepStrictEqual(effect.for.filter, { supertypes: ["basic"], types: ["land"], cls: "card" }) &&
+      isDeepStrictEqual(effect.for.groupConstraints, [{ constraint: "shared-value", characteristic: "land-type" }]);
     const slots = plain && !context.barrier && context.phase === "resolution" ? coloredSearchSlots(effect) : undefined;
-    if (slots && effect.effect === "search") {
+    if (sharedLandSearch && effect.effect === "search" && effect.for.ref === "filter") {
+      this.walk(effect.who, child(path, "who"), context);
+      this.walk(effect.zones, child(path, "zones"), context);
+      const selection = child(path, "for");
+      const rules = ["205.3i", "608.2d", "701.23b"];
+      const event = this.id(path, "event");
+      const query = this.node({ id: this.id(selection, "shared-land-type"), path: selection, node: "shared-land-type-search",
+        scope: context.ability, chooser: context.you, library: context.you, event,
+        filter: effect.for.filter, maximum: 2, characteristic: "land-type", rules });
+      this.bound(effect.for, selection, query, rules);
+      this.engineFeature("shared-land-type-search", path,
+        "Choose zero through two qualifying cards, applying the same land type constraint to any pair that is found.", rules);
+    } else if (slots && effect.effect === "search") {
       const selection = child(path, "for");
       this.walk(effect.who, child(path, "who"), context);
       this.walk(effect.zones, child(path, "zones"), context);
@@ -3710,6 +3801,11 @@ class Analyzer {
         source: context.source, producer: context.ability, event, membership: "still-in-exile",
         identity: "source-incarnation", cardinality: "many", rules });
       this.engineFeature("linked-exile-pool", path, "Record only cards exiled by this linked ability instance and still in exile.", rules);
+    }
+    if (sharedLandSearch && effect.effect === "search" && objects.length === 1) {
+      const found = this.eventResult(path, event, "objects", "many", "same-objects", { cls: "card", types: ["land"] });
+      context.objects = combine(context.objects.filter(candidate => candidate.id !== objects[0].id), [found]);
+      return;
     }
     if (effect.effect === "become" && "copyOf" in effect.spec) {
       const model = this.at(`${path}/spec/copyOf`);
@@ -4246,7 +4342,7 @@ class Analyzer {
           departed: previous.departed, sourceMoved: previous.sourceMoved, mentionedObject: previous.mentionedObject, sourceNamed: previous.sourceNamed,
           exileResults: previous.exileResults, uncertainExileOrigin: previous.uncertainExileOrigin,
           stackCopies: previous.stackCopies, previousEffect: previous.previousEffect, uncertainStackOrigin: previous.uncertainStackOrigin,
-          scans: previous.scans, uncertainScanOrigin: previous.uncertainScanOrigin,
+          scans: previous.scans, uncertainScanOrigin: previous.uncertainScanOrigin, uncertainRevealOrigin: previous.uncertainRevealOrigin,
           copiedCards: previous.copiedCards, uncertainCardCopyOrigin: previous.uncertainCardCopyOrigin,
           measuredEvents: previous.measuredEvents, uncertainMeasureOrigin: previous.uncertainMeasureOrigin,
           declaredTargets: previous.declaredTargets, uncertainTargetOrigin: previous.uncertainTargetOrigin });
@@ -4419,6 +4515,7 @@ class Analyzer {
           : node.node === "alternatives" ? node.of.some(id => this.invalidNodes.has(id))
           : node.node === "eligible-target-group" ? this.invalidNodes.has(node.template)
           : node.node === "filtered-result-group" ? this.invalidNodes.has(node.pool)
+          : node.node === "result-union" ? node.from.some(id => this.invalidNodes.has(id))
           : node.node === "derived-player" ? this.invalidNodes.has(node.of)
           : node.node === "selection" || node.node === "defined-number"
             ? this.result.references.some(reference => reference.path.startsWith(`${node.path}/`) &&
