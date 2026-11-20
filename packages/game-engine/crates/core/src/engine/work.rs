@@ -387,6 +387,13 @@ impl Game {
                     .visible_object(viewer, object)
                     .map_err(|_| QueryRejection::Invariant)?
             {
+                if let Some(PlayerRequest::HandCast { candidates, .. }) = &mut b.decision
+                    && self
+                        .eligible_hand_spell(object, viewer)
+                        .map_err(|_| QueryRejection::Invariant)?
+                {
+                    candidates.push(visible.handle.clone());
+                }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = &mut b.decision
                     && object.zone == (Zone::Hand { owner: viewer })
                 {
@@ -562,7 +569,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 38,
+                    observation_version: 39,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -673,6 +680,21 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= 4 + self.state.rules.objects.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
+                if let Some(PlayerRequest::HandCast { candidates, .. }) = request {
+                    if let Some(object) = cache.next_object(self)
+                        && self
+                            .eligible_hand_spell(object, *viewer)
+                            .map_err(|_| QueryRejection::Invariant)?
+                    {
+                        candidates.push(
+                            self.handle_for(*viewer, object.id)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= self.state.rules.objects.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
@@ -816,6 +838,10 @@ impl Game {
                             PlayerResponse::ManaColor { .. },
                         ) => *scope != ManaSourceScope::Mixed,
                         (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
+                        (
+                            Frame::HandCast { child: None, .. },
+                            PlayerResponse::Cast { .. } | PlayerResponse::Pass,
+                        ) => true,
                         (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
@@ -1064,7 +1090,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 38,
+                            observation_version: 39,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1100,7 +1126,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 34,
+                    context_version: 35,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1119,7 +1145,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 34,
+            work_version: 35,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1128,7 +1154,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 34
+        if saved.work_version != 35
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -1210,9 +1236,11 @@ impl Game {
         let body_units: Result<u64, String> = match query {
             Query::Observe { viewer } => self.observation_work_units(*viewer),
             Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
-                Some(PlayerRequest::Targets { .. } | PlayerRequest::BottomOpening { .. }) => {
-                    std::cmp::max(1, self.state.rules.objects.len() as u64)
-                }
+                Some(
+                    PlayerRequest::HandCast { .. }
+                    | PlayerRequest::Targets { .. }
+                    | PlayerRequest::BottomOpening { .. },
+                ) => std::cmp::max(1, self.state.rules.objects.len() as u64),
                 Some(PlayerRequest::EntityTargets { .. }) => 4u64
                     .checked_add(self.state.rules.objects.len() as u64)
                     .ok_or("decision work resource limit")?,

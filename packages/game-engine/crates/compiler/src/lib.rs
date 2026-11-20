@@ -17,6 +17,7 @@ mod cast_entry;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
+mod combat_hand_cast;
 mod commander_modal_keyword;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -721,6 +722,10 @@ enum Step {
         what: serde_json::Value,
         removal: serde_json::Value,
         duration: SourceDuration,
+    },
+    PlayCard {
+        instruction: serde_json::Value,
+        optional: bool,
     },
     LoseGame {
         who: PlayerSelector,
@@ -2072,7 +2077,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if let Some(ability) = source_tap_trigger.take() {
+                        let ability = if block == 1
+                            && condition.is_none()
+                            && combat_hand_cast::is_offer(effects)
+                        {
+                            mtg_contracts::combat_hand_cast_trigger()
+                        } else if let Some(ability) = source_tap_trigger.take() {
                             ability
                         } else if let Some(discard) = &group_discard {
                             group_discard::entry_trigger(discard.clone())
@@ -2548,6 +2558,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
+    combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
     {

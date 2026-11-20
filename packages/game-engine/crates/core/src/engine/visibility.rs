@@ -221,6 +221,11 @@ pub struct AdditionalCostChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    HandCast {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     AdditionalCosts {
         token: DecisionToken,
         player: PlayerId,
@@ -459,7 +464,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::HandReturn { token, .. }
+            Self::HandCast { token, .. }
+            | Self::HandReturn { token, .. }
             | Self::LibraryOrder { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
@@ -1482,6 +1488,15 @@ impl Game {
                 (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
             );
         }
+        if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
+            return Ok(
+                (frame.spell.controller == viewer).then_some(PlayerRequest::HandCast {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                }),
+            );
+        }
         if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
             return Ok(
                 (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
@@ -2079,6 +2094,11 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 17))
+            } else if self
+                .hand_cast_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.rules.revision, 45))
             } else if self
                 .cascade_request()?
                 .is_some_and(|r| r.player() == viewer)
