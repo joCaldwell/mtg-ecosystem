@@ -185,15 +185,32 @@ impl Game {
         if rows.len().saturating_add(self.state.rules.effects.len()) > self.effect_limit() {
             return Err("delayed chapter capacity".into());
         }
-        let mut ids = BTreeSet::new();
+        let mut stack_ids = BTreeSet::new();
+        let mut trigger_ids = BTreeSet::new();
         for row in rows {
             self.validate_delayed_registration(row)?;
+            let StackKind::Triggered { trigger_id, .. } = row.issuer.kind else {
+                return Err("delayed chapter has no original trigger".into());
+            };
             if row.turn != self.state.rules.turn.number
                 || !self.is_live(row.issuer.controller)
-                || !ids.insert(row.issuer.id)
+                || !stack_ids.insert(row.issuer.id)
+                || !trigger_ids.insert(trigger_id)
             {
                 return Err("duplicate or expired delayed chapter registration".into());
             }
+        }
+        Ok(())
+    }
+    pub(super) fn reserve_effect_slot(&self) -> Result<(), String> {
+        let requested =
+            self.state.rules.effects.len() + self.state.rules.delayed_chapters.len() + 1;
+        let capacity = self.effect_limit();
+        if requested > capacity {
+            return Err(self.capacity_error(RuleFault::EffectCapacityExceeded {
+                capacity,
+                requested,
+            }));
         }
         Ok(())
     }
@@ -209,16 +226,7 @@ impl Game {
         };
         self.validate_delayed_registration(&row)?;
         if self.is_live(row.issuer.controller) {
-            if self
-                .state
-                .rules
-                .delayed_chapters
-                .len()
-                .saturating_add(self.state.rules.effects.len())
-                >= self.effect_limit()
-            {
-                return Err("delayed chapter capacity".into());
-            }
+            self.reserve_effect_slot()?;
             self.state.rules.delayed_chapters.push(row);
         }
         self.finish_instruction(

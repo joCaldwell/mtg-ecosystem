@@ -1289,27 +1289,8 @@ impl Game {
     ) -> Result<EventOutcome, String> {
         match event {
             ProposedEvent::CreateEffect { effect } => {
-                if self
-                    .state
-                    .rules
-                    .effects
-                    .len()
-                    .saturating_add(self.state.rules.delayed_chapters.len())
-                    >= self.effect_limit()
-                {
-                    return Err(self.capacity_error(RuleFault::EffectCapacityExceeded {
-                        capacity: self.effect_limit(),
-                        requested: self.state.rules.effects.len() + 1,
-                    }));
-                }
+                self.reserve_effect_slot()?;
                 if effect.id != EffectId(self.state.rules.next_effect_id)
-                    || self
-                        .state
-                        .rules
-                        .effects
-                        .len()
-                        .saturating_add(self.state.rules.delayed_chapters.len())
-                        >= self.effect_limit()
                     || effect.expires_in_cleanup_of_turn != self.state.rules.turn.number
                     || effect.origin.controller.0 >= 4
                     || effect.origin.source_handles.len() != 4

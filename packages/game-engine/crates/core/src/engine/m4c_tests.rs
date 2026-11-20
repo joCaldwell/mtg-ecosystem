@@ -141,7 +141,8 @@ pub(super) fn public_proof(g: &Game) {
         for s in &expected.view.stack {
             if let Some(t) = &s.triggered {
                 match &t.ability {
-                    VisibleTriggerAbility::TemporaryGrant { .. } => {
+                    VisibleTriggerAbility::TemporaryGrant { .. }
+                    | VisibleTriggerAbility::DelayedChapter { .. } => {
                         panic!("fixture has no temporary grants")
                     }
                     VisibleTriggerAbility::Intrinsic { .. } => (),
@@ -651,7 +652,8 @@ fn m4c_pending_tagged_grant_views_exact_order_stale_work_and_accepted_replay() {
     );
     for candidate in &visible {
         let expected = match candidate.ability {
-            VisibleTriggerAbility::TemporaryGrant { .. } => {
+            VisibleTriggerAbility::TemporaryGrant { .. }
+            | VisibleTriggerAbility::DelayedChapter { .. } => {
                 panic!("fixture has no temporary grants")
             }
             VisibleTriggerAbility::Intrinsic { index } => {

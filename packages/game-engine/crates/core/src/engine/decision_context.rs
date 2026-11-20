@@ -157,7 +157,8 @@ impl Game {
                         triggered_ability_index,
                         ..
                     } => (grant_source, triggered_ability_index),
-                    EffectiveTriggerAbility::Intrinsic { .. } => unreachable!(),
+                    EffectiveTriggerAbility::Intrinsic { .. }
+                    | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
                 };
                 return Some(DecisionSource {
                     kind: DecisionSourceKind::Triggered,

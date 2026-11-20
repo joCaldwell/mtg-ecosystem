@@ -756,7 +756,17 @@ fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
     for _ in 0..2000 {
         settle(&mut g);
         let registrations = &g.state.rules.delayed_chapters;
-        if registrations.first().is_some_and(|r| r.chapter() == Ok(1)) {
+        if !saw_second && registrations.first().is_some_and(|r| r.chapter() == Ok(1)) {
+            let mut rogue = g.fork();
+            let mut duplicate = registrations[0].clone();
+            let StackId(id) = duplicate.issuer.id;
+            duplicate.issuer.id = StackId(id.saturating_sub(1));
+            assert_ne!(duplicate.issuer.id, registrations[0].issuer.id);
+            rogue.state.rules.delayed_chapters.push(duplicate);
+            let err = Game::restore(g.prepared.as_ref().clone(), &rogue.snapshot().unwrap())
+                .err()
+                .expect("duplicate original trigger issuance must be rejected");
+            assert_eq!(err, "duplicate or expired delayed chapter registration");
             saw_second = true;
         }
         if saw_second && registrations.is_empty() {
