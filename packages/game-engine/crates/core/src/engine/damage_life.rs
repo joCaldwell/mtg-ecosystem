@@ -59,7 +59,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
             ..
         } => Some(&progress.frame.spell),
         Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
+            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
             ..
         }
         | Frame::Resolve { frame }
@@ -124,7 +124,7 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
             ..
         } => update_entry(&mut progress.frame.spell, fact),
         Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
+            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
             ..
         }
         | Frame::Resolve { frame }

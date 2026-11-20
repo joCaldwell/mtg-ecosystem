@@ -78,6 +78,7 @@ mod counter_placement;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
+mod entry_copy;
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
@@ -1235,6 +1236,12 @@ pub enum Response {
     PlayHideawayLinked {
         object: Option<ObjectId>,
     },
+    EntryCopy {
+        object: Option<ObjectId>,
+    },
+    EntryAttachment {
+        object: ObjectId,
+    },
     OpeningPlacement {
         object: Option<ObjectId>,
     },
@@ -1401,6 +1408,18 @@ pub enum Request {
     PlayHideawayLinked {
         decision_id: u64,
         player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
+    EntryCopy {
+        decision_id: u64,
+        player: PlayerId,
+        source: ObjectId,
+        candidates: Vec<ObjectId>,
+    },
+    EntryAttachment {
+        decision_id: u64,
+        player: PlayerId,
+        source: ObjectId,
         candidates: Vec<ObjectId>,
     },
     OpeningPlacement {
@@ -1677,6 +1696,8 @@ impl Request {
             | Self::ManaColor { decision_id, .. }
             | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::EntryCopy { decision_id, .. }
+            | Self::EntryAttachment { decision_id, .. }
             | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::ChooseOpponent { decision_id, .. }
@@ -1726,6 +1747,8 @@ impl Request {
             | Self::ManaColor { player, .. }
             | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::EntryCopy { player, .. }
+            | Self::EntryAttachment { player, .. }
             | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
             | Self::ChooseOpponent { player, .. }
@@ -3606,6 +3629,13 @@ impl Game {
                         .ok_or("instruction cursor resource limit")?;
                     self.state.rules.frame = Frame::Resolve { frame };
                 } else {
+                    if stack.kind.is_spell()
+                        && program.resolution == SpellResolution::Permanent
+                        && self.current(stack.source).is_ok()
+                        && self.begin_copy_entry(&frame, stack.source)?
+                    {
+                        return Ok(());
+                    }
                     self.finish_spell(&stack, true)?;
                 }
             }
@@ -3688,6 +3718,13 @@ impl Game {
         {
             return Err("unsupported resolving-source movement".into());
         }
+        self.complete_spell_resolution(stack, resolved)
+    }
+    fn complete_spell_resolution(
+        &mut self,
+        stack: &StackInstance,
+        resolved: bool,
+    ) -> Result<(), String> {
         self.record_event(Event::SpellCompleted {
             stack_id: stack.id,
             resolved,
