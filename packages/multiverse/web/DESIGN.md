@@ -191,12 +191,11 @@ or about this app.
   Drawer uses `--drawer-w` at the left; sheet uses `--sheet-max-h`/`--sheet-content-h`
   at the bottom. Only explicit details actions cover the deck list. Tablet review
   keeps Reviewing, remaining count, Current proposal and Done beneath navigation.
-- **Popover** uses native top layer and CSS anchors where supported, with
-  feature-detected positioning/dismissal fallbacks and ResizeObserver updates.
-  Portals inside dialogs stay in that dialog's DOM/inertness boundary. Synchronize
-  native dismissal with controlled state. Nested Escape dismisses only the active
-  overlay; screen hotkeys defer. Labelled triggers keep deliberate toggle behavior.
-  Context menus dismiss on a new outside press, so the opening release keeps them visible.
+- **Popover** uses native top layer, CSS anchors, feature-detected fallbacks and
+  ResizeObserver. Portals stay within dialog inertness boundaries. Keep native
+  dismissal synchronized with controlled state. Escape dismisses only the active
+  overlay; screen hotkeys defer. Labelled triggers toggle. Context menus dismiss
+  on a new outside press.
 - **Explainer** opens a named region, focuses its explanation, and dismisses on
   Close/Escape/outside focus/click with trigger return. Keep the trigger's Tab place.
 - **Menu** uses feature-detected native focusgroup or one legacy ARIA keyboard
