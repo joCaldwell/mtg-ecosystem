@@ -30,6 +30,7 @@ fn definition_from_row(row: ArchiveRow) -> Definition {
     };
     let source: Value = strict_read(row.source.get()).unwrap();
     Definition {
+        modal_land: None,
         source_labels: Some(labels()),
         x_mana_cost: false,
         oracle_id: row.oracle_identity,

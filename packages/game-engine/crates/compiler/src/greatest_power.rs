@@ -181,6 +181,7 @@ pub(super) fn lower(r: &Record, archive: &AcceptedArchive) -> Result<Option<Defi
         spell: Some(spell),
         triggered: vec![trigger],
         mana_abilities: vec![mana],
+        modal_land: None,
         source_labels: Some(SourceLabels {
             text: text.to_owned(),
             blocks: lines.into_iter().map(str::to_owned).collect(),

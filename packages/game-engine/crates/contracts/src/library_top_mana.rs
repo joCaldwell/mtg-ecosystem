@@ -120,6 +120,7 @@ fn definition(provenance: SourceProvenance) -> Result<Definition, String> {
     let mut d = Definition {
         oracle_id: field("oracle_id")?.into(),
         name: field("name")?.into(),
+        modal_land: None,
         source_labels: Some(SourceLabels {
             text: field("oracle_text")?.into(),
             blocks: field("oracle_text")?.lines().map(str::to_owned).collect(),

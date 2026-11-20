@@ -102,6 +102,7 @@ mod library_selection_tests;
 mod linked_hideaway;
 mod listed_mana;
 mod mana_life_gain;
+mod modal_land;
 mod nonland_exile_life;
 mod normalization;
 mod opponent_count_entry;
@@ -1551,6 +1552,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     // above still bind every source byte; no default fills missing fields.
     let shape: serde_json::Value = decode(r.source.get(), "source")?;
     if shape.get("card_faces").is_some_and(|v| !v.is_null()) {
+        if shape["layout"] == "modal_dfc" {
+            return modal_land::lower(&r, &shape, archive);
+        }
         let layout = shape["layout"]
             .as_str()
             .ok_or_else(|| invalid("source.layout", "missing layout"))?;
@@ -2149,6 +2153,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             (mana_cost(&source.mana_cost.replace("{X}", ""))?, vec![])
         };
     let mut definition = Definition {
+        modal_land: None,
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
         oracle_id: r.oracle_identity,

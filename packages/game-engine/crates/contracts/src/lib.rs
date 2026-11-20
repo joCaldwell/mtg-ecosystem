@@ -51,6 +51,7 @@ pub mod combat_window;
 #[cfg(test)]
 mod composition_fixtures;
 mod entry_copy;
+pub mod modal_land;
 mod saga;
 pub use saga::{
     ChapterEffect, FixedChapter, LifeChapter, OrdinaryChapter, chapter_lines, life_chapters,
@@ -494,6 +495,7 @@ pub enum Capability {
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
     SagaChaptersV1,
+    ModalLandFacesV1,
     DelayedControllerCreatureEntryV1,
     DelayedControllerSpellCastV1,
     NormalLayoutV1,
@@ -2596,6 +2598,8 @@ impl<'de> Deserialize<'de> for KeywordAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal_land: Option<Box<modal_land::ModalLand>>,
     /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_labels: Option<SourceLabels>,
@@ -3289,9 +3293,16 @@ impl Definition {
             };
             set.insert(static_capability);
         }
+        if let Some(back) = self.modal_land_back() {
+            set.insert(Capability::ModalLandFacesV1);
+            set.extend(back.capabilities.iter().copied());
+        }
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if modal_land::validate(self)? {
+            return Ok(());
+        }
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
         let source_regeneration = source_regeneration::validate(self)?;
@@ -8083,6 +8094,7 @@ pub fn catalog_schema() -> serde_json::Value {
     land_reclamation::extend_schema(&mut schema);
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
+    modal_land::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     hand_cast_cascade::extend_schema(&mut schema);
@@ -8291,6 +8303,7 @@ mod tests {
             CastManaValueSweepV1,
             RandomBottomV1,
             SagaChaptersV1,
+            ModalLandFacesV1,
             DelayedControllerCreatureEntryV1,
             DelayedControllerSpellCastV1,
             NormalLayoutV1,
@@ -8899,6 +8912,7 @@ mod tests {
         definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());
         definitions.push(saga::spell_cast_witness());
+        definitions.push(modal_land::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));

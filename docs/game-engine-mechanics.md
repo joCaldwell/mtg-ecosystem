@@ -225,6 +225,17 @@ exact-LKI facts (CR 609.7c).
 
 ## Movement, sacrifice and board-wide effects
 
+The modal land subset binds two fixed-mana land faces, or an ordinary
+own-graveyard return sorcery followed by a fixed-mana land. Each back-land play
+uses its own accepted action, including a linked Hideaway play. Entry
+replacements use the chosen land, and only the battlefield incarnation retains
+that face. Direct entry uses the front. An entry copy freezes the donor's
+chosen face. Owner-visible hand and priority views keep the front
+characteristics, and concealed objects keep their normal visibility rules
+([CR 712.8d/f, 712.11–14](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
+Casting a front-face sorcery uses the existing payment and reversal path.
+Back-face spells and transforming layouts remain open.
+
 Indestructible takes precedence over destruction. A paid regeneration shield
 replaces destruction when permitted, tapping its source, clearing damage and
 removing it from combat. The affected controller orders competing exile. Exile,

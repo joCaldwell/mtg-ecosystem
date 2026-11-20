@@ -411,12 +411,20 @@ impl Strategy<'_> {
                     .cloned()
                     .ok_or("empty hideaway selection")?,
             },
-            PlayerRequest::PlayHideawayLinked { candidates, .. } => {
-                PlayerResponse::PlayHideawayLinked {
-                    object: candidates
-                        .iter()
-                        .find(|card| self.supported_cast_target(v, card))
-                        .cloned(),
+            PlayerRequest::PlayHideawayLinked {
+                candidates,
+                back_land_candidates,
+                ..
+            } => {
+                let front = candidates
+                    .iter()
+                    .find(|card| self.supported_cast_target(v, card))
+                    .cloned();
+                match (front, back_land_candidates.first()) {
+                    (None, Some(object)) => PlayerResponse::PlayHideawayLinkedBackLand {
+                        object: object.clone(),
+                    },
+                    (object, _) => PlayerResponse::PlayHideawayLinked { object },
                 }
             }
             PlayerRequest::ChooseOpponent { candidates, .. } => PlayerResponse::ChooseOpponent {

@@ -1295,6 +1295,9 @@ pub enum Response {
     PlayHideawayLinked {
         object: Option<ObjectId>,
     },
+    PlayHideawayLinkedBackLand {
+        object: ObjectId,
+    },
     EntryCopy {
         object: Option<ObjectId>,
     },
@@ -1450,6 +1453,10 @@ pub enum Response {
     PlayLand {
         card: CardId,
     },
+    PlayBackLand {
+        card: CardId,
+    },
+
     ActivateMana {
         object: ObjectId,
     },
@@ -2768,6 +2775,7 @@ impl Game {
                 mana_ability_uses: BTreeSet::new(),
                 tokens: Arc::default(),
                 entry_copies: BTreeMap::new(),
+                modal_back_entries: BTreeSet::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(|config| {
@@ -3492,6 +3500,11 @@ impl Game {
             {
                 self.validate_land_play(player, *card)
             }
+            (Frame::Priority, Response::PlayBackLand { card })
+                if self.state.rules.priority == player =>
+            {
+                self.validate_land_face(player, *card, true)
+            }
             (Frame::Priority, Response::Pass) if self.state.rules.priority == player => Ok(()),
             (Frame::Priority, Response::ActivateMana { object })
                 if self.state.rules.priority == player =>
@@ -3734,7 +3747,10 @@ impl Game {
                         self.activate_ability(input.player, input.decision_id, object, ability)?
                     }
                     Response::PlayLand { card } => {
-                        self.play_land(input.player, input.decision_id, card)?;
+                        self.play_land(input.player, input.decision_id, card, false)?;
+                    }
+                    Response::PlayBackLand { card } => {
+                        self.play_land(input.player, input.decision_id, card, true)?;
                     }
                     Response::ActivateMana { object } => {
                         self.begin_payment_mana(&input, object, Frame::Priority)?;
@@ -4289,6 +4305,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
+        self.validate_modal_entries()?;
         self.validate_entry_copy_identities()?;
         self.validate_attachment_state()?;
         self.validate_control_state()?;

@@ -64,12 +64,38 @@ impl Game {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<bool, String> {
+        self.linked_land_face_playable(player, object, false)
+    }
+
+    pub(super) fn linked_land_face_playable(
+        &self,
+        player: PlayerId,
+        object: ObjectId,
+        back: bool,
+    ) -> Result<bool, String> {
         let definition = self.definition(object.card)?;
+        let definition = if back {
+            let Some(back) = definition.modal_land_back() else {
+                return Ok(false);
+            };
+            back
+        } else {
+            definition
+        };
         Ok(self.state.rules.active == Some(player)
             && self.has_land_play_allowance(player)
             && self.current(object).is_ok_and(|o| o.zone == Zone::Exile)
             && definition.characteristics.has_type(CardKind::Land)
             && definition.capabilities.contains(&Capability::LandPlayV1))
+    }
+
+    pub(super) fn linked_front_choice_available(
+        &self,
+        player: PlayerId,
+        object: ObjectId,
+    ) -> Result<bool, String> {
+        Ok(self.linked_land_playable(player, object)?
+            || self.resolution_spell_proposable(player, object)?)
     }
 
     fn linked_play_candidates(
@@ -82,8 +108,8 @@ impl Game {
             for object in
                 self.linked_hideaway_cards(progress.frame.spell.source, progress.hideaway_block)
             {
-                if self.linked_land_playable(player, object)?
-                    || self.resolution_spell_proposable(player, object)?
+                if self.linked_front_choice_available(player, object)?
+                    || self.linked_land_face_playable(player, object, true)?
                 {
                     candidates.push(object);
                 }
@@ -116,7 +142,22 @@ impl Game {
         }) = self.linked_play_request()?
             && let Response::PlayHideawayLinked { object } = response
             && actor == player
-            && object.is_none_or(|id| candidates.contains(&id))
+            && match object {
+                None => true,
+                Some(id) => {
+                    candidates.contains(id) && self.linked_front_choice_available(player, *id)?
+                }
+            }
+        {
+            return Ok(());
+        }
+        if let Response::PlayHideawayLinkedBackLand { object } = response
+            && let Some(Request::PlayHideawayLinked {
+                player, candidates, ..
+            }) = self.linked_play_request()?
+            && actor == player
+            && candidates.contains(object)
+            && self.linked_land_face_playable(player, *object, true)?
         {
             return Ok(());
         }
@@ -130,21 +171,24 @@ impl Game {
         let player = progress.frame.spell.controller;
         if let Some(input) = self.state.rules.pending.take() {
             self.validate_linked_play_response(input.player, &input.response)?;
-            if let Response::PlayHideawayLinked {
-                object: Some(object),
-            } = input.response
-            {
+            let choice = match input.response {
+                Response::PlayHideawayLinked { object } => object.map(|id| (id, false)),
+                Response::PlayHideawayLinkedBackLand { object } => Some((object, true)),
+                _ => None,
+            };
+            if let Some((object, back_face)) = choice {
                 let receipt = self.turn_up_linked_hideaway(
                     progress.frame.spell.source,
                     progress.hideaway_block,
                     object,
                 )?;
-                if self.linked_land_playable(player, object)? {
+                if self.linked_land_face_playable(player, object, back_face)? {
                     self.begin_land_entry(
                         EntryOrigin::LinkedPlay {
                             progress,
                             object,
                             receipt,
+                            back_face,
                         },
                         vec![object],
                     )?;

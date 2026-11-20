@@ -2439,10 +2439,20 @@ impl Game {
         {
             self.record_entry_copy(successor, donor)?;
         }
-        let enters_tapped = *destination == Zone::Battlefield
-            && (force_tapped
-                || optional_declined
-                || self.entry_tapped(*object, controller, before)?);
+        let enters_tapped = if *destination == Zone::Battlefield
+            && entry.is_some_and(|entry| entry.back_face(*object))
+        {
+            self.record_modal_back(successor)?;
+            self.copiable_definition(successor)?
+                .static_abilities
+                .iter()
+                .any(|ability| ability.effect == StaticEffect::EntersTapped)
+        } else {
+            *destination == Zone::Battlefield
+                && (force_tapped
+                    || optional_declined
+                    || self.entry_tapped(*object, controller, before)?)
+        };
         let entry_lore =
             if *destination == Zone::Battlefield && self.saga_final_chapter(successor)?.is_some() {
                 Quantity::from(1)
