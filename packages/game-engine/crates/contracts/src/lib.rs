@@ -30,6 +30,7 @@ mod counted_costs;
 mod distinct_permanent_colors;
 mod opponent_mana;
 pub use opponent_mana::opponent_land_mana_family;
+mod listed_mana_choice;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_entry;
@@ -361,6 +362,7 @@ pub enum Capability {
     CastColorPredicateV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
+    ListedManaChoiceV1,
     DisjointPainManaV1,
     SourceTapTriggerV1,
     ControllerCreaturePlusOneCounterReplacementV1,
@@ -2652,6 +2654,9 @@ impl Definition {
         }) {
             set.insert(Capability::DistinctPermanentColorsV1);
         }
+        if listed_mana_choice::present(self) {
+            set.insert(Capability::ListedManaChoiceV1);
+        }
         if disjoint_pain_mana_family(self) {
             set.extend([
                 Capability::DisjointPainManaV1,
@@ -3397,15 +3402,17 @@ impl Definition {
         {
             return Err("unsupported complete opponent-land mana family".into());
         }
-        let has_disjoint_operands = self.mana_abilities.iter().any(|ability| {
-            ability.self_damage.is_some()
-                || matches!(&ability.production, ManaProduction::Choice { .. })
-        });
-        if has_disjoint_operands && !disjoint_pain_mana_family(self) {
-            return Err("unsupported complete disjoint pain-mana family".into());
-        }
-        if !has_disjoint_operands && self.mana_abilities.len() > 1 {
-            return Err("finite profile supports one mana ability per source".into());
+        if self.mana_abilities.len() > 1
+            || self
+                .mana_abilities
+                .iter()
+                .any(|ability| ability.self_damage.is_some())
+        {
+            if !disjoint_pain_mana_family(self) {
+                return Err("unsupported complete disjoint pain-mana family".into());
+            }
+        } else {
+            listed_mana_choice::validate(self)?;
         }
         for a in &self.mana_abilities {
             if !matches!(
@@ -7336,6 +7343,7 @@ pub fn catalog_schema() -> serde_json::Value {
     opponent_mana::extend_schema(&mut schema);
     distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
+    listed_mana_choice::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     cascade_land_entry::extend_schema(&mut schema);
@@ -7754,6 +7762,7 @@ mod tests {
             CastColorPredicateV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
+            ListedManaChoiceV1,
             DisjointPainManaV1,
             SourceTapTriggerV1,
             ControllerCreaturePlusOneCounterReplacementV1,
@@ -8245,6 +8254,7 @@ mod tests {
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());
         definitions.push(pain_mana::witness());
+        definitions.push(listed_mana_choice::witness());
         definitions.push(source_tap_damage::witness());
         definitions.push(ramos_m1_tests::ramos());
         definitions.push(counter_placement_tests::provider(
