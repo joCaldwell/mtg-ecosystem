@@ -81,6 +81,7 @@ mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
 mod land_entry_gain_life;
+mod other_land_entry;
 mod set_exile;
 pub use set_exile::{SetExileClause, set_exile_modes};
 mod hand_cast;
@@ -394,6 +395,7 @@ pub enum Capability {
     StepBeginningTriggerV1,
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
+    ConditionalOtherLandEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
     UnspentManaConversionV1,
@@ -1615,6 +1617,12 @@ pub enum StaticEffect {
     EntersTappedUnlessControllerBasicLands {
         minimum: Quantity,
     },
+    /// CR 614.12: compare the entering controller's other lands in the common prior state.
+    EntersTappedUnlessControllerOtherLands {
+        comparison: LandCountComparison,
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        threshold: Quantity,
+    },
     /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
     EntersTappedUnlessPayLife {
         amount: Quantity,
@@ -1658,6 +1666,14 @@ pub enum StaticEffect {
     /// Double damage from creatures controlled by this battlefield source's controller.
     DoubleControllerCreatureDamageToPermanentOrPlayer,
 }
+/// Inclusive comparison for a common-prior land count (CR 614.12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LandCountComparison {
+    AtLeast,
+    AtMost,
+}
+
 /// Count current battlefield types and control, never ownership (CR 702.41).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -2920,6 +2936,9 @@ impl Definition {
                 StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
                     Capability::ConditionalBasicLandEntryV1
                 }
+                StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
+                    Capability::ConditionalOtherLandEntryV1
+                }
                 StaticEffect::ReduceSelfGenericCost { .. } => {
                     Capability::CountedSelfGenericCostReductionV1
                 }
@@ -2998,6 +3017,7 @@ impl Definition {
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
+        other_land_entry::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
@@ -4032,6 +4052,7 @@ impl Definition {
                     | StaticEffect::SelfGraveyardRevealShuffle
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
             ) && a.effect != StaticEffect::EntersTapped
@@ -4167,6 +4188,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::EntersTapped
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
@@ -7388,6 +7410,7 @@ pub fn catalog_schema() -> serde_json::Value {
     listed_mana_choice::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
+    other_land_entry::extend_schema(&mut schema);
     cascade_land_entry::extend_schema(&mut schema);
     entry_copy::extend_schema(&mut schema);
     counter_spell_controller_mill::extend_schema(&mut schema);
@@ -7791,6 +7814,7 @@ mod tests {
             FlashV1,
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
+            ConditionalOtherLandEntryV1,
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
@@ -8298,6 +8322,7 @@ mod tests {
         definitions.push(basic_land_split_tests::split_search());
         definitions.push(typed_land_search_tests::typed_search());
         definitions.push(conditional_lands::tests::land());
+        definitions.push(other_land_entry::witness());
         definitions.push(conditional_lands::tests::optional_land());
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());

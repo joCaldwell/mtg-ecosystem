@@ -81,6 +81,7 @@ mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_costs;
+mod other_land_entry;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
@@ -2885,6 +2886,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
+    other_land_entry::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
