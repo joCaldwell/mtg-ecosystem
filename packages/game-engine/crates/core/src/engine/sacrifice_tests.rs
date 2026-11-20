@@ -3,6 +3,10 @@
 //! costs, choices and concessions are recorded accepted inputs. No injected state.
 use super::*;
 use rand_core::{Rng, SeedableRng};
+
+#[path = "progenitus_paid_sacrifice_tests.rs"]
+mod progenitus_paid_sacrifice_tests;
+
 fn catalog() -> Catalog {
     Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-sacrifice-ir.json"
