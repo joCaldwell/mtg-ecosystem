@@ -71,6 +71,7 @@ struct WorkCache {
     counter_placement: Option<Vec<CounterPlacementEffectKey>>,
     damage: Option<Vec<DamageEffectCandidate>>,
     allocation: Option<Option<Vec<DamageAllocationCandidate>>>,
+    linked_play: Option<Vec<ObjectId>>,
 }
 impl WorkCache {
     fn next_object<'a>(&mut self, game: &'a Game) -> Option<&'a Object> {
@@ -109,6 +110,19 @@ impl WorkCache {
             );
         }
         Ok(self.modes.as_ref().and_then(|ids| ids.as_deref()))
+    }
+    fn linked_play(
+        &mut self,
+        game: &Game,
+        viewer: PlayerId,
+    ) -> Result<&[ObjectId], QueryRejection> {
+        if self.linked_play.is_none() {
+            self.linked_play = Some(
+                game.linked_play_work_candidates(viewer)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
+        Ok(self.linked_play.as_deref().unwrap_or_default())
     }
     fn counter_placement(&mut self, game: &Game) -> &[CounterPlacementEffectKey] {
         self.counter_placement
@@ -451,6 +465,17 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        if let Some(PlayerRequest::PlayHideawayLinked { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(object) = cache
+                .linked_play(self, viewer)?
+                .get(cursor - base - effect_count)
+        {
+            candidates.push(
+                self.handle_for(viewer, *object)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
         if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(handle) = self
@@ -489,6 +514,7 @@ impl Game {
         if let Some(
             PlayerRequest::HandReturn { candidates, .. }
             | PlayerRequest::LibraryOrder { candidates, .. }
+            | PlayerRequest::Hideaway { candidates, .. }
             | PlayerRequest::LibrarySelect { candidates, .. }
             | PlayerRequest::Scry { candidates, .. }
             | PlayerRequest::Surveil { candidates, .. },
@@ -516,6 +542,8 @@ impl Game {
         let extra = effect_count
             + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
                 cache.allocation(self)?.map_or(0, |ids| ids.len())
+            } else if matches!(b.decision, Some(PlayerRequest::PlayHideawayLinked { .. })) {
+                cache.linked_play(self, viewer)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::CascadeLandEntry { .. })) {
                 self.cascade_land_query_len()
             } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
@@ -534,6 +562,7 @@ impl Game {
                 Some(
                     PlayerRequest::HandReturn { .. }
                         | PlayerRequest::LibraryOrder { .. }
+                        | PlayerRequest::Hideaway { .. }
                         | PlayerRequest::LibrarySelect { .. }
                         | PlayerRequest::Scry { .. }
                         | PlayerRequest::Surveil { .. }
@@ -547,7 +576,7 @@ impl Game {
         if b.cursor as usize
             >= 4 + self.state.rules.objects.len() + self.state.rules.stack.len() + extra
         {
-            b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+            Self::order_view_objects(&mut b.view);
             return Ok(true);
         }
         Ok(false)
@@ -590,6 +619,7 @@ impl Game {
                 if let Some(
                     PlayerRequest::HandReturn { candidates, .. }
                     | PlayerRequest::LibraryOrder { candidates, .. }
+                    | PlayerRequest::Hideaway { candidates, .. }
                     | PlayerRequest::LibrarySelect { candidates, .. }
                     | PlayerRequest::Scry { candidates, .. }
                     | PlayerRequest::Surveil { candidates, .. },
@@ -606,6 +636,18 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
+                if let Some(PlayerRequest::PlayHideawayLinked { candidates, .. }) = request {
+                    let objects = cache.linked_play(self, *viewer)?;
+                    if let Some(&object) = objects.get(*cursor as usize) {
+                        candidates.push(
+                            self.handle_for(*viewer, object)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= objects.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = request {
@@ -792,6 +834,18 @@ impl Game {
                         ) => player == viewer && objects.len() == looked.len(),
                         (
                             Frame::ResolutionChoice {
+                                choice:
+                                    ResolutionChoice::Hideaway {
+                                        player,
+                                        bottom: None,
+                                        ..
+                                    },
+                                ..
+                            },
+                            PlayerResponse::Hideaway { .. },
+                        ) => player == viewer,
+                        (
+                            Frame::ResolutionChoice {
                                 choice: ResolutionChoice::LibrarySelect { player, looked, .. },
                                 ..
                             },
@@ -864,6 +918,10 @@ impl Game {
                         (
                             Frame::HandCast { child: None, .. },
                             PlayerResponse::Cast { .. } | PlayerResponse::Pass,
+                        ) => true,
+                        (
+                            Frame::PlayHideawayLinked { .. },
+                            PlayerResponse::PlayHideawayLinked { .. },
                         ) => true,
                         (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
                             matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
@@ -1232,12 +1290,16 @@ impl Game {
             Some(
                 PlayerRequest::HandReturn { .. }
                 | PlayerRequest::LibraryOrder { .. }
+                | PlayerRequest::Hideaway { .. }
                 | PlayerRequest::LibrarySelect { .. }
                 | PlayerRequest::Scry { .. }
                 | PlayerRequest::Surveil { .. },
             ) => self
                 .private_library_choice_candidates(viewer)
                 .map_or(0, |ids| ids.len() as u64),
+            Some(PlayerRequest::PlayHideawayLinked { .. }) => {
+                self.linked_play_work_candidates(viewer)?.len() as u64
+            }
             Some(PlayerRequest::CascadeLandEntry { .. }) => self.cascade_land_query_len() as u64,
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
             Some(PlayerRequest::Modes { .. }) => {
@@ -1265,6 +1327,14 @@ impl Game {
             _ => 0,
         })
     }
+    fn linked_play_work_candidates(&self, viewer: PlayerId) -> Result<Vec<ObjectId>, String> {
+        Ok(match self.linked_play_request()? {
+            Some(Request::PlayHideawayLinked {
+                player, candidates, ..
+            }) if player == viewer => candidates,
+            _ => vec![],
+        })
+    }
     fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
         4u64.checked_add(self.state.rules.objects.len() as u64)
             .and_then(|n| n.checked_add(self.state.rules.stack.len() as u64))
@@ -1289,8 +1359,10 @@ impl Game {
                 Some(
                     PlayerRequest::OrderTriggers { .. }
                     | PlayerRequest::CascadeLandEntry { .. }
+                    | PlayerRequest::PlayHideawayLinked { .. }
                     | PlayerRequest::HandReturn { .. }
                     | PlayerRequest::LibraryOrder { .. }
+                    | PlayerRequest::Hideaway { .. }
                     | PlayerRequest::LibrarySelect { .. }
                     | PlayerRequest::Scry { .. }
                     | PlayerRequest::Surveil { .. }

@@ -69,6 +69,11 @@ pub(super) enum ResolutionChoice {
         looked: Vec<ObjectId>,
         revealed: bool,
     },
+    Hideaway {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        bottom: Option<hideaway::RandomBottom>,
+    },
     LibrarySelect {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -463,6 +468,15 @@ impl Game {
             } if self.is_live(*player) => {
                 Some(self.look_top_mana_request(frame, *player, looked, *revealed)?)
             }
+            ResolutionChoice::Hideaway {
+                player,
+                looked,
+                bottom: None,
+            } if self.is_live(*player) => Some(Request::Hideaway {
+                decision_id,
+                player: *player,
+                candidates: looked.clone(),
+            }),
             ResolutionChoice::LibrarySelect { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::LibrarySelect {
                     decision_id,
@@ -663,6 +677,27 @@ impl Game {
                 Frame::ResolutionChoice {
                     frame,
                     choice:
+                        ResolutionChoice::Hideaway {
+                            player: chooser,
+                            looked,
+                            bottom: None,
+                        },
+                },
+                Response::Hideaway { object },
+            ) => Some(
+                self.validate_hideaway_choice(frame, *chooser, looked, None)
+                    .and_then(|_| {
+                        if player == *chooser && self.is_live(player) && looked.contains(object) {
+                            Ok(())
+                        } else {
+                            Err("invalid hideaway selection".into())
+                        }
+                    }),
+            ),
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
                         ResolutionChoice::LibrarySelect {
                             player: chooser,
                             looked,
@@ -857,6 +892,14 @@ impl Game {
                 {
                     return self.look_top_mana_step(frame, player, looked, revealed);
                 }
+                if let ResolutionChoice::Hideaway {
+                    player,
+                    looked,
+                    bottom,
+                } = choice
+                {
+                    return self.hideaway_step(frame, player, looked, bottom);
+                }
                 if let ResolutionChoice::LibrarySelect {
                     player,
                     looked,
@@ -916,6 +959,7 @@ impl Game {
                         | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
                         | ResolutionChoice::LookTopMana { .. }
+                        | ResolutionChoice::Hideaway { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::Scry { .. }
@@ -954,6 +998,7 @@ impl Game {
                     | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
                     | ResolutionChoice::LookTopMana { .. }
+                    | ResolutionChoice::Hideaway { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::Scry { .. }
@@ -1095,6 +1140,11 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::PlayHideawayLinked {
+                hideaway_block,
+                minimum_total_power,
+                source_block,
+            } => self.begin_linked_play(frame, hideaway_block, minimum_total_power, source_block),
             Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
             Instruction::RevealAndCast { source_block } => {
                 self.begin_library_shuffle(frame, source_block)
@@ -1122,6 +1172,7 @@ impl Game {
                 self.begin_optional_shuffle(frame, source_block)
             }
             Instruction::LookTopMayRevealForMana { .. } => self.begin_look_top_mana(frame),
+            Instruction::Hideaway { .. } => self.begin_hideaway(frame),
             Instruction::SelectLibraryCard {
                 amount,
                 source_block,
@@ -1933,6 +1984,9 @@ impl Game {
                 Frame::Resolve { frame } if frame.stack_id == entry.id => {
                     self.resolution_copy_children(frame)?
                 }
+                Frame::PlayHideawayLinked { progress } if progress.frame.stack_id == entry.id => {
+                    self.linked_play_children(progress)
+                }
                 _ => self.resolution_child(entry.id).into_iter().collect(),
             };
             let suffix = &self.state.rules.stack[index + 1..];
@@ -1954,7 +2008,7 @@ impl Game {
                 .rules
                 .cards
                 .get(&entry.source.card)
-                .is_some_and(|card| self.is_live(card.owner))
+                .is_some_and(|card| self.is_live(card.owner) && self.is_live(entry.controller))
         } else {
             self.is_live(entry.controller)
         }
@@ -1977,7 +2031,7 @@ impl Game {
         }
         self.validate_resolving_children(frame, child.as_slice())
     }
-    fn validate_resolving_children(
+    pub(super) fn validate_resolving_children(
         &self,
         frame: &Resolving,
         children: &[StackId],
@@ -2156,6 +2210,16 @@ impl Game {
                     Instruction::LookTopMayRevealForMana { .. },
                 ) => self
                     .validate_look_top_mana_choice(frame, *player, looked, *revealed)
+                    .is_ok(),
+                (
+                    ResolutionChoice::Hideaway {
+                        player,
+                        looked,
+                        bottom,
+                    },
+                    Instruction::Hideaway { .. },
+                ) => self
+                    .validate_hideaway_choice(frame, *player, looked, bottom.as_ref())
                     .is_ok(),
                 (
                     ResolutionChoice::LibrarySelect {

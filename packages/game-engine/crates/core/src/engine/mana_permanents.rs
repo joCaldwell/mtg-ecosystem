@@ -925,6 +925,22 @@ impl Game {
             }
         }
     }
+    pub(super) fn permanent_source_costs_payable(
+        &self,
+        source: ObjectId,
+        player: PlayerId,
+        costs: &PermanentActivationCosts,
+    ) -> bool {
+        self.current(source).is_ok_and(|o| {
+            o.present_on_battlefield()
+                && o.controller == player
+                && !(costs.tap && o.tapped)
+                && costs
+                    .remove_source_plus_one_counters
+                    .as_ref()
+                    .is_none_or(|n| o.plus_one_counters >= *n)
+        })
+    }
     pub(super) fn pay_permanent_source_costs(
         &mut self,
         source: ObjectId,
@@ -932,16 +948,8 @@ impl Game {
         costs: &PermanentActivationCosts,
         cause: BatchCause,
     ) -> Result<(), String> {
-        let o = self.current(source)?;
-        if !o.present_on_battlefield() || o.controller != player || (costs.tap && o.tapped) {
-            return Err("permanent cost source changed".into());
-        }
-        if costs
-            .remove_source_plus_one_counters
-            .as_ref()
-            .is_some_and(|n| o.plus_one_counters < *n)
-        {
-            return Err("insufficient source counters".into());
+        if !self.permanent_source_costs_payable(source, player, costs) {
+            return Err("unpayable permanent source costs".into());
         }
         // CR 118.3/605.3b: this is removal as a cost, never a placement.
         // The enclosing staged rule step commits cost/use/production atomically.
@@ -1143,6 +1151,7 @@ impl Game {
                 self.state.rules.objects.insert(
                     r.source.object.card,
                     Object {
+                        hideaway: None,
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,

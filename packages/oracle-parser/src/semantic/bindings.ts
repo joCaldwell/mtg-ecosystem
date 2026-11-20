@@ -225,6 +225,18 @@ function namesObject(value: unknown, definiteOnly: boolean): boolean {
 /** Printed keyword parameters that are paid or chosen as the keyword's cost. */
 const KEYWORD_PAYMENT_FIELDS = new Set(["cost", "additionalCosts", "materials", "costModifications", "restriction", "variableConstraints"]);
 const PROTECTION_FROM_EVERYTHING = { keyword: "protection", from: [{ scope: "everything" }] } satisfies KeywordInstance;
+// Match the complete copy clause, independently of any other printed abilities.
+// Different model filters, copy exceptions or entry modifiers need their own analysis.
+const OPTIONAL_SAME_TURN_ENTRY_COPY = {
+  static: "entry-copy", what: { ref: "this", noun: "creature" },
+  model: { model: "choose", who: { player: "you" }, count: 1, when: "before-entry",
+    filter: { cls: "permanent", zoneChangeHistory: { event: "enters", to: { zone: "battlefield" }, during: "this-turn" } } },
+  optional: { who: { player: "you" } },
+} as const satisfies StaticEffect;
+function isSameTurnEntryCopy(ability: Ability): ability is { kind: "static"; effect: typeof OPTIONAL_SAME_TURN_ENTRY_COPY } {
+  return ability.kind === "static" && ability.abilityWord === undefined && ability.effect.static === "entry-copy" &&
+    isDeepStrictEqual(ability.effect, OPTIONAL_SAME_TURN_ENTRY_COPY);
+}
 const SELF_GRAVEYARD_REPLACEMENT = {
   static: "replacement",
   replacement: {
@@ -962,6 +974,28 @@ class Analyzer {
       this.walk(entry, child(path, key), key === "costs" ? { ...scope, phase: "payment" } : scope);
     }
     bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), scope));
+  }
+  /** CR 614.12a: choose before the proposed entrant is on the battlefield.
+   * CR 707.2, 707.5: apply the model's copiable values to that entry. */
+  sameTurnEntryCopy({ what, model, optional }: typeof OPTIONAL_SAME_TURN_ENTRY_COPY, path: string, context: Context): void {
+    const { source, ability: scope, you } = context;
+    const entrantPath = child(path, "what");
+    const proposal = this.node({ id: this.id(entrantPath, "proposal"), path: entrantPath, node: "battlefield-entry-proposal",
+      scope, object: source, to: "battlefield", controller: you, rules: ["110.2", "614.12"] });
+    this.bound(what, entrantPath, proposal, ["201.5", "614.12"]);
+    const modelPath = child(path, "model");
+    const choice = this.node({ id: this.id(modelPath, "choice"), path: modelPath, node: "entry-copy-model-choice",
+      scope, proposal, chooser: you, timing: model.when, selection: "non-target", count: "zero-or-one",
+      zone: "battlefield", filter: model.filter, historyIdentity: "current-incarnation",
+      rules: ["110.1", "115.10a", "400.7", "614.12a"] });
+    this.bound(model.who, child(modelPath, "who"), you, ["110.2", "614.12a"]);
+    this.bound(optional.who, `${path}/optional/who`, you, ["110.2", "614.12a"]);
+    this.node({ id: this.id(path, "replacement"), path, node: "entry-copy-replacement", scope,
+      entry: proposal, model: choice, timing: "as-enters", values: "model-copiable-values",
+      onDecline: "leave-entry-unchanged", rules: ["614.12", "707.2", "707.2b", "707.5"] });
+    this.engineFeature("entry-copy-replacement", path,
+      "Track entry turn for current battlefield incarnations, offer the optional choice before entry, and apply the chosen model's copiable values during entry replacement processing.",
+      ["400.7", "614.12", "614.12a", "616.1c", "707.2", "707.5"]);
   }
   /** CR 400.6 and 614.6: both instructions see the affected object of the
    * proposed move. Revealing it leaves it in its original zone (CR 701.20b). */
@@ -2383,12 +2417,16 @@ class Analyzer {
     const id = this.id(path, "ability");
     const you = this.id(path, "you");
     const selfGraveyardReplacement = isSelfGraveyardReplacement(ability, cardAbilities);
+    const sameTurnEntryCopy = cardAbilities !== undefined && this.permanentFaces.has(face) &&
+      this.faceTypes.get(face)?.types?.includes("creature") && isSameTurnEntryCopy(ability);
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
       : ability.kind === "triggered" || ability.kind === "chapter" || ability.kind === "visit" || ability.kind === "case-solve" ? "trigger-controller"
       : ability.kind === "spell" ? "spell-controller" : ability.kind === "additional-cost" ? "prospective-caster"
-      : selfGraveyardReplacement ? "replacement-source-controller-or-owner" : "static-source-controller";
+      : selfGraveyardReplacement ? "replacement-source-controller-or-owner"
+      : sameTurnEntryCopy ? "entering-controller" : "static-source-controller";
     this.node({ id, path, node: "ability", source, face, abilityKind: ability.kind, you, rules: ["113", "109.5"] });
-    this.node({ id: you, path, node: "runtime-player", scope: id, role, rules: selfGraveyardReplacement ? ["108.4a", "109.5"] : ["109.5"] });
+    this.node({ id: you, path, node: "runtime-player", scope: id, role,
+      rules: selfGraveyardReplacement ? ["108.4a", "109.5"] : sameTurnEntryCopy ? ["109.5", "110.2", "614.12"] : ["109.5"] });
     // An unqualified "other" excludes the permanent with the ability, including
     // an object that was given the ability; never the "source" of a spell.
     const permanentSource = ability.kind !== "spell" &&
@@ -2494,6 +2532,10 @@ class Analyzer {
       }
       case "chapter": this.sentences(ability.effects, child(path, "effects"), context); break;
       case "static":
+        if (sameTurnEntryCopy) {
+          this.sameTurnEntryCopy(ability.effect, child(path, "effect"), context);
+          break;
+        }
         if (selfGraveyardReplacement) {
           this.selfGraveyardReplacement(`${path}/effect/replacement`, context);
           break;

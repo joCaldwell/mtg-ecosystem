@@ -1954,3 +1954,6 @@ fn cascade_land_entry_paid_averna_before_hit_or_bottom() {
 
 #[path = "creative_technique_tests.rs"]
 mod creative_technique_tests;
+
+#[path = "linked_play_tests.rs"]
+mod linked_play_tests;

@@ -93,6 +93,14 @@ export type BindingNode = NodeBase & (
   | { node: "alternatives"; scope: string; of: string[] }
   /** The would-be move of the source before applying any replacement (CR 400.6). */
   | { node: "zone-change-proposal"; scope: string; object: string; from: "anywhere"; to: { zone: "graveyard"; owner: string } }
+  /** The source's own proposed entry under its would-be controller (CR 614.12). */
+  | { node: "battlefield-entry-proposal"; scope: string; object: string; to: "battlefield"; controller: string }
+  /** The battlefield at the choice point, with entry history for each current incarnation (CR 110.1, 400.7, 614.12a). */
+  | { node: "entry-copy-model-choice"; scope: string; proposal: string; chooser: string; timing: "before-entry";
+      selection: "non-target"; count: "zero-or-one"; zone: "battlefield"; filter: ObjectFilter; historyIdentity: "current-incarnation" }
+  /** The same proposed entrant enters with the model's copiable values if chosen (CR 707.2, 707.5). */
+  | { node: "entry-copy-replacement"; scope: string; entry: string; model: string; timing: "as-enters";
+      values: "model-copiable-values"; onDecline: "leave-entry-unchanged" }
   /** Reveal in the original zone, then move into the specified library and
    * shuffle it. The shuffle still occurs if the library move is redirected (CR 701.24c). */
   | { node: "reveal-and-shuffle-replacement"; scope: string; replaces: string; occurrence: "each";
@@ -146,11 +154,12 @@ export interface BindingDiagnostic {
  * - cascade-resolution: a choice bound to one resolving cascade and its exiled pool (CR 702.85).
  * - cast-keyword-grant: a resolution-created grant applied during later casts (CR 601.2, 611.2, 702.85).
  * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f).
+ * - entry-copy-replacement: choose from current entrants' battlefield history, then apply copiable values during entry (CR 614.12, 707.2, 707.5).
  * - demonstrate: cast-triggered copies for the caster and chosen opponent (CR 702.144a).
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana";
+  | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

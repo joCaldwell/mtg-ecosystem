@@ -372,6 +372,7 @@ impl SampleBuildWork {
             self.game.state.rules.objects.insert(
                 id,
                 Object {
+                    hideaway: None,
                     phased_out: None,
                     attached_to: None,
                     attachment_timestamp: None,

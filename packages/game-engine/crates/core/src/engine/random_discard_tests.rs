@@ -51,6 +51,12 @@ fn seeded_pod() -> (Prepared, CardId) {
             .capabilities
             .contains(&Capability::RandomPlayerDiscardV1)
     );
+    seeded_pod_with_card(catalog, spell)
+}
+
+/// Keep the reviewed deck layout and real opening shuffle for private witnesses
+/// of one complete replacement definition. Admission data stays unchanged.
+pub(super) fn seeded_pod_with_card(catalog: Catalog, spell: Definition) -> (Prepared, CardId) {
     let mut seed = [0; 32];
     seed[0] = 3; // The real opening shuffle draws seat zero's singleton spell.
     let mut config = MatchConfig::for_profile("commander-staples-v1", seed, CASTER).unwrap();

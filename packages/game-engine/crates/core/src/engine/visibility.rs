@@ -96,6 +96,10 @@ pub struct VisiblePlayer {
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub face_down: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exiled_by: Option<ObjectHandle>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phased_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_ability_used: Option<bool>,
@@ -264,6 +268,16 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
         count: usize,
+    },
+    Hideaway {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
+    PlayHideawayLinked {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
     },
     LibrarySelect {
         token: DecisionToken,
@@ -517,6 +531,8 @@ impl PlayerRequest {
             Self::HandCast { token, .. }
             | Self::HandReturn { token, .. }
             | Self::LibraryOrder { token, .. }
+            | Self::Hideaway { token, .. }
+            | Self::PlayHideawayLinked { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
@@ -584,6 +600,12 @@ pub enum PlayerResponse {
     },
     LibraryOrder {
         objects: Vec<ObjectHandle>,
+    },
+    Hideaway {
+        object: ObjectHandle,
+    },
+    PlayHideawayLinked {
+        object: Option<ObjectHandle>,
     },
     LibrarySelect {
         hand: Vec<ObjectHandle>,
@@ -1158,7 +1180,36 @@ impl Game {
             .cards
             .get(&object.id.card)
             .ok_or("missing object definition")?;
+        if let Some(link) = &object.hideaway {
+            return Ok(Some(VisibleObject {
+                face_down: true,
+                exiled_by: Some(link.source_handle(viewer).clone()),
+                oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
+                    physical.oracle_id.clone()
+                } else {
+                    String::new()
+                },
+                handle: self.handle_for(viewer, object.id)?,
+                owner: physical.owner,
+                controller: object.controller,
+                zone: object.zone,
+                characteristics: None,
+                mana_ability_used: None,
+                token: None,
+                keywords: vec![],
+                restrictions: vec![],
+                attachments: vec![],
+                attached_to: None,
+                marked_damage: Quantity::zero(),
+                plus_one_counters: Quantity::zero(),
+                attack_ready: false,
+                tapped: false,
+                phased_out: false,
+            }));
+        }
         Ok(Some(VisibleObject {
+            face_down: false,
+            exiled_by: None,
             phased_out: object.phased_out.is_some(),
             attached_to: object
                 .attached_to
@@ -1636,6 +1687,11 @@ impl Game {
                 return Ok(None);
             }
             return Ok(Some(match request {
+                Request::PlayHideawayLinked { player, .. } => PlayerRequest::PlayHideawayLinked {
+                    token,
+                    player,
+                    candidates: vec![],
+                },
                 Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
                     token,
                     player,
@@ -1734,6 +1790,14 @@ impl Game {
         if matches!(&self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Surveil {player,..},..} if *player==viewer && self.is_live(viewer))
         {
             return Ok(Some(PlayerRequest::Surveil {
+                token,
+                player: viewer,
+                candidates: vec![],
+            }));
+        }
+        if matches!(&self.state.rules.frame, Frame::ResolutionChoice {choice:ResolutionChoice::Hideaway {player,bottom:None,..},..} if *player == viewer && self.is_live(viewer))
+        {
+            return Ok(Some(PlayerRequest::Hideaway {
                 token,
                 player: viewer,
                 candidates: vec![],
@@ -2146,6 +2210,21 @@ impl Game {
             _ => return Err("payment request invariant".into()),
         })
     }
+    pub(super) fn order_view_objects(view: &mut PermittedView) {
+        // A face-down card's position among older exile handles must not
+        // disclose the ordering of its physical card ID.
+        for player in &mut view.players {
+            if view
+                .objects
+                .iter()
+                .any(|o| o.face_down && o.owner == player.player)
+            {
+                player.exile.sort_by(|a, b| a.0.cmp(&b.0));
+            }
+        }
+        view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+    }
+
     fn permitted_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
         let mut view = self.blank_view(viewer)?;
         view.effects = self.visible_effects(viewer)?;
@@ -2165,7 +2244,7 @@ impl Game {
         for index in 0..self.state.rules.stack.len() {
             view.stack.push(self.visible_stack(viewer, index)?);
         }
-        view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+        Self::order_view_objects(&mut view);
         Ok(view)
     }
     pub(super) fn refresh_visibility(&mut self) -> Result<(), String> {
@@ -2279,10 +2358,10 @@ impl Game {
             } else if let Some(request) = self.resolution_cast_request()?
                 && request.player() == viewer
             {
-                let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
-                    23
-                } else {
-                    22
+                let kind = match request {
+                    Request::CascadeLandEntry { .. } => 23,
+                    Request::PlayHideawayLinked { .. } => 46,
+                    _ => 22,
                 };
                 Some((self.state.rules.revision, kind))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
@@ -2501,6 +2580,9 @@ impl Game {
                     .map(|h| self.resolve_handle(viewer, h))
                     .collect::<Result<_, _>>()?,
             }),
+            PlayerResponse::Hideaway { object } => Ok(Response::Hideaway {
+                object: self.resolve_handle(viewer, object)?,
+            }),
             PlayerResponse::LibrarySelect { hand, remainder } => Ok(Response::LibrarySelect {
                 hand: hand
                     .iter()
@@ -2593,6 +2675,12 @@ impl Game {
             }),
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
+            }),
+            PlayerResponse::PlayHideawayLinked { object } => Ok(Response::PlayHideawayLinked {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
             }),
             PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
                 object: object

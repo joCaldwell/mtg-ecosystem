@@ -241,6 +241,7 @@ impl Game {
         self.state.rules.objects.insert(
             card,
             Object {
+                hideaway: None,
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,

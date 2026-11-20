@@ -369,5 +369,16 @@
     "record_sha256": [
       "e7f74eeafcd6a4ba0a23cdeb1f02cc3b6bbeb643b83bdef426f949904639f49b"
     ]
+  },
+  {
+    "manifest_file": "archive-manifest-linked-hideaway.json",
+    "manifest_sha256": "043d01bd925bc26c2e732c9df369c72ab2ac9c37c0b646785aa1b3164587e7a6",
+    "file_sha256": "114f814949a6c0ddf680ac569113b15452e9a9efb025cbd79e04f58220d9fe4f",
+    "parser_revision": "2aca551f2c228827c317d21f1531c90402d6c690",
+    "parser_source_sha256": "0cd08bef4a2d3896ca42c2753ad6e1225953b5d8b718ee255b4e80e5fa73fbb5",
+    "corpus_sha256": "f5ae6f078208a5af3cba92524001630392990692c25234971a5212a04d71e9db",
+    "record_sha256": [
+      "07303361d908b89dab5da69789deac36418cc1c42c22abb3253be656f9c16458"
+    ]
   }
 ]
