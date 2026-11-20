@@ -128,6 +128,7 @@ fn temporary_protection_policy_announced_choice_skips_own_proposal_and_retains_l
         token: mtg_core::DecisionToken("protection".into()),
         player: viewer,
         occurrences: p.targets.clone(),
+        counter_division: None,
         candidates: vec![h.clone()],
     });
     assert_eq!(
