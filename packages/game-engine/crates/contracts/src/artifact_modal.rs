@@ -106,23 +106,40 @@ impl BoundArtifactMode {
                         source_block: block,
                     },
                 )
-            } else if let Some(n) = text
-                .strip_prefix("~ deals ")
-                .and_then(|s| s.strip_suffix(" damage to any target."))
-            {
-                let n = positive(n)?;
-                let selection = format!("line:{}:7", first_line.checked_add(i)?.checked_add(1)?);
+            } else if let Some(rest) = text.strip_prefix("~ deals ") {
+                let (amount, recipient) = rest.split_once(" damage to ")?;
+                let n = positive(amount)?;
+                let line = first_line.checked_add(i)?.checked_add(1)?;
+                let (domain, selection, to) = match recipient {
+                    "any target." => {
+                        let id = format!("line:{line}:7");
+                        (
+                            TargetDomain::AnyDamageTarget,
+                            id.clone(),
+                            json!({"to":"any-target","selectionId":id}),
+                        )
+                    }
+                    "target player or planeswalker." => {
+                        let id = format!("line:{line}:6");
+                        (
+                            TargetDomain::PlayerOrPlaneswalker,
+                            id.clone(),
+                            json!({"to":"object","ref":{"ref":"target",
+                            "filter":{"orPlayer":true,"types":["planeswalker"]},"count":{"amount":"fixed","value":1},"selectionId":id}}),
+                        )
+                    }
+                    _ => return None,
+                };
                 child.targets.push(TargetSpec {
                     slot: 0,
-                    selection_id: selection.clone(),
-                    domain: TargetDomain::AnyDamageTarget,
+                    selection_id: selection,
+                    domain,
                     chooser: Chooser::Controller,
                     stage: EvaluationStage::Announcement,
                     filter: None,
                 });
                 (
-                    json!({"effect":"damage","source":{"ref":"self"},"amount":{"amount":"fixed","value":n},
-                    "to":{"to":"any-target","selectionId":selection}}),
+                    json!({"effect":"damage","source":{"ref":"self"},"amount":{"amount":"fixed","value":n},"to":to}),
                     Instruction::DealDamage {
                         target_slot: 0,
                         amount: i64::from(n).into(),
@@ -182,19 +199,42 @@ impl BoundArtifactMode {
     }
 }
 
+// Keep exhaustive. Introducing planeswalker characteristics requires explicitly
+// classifying them here before a catalog can use player-or-planeswalker damage.
+pub(super) fn requires_planeswalker_target_support(kind: CardKind) -> bool {
+    match kind {
+        CardKind::Creature
+        | CardKind::Artifact
+        | CardKind::Land
+        | CardKind::Enchantment
+        | CardKind::Instant
+        | CardKind::Sorcery => false,
+    }
+}
+
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
+    fn narrow(p: &SpellProgram) -> bool {
+        p.targets
+            .iter()
+            .any(|t| t.domain == TargetDomain::PlayerOrPlaneswalker)
+            || p.modes.iter().any(|m| narrow(&m.program))
+    }
+    if d.spell.as_ref().is_some_and(narrow) || d.triggered.iter().any(|a| narrow(&a.program)) {
+        return Err("player-or-planeswalker damage requires a bound counted artifact mode".into());
+    }
     let uses = |a: &ActivatedAbility| {
-        matches!(
-            a.cost,
-            ActivationCost::SacrificePermanent { count: 2.., .. }
-        ) && a.program.modes.iter().any(|m| {
-            m.program.instructions.iter().any(|i| {
-                matches!(
-                    i,
-                    Instruction::GainLife { .. } | Instruction::ModifyPowerToughness { .. }
-                )
+        narrow(&a.program)
+            || matches!(
+                a.cost,
+                ActivationCost::SacrificePermanent { count: 2.., .. }
+            ) && a.program.modes.iter().any(|m| {
+                m.program.instructions.iter().any(|i| {
+                    matches!(
+                        i,
+                        Instruction::GainLife { .. } | Instruction::ModifyPowerToughness { .. }
+                    )
+                })
             })
-        })
     };
     let raw = &d.provenance.source_json;
     if !d.activated.iter().any(uses)

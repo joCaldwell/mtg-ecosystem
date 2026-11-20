@@ -746,7 +746,7 @@ fn counted_artifact_compiled_modes_freeze_target_then_pay_root_set() {
     catalog.validate().unwrap();
     p.catalog_digest = digest(catalog).unwrap();
     p.profile_digest = digest(&p.config).unwrap();
-    for mode in [0, 1] {
+    for mode in [0, 1, 4] {
         let mut g = Game::with_trace(p.clone(), TraceMode::Detailed);
         let [dial, ring, myr, bear] = [0, 1, 2, 3].map(|x| object(&g, x));
         answer(
@@ -765,6 +765,36 @@ fn counted_artifact_compiled_modes_freeze_target_then_pay_root_set() {
                 1,
                 Response::Targets {
                     objects: vec![bear],
+                },
+            );
+        }
+        if mode == 4 {
+            let r = request(&mut g, 1);
+            assert!(
+                matches!(&r,Request::PlayerTargets{occurrences,candidates,..} if occurrences[0].domain==TargetDomain::PlayerOrPlaneswalker && candidates==&g.live_players())
+            );
+            reject(
+                &mut g,
+                r.player(),
+                r.decision_id(),
+                Response::Targets {
+                    objects: vec![bear],
+                },
+            );
+            reject(
+                &mut g,
+                r.player(),
+                r.decision_id(),
+                Response::EntityTargets {
+                    entities: vec![TargetEntity::Object { object: bear }],
+                },
+            );
+            recover(&g);
+            answer(
+                &mut g,
+                1,
+                Response::PlayerTargets {
+                    players: vec![PlayerId(0)],
                 },
             );
         }
@@ -788,6 +818,8 @@ fn counted_artifact_compiled_modes_freeze_target_then_pay_root_set() {
         settle(&mut g, 1);
         if mode == 0 {
             assert_eq!(g.state.rules.players[0].life, 48.into());
+        } else if mode == 4 {
+            assert_eq!(g.state.rules.players[0].life, 34.into());
         } else {
             assert_eq!(g.characteristics(bear).unwrap().power, Some(4.into()));
         }

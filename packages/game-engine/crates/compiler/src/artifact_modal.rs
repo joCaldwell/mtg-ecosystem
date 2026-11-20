@@ -73,15 +73,21 @@ pub(super) fn bind(
             let step = &mode["effects"][0]["steps"][0];
             let op = step["effect"].as_str().ok_or_else(fail)?;
             if op == "damage" {
-                let target = &step["to"]["selectionId"];
                 let object = g.id("/source", "object");
                 g.reference(&format!("{path}/source"), &step["source"], &object, "201.5");
-                let expression = json!({"ref":"any-target","selectionId":target});
+                let (suffix, expression) = if step["to"]["to"] == "object" {
+                    ("to/ref", step["to"]["ref"].clone())
+                } else {
+                    (
+                        "to",
+                        json!({"ref":"any-target","selectionId":step["to"]["selectionId"]}),
+                    )
+                };
                 let target = g.target(
                     &scope,
-                    &format!("{path}/to"),
+                    &format!("{path}/{suffix}"),
                     &expression,
-                    target.as_str().ok_or_else(fail)?,
+                    expression["selectionId"].as_str().ok_or_else(fail)?,
                 );
                 g.node(
                     &path,
@@ -137,8 +143,19 @@ fn counted_artifact_modes_bind_payment_and_each_printed_option() {
         a.cost,
         ActivationCost::SacrificePermanent { count: 3, .. }
     ));
-    assert_eq!(a.program.modes.len(), 4);
-    for change in ["count", "order", "omission", "selection"] {
+    assert_eq!(a.program.modes.len(), 5);
+    assert_eq!(
+        a.program.modes[4].program.targets[0].domain,
+        TargetDomain::PlayerOrPlaneswalker
+    );
+    for change in [
+        "count",
+        "order",
+        "omission",
+        "selection",
+        "domain",
+        "duplicate",
+    ] {
         let mut d = definition.clone();
         match change {
             "count" => {
@@ -149,6 +166,14 @@ fn counted_artifact_modes_bind_payment_and_each_printed_option() {
                 *count = 2;
             }
             "order" => d.activated[0].program.modes.swap(0, 2),
+            "domain" => {
+                d.activated[0].program.modes[4].program.targets[0].domain =
+                    TargetDomain::AnyDamageTarget
+            }
+            "duplicate" => {
+                let clone = d.activated[0].program.modes[4].clone();
+                d.activated[0].program.modes.push(clone);
+            }
             "omission" => {
                 d.activated.clear();
                 d.source_labels = None;

@@ -347,6 +347,7 @@ pub enum Capability {
     HandActivationV1,
     DiscardSourceCostV1,
     AnyDamageTargetV1,
+    PlayerOrPlaneswalkerTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
     LifeGainV1,
@@ -443,6 +444,7 @@ pub enum TargetDomain {
     /// CR 115.4: creatures, players, planeswalkers and battles. The closed
     /// scenario admits only creature/player inhabitants, not a narrower domain.
     AnyDamageTarget,
+    PlayerOrPlaneswalker,
     AnyPlayer,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1483,7 +1485,10 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
             ],
         ) => {
             target.slot == 0
-                && target.domain == TargetDomain::AnyDamageTarget
+                && matches!(
+                    target.domain,
+                    TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker
+                )
                 && target.stage == EvaluationStage::Announcement
                 && target.chooser == Chooser::Controller
                 && target.filter.is_none()
@@ -4745,7 +4750,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 match p.targets.get(*target_slot as usize).map(|t| t.domain) {
                     Some(
-                        domain @ (TargetDomain::AnyDamageTarget | TargetDomain::OpponentPlayer),
+                        domain @ (TargetDomain::AnyDamageTarget
+                        | TargetDomain::OpponentPlayer
+                        | TargetDomain::PlayerOrPlaneswalker),
                     ) => Some((*target_slot, domain)),
                     _ => return Err("unbound fixed damage target".into()),
                 }
@@ -5077,6 +5084,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
             TargetDomain::AnyDamageTarget => Capability::AnyDamageTargetV1,
+            TargetDomain::PlayerOrPlaneswalker => Capability::PlayerOrPlaneswalkerTargetV1,
             TargetDomain::AnyPlayer => Capability::AnyPlayerTargetV1,
         });
     }
@@ -5349,9 +5357,22 @@ impl Catalog {
         {
             return Err("unsupported IR version or rules snapshot".into());
         }
+        let targets_union = self.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::PlayerOrPlaneswalkerTargetV1)
+        });
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if targets_union
+                && std::iter::once(d.characteristics.kind)
+                    .chain(d.characteristics.additional_types.iter().copied())
+                    .any(artifact_modal::requires_planeswalker_target_support)
+            {
+                return Err(
+                    "planeswalker objects require executable loyalty and damage rules".into(),
+                );
+            }
             if d.triggered.iter().any(|a| {
                 a.program
                     .instructions
@@ -5458,7 +5479,7 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
         "items":{"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}}}});
     let damage = json!({"properties":{
         "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
-            "slot":{"const":0},"domain":{"const":"any_damage_target"},"stage":{"const":"announcement"},
+            "slot":{"const":0},"domain":{"enum":["any_damage_target","player_or_planeswalker"]},"stage":{"const":"announcement"},
             "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"minLength":1}}}},
         "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
             "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}}}
@@ -5488,6 +5509,20 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
             "else":draw
         }
     }}});
+    let narrow_target = json!({"required":["domain"],"properties":{"domain":{"const":TargetDomain::PlayerOrPlaneswalker}}});
+    let free = json!({"$ref":"#/$defs/PlayerOrPlaneswalkerFreeProgram"});
+    schema["$defs"]["PlayerOrPlaneswalkerFreeProgram"] = json!({"properties":{
+        "targets":{"items":{"not":narrow_target}},"modes":{"items":{"properties":{"program":free}}}
+    }});
+    let has_union = json!({"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],
+        "properties":{"program":{"not":free}}}}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "properties":{"spell":{"if":{"type":"object"},"then":free},"triggered":{"items":{"properties":{"program":free}}},
+            "activated":{"items":{"if":{"not":counted},"then":{"properties":{"program":free}}}}},
+        "if":has_union,"then":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::PlayerOrPlaneswalkerTargetV1}},
+            {"contains":{"const":Capability::FixedArtifactSacrificeCostV1}},{"contains":{"const":Capability::NoncombatDamageV1}}]}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::PlayerOrPlaneswalkerTargetV1}}}}}
+    }));
     let contains_cap = json!({"contains":{"const":Capability::FixedArtifactSacrificeCostV1}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"activated":{"items":ability}},
@@ -6883,6 +6918,7 @@ mod tests {
             HandActivationV1,
             DiscardSourceCostV1,
             AnyDamageTargetV1,
+            PlayerOrPlaneswalkerTargetV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
             LifeGainV1,
@@ -7081,6 +7117,18 @@ mod tests {
                 optional_additional_costs: vec![],
             },
         });
+        multi.capabilities = multi.requirements();
+        definitions.push(multi.clone());
+        let text = "Sacrifice three artifacts: Choose one —\n• ~ deals 2 damage to target player or planeswalker.\n• Draw a card.";
+        let bound = BoundArtifactMode::parse(text, 0, 0).unwrap();
+        multi.name = "Synthetic Boundary Reader".into();
+        multi.activated = vec![bound.ability];
+        multi.provenance.abilities_json = canonical(&[bound.ast]).unwrap();
+        multi.provenance.ast_sha256 =
+            sha256(format!("[{}]", multi.provenance.abilities_json).as_bytes());
+        multi.provenance.source_json=canonical(&serde_json::json!({"name":multi.name,"oracle_id":multi.oracle_id,"id":multi.provenance.printing_id,
+            "oracle_text":text.replace('~',&multi.name)})).unwrap();
+        multi.provenance.source_sha256 = sha256(multi.provenance.source_json.as_bytes());
         multi.capabilities = multi.requirements();
         definitions.push(multi);
         let mut permanent_grant = counted.clone();

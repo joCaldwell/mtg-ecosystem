@@ -355,6 +355,9 @@ impl Game {
                 Some(TargetDomain::AnyDamageTarget) => {
                     self.state.rules.frame = Frame::EntityTargets { cast }
                 }
+                Some(TargetDomain::PlayerOrPlaneswalker) => {
+                    self.state.rules.frame = Frame::PlayerTargets { cast }
+                }
                 Some(TargetDomain::BattlefieldCreature) => {
                     self.state.rules.frame = Frame::Targets { cast }
                 }

@@ -131,9 +131,11 @@ impl Game {
         }
         match program.targets.first().map(|target| target.domain) {
             None => true,
-            Some(TargetDomain::AnyDamageTarget | TargetDomain::AnyPlayer) => {
-                !self.live_players().is_empty()
-            }
+            Some(
+                TargetDomain::AnyDamageTarget
+                | TargetDomain::AnyPlayer
+                | TargetDomain::PlayerOrPlaneswalker,
+            ) => !self.live_players().is_empty(),
             Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
             Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
                 !self
@@ -693,7 +695,11 @@ impl Game {
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
                     .player_targets = players;
-                self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                if cast.origin == AnnouncementOrigin::Activated {
+                    self.continue_activation_after_targets(cast, input.decision_id)?;
+                } else {
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
                 if let ResolutionChoice::HandReturn {

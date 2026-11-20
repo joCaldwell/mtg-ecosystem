@@ -350,6 +350,8 @@ impl Game {
                 Frame::Fault { .. } | Frame::Finished { .. }
             ),
         };
+        let player_target_domain = artifact_loss_activation(activated)
+            || program.targets.first().is_some_and(|t| t.domain == TargetDomain::PlayerOrPlaneswalker);
         if source_handles.len() != 4
             || (!entry.targets.is_empty()
                 && program.targets.first().is_none_or(|t| {
@@ -361,8 +363,9 @@ impl Game {
                     )
                 }))
             || (!entry.player_targets.is_empty()
-                && (!artifact_loss_activation(activated)
+                && (!player_target_domain
                     || !matches!(entry.player_targets.as_slice(), [p] if p.0 < 4)))
+            || (entry.paid.is_some() && player_target_domain && entry.player_targets.len() != 1)
             || (!entry.stack_targets.is_empty()
                 && program.targets.first().is_none_or(|t| {
                     !matches!(
