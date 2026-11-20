@@ -1,4 +1,9 @@
-import { productFetch } from "./request-budget.ts";
+let dispatch: typeof fetch = (input, init) => globalThis.fetch(input, init);
+
+/** The lazy live-game route installs its scheduler into the shared transport. */
+export function setGameRequestDispatch(send: typeof fetch) {
+  dispatch = send;
+}
 
 // One HTTP boundary, shared by the small reader client and the editor.
 function browserError(status: number, error: string): string {
@@ -24,7 +29,7 @@ export async function request<T>(method: string, path: string, body?: unknown, s
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (key) headers["Idempotency-Key"] = key;
   const send = async (): Promise<T> => {
-    const res = await productFetch(path, {
+    const res = await dispatch(path, {
       method,
       credentials: "same-origin",
       headers,

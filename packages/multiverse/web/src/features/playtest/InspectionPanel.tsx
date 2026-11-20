@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { api } from "../../api/client.ts";
 import type {
   DeckState,
@@ -30,12 +30,14 @@ export function InspectionPanel({
   deck,
   objectId,
   pinned,
+  bodyRef,
   onDeckReload,
 }: {
   controller: PlaytestController;
   deck: DeckState;
   objectId: string | null;
   pinned: boolean;
+  bodyRef: RefObject<HTMLDivElement | null>;
   onDeckReload: () => void;
 }) {
   const s = c.view!.session,
@@ -148,7 +150,7 @@ export function InspectionPanel({
   const draftCard = c.ui.draft.oracle_id ? s.cards[c.ui.draft.oracle_id] : null;
   return (
     <div className={styles.panel}>
-      <div className={styles.body}>
+      <div className={styles.body} ref={bodyRef}>
         {card && object ? (
           <CardInspection
             observation={observeObject(c.view!, object.id)}
@@ -187,31 +189,28 @@ export function InspectionPanel({
             )}
           </CardInspection>
         ) : (
-          <section>
-            <h2>{s.deck_name}</h2>
-            <details className={styles.checks}>
-              <summary>
-                Deck checks · {deck.checks.length}{" "}
-                {deck.checks.length === 1 ? "finding" : "findings"}
-              </summary>
-              <ul className={styles.findings}>
-                {deck.checks.map((finding) => (
-                  <li key={finding.key}>
-                    <Dot tone={finding.severity === "error" ? "cut" : "warn"} />
-                    <span>
-                      <strong>{finding.title}</strong> {finding.detail}
-                    </span>
-                  </li>
-                ))}
-                {!deck.checks.length && (
-                  <li>
-                    <Dot tone="add" />
-                    <span>Deck checks are clear.</span>
-                  </li>
-                )}
-              </ul>
-            </details>
-          </section>
+          <details>
+            <summary>
+              Deck checks · {deck.checks.length}{" "}
+              {deck.checks.length === 1 ? "finding" : "findings"}
+            </summary>
+            <ul className={styles.findings}>
+              {deck.checks.map((finding) => (
+                <li key={finding.key}>
+                  <Dot tone={finding.severity === "error" ? "cut" : "warn"} />
+                  <span>
+                    <strong>{finding.title}</strong> {finding.detail}
+                  </span>
+                </li>
+              ))}
+              {!deck.checks.length && (
+                <li>
+                  <Dot tone="add" />
+                  <span>Deck checks are clear.</span>
+                </li>
+              )}
+            </ul>
+          </details>
         )}
         {pinned && object && card && (
           <details className={styles.section}>
@@ -330,7 +329,7 @@ export function InspectionPanel({
         )}
         {pinned && card && (
           <section className={styles.section}>
-            <h3>Deck-card tags</h3>
+            <h2>Deck-card tags</h2>
             {entry && !object?.token ? (
               <>
                 <MultiSelect
@@ -376,7 +375,7 @@ export function InspectionPanel({
           </section>
         )}
         <section className={styles.section}>
-          <h3>Observation</h3>
+          <h2>Observation</h2>
           <p className={styles.muted}>
             About {draftCard ? draftCard.name : "the whole deck"}
           </p>
@@ -402,7 +401,6 @@ export function InspectionPanel({
             aria-label="Playtest observation"
             rows={5}
             value={c.ui.draft.text}
-            placeholder="What did you learn about this hand or early turns?"
             onChange={(e) => {
               setMemoryStatus(null);
               c.editUi({ draft: { ...c.ui.draft, text: e.target.value } });
@@ -417,7 +415,7 @@ export function InspectionPanel({
           {memoryStatus && <p role="status">{memoryStatus}</p>}
         </section>
         <section className={styles.section}>
-          <h3>Existing memories</h3>
+          <h2>Existing memories</h2>
           {history.error && <p role="alert">{history.error}</p>}
           {memories.map((m) => (
             <div key={m.id} className={styles.memory}>

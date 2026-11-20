@@ -58,8 +58,9 @@ test('opening preview keeps a deliberate choice while inspecting and never sends
   await card.focus(); await page.keyboard.press('Enter');
   const inspector = page.getByRole('complementary', { name: 'Card inspector' });
   await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
-  await expect(keep).toBeChecked();
+  await expect(decision).toHaveCount(0);
   await page.keyboard.press('Escape'); await expect(card).toBeFocused();
+  await expect(keep).toBeChecked();
   await confirm.click();
   await expect(decision.getByRole('status').filter({ hasText: 'Preview confirmed: keep this hand.' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button')).toHaveCount(7);

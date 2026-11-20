@@ -416,8 +416,6 @@
   --text-random-result: 2rem;
   --text-hud: 1.125rem;
   --leading-rules: 1.6;
-  /* The table shares the black canvas; near-black cards lift off it. */
-  --table-bg: var(--bg);
   --text-card-w: 16.5rem;
   --compact-card-w: 208px;
   --compact-card-min-h: 88px;
@@ -429,15 +427,11 @@
   --battlefield-row-min: 104px;
   --zone-header-h: 36px;
   --empty-row-h: 64px;
-  --playtest-hand-min: 220px;
-  --playtest-hand-max: 46dvh;
-  /* Window height kept clear of the hand while a zone viewer is open: bar,
-     zone strip and five viewer rows with their controls. */
-  --playtest-viewer-reserve: 540px;
+  --playtest-hand-min: 11rem;
+  --playtest-hand-max: max(var(--playtest-hand-min), 38dvh);
   --playtest-preview-w: 380px;
   --playtest-drawer-h: 72%;
   --playtest-number-w: 64px;
-  --hand-card-min-w: 196px;
+  --hand-card-min-w: 9.25rem;
   --hand-card-max-w: 300px;
-  --playtest-stacked-table-h: 86dvh;
 }

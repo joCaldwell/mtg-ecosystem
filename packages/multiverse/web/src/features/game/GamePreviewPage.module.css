@@ -1,3 +1,7 @@
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
 @media (pointer: coarse) { .actions a { min-block-size: var(--tap); } }
 .sample { color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 1099px) {
+  .actions { gap: var(--s-2); }
+  .actions a { padding-inline: var(--s-3); }
+}

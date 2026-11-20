@@ -57,15 +57,16 @@ test('shared game table responds to its embedding container in a wide window', a
   const hand = page.getByRole('region', { name: 'Your hand', exact: true });
   const decision = page.getByRole('region', { name: 'Opening hand', exact: true });
   const inspector = page.getByRole('complementary', { name: 'Card inspector' });
-  await hand.getByRole('button').last().click();
   const handBox = await hand.boundingBox();
   const decisionBox = await decision.boundingBox();
+  await hand.getByRole('button').last().click();
   const inspectorBox = await inspector.boundingBox();
   expect(handBox && decisionBox && inspectorBox).toBeTruthy();
   expect(Math.abs(handBox!.x - decisionBox!.x)).toBeLessThan(1);
   expect(Math.abs(handBox!.width - decisionBox!.width)).toBeLessThan(1);
   expect(decisionBox!.y).toBeGreaterThan(handBox!.y);
-  expect(inspectorBox!.y).toBeGreaterThan(decisionBox!.y);
+  expect(Math.abs(inspectorBox!.y - decisionBox!.y)).toBeLessThan(1);
+  await expect(decision).toHaveCount(0);
   await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(hand.getByRole('button').last()).toBeFocused();

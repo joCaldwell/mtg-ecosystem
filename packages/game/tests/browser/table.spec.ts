@@ -100,7 +100,7 @@ test('inspection build makes no API requests and persists no session data', asyn
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length, serviceWorkers: (await navigator.serviceWorker.getRegistrations()).length }))).toEqual({ local: 0, session: 0, databases: 0, serviceWorkers: 0 });
 });
 
-test('desktop workspace keeps hand, decision and inspection available together', async ({ page }, testInfo) => {
+test('desktop workspace keeps the hand in view while switching between decisions and inspection', async ({ page }, testInfo) => {
   for (const viewport of [{ width: 1280, height: 720 }, { width: 2560, height: 1440 }]) {
     await page.setViewportSize(viewport);
     await page.goto('/');
@@ -117,10 +117,12 @@ test('desktop workspace keeps hand, decision and inspection available together',
     await last.focus(); await page.keyboard.press('Enter');
     await expect(last).toHaveAttribute('aria-pressed', 'true');
     await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
-    await expect(choice).toBeInViewport({ ratio: 1 });
+    await expect(choice).toHaveCount(0);
     await expect(hand.getByRole('heading')).toBeInViewport({ ratio: 1 });
     await page.getByRole('button', { name: 'Jump to decision' }).click();
     await expect(choice).toBeFocused();
+    await expect(inspector).toHaveCount(0);
+    await last.click();
     await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeInViewport({ ratio: 1 });
     await inspector.getByText('Source & identity', { exact: true }).click();
     await expect(inspector.getByText('Object:', { exact: false })).toContainText('Object:');
@@ -141,6 +143,8 @@ test('intermediate and narrow windows retain decision jump and inspection focus 
     await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
     await page.getByRole('button', { name: 'Jump to decision' }).click();
     await expect(page.getByRole('region', { name: 'Opening hand', exact: true })).toBeFocused();
+    await expect(inspector).toHaveCount(0);
+    await card.click();
     await inspector.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(card).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

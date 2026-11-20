@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Badge, Button } from "../../ui/index.ts";
+import { TableSectionHeading } from "@multiverse/game-ui";
+import { Button } from "../../ui/index.ts";
 import styles from "./TableZone.module.css";
 export function TableZone({
   label,
@@ -10,6 +11,7 @@ export function TableZone({
   emptyText = "Move cards here",
   variant = "row",
   showHeader = true,
+  heading,
 }: {
   label: string;
   count: number;
@@ -19,6 +21,7 @@ export function TableZone({
   emptyText?: string;
   variant?: "row" | "hand";
   showHeader?: boolean;
+  heading?: ReactNode;
 }) {
   const cards = useRef<HTMLDivElement>(null);
   const cardsId = useId();
@@ -107,19 +110,17 @@ export function TableZone({
         }
       }}
     >
-      {showHeader && (
-        <header className={styles.head}>
-          <h2>{label}</h2>
-          <Badge>{count}</Badge>
-          <div className={styles.actions}>
+      {heading ?? (showHeader && (
+        <TableSectionHeading title={label} count={count} actions={
+          (overflow.axis || actions) && <div className={styles.actions}>
             {overflow.axis && <div className={styles.traversal} role="group" aria-label={`${label} scrolling`}>
               <Button variant="ghost" aria-controls={cardsId} aria-label={`Previous ${label.toLowerCase()} cards`} disabled={!overflow.before} onClick={() => traverse(-1)}>Previous</Button>
               <Button variant="ghost" aria-controls={cardsId} aria-label={`Next ${label.toLowerCase()} cards`} disabled={!overflow.after} onClick={() => traverse(1)}>Next</Button>
             </div>}
             {actions}
           </div>
-        </header>
-      )}
+        } />
+      ))}
       <div className={styles.cards} ref={cards} id={cardsId} data-table-cards onFocusCapture={event => {
         const card = event.target;
         const el = cards.current;

@@ -19,8 +19,7 @@ hosting. Fixture/catalog admission defines support; the deck library is independ
 ## Supported behavior and remaining work
 
 [Mechanics](game-engine-mechanics.md) owns complete supported families/rejections;
-[invariants](game-engine-mechanics.md#runtime-invariants) owns runtime constraints. New source-backed
-keyword/control/compiler extensions retain separate qualification below. Shared
+[invariants](game-engine-mechanics.md#runtime-invariants) owns runtime constraints. Later extensions retain separate qualification. Shared
 rules/capacities never dispatch by card/profile name. Hosting admits foundations
 and attachments; search admits foundations only. Later headless admissions do
 not broaden those consumers. [Catalogs](game-engine-catalogs.md#ir-and-build-identity)
