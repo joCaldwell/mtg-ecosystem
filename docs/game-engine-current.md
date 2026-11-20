@@ -19,7 +19,8 @@ hosting. Fixture/catalog admission defines support; the deck library is independ
 ## Supported behavior and remaining work
 
 [Mechanics](game-engine-mechanics.md) owns complete supported families/rejections;
-[invariants](game-engine-mechanics.md#runtime-invariants) owns runtime constraints. Later extensions retain separate qualification. Shared
+[invariants](game-engine-mechanics.md#runtime-invariants) owns runtime constraints.
+Later extensions retain separate qualification. Shared
 rules/capacities never dispatch by card/profile name. Hosting admits foundations
 and attachments; search admits foundations only. Later headless admissions do
 not broaden those consumers. [Catalogs](game-engine-catalogs.md#ir-and-build-identity)
@@ -31,7 +32,10 @@ A combined fixed stat/keyword grant is one instruction/effect with one recipient
 capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
-The Ramos [plan](game-engine-ramos-plan.md) and [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) record exact deck and hosted boundaries.
+
+The exact 100-card Ramos profile (`scripts/play-ramos.sh`) completed a seeded
+four-seat headless game and replay; seat rotation, varied pods and hosted client
+qualification remain open; see [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration).
 
 Continuous Aura control shares one operation for creatures, artifacts, lands and
 general permanents. Control-source dependencies use scratch, apply-once ordering;
@@ -54,7 +58,7 @@ consumers.
 [Evidence](game-engine-evidence.md) owns exact producer/source identities, checked
 scopes, bridges, omissions and preserved proof locations. [Mechanics](game-engine-mechanics.md)
 owns supported shapes; [catalog/profile contracts](game-engine-catalogs.md)
-own admission. This map does not duplicate their release inventories.
+own admission.
 
 Read active snapshot/public/query formats from source. Exact build/catalog
 identity fences recovery and private artifacts; historical formats are not

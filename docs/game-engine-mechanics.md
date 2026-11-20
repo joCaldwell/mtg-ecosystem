@@ -1,17 +1,20 @@
 # Supported engine mechanics
 
 This is the current semantic map, not a claim of general Magic support. Read
-the runtime invariants below before editing rules. Exact Rust
-IR validation and complete archived source fixtures define executable shapes;
-[profiles](game-engine-catalogs.md#match-profile-data) independently admit decks and consumers.
-Source/compiler support, private runtime witnesses, accepted-pod prefixes,
-completion games, hosting/search review and browser acceptance are separate.
+the runtime invariants below before editing rules. Exact Rust IR validation in
+`crates/contracts`, lowering in `crates/compiler` and complete archived source
+fixtures define executable shapes;
+[profiles](game-engine-catalogs.md#match-profile-data) independently admit decks
+and consumers. Source/compiler support, private runtime witnesses, accepted-pod
+prefixes, completion games, hosting/search review and browser acceptance are
+separate.
 
 The rules baseline is the frozen [2026-09-25 Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
 SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
 Use exact `tests/fixtures` records/provenance under `packages/game-engine`, never
 card facts from memory or live refresh. Historical IR11–33 labels are evidence
-vocabulary; the only active executable schema is 1. No name/ID/profile dispatch.
+vocabulary; the only active executable schema is 1. No name/ID/profile dispatch:
+card names below identify source witnesses, never mechanics.
 
 <a id="source-identity-and-execution-boundaries"></a>
 <a id="atomic-events-diagnostics-and-departures"></a>
@@ -54,9 +57,9 @@ priority exists during announcement/resolution; retain the frozen invocation
 through supported source departure. Land plays and ordinary creature timing require
 active-player main priority and an empty stack; supported flash is explicit.
 Cleanup applies net hand-size adjustments to finite limits, floored at zero,
-then clears temporary effects and marked damage atomically.
-Concessions are trusted recorded external inputs processed before work or queries.
-Land usage resets each turn. Listed mana abilities offer only printed colors.
+then clears temporary effects and marked damage atomically. Concessions are
+trusted recorded external inputs processed before work or queries. Land usage
+resets each turn. Listed mana abilities offer only printed colors.
 
 <a id="player-visibility-and-query-recovery"></a>
 
@@ -76,53 +79,30 @@ change only with permitted information. Real restore rejects sampled origins;
 ## Commander and hidden information
 
 Four-seat pod admission enforces 100 cards including commander, singleton name,
-commander count/eligibility, color identity, basic-land mana and the selected
-frozen ban policy. These are separate from executable support. Shuffle/mulligans
-and bottoming are deterministic given trusted seed/input. Seeds and library rows
-never enter public streams. Open decklists are a chosen information policy.
+commander eligibility, color identity, basic-land mana and the selected frozen
+ban policy, separately from executable support. Shuffles, mulligans and bottoming
+are deterministic given trusted seed/input; seeds and library rows never enter
+public streams. Open decklists are a chosen information policy.
 
 Command-zone tax is physical and per caster, incremented only after a completed
-command-origin cast. Failed casts restore original zone/incarnation. Graveyard/
+command-origin cast; failed casts restore original zone/incarnation. Graveyard/
 exile Commander return is an owner SBA choice after actual movement (CR 903.9a);
-hand/library return replaces movement (903.9b). Decline consumes that incarnation's
-opportunity. Commander combat damage tracks physical source/recipient across
-control and zone changes, independently of life changes and noncombat damage.
-Drawing a tucked commander uses an existing public designation with `None` object
-handle; visible return choices use `Some(handle)`. One replaced draw completes
-once and preserves the next card.
-Library-top events preserve order and cannot compose with a conflicting order write.
-Drain concessions and revalidate owner choices before exposing queries.
-Commander-return decisions are resumable continuations, never priority windows.
+hand/library return replaces movement (CR 903.9b). Declining consumes that
+incarnation's opportunity. Commander combat damage tracks physical source and
+recipient across control and zone changes. A replaced draw of a tucked
+commander completes once and preserves the next card. Commander-return decisions are
+resumable continuations, never priority windows; drain concessions and
+revalidate owner choices before exposing queries.
 
-Fixed nonnegative Scry/Surveil partition available prefixes
-(CR 701.22/701.25): Scry orders top/bottom; Surveil orders retained cards and
-moves the rest to graveyards. Only the chooser sees temporary handles. Fixed mill
-(CR 701.17) moves a library prefix, clamping short libraries. Zero emits no event.
-Counter-and-mill uses the legal target spell's controller even if countering fails.
-Graveyard successors are public. Memory is charged and replay-proven.
-Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
-compositions are supported. Activated/triggered
-forms, Flashback, mill costs/replacements and search reconstruction reject.
-
-Library selection privately takes exactly one available prefix card into hand,
-then atomically sends the remainder to the graveyard or ordered library bottom.
-This is not drawing (CR 121.5). Tucked Commanders receive the owner's pre-movement
-hand replacement; graveyard return waits for SBAs. Extra clauses/draw compositions reject.
-
-Top-order/optional-shuffle/draw privately orders an incarnation-preserving prefix,
-offers a shuffle, then draws. Even empty libraries shuffle; declines consume no
-randomness. `ControllerCountedDrawV1` uses sequential unclamped attempts with
-optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
-opponent hand-size reductions draw at their controller's end step. Paid draws
-survive source sacrifice. Counted
-draws precede hand returns or simultaneous discards. Commander replacements
-precede hand-return successors. Own-graveyard card returns target exact cards;
-creature battlefield returns use ordinary entry. Self-entry exile resolves the
-chosen player's current graveyard simultaneously before Commander SBAs.
-Discards clamp to hand size.
-Group choices stay private until one simultaneous discard before Commander SBAs.
-Each-player draws finish each seat in turn order, including failed attempts.
-Seeded random discard samples without replacement. Departure never redirects attempts.
+Library manipulation is private to its chooser and replay-proven. Scry, Surveil
+(CR 701.22, 701.25), mill (CR 701.17), library selection (not drawing, CR 121.5)
+and top-ordering partition the available prefix, clamp short libraries and emit
+nothing for zero. Optional shuffles consume no randomness when declined. Counted
+draws make sequential unclamped attempts; each-player draws finish each seat in
+turn order. Discards clamp to hand size, group choices stay private until one
+simultaneous discard, and random discard samples without replacement. Library-top
+events preserve order and cannot compose with a conflicting order write. These
+all finish before Commander SBAs; departure never redirects attempts.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
@@ -131,442 +111,216 @@ Personal effects for a departed invocation controller skip rather than redirect.
 
 <a id="announcement-priority-and-payment"></a>
 
-Typed nonbasic lands derive intrinsic mana; `ManaColor` selects before costs.
-Conditional entry counts prior Basic+Land objects once per simultaneous group.
-Optional-life entry chooses before debit/entry, reserves combined costs, and
-atomically commits payments, entries and landplay usage. Forced/intrinsic/declined
-tapping combine. Landplay and paid Lore/Claim/Farseek retain owned continuations,
-privacy and recovery. Source integers are exact u64; IR quantities remain arbitrary
-precision. Fetch activations atomically tap, pay life and sacrifice the source
-before typed search; the current controller pays and paid roots retain LKI through
-source-owner departure. Sacrifice-source creature activations capture controller
-creatures at resolution for pure temporary keyword grants.
-Fixed-mana Cycling on typed lands and ordinary spells pays mana, then discards
-its hand source. Resolution draws one. Typed-land proof uses38/28,IR1; admission
-and opponent production remain open.
+Typed nonbasic lands derive intrinsic mana. Optional-life entry chooses before
+debit/entry and atomically commits payments, entries and land-play usage.
+Land-play and paid land-search continuations retain ownership, privacy and
+recovery. Fetch activations atomically tap, pay life and sacrifice the source
+before typed search; paid roots retain LKI through source-owner departure.
 
 ## Casting, costs, targets and stack
 
-Stack projections run bottom to top. Saved announcement handles are historical:
-they never bind successor incarnations. Lower entries stay complete during announcement. Reversal restores living players’ passes. Resolving frames retain frozen instances through supported source
-departure (CR 608.2m). Only the caster answers targets/casting mana.
+Stack projections run bottom to top. Saved announcement handles are historical
+and never bind successor incarnations; reversal restores living players' passes.
+Resolving frames retain frozen instances through supported source departure
+(CR 608.2m). Only the caster answers targets and casting mana; modes are chosen
+before payment and resolve in printed order.
 
-For one-or-more exile spells, the caster selects distinct mode indices before payment. Each selected set resolves in printed order; snapshots retain indices and reconstruct instructions from the catalog.
+Targets precede costs. Casting always offers a mana window and cannot cancel a
+payable spell; reversal refunds only receipt-recorded casting-time mana and taps.
+Costs never guess colors. X is announced nonnegative and frozen. Base or
+alternative cost, X, additional costs and increases precede floor-zero
+reductions; counted reductions freeze at CR 601.2f and replay without later-board
+repricing. Additional costs never change mana value.
 
-Targets precede costs. Casting always offers a mana window. FinishMana attempts full payment and cannot cancel a payable
-spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
-pre-cast mana, combat taps and departures; retained legal mana activations clear
-passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
-colored production and X use exact supported cost shapes, never guessed colors.
-Counter taxes and cast-payer draws share a resolution payment window.
-X is announced nonnegative and frozen; stack mana value and supported draw, damage, life and mill effects use it.
-CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
-of BoardWipes. Every validated slot applies; the legacy creature reducer shares
-its arithmetic. Base/alternative, X, selected additionals and increases precede
-reductions and floor-zero, preserving colored/colorless symbols. Private locks freeze
-bounded counts at CR601.2f; replay authenticates them without later-board repricing.
+Activated abilities use a separate stack ID and historical source handle. Tap
+costs enforce readiness and continuous control; mana, tap and sacrifice costs
+retain separate guards, and failed payment reverses recorded mana activations.
+Sacrifice costs use ordinary post-activation SBAs. Divided counters bind shares
+before costs and commit surviving shares simultaneously.
 
-Activated abilities use a separate stack ID/historical source handle; their card
-stays in place. Tap-source costs enforce readiness/continuous control, subject to
-supported haste. Mana, tap and additional sacrifice costs retain separate guards.
-Mana-cost activations offer a mana window and require exact spending.
-Failed payment removes the proposal and can reverse its recorded mana activations.
-`ActivatedArtifactDrawV1` combines fixed mana and artifact tap costs with draw one,
-or draw one or two followed by a mandatory discard.
-Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
-wait for the complete invocation. Additional costs never change mana value.
-Targeted discard uses the announced player's hand.
-Divided counters bind shares before costs and commit surviving shares simultaneously.
-
-Object target slots share domain/filter because the request supplies one common
-candidate set; unequal per-slot filters reject. Entity/player/opponent/stack
-targets retain distinct domains. Current stack handles exclude announcing and
-incomplete entries. Countered spells move to their owners' graveyards; abilities
-disappear. Costs are spent. Typed counter filters and uncounterability are
-explicit. Counter groups require typed authority. Double Major copies a
-controlled creature spell into a separately counterable, nonlegendary token spell.
+Object target slots share one candidate set, so unequal per-slot filters reject.
+Entity, player, opponent and stack targets keep distinct domains; stack targets
+exclude incomplete entries. Countered spells move to their owners' graveyards,
+abilities disappear and costs stay spent. Spell copies are separately counterable
+nonlegendary token spells.
 
 Target legality is checked at proposal and resolution start. Loss of target
-legality after completed proposal during payment does not reverse casting
-(CR 601.6), including departure before an accepted spending input is consumed;
-casting continues through payment without undoing legal mana activations. A paid spell can then fail
-to resolve. If all targets are illegal,
-skip the entire program, including compensation/draw. Target incarnation cannot
-rebind after bounce/reentry. Once resolution begins, use its frozen legal set and
-refresh current/LKI facts only at their defined boundaries.
+legality after a completed proposal during payment does not reverse casting
+(CR 601.6), including departure before an accepted spending input is consumed. If
+all targets are illegal at resolution, skip the entire program, including
+compensation/draw. Target incarnation cannot rebind after bounce/reentry. Once
+resolution begins, use its frozen legal set and refresh current/LKI facts only at
+their defined boundaries.
 
 ### Target status and tap/untap
 
-`PermanentFilter.tapped: true` requires current tapped status; absent/false means
-no restriction, not untapped. Complete-source status must be exactly `["tapped"]`;
-empty/null/mixed/unknown statuses reject. Stack filters exclude battlefield predicates.
-Power bounds use derived power at announcement and resolution.
-Capability derivation recurses.
-
-`BlockingBattlefieldCreature` / `BlockingCreatureTargetV1` is limited to ordinary
-instant/sorcery fixed P/T pumps until cleanup. Other opcodes, modes, extra sacrifice
-costs, activations and triggers reject. Blockers retain status through EndCombat or their own combat departure, independently of damage links or attacker departure.
-
-| Family | Complete supported shape; other contexts reject |
-| --- | --- |
-| Ordinary tap (`TapPermanentV1`) | Instant/sorcery, one creature target, optional mandatory draw-one rider |
-| Artifact tap activation (`ActivatedTapPermanentV1`) | Battlefield artifact, finite mana plus tap-source cost, one tap instruction, artifact/creature/land target union; no sacrifice/modes/triggers/extra effects |
-| Creature tap activation (`ActivatedCreatureTapV1`) | Fixed mana plus source tap, one unfiltered creature target |
-| Cast-entry land untap (`UntapControllerLandsV1`) | Paid creature entry. Simultaneously untap the trigger controller’s currently tapped lands, including multitype lands. |
-| Ordinary untap (`UntapPermanentV1`) | One ordinary nonmodal instant/sorcery, one unqualified permanent target and instruction; no additional costs/qualifiers/extra instructions |
-| Tap-source creature untap (`TapSourceUntapCreatureV1`) | Battlefield creature, pure tap-source cost, instant-timed stack, one mandatory creature-filter target at slot zero and one untap instruction |
-| Tap-source destruction | Separately validated creature activation and tapped-creature target; preserve cost/readiness and ordinary destruction guards |
-| Owner-hand return | Explicit supported ordinary spell or separately fenced activated permanent-return program; source departure never rebinds the target |
-
-Tap/untap allows already-matching status without a second event, preserves combat
-membership, and pays source tap first. Paid activations survive source departure.
-Fixed-mana creature activations pump, gain life, deal creature damage, or destroy
-an artifact or enchantment. Cast-entry untap composes with them.
-Fixed self-attack pumps modify the declared incarnation until cleanup.
-Hybrid and Phyrexian costs compose with verified intrinsic creature keywords.
+A tapped-status filter requires current tapped status; absence means no
+restriction, not untapped. Power bounds use derived power at announcement and
+resolution. Tap/untap spells and activations, tap-source untap or destruction,
+cast-entry land untap and owner-hand return each accept only their complete
+validated shape. Already-matching status emits no second event, combat membership
+is preserved and source tap is paid first. Paid activations survive source
+departure.
 
 <a id="combat-damage-and-state-based-actions"></a>
 
 ## Combat, damage and life
 
-Attackers, blockers and damage commit atomically. Readiness stamps continuous control
-at turn entry and resets on control/incarnation change. Blockers have no damage
-assignment order. Blocked and blocking status survive counterpart departure until
-combat ends (CR 509.1g/511.3). Skip blocker/damage steps only when none attacked.
-First and double strike have distinct participant sets. Trample and deathtouch
-assignments, dealt damage and prevention remain distinct. Admitted keywords use
-shared predicates.
+Attackers, blockers and damage commit atomically. Readiness stamps continuous
+control at turn entry and resets on control/incarnation change. Blockers have no
+damage assignment order. Blocked and blocking status survive counterpart
+departure until combat ends (CR 509.1g, 511.3). Skip blocker/damage steps only
+when none attacked. First and double strike have distinct participant sets;
+trample and deathtouch assignments, dealt damage and prevention remain distinct.
 
-Validate simultaneous damage before life/history writes. Assignment stays distinct
-from current or latest-departure
-source facts governing damage-time deathtouch, lifelink, and beneficiary, including
-Equipment departure. Noncombat damage retains exact source and invocation controller.
-Fixed damage rechecks its creature target or preserves its synthetic announced opponent.
-Compiler admission of the latter remains open.
-Named-color protection checks derived or last-known source colors for targeting,
-attachments, blocking, and separately ordered prevention per matching color.
-Commander combat history uses actual damage. Opponent drain credits committed
-simultaneous losses before state-based actions.
+Validate simultaneous damage before life/history writes. Assignment stays
+distinct from current or latest-departure source facts governing damage-time
+deathtouch, lifelink and beneficiary, including Equipment departure. Noncombat
+damage retains exact source and invocation controller. Protection from a color
+checks derived or last-known source colors for targeting, attachments, blocking
+and prevention. Commander combat history uses actual damage; drains credit
+committed simultaneous losses before SBAs.
 
 Replacement/prevention applies once per effect/member, under affected-recipient
 choices and APNAP ordering. Freeze the consumed prefix; later source departure
 cannot undo it. Remaining eligibility rechecks current facts. Damage allocation,
 prevention budgets, zero damage and actual outcomes remain exact. Unsupported
-general replacement/layer interactions reject instead of approximating.
-
-Controlled-creature doubling (`ControlledCreatureDamageReplacementV1`) supports
-exactly all damage kinds to permanent-or-player, multiplied by two. Partial filters,
-other multipliers or narrower scopes reject. Provider's current controller is
-compared with source current/exact-LKI creature/controller facts (including
-nonbattlefield source applicability, CR 609.7c). Global doubling stays separate.
-Public effects omit trusted matching facts. General replacement ordering is not
-implied by this family.
+general replacement/layer interactions reject instead of approximating; damage
+doubling compares the provider's current controller with the source's current or
+exact-LKI facts (CR 609.7c).
 
 ## Movement, sacrifice and board-wide effects
 
 Indestructible takes precedence over destruction. A paid regeneration shield
-replaces destruction when permitted, tapping its source, clearing damage, and
+replaces destruction when permitted, tapping its source, clearing damage and
 removing it from combat. The affected controller orders competing exile. Exile,
 bounce, sacrifice, zero toughness, legend moves and departure remain distinct.
-Removal filters use all types (CR 205.2b), controllers and statuses. Positive type
+Removal filters use all types (CR 205.2b), controllers and statuses; positive type
 lists are alternatives, exclusions reject any match, and sacrifice subtype lists
 are conjunctive.
 
 Compensation uses the exact target's current or last relevant public appearance,
-not its successor: controller, power and mana value can differ from ownership.
-Tokens have zero mana value. Entry returns target at trigger placement; optional
-returns choose at resolution. No legal target removes the trigger.
+not its successor; tokens have zero mana value. Entry returns target at trigger
+placement; optional returns choose at resolution; no legal target removes the
+trigger.
 
 Sacrifice moves a controller's own permanent to its owner's graveyard and is not
-destruction. Choose/pay sacrifices after targets. “Sacrifice a creature” may use
-the source; “another” cannot. Fling-like effects use paid source-backed LKI power.
-Complete Shrapnel Blast lowers one-artifact additional sacrifice through that
-same family. Forced opponent sacrifices choose in APNAP order with earlier choices
-visible, then move simultaneously. A player with no candidate sacrifices nothing.
+destruction. Choose/pay sacrifices after targets; “another” excludes the source.
+Fling-like effects use paid source-backed LKI power. Forced opponent sacrifices
+choose in APNAP order with earlier choices visible, then move simultaneously; a
+player with no candidate sacrifices nothing.
 
-Board-wide sets include granted keywords at execution; destruction/exile/bounce
-and all-recipient damage commit atomically. Temporary P/T sets, including fixed
-pumps for your creatures, capture recipients at resolution. Counts use typed outcomes, including exile-replaced
-but excluding prevented destruction. Anger-style turn-long replacement covers
-only creatures actually dealt its damage, including later sacrifices/zero-toughness
-moves: exile causes no death. Indestructible prevents destruction before replacement;
-generic departures never imply dies triggers.
-
-`TypedLandSearchV1` consumes complete own-library → battlefield → shuffle spells:
-Nature's Lore, Farseek, Skyshroud Claim. Land subtype OR ignores Basic supertype;
-positive exact maxima use only common physical capacity for offered counts.
-Finding zero is legal (CR 701.23b); found cards enter simultaneously without reveal;
-forced tapping preserves intrinsic entry. Extra filters/clauses/costs/composition
-reject. Basic/split IR stays separate. Validated typed nonbasics are eligible;
-Command Tower remains negative. Cinder Glade/Prairie Stream entry uses common-prior
-facts. Shock entry, cycling and consumer admission remain open.
+Board-wide sets include granted keywords at execution; destruction, exile, bounce
+and all-recipient damage commit atomically, and temporary P/T sets capture
+recipients at resolution. Counts use typed outcomes, including exile-replaced but
+excluding prevented destruction. Turn-long exile replacement covers only
+creatures actually dealt its damage, so exile causes no death. Indestructible
+prevents destruction before replacement; generic departures never imply dies
+triggers. Typed land search may find zero (CR 701.23b); found lands enter
+simultaneously without reveal, then the library shuffles.
 
 ## Keywords, attachments and temporary effects
 
-Intrinsic/static grants, counters, admitted anthems, Equipment and Auras contribute
-to derived characteristics. Scoped anthems check live control, derived types and
-all required subtypes. Attachment identity, equip/attach costs and
-revalidation are explicit. Grants disappear with actual attachment loss; paid
-abilities and resolved spell effects retain independent lifetimes. Unimplemented
+Intrinsic/static grants, counters, admitted anthems, Equipment and Auras
+contribute to derived characteristics; scoped anthems check live control and
+derived types. Grants disappear with actual attachment loss; paid abilities and
+resolved spell effects keep independent lifetimes. Unimplemented
 CDA/setting/copying/swapping and general layer combinations reject.
 
 ### Attachment entry and ordering
 
-Resolving admitted Auras enter the battlefield already attached to their exact
-legal target, before entry observers capture the resulting state (CR 608.3c).
-The typed entry occurrence owns both movement and attachment; its outcome retains
-the successor incarnation, target and semantic attachment timestamp. Ordinary
-completion still owns stack removal, completion notification and stabilization.
-
-Actual attachments receive a checked monotonic timestamp (CR 613.7e, 701.3c).
-Reattaching to the same object changes neither timestamp nor allocator (701.3b);
-unattachment and zone changes clear the source's attachment metadata. Target
-movement never redirects a grant to a successor incarnation. A reachable pause
-before attachment SBAs may retain the historical target until cleanup. Ordering
-never comes from object IDs, map iteration or trace retention. Simultaneous
-competing attachments require the unimplemented APNAP/player-selected timestamp
-ordering of CR 613.7m and reject explicitly.
-
-Attachment timestamps and their allocator are canonical state and replay inputs.
-Current formats belong to the [current map](game-engine-current.md); attachment
-support does not broaden catalog/hosting/search admission. Continuous control
-uses the source family below.
+Resolving admitted Auras enter already attached to their exact legal target,
+before entry observers capture the state (CR 608.3c); one typed entry occurrence
+owns movement and attachment. Actual attachments receive a checked monotonic
+timestamp (CR 613.7e, 701.3c); reattaching to the same object changes nothing
+(CR 701.3b), and unattachment or zone change clears attachment metadata. Target
+movement never redirects a grant to a successor incarnation. Ordering never comes
+from object IDs, map iteration or trace retention. Simultaneous competing
+attachments need the unimplemented ordering of CR 613.7m and reject explicitly.
+Timestamps and their allocator are canonical state and replay inputs.
 
 ### Continuous permanent control from Auras
 
-`aura_control_v1` binds complete normal pure Enchantment — Aura sources to
-battlefield `ControlEnchantedPermanent`, using their current controller
-(CR 109.5, 110.2, 613.1b). Nonrecursive `aura_control_domain` returns Creature,
-Artifact, Land or Permanent; `aura_control_source` tests presence. Nonserialized
-`AuraControlDomain::accepts` uses `has_type` or supported permanent-kind membership.
-Creature control uses unfiltered `BattlefieldCreature`, optionally with one bounded
-modifier. Pure artifact/land/general control uses `BattlefieldPermanent` with
-explicit filter types `[artifact]`, `[land]` or `[]`; other restrictions stay
-empty/false. Missing/null/empty-object filters reject. Targets remain
-controller-announced slot zero with nonempty selection IDs.
+Pure Aura sources may grant their current controller control of an enchanted
+creature, artifact, land or general permanent (CR 109.5, 110.2, 613.1b). Only
+creature control may carry one bounded modifier; unions, qualifiers and extra
+abilities or costs reject. General control still needs dependency-aware and
+paid-recovery qualification before publication, and source admission grants no
+catalog or consumer admission. Shapes live in `crates/contracts`, probes in the
+[schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
+and qualification in [evidence](game-engine-evidence.md#atomic-temporary-keyword-qualification).
 
-General source requires exactly `{"cls":"permanent"}` and “You control enchanted
-permanent.” Source nouns/filters must agree; explicit empty IR types select General.
-Unions, qualifiers, source-type changes, extra instructions/abilities/costs and
-noncreature modifiers reject. Creature modifiers reject negative static P/T, Flash and Aura-granted
-Indestructible.
-Names, IDs, amounts, costs and descriptive source labels never dispatch. Creature
-targets require Creature Target; other domains require Permanent Removal. All retain Attachments, Aura Control and
-cast/layout closure. Serialization retains schema 1 and disjoint arms.
+The current source, exact attached target incarnation and attachment timestamp
+determine authority. Acyclic attachment graphs reevaluate CR 613.8 dependencies
+after each attempted operation; independent effects use timestamps. Structural
+cycles, and an Aura combined with a synthetic control grant on one permanent,
+reject atomically. Removing authority reveals remaining effects or default
+control; a successor never inherits its predecessor's attachment.
 
-Confiscate witnesses General.
-[Evidence](game-engine-evidence.md#atomic-temporary-keyword-qualification) owns
-qualification. The [schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
-prepares probes without schema execution. General source requires dependency-aware
-runtime and paid-recovery qualification before publication; source admission
-grants no catalog or consumer admission.
+Reconciliation finishes each occurrence or simultaneous group before observers,
+keeping common-prior damage/death facts frozen. An actual controller change
+removes combat membership and resets readiness (CR 302.6, 506.4); a
+same-controller change does neither. Counters, damage, tapping, ownership and
+attachments persist. Paid invocations keep their frozen controller, and queries
+never repair the cache. With no living controller left, CR 800.4a/c exile is
+immediate through typed movement. Reconciliation never grants priority, places
+triggers or replaces a continuation, and never resurrects departed owners.
 
-The current battlefield source, exact attached target incarnation and semantic
-attachment timestamp determine authority. Reachable acyclic attachment graphs
-reevaluate CR 613.8 dependencies after each attempted operation; independent effects
-use timestamps. Same-controller dependencies are a CR-derived inference, without a
-located official worked example. Structural attachment cycles reject atomically;
-admitted sources lack reattachment/animation producers. Removing authority reveals
-remaining effects or default control, independently of ownership. A
-source/target successor never inherits the predecessor's attachment. Existing
-synthetic control-effect ordering remains separate: an Aura and such a grant on
-the same permanent reject rather than invent a shared clock.
+### Indestructible and deathtouch
 
-Reconciliation finishes each occurrence or complete simultaneous group before
-entry/ordinary observers. All cache transitions precede derived keyword facts;
-common-prior damage/death facts stay frozen. An actual controller change removes
-combat membership and resets readiness (302.6, 506.4); a same-controller grant or
-removal does neither. Counters, marked damage, tapping, ownership, default control
-and attachments persist. Controlled-target predicates, Hexproof, activation
-permissions and anthems use current control; paid invocations retain their own
-frozen controller. Queries never repair the cache by mutation.
-
-Departure removes every losing owner's objects before reconciling survivors.
-When the final grant ends and no living default/remaining controller exists,
-800.4a/c exile is immediate, recorded through typed movement with consumed control
-authority and ordinary incarnation/LKI facts. Unsupported synthetic source-exile
-dependencies reject. Reconciliation never grants priority, stabilizes, places
-triggers or replaces a casting/resolution continuation. Restored-object reversal
-reconciles surviving Aura authority without resurrecting departed owners; the
-sacrificed-source receipt regression is synthetic because current source admission
-rejects sacrifice mana costs. It establishes no paid sacrifice/recovery claim.
-No new snapshot/public/query format or playable/consumer admission follows.
-
-
-`indestructible_v1` supports intrinsic creature/artifact/enchantment/land keywords.
-Its separately fenced equipped grant requires Artifact + exactly Equipment subtype,
-Equipped scope, zero P/T, exactly Indestructible and no restrictions. Other scopes,
-source kinds, mixed keywords/stats, tokens and unsupported grants reject. Ordinary
-existing attachment grants retain their own supported shapes.
-
-Destruction prevention records `DestructionPrevented` with no false movement.
-Indestructible blocks lethal/deathtouch destruction SBAs but not damage, lifelink,
-triggers, sacrifice, exile or zero toughness. Completed SBA checks consume the
-current deathtouch window for protected survivors too, atomically before another
-check/priority; old nonlethal deathtouch damage cannot kill after protection loss.
-Ordinary lethal marks remain actionable until cleanup. Fresh deathtouch reopens a
-window. Simultaneous destruction consumes common-prior keyword facts, so a granting
-Equipment leaving earlier in event order cannot remove protection mid-event.
-
-| Temporary spell capability | Supported program |
-| --- | --- |
-| `temporary_indestructible_spell_v1` (+ `indestructible_v1`) | One unqualified creature, sole Indestructible grant until cleanup |
-| `temporary_flying_spell_v1` (+ `flying_v1`) | Same pure one-target program granting Flying only |
-| `temporary_deathtouch_spell_v1` | Same fenced pure Deathtouch family, with current/latest-departure source authority |
-| `compound_indestructible_spell_v1` | One atomic grant of fixed signed P/T and Indestructible on the same one target; parameterized source-backed amounts |
-
-The original pure subset capabilities reject duplicate/mixed grants, modes,
-filters, additional costs, activations/triggers and mixed instructions. Reviewed
-new combinations use the general family below; subset meanings remain unchanged. Effects capture exact target
-incarnation, survive spell-source movement, union with intrinsic/static grants
-and expire atomically with marked-damage cleanup. Historical source-keyword
-validation accepts only validated grant vocabulary; replay still proves occurrence,
-latest appearance and duplicate/departure invariants.
+Destruction prevention records a prevented event with no false movement.
+Indestructible blocks lethal and deathtouch destruction SBAs but not damage,
+lifelink, triggers, sacrifice, exile or zero toughness. Completed SBA checks
+consume the current deathtouch window for protected survivors too, atomically
+before another check or priority, so old nonlethal deathtouch damage cannot kill
+after protection loss; fresh deathtouch reopens a window. Simultaneous
+destruction consumes common-prior keyword facts, so departing Equipment cannot
+remove protection mid-event.
 
 ### Shared temporary creature keyword family
 
-`temporary_creature_keyword_program_v1` adds reviewed combinations through the
-existing grant/damage/cleanup machinery. One complete ordinary nonmodal instant/
-sorcery has exactly one unfiltered or controller-only battlefield-creature target at slot 0, a
-nonempty selection ID and controller choice at announcement. Its program is one
-`GrantKeywords` targeting slot 0 until end of turn, with an optional shared
-`CreatureStatModifier { power, toughness }`. Pure grants omit the modifier on
-serialization, accept absent or null as None, and preserve source-block provenance.
-A nonnull modifier requires both exact signed quantities, including zero and
-values beyond machine integers, denies unknown fields and requires source block 0.
-The old `ModifyPowerToughness`/grant sequence rejects in either order; standalone
-`ModifyPowerToughness` remains supported in its existing scope.
+Targeted temporary grants cover one complete ordinary nonmodal instant/sorcery
+with one creature target (unfiltered or controlled by the invocation controller)
+and one atomic grant until end of turn, optionally with a fixed signed P/T
+modifier. A permanent form grants keywords to one controlled permanent, without
+stats, optionally followed by fixed life gain. Older single-keyword and compound
+capabilities keep their exact subset meanings; other combinations require the
+general family capability. Split stat/grant sequences, modes, X, extra costs and
+extra operations reject.
 
-One captured incarnation receives both stat and keyword layers
-(CR 611.2c, 613.5–6), including complete departure LKI during concessions
-(CR 104.3a). Separate stat/keyword effects fail this contract.
-
-Keyword vectors are nonempty, duplicate-free and limited to Flying, Deathtouch,
-Indestructible, Lifelink, Hexproof, Haste, Trample, Reach, Vigilance, First Strike and Double Strike; serialized order
-is retained. Haste, Trample, Reach, Vigilance, First Strike and Double Strike reuse readiness, blocking,
-attack-tapping and damage rules (CR 702.10/19/17/20/7/4), adding no opcode or capability.
-Existing unfiltered singleton Flying/Deathtouch/Indestructible and modifier-plus-singleton
-Indestructible retain their old temporary/compound subset capabilities; the general
-capability is spare and rejects on those shapes. Other combinations require it.
-Every granted keyword still
-requires its primitive capability; modifiers require `temporary_power_toughness_v1`
-and unfiltered targets require `creature_target_v1`. Controlled targets require
-`attachments_v1` and the general family capability, even for an otherwise old
-subset shape. Hexproof also requires `attachments_v1`; an unfiltered Hexproof
-program therefore needs both target capabilities. No schema/catalog/pool migration.
-
-"You control" means the invocation controller's current control, not ownership,
-at announcement and resolution. It remains part of the shared target binding;
-mixed plain/controlled uses of one selection ID reject. Bare controlled pumps
-remain unsupported outside this complete keyword family. Hexproof uses existing
-targetability: opponents cannot target the protected creature, its controller
-can, and a previously announced opposing target is checked again at resolution.
-Resolved grants retain their captured incarnation until cleanup; later control
-changes do not end the grant (CR 611.2c).
-
-Contracts' borrowed `TemporaryTargetedKeywordProgram` and
-`temporary_targeted_keyword_program` union expose modifier, keywords and optional
-controller life. `supported_temporary_keywords` retains the same eleven-keyword
-vocabulary. The creature wrapper remains single-grant; the compound helper keeps
-its singleton policy. The permanent wrapper requires one
-`ControlledBattlefieldPermanent` slot-zero controller/announcement target with an
-explicit empty permanent filter. Its complete ordinary instant/sorcery program is
-one block-zero EOT grant without stats, optionally followed by block-zero fixed
-nonnegative controller GainLife. Tamiyo's Safekeeping supplies exact archived
-source/provenance; separate synthetic controls are not admissions.
-Creature+life and set+life programs reject. Additional costs, X, modes, abilities,
-unknown qualifiers, changed provenance, split grants and extra operations reject.
-Compiler lowering consumes the whole permanent sentence and optional life sentence;
-ordinary creature compounds still require sole `[Pump, GainAbilities]`, identical
-plain/controlled target expressions, count one, slot zero and EOT durations.
-Pure creature grants retain prior source-block provenance and subset capabilities.
-No card identity dispatches mechanics.
-
-Synthetic typed controls preserve the original five-keyword ordered-vector coverage
-and add bounded representative Haste/Trample/First Strike vectors in both forms and
-domains, including mixed and reversed orders. They cover missing/spare capabilities,
-signed/large quantities, preserved legacy provenance and unsupported/context negatives.
+One captured incarnation receives both stat and keyword layers (CR 611.2c,
+613.5–613.6), including departure LKI during concessions (CR 104.3a). Vectors are
+nonempty, duplicate-free and limited to Flying, Deathtouch, Indestructible,
+Lifelink, Hexproof, Haste, Trample, Reach, Vigilance, First Strike and Double
+Strike, which reuse existing rules (CR 702.4, 702.7, 702.10, 702.17, 702.19,
+702.20). Each keyword, modifier and target domain requires its own capability.
+“You control” means current control at announcement and resolution, not
+ownership. Hexproof uses existing targetability. Grants keep their captured
+incarnation despite later control changes and expire atomically with cleanup.
 [Schema probes](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs)
-retain the prior 230-, 1,657- and 1,955-probe stage counts while converting compound
-controls to atomic IR and replacing obsolete split-only mutations with genuine
-negatives. The current harness declares 1,999 probes after appended atomic/null/
-malformed/split controls; execution and its new hashes require parent qualification.
-Historical split-format hashes remain separately labeled and reconstructed for
-comparison, preserving exact pure controls rather than claiming all old payloads
-are unchanged. The separate 409-probe set harness and its payload bytes are unchanged
-by the shared Rust type rename.
-`--prepare-only` checks
-construction without Ajv/schema execution; explicit `--schema PATH --ajv-root
-NODE_MODULES_DIRECTORY` validates exported schema and uint32 using existing Ajv2020.
-No install/generation is implicit. Qualification is source-bound in
-[engine evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
-This foundation expands no playable pool, policy, hosting/search or consumer acceptance.
+hold synthetic controls; qualification is in
+[evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
 
 ### Temporary set keyword families
 
-The creature (`temporary_creature_set_keyword_program_v1`) and permanent
-(`temporary_permanent_set_keyword_program_v1`) families share complete ordinary
-instant/sorcery programs with no targets, modes or additional sacrifice cost. The
-stack instruction program is exactly one `GrantKeywordsSet` with source block 0
-and an optional typed `CreatureStatModifier { power, toughness }`. It creates one
-continuous effect lasting until end of turn; a separate `PumpSet`/grant pair
-rejects. Creature selectors are `ControllerCreatures` (current creatures
-controlled by the frozen invocation controller) and `AttackingCreatures`
-(current attacking creatures, regardless of controller), with optional exact signed
-P/T parameters. `ControllerPermanents` selects every current battlefield permanent
-controlled by the frozen invocation controller, including noncreatures; its modifier
-must be absent/None, and even Some(0/0) rejects. `TemporarySetKeywordProgram` and
-`temporary_set_keyword_program` expose the shared selector, optional modifier and
-reviewed vector. `temporary_creature_set_keyword_program` and
-`temporary_permanent_set_keyword_program` are disjoint narrow wrappers. Identities
-and quantities never select mechanics.
+Set families grant the [shared vocabulary](#shared-temporary-creature-keyword-family)
+to the invocation controller's creatures, all attacking creatures, or the
+invocation controller's permanents. Each is one complete ordinary instant/sorcery
+without targets, modes or additional costs, creating one end-of-turn effect with
+an optional fixed P/T modifier (forbidden for permanents). Each requires keyword
+primitives, the shared board-wipe set machinery and exactly its selector's family
+capability; split pump/grant pairs reject.
 
-The family reuses the [shared vocabulary](#shared-temporary-creature-keyword-family),
-nonempty and duplicate-free, with each keyword's primitive capability;
-Hexproof uses `attachments_v1`; First/Double Strike use spaced names with
-`first_strike_v1`/`double_strike_v1`. Every set grant additionally requires `board_wipes_v1`
-for the shared set machinery, exactly the selector's family capability, normal
-layout and its ordinary cast-kind capability. Permanent grants exclude creature-set authority; the protective pair requires
-Attachments/Indestructible alongside Board Wipes and ordinary/family capabilities.
-Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
-`PumpSet` retains its existing behavior and Board Wipes capability.
-Controlling a commander allows both Akroma's Will modes.
-Protection bars colored damage, attachments, blockers and targeting.
+The instruction captures one full set and creates all properties atomically:
+CR 611.2c fixes membership and CR 613.5–613.6 applies both parts to the same
+exact incarnations, so departure LKI never observes half an effect and later
+entry or control changes never reselect (CR 608.2h). Restore and replay
+authenticate captured membership. The compiler lowers one complete sentence and
+never coalesces separate sentences.
+[Creature](../packages/game-engine/crates/contracts/tests/creature-set-keyword-schema-probes.mjs)
+and [permanent](../packages/game-engine/crates/contracts/tests/permanent-set-keyword-schema-probes.mjs)
+probes hold the synthetic controls.
 
-The instruction captures one full current ordered set and creates all properties
-atomically. CR 611.2c fixes that membership when the effect begins; CR 613.5–6
-applies its keyword and P/T parts to the same objects across layers. A shared
-capture followed by separately created effects is insufficient: departure LKI
-must never observe only half of this effect. Membership and handles bind exact
-battlefield incarnations; later entry, departure/reentry or control changes
-never dynamically reselect the effect (CR 608.2h, 611.2c).
-Cleanup expires it through the existing temporary-effect path. Restore validates
-the exact source opcode, modifier, keywords, source block and historical member handles;
-authenticated input replay checks the captured membership. The new controller
-selectors reject in all other movement, damage, bare-pump, mode, activation and
-trigger programs, and in cost-conditioned, additional-cost, targeted or malformed
-programs. Exact complete Heroic Intervention source lowers its sole pure GainAbilities
-sentence to ControllerPermanents with Hexproof then Indestructible, no modifier,
-and its unchanged {1}{G} ordinary instant cost. This source-backed protective pair
-is separate from synthetic vectors of the other reviewed keywords.
-
-Frozen Titanic Ultimatum, Overrun, Stampede, Make a Stand and Burst of Speed
-sources witness the two creature selectors and optional modifier. The compiler consumes
-one complete typed sentence with no bindings: a pure gain, or exactly a fixed
-signed pump followed by a gain with matching reviewed selectors and duration.
-It never coalesces separate sentences, later arbitrary programs or cost-conditioned
-clauses. Dedicated compiler and contracts tests cover exact costs/order/capabilities,
-old split-IR rejection and whole-source negatives.
-[Set schema probes](../packages/game-engine/crates/contracts/tests/creature-set-keyword-schema-probes.mjs)
-retain their original 409 controls and payloads. The
-[separate permanent controls](../packages/game-engine/crates/contracts/tests/permanent-set-keyword-schema-probes.mjs)
-cover the new selector, disjoint family/primitive closure, signed/zero modifier
-negatives and all other opcode/context fences. These are bounded synthetic IR
-controls; `--prepare-only` constructs them without schema execution. Source-qualified tests/schema evidence is indexed in the evidence guide; acceptance
-never transfers to later source.
-The targeted atomic-grant probes remain separate; their prior split-format 1,955-probe inventory has its own historical identity. This family
-changes no catalog bodies, pool/profile/policy,
-hosting/search or consumer admission; Card IR remains schema 1.
 <a id="abilities-targets-and-triggers"></a>
 
 ## Trigger families and event witnesses
@@ -574,66 +328,37 @@ hosting/search or consumer admission; Card IR remains schema 1.
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
 controllers, actors, incarnations and witnesses. Power-filtered entries use
-derived post-event power. Intervening conditions recheck at resolution. Cast-gated entries retain the paid stack predecessor, caster and battlefield successor. Source
-status uses current incarnation or departure-refreshed LKI in live continuations.
-Cast triggers collect after
-successful payment; declared attacks use the real declaration batch. Ordinary
-step, death, ETB, draw/discard and combat/noncombat-damage families each retain
-strict source/program validation.
+derived post-event power; intervening conditions recheck at resolution. Source
+status uses current incarnation or departure-refreshed LKI. Cast triggers collect
+after successful payment; declared attacks use the real declaration batch.
+Event-player, source controller, invocation controller and recipient cannot be
+interchanged. Optional “may” is an actual decision; unsupported source
+explanation blocks a browser control. Compiler presence does not expand
+host/search allowlists.
 
-Live battlefield static grants add independent cascade instances to completed spells
-of the source's current controller using disjoint mana-value, first-cast or
-first-from-exile predicates. The four-seat ledger tracks completed casts and their
-mana values each turn. Call Forth excludes its own cast.
-Intrinsic indexes and grant-source incarnation/static indexes are distinct identities.
-The cast spell remains rules source; caster and grant provenance freeze at collection,
-surviving later grantor departure/control changes. Whole batches preflight IDs,
-fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
-firstness; failed payments never consume it. Averna may put an exiled land in
-tapped before the cast offer. Yidris grants independent cascade triggers to
-later hand casts until cleanup.
+Static grants add independent cascade instances to completed spells of the
+source's current controller. A four-seat ledger tracks completed casts and mana
+values each turn. Caster and grant provenance freeze at collection, surviving
+grantor departure; whole batches preflight IDs, fanout, ledger and retained
+payloads atomically. Cast witnesses freeze pre-completion firstness; failed
+payments never consume it.
 
-Later finite extensions cover opponent-damage conditions, optional controller
-draws, event-player discard/sacrifice, filtered sources, controller discard,
-damage-quantity draws, attacking-creature keywords/Snow and event-time appearance.
-Presence in the compiler does not expand host/search allowlists. Event-player,
-source controller, invocation controller and recipient cannot be interchanged.
-Optional “may” is an actual decision; unsupported source explanation blocks a
-browser control even if a boolean exists in the schema.
-
-Grouped power-qualified combat damage (`GroupedCreatureDamageTriggerV1`) groups
-positive actual player damage by observer, ability, genuine occurrence and damaged
-player. Multiple qualifying creatures hitting one player trigger once; two players
-trigger twice; first/double-strike occurrences are separate. Qualification uses
-trigger-time battlefield appearance and each damager's own base power. Prevention,
-assignment and life changes cannot substitute. The full canonical group/member
-appearance is frozen, surviving later departure/token cessation. Current additive
-P/T/counter semantics make definition power the supported base-power authority;
-other P/T layers require extension before admission.
-
-`OpponentCastProhibitionV1` follows current source controller and retained turn
-owner, even on a turn with no active player. It bars opponent spells from all
-admitted zones, not lands/abilities/triggers or already-cast spells. Revalidate
-before cost stage with normal rollback; prohibition arising during determination/
-payment of costs preserves a completed proposal (CR 601.6).
+Grouped combat-damage triggers fire once per observer, ability, occurrence and
+damaged player, using trigger-time appearance and frozen membership. Opponent
+cast prohibition bars opponent spells, not lands, abilities or already-cast
+spells; prohibition arising during cost determination or payment preserves a
+completed proposal (CR 601.6).
 
 ## Admission and policy boundaries
 
 Foundations and attachments remain the only hosted profiles; foundations alone
-is search-reviewed. Headless damage and blocking profiles and the evolving
-sacrifice pool are development admissions. The blocking pool admits status,
-tap/untap/return and temporary protection/flight/compound sources; the sacrifice
-pool admits complete Shrapnel Blast, intrinsic indestructible sources, Plate and
-Collar through ordinary mechanics. Exact pool/deck membership comes from strict
-profile/catalog JSON; do not infer it from a historical definition count.
+is search-reviewed. Headless damage, blocking and sacrifice pools are development
+admissions whose membership comes from strict profile/catalog JSON.
 
-Develop policy uses permitted observations and public IR features, target domains,
-amounts and costs. It may conservatively estimate value but never determines
-legality or inspect hidden state. Protection, equip improvement, defensive untap,
-flight and damage-source behavior need their own narrow public-policy witnesses.
-A paid accepted-pod prefix, private board setup, synthetic typed IR control and
-fixed-index completion game must remain separately labeled in evidence.
-
-See [source-qualified evidence](game-engine-evidence.md) for current producers,
-proof locations and omissions, [catalog commands](game-engine-catalogs.md) for
+Develop policy uses permitted observations and public IR features. It may
+estimate value but never determines legality or inspects hidden state; new
+behaviors need their own public-policy witnesses. Paid accepted-pod prefixes,
+private board setups, synthetic IR controls and fixed-index completion games stay
+separately labeled in [evidence](game-engine-evidence.md), which owns producers,
+proof locations and omissions; [catalogs](game-engine-catalogs.md) own
 reproduction.
