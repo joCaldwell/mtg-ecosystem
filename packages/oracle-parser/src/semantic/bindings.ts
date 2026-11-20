@@ -175,6 +175,25 @@ function namesObject(value: unknown, definiteOnly: boolean): boolean {
 }
 /** Printed keyword parameters that are paid or chosen as the keyword's cost. */
 const KEYWORD_PAYMENT_FIELDS = new Set(["cost", "additionalCosts", "materials", "costModifications", "restriction", "variableConstraints"]);
+const PROTECTION_FROM_EVERYTHING = { keyword: "protection", from: [{ scope: "everything" }] } satisfies KeywordInstance;
+const SELF_GRAVEYARD_REPLACEMENT = {
+  static: "replacement",
+  replacement: {
+    event: { event: "move-zone", what: { ref: "self" }, to: { zone: "graveyard", owner: "any" }, from: "anywhere" },
+    occurrence: "each",
+    replace: { replacement: "effects", effects: [{ steps: [
+      { effect: "reveal", who: { player: "you" }, what: { ref: "replacement-event-object", role: "affected" } },
+      { effect: "shuffle-into-library", who: { player: "you" }, what: [{ ref: "replacement-event-object", role: "affected" }],
+        library: { zone: "library", owner: "its-owner" } },
+    ] }] },
+  },
+} as const satisfies StaticEffect;
+function isSelfGraveyardReplacement(ability: Ability, cardAbilities: Ability[] | undefined): boolean {
+  if (ability.kind !== "static" || cardAbilities?.length !== 2 || cardAbilities[1] !== ability) return false;
+  const { abilityWord, ...paragraph } = ability;
+  return abilityWord === undefined && isDeepStrictEqual(paragraph, { kind: "static", effect: SELF_GRAVEYARD_REPLACEMENT }) &&
+    isDeepStrictEqual(cardAbilities[0], { kind: "keywords", keywords: [PROTECTION_FROM_EVERYTHING] });
+}
 function child(path: string, part: string | number): string {
   return `${path}/${String(part).replace(/~/g, "~0").replace(/\//g, "~1")}`;
 }
@@ -829,8 +848,12 @@ class Analyzer {
       this.walkChildren(instance as unknown as Record<string, unknown>, path, { ...context, barrier });
       return;
     }
+    const protectionFromEverything = isDeepStrictEqual(instance, PROTECTION_FROM_EVERYTHING);
+    if (protectionFromEverything) this.engineFeature("protection-from-everything", path,
+      "Apply protection against all sources for targeting, damage, attachments, and blocking.", ["702.16j"]);
     const you = this.node({ id: this.id(path, "you"), path, node: "runtime-player", scope: context.ability, role: scope.role, rules: ["109.5", ...scope.rules] });
     this.node({ id: this.id(path, "keyword"), path, node: "keyword-ability", scope: context.ability, keyword: instance.keyword,
+      ...(protectionFromEverything ? { protectionFrom: "everything" as const } : {}),
       abilities: scope.abilities, you, rules: scope.rules });
     if (instance.keyword === "demonstrate")
       this.engineFeature("demonstrate", path,
@@ -878,6 +901,35 @@ class Analyzer {
       this.walk(entry, child(path, key), key === "costs" ? { ...scope, phase: "payment" } : scope);
     }
     bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), scope));
+  }
+  /** CR 400.6 and 614.6: both instructions see the affected object of the
+   * proposed move. Revealing it leaves it in its original zone (CR 701.20b). */
+  selfGraveyardReplacement(path: string, context: Context): void {
+    const { source, ability: scope, you } = context;
+    const { event, occurrence, replace } = SELF_GRAVEYARD_REPLACEMENT.replacement;
+    const [reveal, shuffle] = replace.effects[0].steps;
+    const eventPath = child(path, "event");
+    const replacementPath = child(path, "replace");
+    const revealPath = `${replacementPath}/effects/0/steps/0`;
+    const shufflePath = `${replacementPath}/effects/0/steps/1`;
+    const ownerPath = `${shufflePath}/library/owner`;
+    const owner = this.node({ id: this.id(ownerPath, "owner"), path: ownerPath, node: "derived-player", scope, role: "owner",
+      of: source, rules: ["108.3", "400.3"] });
+    const proposal = this.node({ id: this.id(eventPath, "proposal"), path: eventPath, node: "zone-change-proposal", scope,
+      object: source, from: event.from, to: { zone: event.to.zone, owner }, rules: ["400.3", "400.6", "614.1a"] });
+    this.bound(event.what, child(eventPath, "what"), source, ["201.5", "400.6"]);
+    this.bound(reveal.who, child(revealPath, "who"), you, ["108.4a", "109.5"]);
+    this.bound(reveal.what, child(revealPath, "what"), source, ["201.5", "614.6", "701.20b"]);
+    this.bound(shuffle.who, child(shufflePath, "who"), you, ["108.4a", "109.5"]);
+    this.bound(shuffle.what[0], `${shufflePath}/what/0`, source, ["614.6", "701.20b", "701.24c"]);
+    this.bound({ player: "owner", of: shuffle.what[0] }, ownerPath, owner, ["108.3", "400.3"]);
+    this.node({ id: this.id(replacementPath, "replacement"), path: replacementPath, node: "reveal-and-shuffle-replacement", scope,
+      replaces: proposal, occurrence, reveal: { actor: you, object: source },
+      shuffleInto: { actor: you, object: source, library: { zone: shuffle.library.zone, owner } },
+      rules: ["614.6", "701.20a", "701.20b", "701.24a", "701.24c"] });
+    this.engineFeature("graveyard-reveal-and-shuffle", path,
+      "Apply the replacement to a proposed graveyard move and shuffle the owner's library even if another effect redirects the library move.",
+      ["400.6", "614.5", "614.6", "616.1", "701.24c"]);
   }
   /** Every established object antecedent is the source itself. */
   onlySource(context: Context): boolean {
@@ -2224,11 +2276,13 @@ class Analyzer {
   ability(ability: Ability, path: string, face: string, source: string, cardAbilities?: Ability[]): void {
     const id = this.id(path, "ability");
     const you = this.id(path, "you");
+    const selfGraveyardReplacement = isSelfGraveyardReplacement(ability, cardAbilities);
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
       : ability.kind === "triggered" || ability.kind === "chapter" || ability.kind === "visit" || ability.kind === "case-solve" ? "trigger-controller"
-      : ability.kind === "spell" ? "spell-controller" : ability.kind === "additional-cost" ? "prospective-caster" : "static-source-controller";
+      : ability.kind === "spell" ? "spell-controller" : ability.kind === "additional-cost" ? "prospective-caster"
+      : selfGraveyardReplacement ? "replacement-source-controller-or-owner" : "static-source-controller";
     this.node({ id, path, node: "ability", source, face, abilityKind: ability.kind, you, rules: ["113", "109.5"] });
-    this.node({ id: you, path, node: "runtime-player", scope: id, role, rules: ["109.5"] });
+    this.node({ id: you, path, node: "runtime-player", scope: id, role, rules: selfGraveyardReplacement ? ["108.4a", "109.5"] : ["109.5"] });
     // An unqualified "other" excludes the permanent with the ability, including
     // an object that was given the ability; never the "source" of a spell.
     const permanentSource = ability.kind !== "spell" &&
@@ -2326,6 +2380,10 @@ class Analyzer {
       }
       case "chapter": this.sentences(ability.effects, child(path, "effects"), context); break;
       case "static":
+        if (selfGraveyardReplacement) {
+          this.selfGraveyardReplacement(`${path}/effect/replacement`, context);
+          break;
+        }
         // "..., where X is ...": the static ability's own definition (CR 107.3c).
         if ("bindings" in ability.effect && Array.isArray(ability.effect.bindings)
           && !["entry-choice", "enters-with-counters", "enters-tapped", "as-enters"].includes(String(ability.effect.static)))
