@@ -348,6 +348,7 @@ mod controller_land_type_tests;
 #[cfg(test)]
 mod distinct_permanent_colors_tests;
 mod hand_return;
+mod granted_land_mana;
 mod intrinsic_mana;
 mod library_order;
 mod library_position_memory;
@@ -1150,6 +1151,7 @@ enum Frame {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "ability", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaAbilityIdentity {
+    GrantedLandTap { color: Color },
     Intrinsic { color: Color },
     Printed { index: u32 },
 }
@@ -3115,11 +3117,7 @@ impl Game {
                         self.play_land(input.player, input.decision_id, card)?;
                     }
                     Response::ActivateMana { object } => {
-                        if self.is_permanent_mana(object) {
-                            self.begin_permanent_mana(&input, object, Frame::Priority)?;
-                        } else {
-                            self.begin_intrinsic_mana(&input, object, Frame::Priority)?;
-                        }
+                        self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
                     Response::Cast { card } => {
                         self.announce_priority_spell(input.player, card)?;
