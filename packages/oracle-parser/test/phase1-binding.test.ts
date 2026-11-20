@@ -380,3 +380,73 @@ describe("sequential library scans and temporary card copies", () => {
     assert.ok(!graph.nodes.some(node => node.node === "card-copy"));
   });
 });
+
+describe("group instructions and event quantities", () => {
+  it("draws for each printed player in APNAP order", () => {
+    const graph = analyze("{T}: You and target opponent each draw a card.", "Creature");
+    boundCard(graph);
+    const group = graph.nodes.find(node => node.node === "group-instruction");
+    assert.ok(group?.execution.kind === "draw");
+    assert.deepEqual(group.execution.players, [bound(graph, "/members/0"), bound(graph, "/members/1")]);
+    assert.equal(group.execution.order, "apnap");
+  });
+
+  it("associates each announced target with its own player member", () => {
+    const graph = analyze("When this enchantment enters, for each opponent, exile up to one target nonland permanent "
+      + "that player controls until this enchantment leaves the battlefield.", "Enchantment");
+    boundCard(graph);
+    const group = graph.nodes.find(node => node.node === "group-instruction");
+    const target = graph.nodes.find(node => node.node === "selection" && node.selection === "target");
+    assert.ok(group?.execution.kind === "for-each" && target?.node === "selection");
+    assert.equal(group.execution.membership, "announcement");
+    assert.equal(target.perMember, group.execution.member);
+    assert.equal(bound(graph, "/filter/control"), group.execution.member);
+  });
+
+  it("does not export an individual copied token from a group", () => {
+    const name = "Fixture";
+    const source = { name, layout: "normal", type_line: "Instant" };
+    const parse = (text: string) => parseOracleText(text, name, { typeLine: source.type_line, includeSourceProvenance: true });
+    const loop = parse("For each token you control, create a token that's a copy of that permanent.");
+    const after = parse("It gains haste until end of turn.");
+    assert.ok(loop.ok && after.ok);
+    const [spell] = loop.abilities;
+    const [continuation] = after.abilities;
+    assert.ok(spell.kind === "spell" && continuation.kind === "spell");
+    spell.effects.push(...continuation.effects);
+    const graph = analyzeCardBindings({ identity: "fixture", source, faces: [{ sourceFaceIndex: 0, result: loop }] });
+    assert.ok(graph.nodes.some(node => node.node === "group-instruction"));
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "missing-antecedent"));
+  });
+
+  it("sums actual damage from the bound event across its recipients", () => {
+    const graph = analyze("This spell deals 1 damage to each opponent. You gain life equal to the damage dealt this way.", "Instant");
+    boundCard(graph);
+    const measure = graph.nodes.find(node => node.node === "event-aggregate");
+    assert.ok(measure && measure.measure === "damage-dealt");
+    assert.ok(graph.nodes.some(node => node.id === measure.event && node.node === "event" && node.operation === "damage"));
+  });
+
+  it("rejects competing damage events instead of choosing by proximity", () => {
+    const graph = analyze("This spell deals 1 damage to each opponent. This spell deals 2 damage to each opponent. "
+      + "You gain life equal to the damage dealt this way.", "Instant");
+    assert.ok(!graph.nodes.some(node => node.node === "event-aggregate"));
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-scope"));
+  });
+
+  it("uses the recorded monstrosity amount for X", () => {
+    const graph = analyze("{X}{X}{R}: Monstrosity X.\nWhen this creature becomes monstrous, goad up to X target creatures your opponents control.", "Creature");
+    boundCard(graph);
+    const target = bound(graph, "/steps/0/what/count");
+    assert.ok(graph.nodes.some(node => node.id === target && node.node === "event-result" && node.identity === "measured-quantity"));
+    assert.equal(graph.engineFeatures[0]?.feature, "monstrosity-event");
+  });
+
+  it("keeps the draw-step actor for both branches of a later instruction", () => {
+    const graph = analyze("At the beginning of each player's draw step, that player exiles the top card of their library. "
+      + "If it's a land card, the player puts it onto the battlefield. Otherwise, the player casts it without paying its mana cost if able.", "Artifact");
+    boundCard(graph);
+    assert.equal(bound(graph, "/effects/1/steps/0/who"), bound(graph, "/otherwise/steps/0/instruction/who"));
+    assert.equal(bound(graph, "/effects/0/steps/0/who"), bound(graph, "/effects/1/steps/0/who"));
+  });
+});

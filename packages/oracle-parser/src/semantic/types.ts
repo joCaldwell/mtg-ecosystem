@@ -67,6 +67,7 @@ export type BindingNode = NodeBase & (
       /** Explicit player binding for the announced target when established. */
       chooser?: string;
       countChoice?: string;
+      perMember?: string;
       timing: BindingPhase | "stack-announcement"; selection: "target" | "evaluate-reference" | "event-participant-filter" | "resolution-choice" }
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
@@ -156,6 +157,11 @@ export type BindingNode = NodeBase & (
       operation: "reveal" | "exile"; filter: ObjectFilter; count: number;
       pool: string; matches: string }
   | { node: "card-copy"; scope: string; event: string; card: string; chooser: string; result: string; count: number }
+  | { node: "group-instruction"; scope: string; event?: string;
+      execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }
+        | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise" } }
+  | { node: "instruction-member"; scope: string; group: string; domain: "player" | "object" }
+  | { node: "event-aggregate"; scope: string; event: string; measure: "damage-dealt" | "life-lost" }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
@@ -204,7 +210,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
