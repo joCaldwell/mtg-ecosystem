@@ -319,7 +319,27 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
     let free = json!({"$ref":"#/$defs/FixedTargetModesFree"});
     schema["$defs"]["FixedTargetModesFree"] = json!({"properties":{"resolution":{"not":marker},"modes":{"items":{"properties":{"program":free}}}}});
     let child = json!({"properties":{"program":{"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"any_player"},"slot":{"const":0},"filter":{"type":"null"}}}},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"enum":["gain_life","lose_life"]},"recipient":{"const":{"target":{"target_slot":0}}},"source_block":{"const":0}}}},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
-    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}}]},"then":{"required":["spell","capabilities"],"properties":{"capabilities":{"allOf":[cap,{"contains":{"const":Capability::ModalChoiceV1}},{"contains":{"const":Capability::AnyPlayerTargetV1}}]},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"spell":{"type":"object","properties":{"resolution":marker,"modes":{"minItems":2,"items":child},"targets":{"maxItems":0},"instructions":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}}));
+    let child = json!({"anyOf":[child,{"properties":{"program":{"$ref":"#/$defs/UnionReturnChild"}}},{"properties":{"program":{"$ref":"#/$defs/GraveyardShuffleChild"}}},{"properties":{"program":{"$ref":"#/$defs/TypedCounterChild"}}},{"properties":{"program":{"$ref":"#/$defs/FixedCountersChild"}}}]});
+    let basic = |domain: TargetDomain, filter: serde_json::Value, op: serde_json::Value| json!({"properties":{"resolution":{"const":"instructions"},"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"slot":{"const":0},"filter":filter}}},"instructions":{"minItems":1,"maxItems":1,"items":op},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}});
+    let filter = PermanentFilter {
+        types: vec![CardKind::Artifact, CardKind::Enchantment],
+        non_types: vec![],
+        non_colors: vec![],
+        opponent: false,
+        power: None,
+        tapped: false,
+    };
+    schema["$defs"]["TypedCounterChild"] = basic(
+        TargetDomain::StackSpell,
+        json!({"const":filter}),
+        json!({"const":Instruction::CounterStackObject{target_slot:0,source_block:0}}),
+    );
+    schema["$defs"]["FixedCountersChild"] = basic(
+        TargetDomain::BattlefieldCreature,
+        json!({"type":"null"}),
+        json!({"properties":{"op":{"const":"put_plus_one_counters"},"source_block":{"const":0},"on":{"const":CounterRecipient::Target{target_slot:0}},"amount":{"enum":(2..=10).map(Quantity::from).collect::<Vec<_>>()}}}),
+    );
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}}]},"then":{"required":["spell","capabilities"],"properties":{"capabilities":{"allOf":[cap,{"contains":{"const":Capability::ModalChoiceV1}}]},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"spell":{"type":"object","properties":{"resolution":marker,"modes":{"minItems":2,"items":child},"targets":{"maxItems":0},"instructions":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}}));
 }
 
 /// Compile each printed clause independently. The variable graveyard group
