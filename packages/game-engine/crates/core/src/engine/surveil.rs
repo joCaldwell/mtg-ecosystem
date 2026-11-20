@@ -115,27 +115,17 @@ impl Game {
         graveyard: Vec<ObjectId>,
         source_block: u32,
     ) -> Result<(), String> {
-        let actual = self.commit(
+        let player = frame.spell.controller;
+        self.complete_library_effect(
+            frame,
             ProposedEvent::Surveil {
-                player: frame.spell.controller,
+                player,
                 amount,
                 looked,
                 top,
                 graveyard,
             },
-            BatchCause::Instruction {
-                stack_id: frame.spell.id,
-                player: frame.spell.controller,
-                source: frame.spell.source,
-                cursor: frame.cursor,
-                source_block,
-            },
-        )?;
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            },
+            source_block,
         )
     }
 
@@ -147,21 +137,20 @@ impl Game {
         top: &[ObjectId],
         graveyard: &[ObjectId],
         before: Option<&PreEventFacts>,
+        replacement: Option<&BTreeMap<ObjectId, Zone>>,
     ) -> Result<EventOutcome, String> {
         if amount <= &Quantity::zero() || self.library_prefix(player, amount)? != looked {
             return Err("invalid surveil event prefix".into());
         }
         self.validate_library_partition(player, looked, top, graveyard)?;
-        let tail = self
-            .state
-            .rules
-            .libraries
-            .get(&player)
-            .map(|l| l[looked.len()..].to_vec())
-            .unwrap_or_default();
-        let movements = self.move_library_cards_to_graveyard(player, graveyard, before)?;
+        let movements =
+            self.move_library_cards_to_graveyard(player, graveyard, before, replacement)?;
         if let Some(library) = self.state.rules.libraries.get_mut(&player) {
-            *library = top.iter().map(|o| o.card).chain(tail).collect();
+            // CR 701.24g: the chosen top stays above the randomized portion.
+            // Replaced cards that never left the library remain in that portion.
+            let fixed: BTreeSet<_> = top.iter().map(|o| o.card).collect();
+            library.retain(|card| !fixed.contains(card));
+            library.splice(..0, top.iter().map(|o| o.card));
         }
         self.remember_surveil(player, top)?;
         Ok(EventOutcome::Surveilled {

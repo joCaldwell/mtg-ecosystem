@@ -82,13 +82,17 @@ impl Game {
                     .map(move |object| ProposedEvent::DiscardCard { player, object })
             })
             .collect();
-        if !occurrences.is_empty() {
-            self.commit_batch(
-                Self::wipe_cause(&frame, source_block),
-                EventGroup::Simultaneous { occurrences },
-            )?;
+        if occurrences.is_empty() {
+            return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+        self.complete_graveyard_group(
+            Self::wipe_cause(&frame, source_block),
+            EventGroup::Simultaneous { occurrences },
+            GroupFinish::Instruction {
+                frame,
+                result: GroupResult::Effect,
+            },
+        )
     }
 
     pub(super) fn remove_group_discard_recipient(&mut self, departed: PlayerId) {

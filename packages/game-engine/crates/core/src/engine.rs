@@ -32,7 +32,11 @@ mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;
 mod each_player_draw;
+mod graveyard_group;
+mod graveyard_replacement;
+use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
 mod group_discard;
+use graveyard_replacement::GraveyardReplacement;
 mod hideaway;
 #[cfg(test)]
 mod keyword_removal_wipe_tests;
@@ -700,6 +704,13 @@ impl Prepared {
         }) {
             return Err("random discard requires a seeded match".into());
         }
+        if catalog.definitions.iter().any(|d| {
+            d.static_abilities
+                .iter()
+                .any(|a| matches!(a.effect, StaticEffect::SelfGraveyardRevealShuffle))
+        }) {
+            return Err("printed graveyard shuffle requires a seeded match".into());
+        }
         // Admission-only exact fixture/pin table. It never selects runtime rules.
         let allowed = [
             (
@@ -1090,6 +1101,12 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    GraveyardGroup {
+        tx: Box<GraveyardGroup>,
+    },
+    GraveyardReplacement {
+        transaction: Box<GraveyardReplacement>,
+    },
     PlayHideawayLinked {
         progress: Box<LinkedPlayProgress>,
     },
@@ -1442,6 +1459,11 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
     },
+    GraveyardReplacementOrder {
+        decision_id: u64,
+        player: PlayerId,
+        object: ObjectId,
+    },
     HandCast {
         player: PlayerId,
         decision_id: u64,
@@ -1746,6 +1768,7 @@ impl Request {
             | Self::LegendRule { decision_id, .. }
             | Self::ResolveDiscard { decision_id, .. }
             | Self::SpendMana { decision_id, .. }
+            | Self::GraveyardReplacementOrder { decision_id, .. }
             | Self::CommanderReturn { decision_id, .. }
             | Self::Attackers { decision_id, .. }
             | Self::Blockers { decision_id, .. }
@@ -1798,6 +1821,7 @@ impl Request {
             | Self::LegendRule { player, .. }
             | Self::ResolveDiscard { player, .. }
             | Self::SpendMana { player, .. }
+            | Self::GraveyardReplacementOrder { player, .. }
             | Self::CommanderReturn { player, .. }
             | Self::Attackers { player, .. }
             | Self::Blockers { player, .. }
@@ -2407,6 +2431,10 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    GraveyardReplacementRevealed {
+        cause: BatchCause,
+        objects: Vec<ObjectId>,
+    },
     SpellCopied {
         cause: BatchCause,
         target: StackId,
@@ -2749,6 +2777,7 @@ impl Game {
                 .saturating_add(self.cascade_charge())
                 .saturating_add(self.mana_continuation_charge())
                 .saturating_add(self.land_entry_charge())
+                .saturating_add(self.replacement_charge())
                 .saturating_add(self.counter_placement_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
@@ -2927,6 +2956,12 @@ impl Game {
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
         if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
             return Ok(None);
+        }
+        if matches!(
+            self.state.rules.frame,
+            Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
+        ) {
+            return Ok(self.replacement_request().filter(|r| r.player() == viewer));
         }
         if matches!(self.state.rules.frame, Frame::Setup) {
             return Ok(self.setup_request()?.filter(|r| r.player() == viewer));
@@ -3119,6 +3154,28 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+        if matches!(
+            self.state.rules.frame,
+            Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
+        ) {
+            return if self.replacement_request().is_some_and(|r| {
+                r.player() == player
+                    && matches!(
+                        (r, response),
+                        (
+                            Request::CommanderReturn { .. },
+                            Response::CommanderReturn { .. }
+                        ) | (
+                            Request::GraveyardReplacementOrder { .. },
+                            Response::OptionalEffect { .. }
+                        )
+                    )
+            }) {
+                Ok(())
+            } else {
+                Err("invalid graveyard replacement decision".into())
+            };
+        }
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return self.validate_land_entry_response(player, response);
         }
@@ -3455,6 +3512,10 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.rules.frame.clone() {
+            Frame::GraveyardGroup { tx } => self.graveyard_group_step(tx)?,
+            Frame::GraveyardReplacement { transaction } => {
+                self.graveyard_replacement_step(transaction)?
+            }
             Frame::LandEntry { .. } => self.land_entry_step()?,
             Frame::PlayHideawayLinked { progress } => self.linked_play_step(progress)?,
             Frame::RevealAndCast { progress } => self.reveal_and_cast_step(progress)?,
@@ -3887,7 +3948,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 74,
+            snapshot_version: 75,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3929,7 +3990,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 74
+        if s.snapshot_version != 75
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -4150,6 +4211,7 @@ impl Game {
         {
             return Err("snapshot stack/zone invariant".into());
         }
+        self.validate_graveyard_replacement()?;
         self.validate_land_entry_state()?;
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.rules.frame)?;
@@ -4175,7 +4237,10 @@ impl Game {
             | Frame::Payment { cast } => {
                 let top = self.top()?;
                 if (!cast.sacrifices.is_empty()
-                    && !matches!(s.rules.frame, Frame::SacrificeCost { .. }))
+                    && !matches!(
+                        self.underlying_mana_frame(&s.rules.frame),
+                        Frame::SacrificeCost { .. }
+                    ))
                     || cast.origin.is_spell() != top.kind.is_spell()
                     || cast.stack_id != top.id
                     || cast.original_object.card != top.source.card

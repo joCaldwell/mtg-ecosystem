@@ -10,6 +10,8 @@ use super::*;
 mod commander_modal_keyword_tests;
 #[path = "divided_plus_one_counters_tests.rs"]
 mod divided_plus_one_counters_tests;
+#[path = "protection_from_everything_tests.rs"]
+mod protection_from_everything_tests;
 
 const MIND: &str =
     include_str!("../../../../tests/fixtures/5912546a-acc2-448c-b042-64bdac5ec129.json");

@@ -230,6 +230,7 @@ impl Strategy {
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::CascadeLandEntry { .. }
             | PlayerRequest::ChooseOpponent { .. }
+            | PlayerRequest::GraveyardReplacementOrder { .. }
             | PlayerRequest::Hideaway { .. }
             | PlayerRequest::PlayHideawayLinked { .. }
             | PlayerRequest::EntryCopy { .. }

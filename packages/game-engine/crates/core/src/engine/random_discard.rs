@@ -118,8 +118,7 @@ impl Game {
             return Ok(());
         };
 
-        let outcome =
-            self.discard_batch(Self::wipe_cause(&frame, source_block), player, objects)?;
-        self.finish_instruction(frame, outcome)
+        let cause = Self::wipe_cause(&frame, source_block);
+        self.complete_resolving_discards(frame, cause, player, objects)
     }
 }

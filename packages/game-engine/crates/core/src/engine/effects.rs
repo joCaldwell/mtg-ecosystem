@@ -23,6 +23,7 @@ effect_id!(DamageId, u32);
 pub enum EffectKey {
     Resolved { id: EffectId },
     Static { source: ObjectId, ability: u32 },
+    IntrinsicProtectionFromEverything { source: ObjectId },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1028,6 +1029,15 @@ impl Game {
             && Self::has_color(&damage.source.characteristics)
     }
 
+    fn intrinsic_protection_source(&self, recipient: &DamageRecipient) -> Option<&Object> {
+        let DamageRecipient::Creature { object } = *recipient else {
+            return None;
+        };
+        self.current(object).ok().filter(|o| {
+            o.present_on_battlefield() && self.printed_protection_from_everything(object)
+        })
+    }
+
     fn application(
         &self,
         tx: &DamageTransaction,
@@ -1046,6 +1056,15 @@ impl Game {
         }
         let mut qualification = None;
         let (after, prevented, budget_before, budget_after) = match &pair.effect {
+            EffectKey::IntrinsicProtectionFromEverything { source } => {
+                if self
+                    .intrinsic_protection_source(&d.recipient)
+                    .is_none_or(|o| o.id != *source)
+                {
+                    return Err("wrong intrinsic protection source".into());
+                }
+                (Quantity::zero(), d.amount.clone(), None, None)
+            }
             EffectKey::Static { source, ability } => {
                 let o = self.current(*source)?;
                 let a = self
@@ -1161,15 +1180,20 @@ impl Game {
         recipients.dedup();
         let keys = self.live_effect_keys();
         for (player, recipient) in recipients {
+            let intrinsic = self
+                .intrinsic_protection_source(&recipient)
+                .map(|o| EffectKey::IntrinsicProtectionFromEverything { source: o.id });
             let pairs = tx
                 .entries
                 .iter()
                 .filter(|d| d.recipient == recipient)
                 .flat_map(|d| {
-                    keys.iter().map(move |k| DamageEffectCandidate {
-                        effect: k.clone(),
-                        damage: d.id,
-                    })
+                    keys.iter()
+                        .chain(&intrinsic)
+                        .map(move |k| DamageEffectCandidate {
+                            effect: k.clone(),
+                            damage: d.id,
+                        })
                 })
                 .filter(|p| self.application(tx, p).is_ok())
                 .collect::<Vec<_>>();
@@ -2060,16 +2084,6 @@ impl Game {
         } = &self.state.rules.frame
         {
             self.validate_damage_transaction(tx)?;
-            if tx.id.0 >= self.state.rules.next_damage_transaction_id
-                || tx.entries.is_empty()
-                || tx.entries.len() > self.damage_limit()
-                || tx.applications.len()
-                    > self
-                        .damage_limit()
-                        .saturating_mul(self.effect_limit().saturating_add(2))
-            {
-                return Err("damage transaction capacity invariant".into());
-            }
             for (i, d) in tx.entries.iter().enumerate() {
                 let unique = d.applied.iter().collect::<BTreeSet<_>>();
                 if d.id != DamageId(i as u32)
@@ -2244,16 +2258,35 @@ pub enum VisibleEffect {
 impl Game {
     pub(super) fn refresh_effect_handles(&mut self) -> Result<(), String> {
         let keys = self.live_effect_keys();
+        // A printed keyword is already on the public creature. Only a pending
+        // damage occurrence needs a command handle for the affected controller.
+        let mut intrinsic: [Vec<EffectKey>; 4] = Default::default();
+        if let Ok(tx) = self.damage_transaction() {
+            for d in &tx.entries {
+                if d.amount > Quantity::zero()
+                    && let Some(source) = self.intrinsic_protection_source(&d.recipient)
+                {
+                    let key = EffectKey::IntrinsicProtectionFromEverything { source: source.id };
+                    let handles = intrinsic
+                        .get_mut(source.controller.0 as usize)
+                        .ok_or("invalid protection controller")?;
+                    if !handles.contains(&key) {
+                        handles.push(key);
+                    }
+                }
+            }
+        }
         let damages = self
             .damage_transaction()
             .ok()
             .map(|tx| tx.entries.iter().map(|d| (tx.id, d.id)).collect::<Vec<_>>())
             .unwrap_or_default();
-        for v in 0..4 {
+        for (v, intrinsic) in intrinsic.iter().enumerate() {
             let k = &mut self.state.knowledge.visibility[v];
-            k.effect_handles.retain(|(key, _)| keys.contains(key));
+            k.effect_handles
+                .retain(|(key, _)| keys.contains(key) || intrinsic.contains(key));
             k.damage_handles.retain(|(key, _)| damages.contains(key));
-            for key in &keys {
+            for key in keys.iter().chain(intrinsic) {
                 if !k.effect_handles.iter().any(|(id, _)| id == key) {
                     let handle = EffectHandle(k.scoped(format!("v{v}-e{}", k.next_effect_handle)));
                     k.next_effect_handle = k
@@ -2299,7 +2332,8 @@ impl Game {
         key: &EffectKey,
     ) -> Result<VisibleEffectSource, String> {
         let (source, controller, announced) = match key {
-            EffectKey::Static { source, .. } => (
+            EffectKey::Static { source, .. }
+            | EffectKey::IntrinsicProtectionFromEverything { source } => (
                 *source,
                 self.current(*source)?.controller,
                 self.handle_for(viewer, *source)?,
@@ -2348,7 +2382,7 @@ impl Game {
         let origin = self.effect_origin_view(viewer, key)?;
         let EffectKey::Resolved { id } = key else {
             let EffectKey::Static { source, ability } = key else {
-                unreachable!()
+                return Err("intrinsic prevention is visible on the damage occurrence".into());
             };
             return match self
                 .copiable_definition(source)?
@@ -2547,6 +2581,9 @@ impl Game {
             .find(|d| d.id == pair.damage)
             .ok_or("missing damage occurrence")?;
         let kind = match pair.effect {
+            EffectKey::IntrinsicProtectionFromEverything { .. } => {
+                DamageEffectKind::ProtectionFromEverything
+            }
             EffectKey::Static { .. } => DamageEffectKind::DoubleDamage,
             EffectKey::Resolved { id } => match self
                 .state
@@ -2770,12 +2807,16 @@ impl Game {
         })
     }
     pub(super) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
+        let existing_limit = self
+            .damage_limit()
+            .saturating_mul(self.effect_limit().saturating_add(2));
         if tx.entries.is_empty()
             || tx.entries.len() > self.damage_limit()
-            || tx.applications.len()
-                > self
-                    .damage_limit()
-                    .saturating_mul(self.effect_limit().saturating_add(2))
+            // At most one additional intrinsic source per original occurrence.
+            || tx.applications.len() > existing_limit.saturating_add(tx.entries.len())
+            || (tx.applications.len() > existing_limit && tx.applications.iter().filter(|a|
+                !matches!(a.effect, EffectKey::IntrinsicProtectionFromEverything { .. })
+            ).count() > existing_limit)
             || tx.allocation_groups.len() > self.effect_limit()
             || tx.id.0 >= self.state.rules.next_damage_transaction_id
         {
@@ -3034,6 +3075,20 @@ impl Game {
                 return Err("repeated/out-of-order damage effect prefix".into());
             }
             let (after, prevented) = match &a.effect {
+                EffectKey::IntrinsicProtectionFromEverything { source } => {
+                    // The recipient may since have departed. The original
+                    // occurrence binds its incarnation and retained copiable
+                    // identity. Restore replays the accepted inputs.
+                    if d.recipient != (DamageRecipient::Creature { object: *source })
+                        || !self.printed_protection_from_everything(*source)
+                        || a.qualification.is_some()
+                        || a.budget_before.is_some()
+                        || a.budget_after.is_some()
+                    {
+                        return Err("invalid intrinsic prevention prefix".into());
+                    }
+                    (Quantity::zero(), a.before.clone())
+                }
                 EffectKey::Static { source, ability } => {
                     let effect = self
                         .copiable_definition(source)?

@@ -288,6 +288,9 @@ impl Strategy<'_> {
             PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. } => {
                 return Err("copied entry outside this policy admission".into());
             }
+            PlayerRequest::GraveyardReplacementOrder { .. } => {
+                PlayerResponse::OptionalEffect { perform: true }
+            }
             PlayerRequest::Hideaway { candidates, .. } => PlayerResponse::Hideaway {
                 object: candidates
                     .first()

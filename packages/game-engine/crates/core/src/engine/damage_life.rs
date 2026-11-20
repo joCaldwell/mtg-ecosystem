@@ -81,6 +81,8 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => Some(&frame.spell),
+        Frame::GraveyardGroup { tx } => tx.finish.frame().map(|f| &f.spell),
+        Frame::GraveyardReplacement { transaction } => Some(&transaction.frame.spell),
         Frame::CounterPlacement { transaction } => Some(&transaction.frame.spell),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             match transaction.continuation.as_ref() {
@@ -148,6 +150,14 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => update_entry(&mut frame.spell, fact),
+        Frame::GraveyardGroup { tx } => {
+            if let Some(frame) = tx.finish.frame_mut() {
+                update_entry(&mut frame.spell, fact);
+            }
+        }
+        Frame::GraveyardReplacement { transaction } => {
+            update_entry(&mut transaction.frame.spell, fact)
+        }
         Frame::CounterPlacement { transaction } => update_entry(&mut transaction.frame.spell, fact),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             // CR 608.2h/702.2e/702.15c: every prepared source departure

@@ -471,6 +471,7 @@ impl Game {
             .rules
             .delayed_chapters
             .retain(|registration| registration.issuer.controller != player);
+        self.revalidate_graveyard_departure()?;
         self.revalidate_mana_departure()?;
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame

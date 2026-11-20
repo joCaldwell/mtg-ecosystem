@@ -27,6 +27,7 @@ pub(super) struct AnnouncementCompleted {
 pub(super) enum AnnouncementPayment {
     Completed(AnnouncementCompleted),
     Unpayable,
+    Deferred,
 }
 
 pub(super) fn phyrexian_life(choices: &[HybridPayment]) -> Quantity {
@@ -212,6 +213,7 @@ impl Game {
                     self.state.rules.frame = progress.resume();
                 }
             },
+            AnnouncementPayment::Deferred => return Ok(()),
             AnnouncementPayment::Unpayable => {
                 let undo = cast.undo_mana;
                 let reason = if self.state.rules.players[self.top()?.controller.0 as usize]
@@ -290,6 +292,29 @@ impl Game {
                 spending,
             }
         };
+        if !matches!(&self.state.rules.frame, Frame::GraveyardGroup { tx } if matches!(&tx.finish, GroupFinish::Payment { .. }))
+            && let Some(group) = self.sacrifice_payment_group(&stack, &cast.sacrifices)?
+        {
+            let mut replaced = false;
+            for event in GraveyardGroup::leaves(&group)? {
+                if let ProposedEvent::Sacrifice { object, .. } = event {
+                    replaced |= self.has_self_graveyard_replacement(*object)?;
+                }
+            }
+            if replaced {
+                self.complete_graveyard_group(
+                    BatchCause::Payment {
+                        stack_id: stack.id,
+                        player: stack.controller,
+                    },
+                    group,
+                    GroupFinish::Payment {
+                        resume: Box::new(Frame::SacrificeCost { cast: cast.clone() }),
+                    },
+                )?;
+                return Ok(AnnouncementPayment::Deferred);
+            }
+        }
         self.commit(
             proposed,
             BatchCause::Payment {
@@ -353,6 +378,7 @@ impl Game {
             )?;
         }
         self.pay_sacrifice_cost(&stack, &cast.sacrifices)?;
+        self.finish_payment_shuffles(cast)?;
         self.state
             .rules
             .stack

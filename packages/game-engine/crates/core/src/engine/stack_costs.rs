@@ -384,7 +384,7 @@ impl Game {
                         owner: entry.controller,
                     },
                     FunctioningZone::Battlefield => Zone::Battlefield,
-                    FunctioningZone::Stack => {
+                    FunctioningZone::Stack | FunctioningZone::Any => {
                         return Err("invalid activation functioning zone".into());
                     }
                 }
@@ -646,26 +646,78 @@ impl Game {
         if mill_count.is_some() && domain != TargetDomain::StackSpell {
             return Err("counter and mill requires a spell target".into());
         }
-        let cause = Self::staple_cause(&frame, source_block);
-        let actual = self.commit(
-            ProposedEvent::CounterStackObject {
-                target,
-                countering: frame.stack_id,
-                domain,
-            },
-            cause.clone(),
-        )?;
+        let source = entry.source;
+        let proposed = ProposedEvent::CounterStackObject {
+            target,
+            countering: frame.stack_id,
+            domain,
+        };
+        if entry.kind.is_spell()
+            && !self.spell_cannot_be_countered(entry)?
+            && self.has_self_graveyard_replacement(source)?
+        {
+            let owner = self.state.rules.cards[&source.card].owner;
+            return self.begin_graveyard_effect(
+                frame,
+                proposed,
+                source_block,
+                owner,
+                vec![source],
+                graveyard_replacement::GraveyardCompletion::Counter {
+                    target,
+                    source,
+                    controller,
+                    mill: mill_count,
+                },
+            );
+        }
+        let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
+        self.complete_counter_outcome(
+            frame,
+            source_block,
+            target,
+            controller,
+            mill_count,
+            Some(actual),
+        )
+    }
+
+    pub(super) fn complete_counter_outcome(
+        &mut self,
+        frame: Resolving,
+        source_block: u32,
+        target: StackId,
+        controller: PlayerId,
+        mill_count: Option<Quantity>,
+        actual: Option<EventOutcome>,
+    ) -> Result<(), String> {
         let outcome = match actual {
-            EventOutcome::StackObjectCountered { movement, .. } => {
+            Some(EventOutcome::StackObjectCountered { movement, .. }) => {
                 InstructionOutcome::Countered { target, movement }
             }
-            EventOutcome::CounterPrevented { .. } => {
+            Some(EventOutcome::CounterPrevented { .. }) => {
                 InstructionOutcome::CounterPrevented { target }
             }
+            None => InstructionOutcome::StackObjectNoLongerPresent { target },
             _ => return Err("missing counter outcome".into()),
         };
         if let Some(count) = mill_count {
-            self.commit_mill(controller, count, cause)?;
+            if self.is_live(controller) && count > Quantity::zero() {
+                let cards = self.library_prefix(controller, &count)?;
+                return self.complete_library_effect_with(
+                    frame,
+                    ProposedEvent::Mill {
+                        player: controller,
+                        count,
+                        cards,
+                    },
+                    source_block,
+                    graveyard_replacement::GraveyardCompletion::MillAfterCounter {
+                        outcome: Box::new(outcome),
+                    },
+                );
+            }
+            self.commit_mill(controller, count, Self::staple_cause(&frame, source_block))?;
         }
         self.finish_instruction(frame, outcome)
     }

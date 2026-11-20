@@ -1227,6 +1227,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     StaticEffect::KeepUnspentManaAsBlack
                     | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::MayBeginOnBattlefield
+                    | StaticEffect::SelfGraveyardRevealShuffle
                     | StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn
                     | StaticEffect::Bestow { .. }
                     | StaticEffect::ControllerNonlandsAllColors
