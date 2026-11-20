@@ -174,6 +174,28 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "characteristics":{"properties":{"kind":{"const":"land"}}},
         "activated":{"contains":{"properties":{"program":{"properties":{"instructions":{"contains":has_draw}}},"cost":source_costs}}}
     }});
+    let activated = json!({"minItems":1,"maxItems":1,"items":{"properties":{
+        "functioning_zone":{"const":"battlefield"},
+        "cost":{"required":["composite"],"properties":{"composite":{"properties":{"costs":{
+            "required":["mana"],"properties":{
+                "tap":{"const":true},"sacrifice":{"const":true},
+                "mana":{"type":"object","properties":{
+                    "generic":{"pattern":"^(0|[1-9][0-9]*)$"},
+                    "colored":{"items":{"enum":["W","U","B","R","G"]}}
+                }},
+                "remove_source_plus_one_counters":{"type":"null"}
+            }
+        }}}}},
+        "program":{"properties":{
+            "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+            "targets":{"maxItems":0},"modes":{"maxItems":0},
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "op":{"const":"draw_cards"},"recipient":{"type":"null"},
+                "count":{"const":"1"},"source_block":{"const":2}
+            }}}
+        }}
+    }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":selected,
         "then":{"required":["intrinsic_zone","static_abilities","mana_abilities"],"properties":{
@@ -189,28 +211,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "source_block":{"const":1},
                 "production":{"properties":{"mana":{"const":"choice"},"colors":{"minItems":2,"maxItems":2}}}
             }}},
-            "activated":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "functioning_zone":{"const":"battlefield"},
-                "cost":{"required":["composite"],"properties":{"composite":{"properties":{"costs":{
-                    "required":["mana"],"properties":{
-                        "tap":{"const":true},"sacrifice":{"const":true},
-                        "mana":{"type":"object","properties":{
-                            "generic":{"pattern":"^(0|[1-9][0-9]*)$"},
-                            "colored":{"items":{"enum":["W","U","B","R","G"]}}
-                        }},
-                        "remove_source_plus_one_counters":{"type":"null"}
-                    }
-                }}}}},
-                "program":{"properties":{
-                    "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-                    "targets":{"maxItems":0},"modes":{"maxItems":0},
-                    "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-                    "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                        "op":{"const":"draw_cards"},"recipient":{"type":"null"},
-                        "count":{"const":"1"},"source_block":{"const":2}
-                    }}}
-                }}
-            }}},
+            "activated":activated,
             "source_labels":{"required":["statics"],"properties":{
                 "blocks":{"minItems":3,"maxItems":3},"mana":{"const":[1]},"statics":{"const":[0]},
                 "triggered":{"maxItems":0},"activated":{"const":[2]},"spell_modes":{"maxItems":0}
