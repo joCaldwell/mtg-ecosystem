@@ -887,9 +887,16 @@ fn printed_color_protection_orders_derived_color_prevention() {
             .characteristics
             .colors = vec![Color::G];
         assert!(g.validate_damage_transaction(&forged).is_err());
-        check(g);
+        // The journal replays to the next decision. A snapshot must additionally
+        // preserve this private boundary between decisions.
+        let mut restored =
+            Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+        assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
 
         reach(g, TurnStep::EndCombat);
+        reach(&mut restored, TurnStep::EndCombat);
+        assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+        assert_eq!(restored.trace(), g.trace());
         assert_eq!(
             g.current(protected).unwrap().marked_damage,
             Quantity::zero()
