@@ -121,17 +121,31 @@ pub(super) fn bind(
         &controller,
         "109.5",
     );
+    let typed = binding["referencesBound"] == true;
+    if typed {
+        graph.node(
+            &format!("{root}/condition"),
+            "player-state",
+            "player-state-condition",
+            json!({"scope":graph.id(ENTRY,"ability"),"who":controller,
+                "query":"opponent-count","rules":["102.2","102.3","800.4"]}),
+        );
+    }
     listed_mana::bind_tap_mana(&mut graph, "/faces/0/abilities/1");
-    // Archive v1 binds each explicit actor and reports one unresolved
-    // quantifier scope. The exact predicate above supplies all its semantics
-    // for the finite free-for-all engine. Reject any other diagnostic or gap.
-    let expected = graph.with_scope_diagnostic(json!({
+    if typed {
+        graph.validate_ordered(binding, BAD).map_err(|_| bad())?;
+    } else {
+        // Archive v1 binds each explicit actor and reports one unresolved
+        // quantifier scope. The exact predicate above supplies all its semantics
+        // for the finite free-for-all engine. Reject any other diagnostic or gap.
+        let expected = graph.with_scope_diagnostic(json!({
         "code":"unsupported-scope","path":format!("{root}/condition"),
         "message":"Game and player designations, turn ownership and per-player comparisons need the participating player set and its quantifier bound.",
         "rules":["102.1","102.2","102.3","608.2h"]
     }));
-    if *binding != expected {
-        return Err(bad());
+        if *binding != expected {
+            return Err(bad());
+        }
     }
     Ok(Some(ManaAbility {
         costs: PermanentActivationCosts {

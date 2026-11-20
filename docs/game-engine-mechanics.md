@@ -357,6 +357,15 @@ probes hold the synthetic controls.
 
 ## Trigger families and event witnesses
 
+Single-face noncreature Sagas with chapters I–III can compose fixed token
+creation, +1/+1 counters on a controlled creature, and a combined fixed
+stat/trample grant on a controlled creature. The complete printed chapter,
+AST and ordered controller/target graph determine each program. Chapter
+targets are chosen at trigger placement and checked again at resolution.
+Lore entry and advancement follow CR 714.3a and 714.3c. The Saga is sacrificed
+after its final threshold once all pending or stacked chapters from that
+incarnation have left the stack (CR 714.4).
+
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
 controllers, actors, incarnations and witnesses. Power-filtered entries use

@@ -1518,6 +1518,7 @@ impl Game {
                         t.domain,
                         TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
+                            | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     )
@@ -2200,7 +2201,8 @@ impl Game {
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
-                    )
+                    ) && !(t.domain == TargetDomain::ControlledBattlefieldCreature
+                        && matches!(witness, TriggerEventWitness::LoreAdded { .. }))
                 }))
             || !entry.stack_targets.is_empty()
             || entry.total_cost

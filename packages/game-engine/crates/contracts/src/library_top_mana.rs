@@ -9,6 +9,7 @@ pub const ARCHIVED_BINDING: &str =
 pub const SOURCE: &str = "ef30e9c890e3c92f31f307688bef9808a94381b2f1fc10eccb62a3225e64932d";
 pub const AST: &str = "47fbe83b9eb8cf9ad82b9a1d2e20a1222d81840df0cbdc13f0cd230017554197";
 pub const BINDING: &str = "8c50edda9acb04773896234c7038ee1eadb4c78365a788d0700130e5b505851f";
+const TYPED_BINDING: &str = "5f1c3ead6ab2430907b209c6fd861f12dc954f42c86cb13cfda83415cce06100";
 pub const PARSER: &str = "f2c18417c3f3d0acb40880c0beede8d0a600a87beeec5c0ed52d070f2eb56d21";
 pub const ARCHIVE: &str = "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a";
 
@@ -252,6 +253,22 @@ pub fn frozen_definition() -> Result<Definition, String> {
     };
     if !authenticated_reparse(&provenance) {
         return Err("frozen reparse identity mismatch".into());
+    }
+    let d = definition(provenance)?;
+    d.validate()?;
+    Ok(d)
+}
+
+/// Build the already reviewed composition from its complete typed archive row.
+pub fn typed_archive_definition(provenance: SourceProvenance) -> Result<Definition, String> {
+    if provenance.source_index != 5753
+        || provenance.source_sha256 != SOURCE
+        || provenance.ast_sha256 != AST
+        || provenance.binding_sha256 != TYPED_BINDING
+    {
+        return Err(
+            "requires the complete reviewed typed library-top and mana replacement graph".into(),
+        );
     }
     let d = definition(provenance)?;
     d.validate()?;

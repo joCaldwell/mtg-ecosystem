@@ -15,6 +15,21 @@ const PARSER_SHA: &str = "2338d2861bbcd23301ee84e90cfa23cdcbacaf365d26cca4d12bb7
 const SOURCE_SHA: &str = "598aaa96290574803617fdc5dbae1ac8754085a0a37b7dd2d77b7e46a033ae89";
 const AST_SHA: &str = "9a612ea960f4fde1be15bcb8f4d8f002d87b1fa4455ecc50fe5731583f079853";
 const BINDING_SHA: &str = "cb81af11a8cdfa40429327e2413fbe861b9c15397d94fa0359571a61302e9c30";
+// The full archives carry the same reviewed source, AST, and ordered graph at
+// their original source index. The compiler also checks the exact archive row.
+const ORIGINS: [(u32, &str, &str); 3] = [
+    (0, MANIFEST_SHA, PARSER_SHA),
+    (
+        31211,
+        "991099ef8df0cb4ef7e50949aa601c0f6f928388047f72b2c0d7845bcf6e9e4f",
+        "785737e69f80d6c2b34ae7ae10175aa9190b3f33d02a13c620abf7730b13e48c",
+    ),
+    (
+        31211,
+        "75dae29e996cd652f37331fbfe9e5bcb5ec4fbb53e97e5b1ac804e3bab6dc335",
+        "8216191595b4382b42db81ded8e84698bcedaca66428b7425c58e6eb4fbc4de9",
+    ),
+];
 const EFFECT: StaticEffect = StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn;
 const CAPABILITY: Capability = Capability::EnterAsCopyOfPermanentEnteredThisTurnV1;
 const CAPABILITIES: [Capability; 9] = [
@@ -109,8 +124,13 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     if !d.static_abilities.iter().any(|a| a.effect == EFFECT)
         && !d.capabilities.contains(&CAPABILITY)
         && p.archive_manifest_sha256 != MANIFEST_SHA
+        && p.source_sha256 != SOURCE_SHA
         && !p.source_json.contains(COPY_TEXT)
         && !p.abilities_json.contains("\"entry-copy\"")
+        && !(p.source_json.contains(r"\u")
+            && strict_read::<Value>(&p.source_json)?["oracle_text"]
+                .as_str()
+                .is_some_and(|text| text.contains(COPY_TEXT)))
     {
         return Ok(());
     }
@@ -120,9 +140,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || source["oracle_id"] != d.oracle_id
         || source["id"] != p.printing_id
         || source["oracle_text"] != TEXT
-        || p.source_index != 0
-        || p.archive_manifest_sha256 != MANIFEST_SHA
-        || p.parser_sha256 != PARSER_SHA
+        || !ORIGINS.contains(&(p.source_index, &p.archive_manifest_sha256, &p.parser_sha256))
         || p.source_sha256 != SOURCE_SHA
         || p.ast_sha256 != AST_SHA
         || p.binding_sha256 != BINDING_SHA
@@ -154,13 +172,24 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "if":effect,
             "then":{"properties":{"functioning_zone":{"const":FunctioningZone::Battlefield}}}
         }));
+    let origins: Vec<_> = ORIGINS
+        .iter()
+        .map(|(index, manifest, parser)| {
+            json!({"properties":{
+                "source_index":{"const":index},
+                "archive_manifest_sha256":{"const":manifest},
+                "parser_sha256":{"const":parser}
+            }})
+        })
+        .collect();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[
             {"required":["static_abilities"],"properties":{"static_abilities":{"contains":effect}}},
             {"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":CAPABILITY}}}},
-            {"required":["provenance"],"properties":{"provenance":{"properties":{
-                "archive_manifest_sha256":{"const":MANIFEST_SHA}
-            }}}}
+            {"required":["provenance"],"properties":{"provenance":{"anyOf":[
+                {"properties":{"archive_manifest_sha256":{"const":MANIFEST_SHA}}},
+                {"properties":{"source_sha256":{"const":SOURCE_SHA}}}
+            ]}}}
         ]},
         "then":{"required":["spell","characteristics","capabilities","provenance","static_abilities","triggered","keywords"],
             "properties":{
@@ -172,9 +201,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
                 "activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
                 "source_labels":{"const":labels()},
-                "provenance":{"properties":{
-                    "source_index":{"const":0},"archive_manifest_sha256":{"const":MANIFEST_SHA},
-                    "parser_sha256":{"const":PARSER_SHA},"source_sha256":{"const":SOURCE_SHA},
+                "provenance":{"anyOf":origins,"properties":{
+                    "source_sha256":{"const":SOURCE_SHA},
                     "ast_sha256":{"const":AST_SHA},"binding_sha256":{"const":BINDING_SHA}
                 }},
                 "capabilities":{"uniqueItems":true,"minItems":CAPABILITIES.len(),
