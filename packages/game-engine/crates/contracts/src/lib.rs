@@ -8,6 +8,7 @@ mod opponent_mana;
 pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
+mod cast_entry;
 mod cast_origin;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -38,7 +39,9 @@ mod each_player_draw;
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
+mod targeted_game_loss;
 pub use targeted_counted_draw::targeted_counted_draw_program;
+pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
 mod controller_library;
 mod counter_spell_controller_mill;
 mod draw_discard;
@@ -55,7 +58,10 @@ mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 mod self_spell_protection;
-pub use controller_library::{controller_scry_program, controller_surveil_program};
+pub use controller_library::{
+    FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
+    matches_fixed_amount, printed_cast_scry,
+};
 pub use fixed_mill::fixed_mill_program;
 pub use library_order::controller_library_order_program;
 pub use library_selection::controller_library_selection_program;
@@ -266,6 +272,8 @@ pub enum Capability {
     GroupedCreatureDamageTriggerV1,
     EventPlayerRecipientV1,
     SourceStatusConditionV1,
+    CastEntryConditionV1,
+    UntapControllerLandsV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
@@ -394,6 +402,7 @@ pub enum Capability {
     TargetPlayerDiscardV1,
     RandomPlayerDiscardV1,
     GroupHandDiscardV1,
+    TargetedGameLossV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -937,6 +946,12 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
+    LoseGameTargetPlayer {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(range(min = 1, max = 1))]
+        source_block: u32,
+    },
     TargetPlayerSacrificeCreature {
         target_slot: u32,
         source_block: u32,
@@ -988,6 +1003,9 @@ pub enum Instruction {
         #[schemars(with = "LifeRecipient")]
         recipient: LifeRecipient,
         gain: bool,
+        source_block: u32,
+    },
+    UntapControllerLands {
         source_block: u32,
     },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
@@ -1137,7 +1155,8 @@ impl Instruction {
             | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
-            Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
+            Self::LoseGameTargetPlayer { source_block, .. }
+            | Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::DrawEachPlayer { source_block, .. }
             | Self::DrawAnnouncedX { source_block, .. }
@@ -1145,6 +1164,7 @@ impl Instruction {
             | Self::MillAnnouncedX { source_block, .. }
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
+            Self::UntapControllerLands { source_block } => *source_block,
             Self::OptionalDrawCards { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardPlayerSet { source_block, .. }
@@ -1849,6 +1869,7 @@ impl TriggerCondition {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCondition {
     ControllerHandEmpty,
+    SourceCastByController,
     SourceStatus { status: TapStatus },
     ControllerHasCreatureWithPower { minimum_power: Quantity },
 }
@@ -2405,6 +2426,9 @@ impl Definition {
                 TriggerCondition::SelfMoved { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
             };
             set.insert(trigger_capability);
+            if ability.intervening_if == Some(InterveningCondition::SourceCastByController) {
+                set.insert(Capability::CastEntryConditionV1);
+            }
             if ability.intervening_if.is_some() {
                 set.insert(Capability::InterveningIfV1);
             }
@@ -2488,6 +2512,7 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        cast_entry::validate_source(self)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
         conditional_lands::validate_definition(self)?;
@@ -2505,6 +2530,7 @@ impl Definition {
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
+        targeted_game_loss::validate_definition(self)?;
         counter_unless_generic::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
@@ -3035,6 +3061,11 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
+            if artifact_loss_activation(ability) {
+                // The complete artifact and source-bound operands were checked above.
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if activated_artifact_draw_ability(ability) {
                 activated_artifact_draw::validate_source(self)?;
                 validate_instruction_program(&ability.program)?;
@@ -3293,6 +3324,14 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if ability.intervening_if == Some(InterveningCondition::SourceCastByController)
+                && (ability.condition != TriggerCondition::SelfEntersBattlefield
+                    || c.kind != CardKind::Creature)
+            {
+                return Err(
+                    "cast-entry condition requires the entering creature's own trigger".into(),
+                );
+            }
             if ability.condition == TriggerCondition::SelfBecomesTapped {
                 // The complete source and trigger shape was checked above.
                 validate_instruction_program(p)?;
@@ -3403,6 +3442,7 @@ impl Definition {
                         && matches!(
                             ability.intervening_if,
                             Some(InterveningCondition::ControllerHasCreatureWithPower { .. })
+                                | Some(InterveningCondition::SourceCastByController)
                         )))
                 || (matches!(
                     ability.intervening_if,
@@ -3439,8 +3479,10 @@ impl Definition {
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
+                            | Instruction::UntapControllerLands { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::DrawDamageAmount { .. }
+                            | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }
@@ -4372,6 +4414,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::DrawEachPlayer { .. }
+            | Instruction::UntapControllerLands { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::DrawDamageAmount { .. } => None,
             Instruction::DamageSet {
@@ -4644,6 +4687,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     return Err("controller sacrifice is outside supported action semantics".into());
                 }
                 None
+            }
+            Instruction::LoseGameTargetPlayer { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::AnyPlayer))
             }
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
@@ -5146,6 +5192,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::DiscardPlayerSet { .. } => Capability::GroupHandDiscardV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
+            Instruction::LoseGameTargetPlayer { .. } => Capability::TargetedGameLossV1,
             Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
             Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
             Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
@@ -5196,6 +5243,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
+            Instruction::UntapControllerLands { .. } => Capability::UntapControllerLandsV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
@@ -6592,6 +6640,7 @@ pub fn catalog_schema() -> serde_json::Value {
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
+    targeted_game_loss::extend_schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
@@ -6605,6 +6654,7 @@ pub fn catalog_schema() -> serde_json::Value {
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
+    cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
             "spell":{"properties":{"predicate":{"const":"spell_color"}}}
@@ -6875,6 +6925,7 @@ mod tests {
             TargetPlayerDiscardV1,
             RandomPlayerDiscardV1,
             GroupHandDiscardV1,
+            TargetedGameLossV1,
             CastArtifactV1,
             PermanentManaV1,
             OpponentLandManaV1,
@@ -6897,6 +6948,8 @@ mod tests {
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
+            CastEntryConditionV1,
+            UntapControllerLandsV1,
             CastTriggerV1,
             CastOriginTriggerV1,
             CastColorPredicateV1,
@@ -7086,6 +7139,44 @@ mod tests {
             spell: TypePredicate::SpellColor { color: Color::U },
         };
         color_cast.capabilities = color_cast.requirements();
+        let mut cast_entry = color_cast.clone();
+        cast_entry.triggered[0].condition = TriggerCondition::SelfEntersBattlefield;
+        cast_entry.triggered[0].intervening_if = Some(InterveningCondition::SourceCastByController);
+        let synthetic: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-cast-entry.json"
+        ))
+        .unwrap();
+        cast_entry.provenance.printing_id = synthetic["source"]["id"].as_str().unwrap().into();
+        cast_entry.name = synthetic["source"]["name"].as_str().unwrap().into();
+        cast_entry.oracle_id = synthetic["oracleIdentity"].as_str().unwrap().into();
+        cast_entry.provenance.source_json = canonical(&synthetic["source"]).unwrap();
+        cast_entry.provenance.abilities_json =
+            canonical(&synthetic["faces"][0]["result"]["abilities"]).unwrap();
+        cast_entry.provenance.source_sha256 = sha256(cast_entry.provenance.source_json.as_bytes());
+        cast_entry.provenance.ast_sha256 =
+            sha256(format!("[{}]", cast_entry.provenance.abilities_json).as_bytes());
+        cast_entry.triggered[0].program.instructions =
+            vec![Instruction::OptionalDrawCards { source_block: 0 }];
+        cast_entry.capabilities = cast_entry.requirements();
+        let mut land_entry = cast_entry.clone();
+        let land: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-cast-land-untap.json"
+        ))
+        .unwrap();
+        land_entry.provenance.printing_id = land["source"]["id"].as_str().unwrap().into();
+        land_entry.name = land["source"]["name"].as_str().unwrap().into();
+        land_entry.oracle_id = land["oracleIdentity"].as_str().unwrap().into();
+        land_entry.provenance.source_json = canonical(&land["source"]).unwrap();
+        land_entry.provenance.abilities_json =
+            canonical(&land["faces"][0]["result"]["abilities"]).unwrap();
+        land_entry.provenance.source_sha256 = sha256(land_entry.provenance.source_json.as_bytes());
+        land_entry.provenance.ast_sha256 =
+            sha256(format!("[{}]", land_entry.provenance.abilities_json).as_bytes());
+        land_entry.triggered[0].program.instructions =
+            vec![Instruction::UntapControllerLands { source_block: 0 }];
+        land_entry.capabilities = land_entry.requirements();
+        definitions.push(land_entry);
+        definitions.push(cast_entry);
         definitions.push(color_cast);
         definitions.push(origin_draw);
         counted.static_abilities = vec![StaticAbility {
@@ -7211,6 +7302,7 @@ mod tests {
         definitions.push(targeted_discard::random_witness());
         definitions.push(group_discard::witness());
         definitions.push(opponent_life_drain::witness());
+        definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
