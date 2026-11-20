@@ -989,6 +989,7 @@ impl Game {
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
             i @ (Instruction::UntapControllerLands { .. }
+            | Instruction::ExileTargetGraveyard { .. }
             | Instruction::MoveSet { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
