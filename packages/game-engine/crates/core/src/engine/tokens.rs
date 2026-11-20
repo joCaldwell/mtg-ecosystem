@@ -345,6 +345,7 @@ impl Game {
                             attachment_timestamp: None,
                             keyword_timestamp: Some(self.state.rules.next_batch_id),
                             plus_one_counters: Quantity::zero(),
+                            lore_counters: Quantity::zero(),
                             marked_damage: Quantity::zero(),
                             deathtouch_damage: false,
                             attack_ready: false,
@@ -420,6 +421,12 @@ impl Game {
             }
         }
         for (id, o) in &self.state.rules.objects {
+            if o.lore_counters.is_negative()
+                || (o.lore_counters != Quantity::zero()
+                    && (o.zone != Zone::Battlefield || self.saga_final_chapter(*id)?.is_none()))
+            {
+                return Err("snapshot Saga lore invariant".into());
+            }
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
                     && (o.zone != Zone::Battlefield

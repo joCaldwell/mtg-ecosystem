@@ -370,6 +370,7 @@ impl SampleBuildWork {
                     attachment_timestamp: None,
                     keyword_timestamp: None,
                     plus_one_counters: Quantity::zero(),
+                    lore_counters: Quantity::zero(),
                     deathtouch_damage: false,
                     id: object,
                     zone: row.zone,

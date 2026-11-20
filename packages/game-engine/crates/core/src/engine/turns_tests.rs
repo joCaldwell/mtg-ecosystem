@@ -510,7 +510,7 @@ fn absent_active_turn_finishes_before_next_live_turn_and_queued_winner_precedes_
 fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
     let mut game = Game::new(prepared());
     let own = observe(&game, PlayerId(0));
-    assert_eq!(own.observation_version, 38);
+    assert_eq!(own.observation_version, 40);
     let token = own.decision.unwrap().token().clone();
     let hand = game
         .handle_for(PlayerId(0), game.object_id(CardId(1)).unwrap())

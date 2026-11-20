@@ -387,7 +387,9 @@ mod legend;
 mod scenarios;
 mod targeted_loss;
 pub use combat::*;
+mod saga;
 mod turns;
+pub use saga::LoreChange;
 pub use turns::*;
 mod events;
 mod trace;
@@ -893,6 +895,8 @@ struct Object {
     keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    lore_counters: Quantity,
     marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     deathtouch_damage: bool,
@@ -2030,6 +2034,8 @@ pub enum EventOutcome {
         current: u32,
     },
     TurnTransitioned {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lore: Vec<LoreChange>,
         previous: TurnState,
         current: TurnState,
         previous_owner: PlayerId,
@@ -2334,6 +2340,7 @@ impl Game {
                         attachment_timestamp: None,
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
+                        lore_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         attack_ready: c.zone == Zone::Battlefield,
@@ -3423,7 +3430,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 61,
+            snapshot_version: 62,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3465,7 +3472,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 61
+        if s.snapshot_version != 62
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

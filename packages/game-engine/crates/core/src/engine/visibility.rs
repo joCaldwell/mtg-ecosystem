@@ -100,6 +100,8 @@ pub struct VisibleObject {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub lore_counters: Quantity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
@@ -1099,6 +1101,7 @@ impl Game {
                 .first()
                 .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
             plus_one_counters: object.plus_one_counters.clone(),
+            lore_counters: object.lore_counters.clone(),
             characteristics: { Some(self.characteristics(object.id)?) },
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,

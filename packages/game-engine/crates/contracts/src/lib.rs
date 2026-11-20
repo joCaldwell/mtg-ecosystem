@@ -13,6 +13,8 @@ pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_entry;
+mod saga;
+pub use saga::{LifeChapter, life_chapters};
 mod fixed_creature_activation;
 pub use fixed_creature_activation::{
     FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
@@ -329,6 +331,7 @@ pub enum Capability {
     DamageBudgetPreventionV1,
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
+    SagaChaptersV1,
     NormalLayoutV1,
     BasicLandManaV1,
     LandPlayV1,
@@ -1717,6 +1720,9 @@ pub enum CascadeThreshold {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
     /// CR 702.85a: functions on the casting spell itself, on the stack.
+    SagaChapter {
+        number: std::num::NonZeroU32,
+    },
     SelfSpellCast,
     /// One occurrence per damaged player and simultaneous combat-damage event.
     GroupedDamageDealt {
@@ -1960,6 +1966,7 @@ impl TriggerCondition {
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
+            Self::SagaChapter { .. } => "saga_chapter",
             Self::SelfSpellCast => "self_spell_cast",
             Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
@@ -2330,7 +2337,17 @@ pub fn is_canonical_cascade_program(program: &SpellProgram) -> bool {
 }
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
-        let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
+        let mut set = BTreeSet::from([
+            if self
+                .triggered
+                .iter()
+                .any(|t| matches!(t.condition, TriggerCondition::SagaChapter { .. }))
+            {
+                Capability::SagaChaptersV1
+            } else {
+                Capability::NormalLayoutV1
+            },
+        ]);
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
         }
@@ -2506,6 +2523,7 @@ impl Definition {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
+                TriggerCondition::SagaChapter { .. } => Capability::SagaChaptersV1,
                 TriggerCondition::SelfSpellCast => Capability::CascadeV1,
                 TriggerCondition::SpellCast {
                     spell: TypePredicate::SpellColor { .. },
@@ -2630,6 +2648,7 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
@@ -6912,6 +6931,7 @@ pub fn catalog_schema() -> serde_json::Value {
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
+    saga::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     let grant = serde_json::json!({"required":["effect"],"properties":{"effect":{"const":StaticEffect::GrantControllerLandsAllBasicTypes}}});
@@ -7068,6 +7088,7 @@ mod tests {
             CastHistoryV1,
             CastManaValueSweepV1,
             RandomBottomV1,
+            SagaChaptersV1,
             NormalLayoutV1,
             BasicLandManaV1,
             LandPlayV1,
@@ -7616,6 +7637,7 @@ mod tests {
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
+        definitions.push(saga::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());

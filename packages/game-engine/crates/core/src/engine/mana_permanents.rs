@@ -1056,6 +1056,7 @@ impl Game {
                         marked_damage: r.source.marked_damage.clone(),
                         deathtouch_damage: r.source.deathtouch_damage,
                         plus_one_counters: r.counters.clone(),
+                        lore_counters: 0.into(),
                     },
                 );
                 // CR 733.1/800.4c: restore only the recorded object, then

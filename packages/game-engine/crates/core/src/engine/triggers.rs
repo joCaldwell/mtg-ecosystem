@@ -88,6 +88,9 @@ pub struct GroupedDamageMember {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerEventWitness {
+    LoreAdded {
+        change: LoreChange,
+    },
     /// Immutable damage-time facts, independent of departure-refreshed source
     /// LKI. None identifies the genuine legacy CombatDamage leaf; Some names
     /// the original frozen transaction, never the current combat state.
@@ -138,6 +141,7 @@ pub enum TriggerEventWitness {
 impl TriggerEventWitness {
     pub fn subject(&self) -> Option<ObjectId> {
         match self {
+            Self::LoreAdded { change } => Some(change.object),
             Self::Moved { movement: m } => Some(if m.destination == Zone::Battlefield {
                 m.successor
             } else {
@@ -407,7 +411,7 @@ impl Game {
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
         for occurrence in occurrences {
-            let witnesses = match &occurrence.actual {
+            let mut witnesses = match &occurrence.actual {
                 // CR 120.4b/120.8, 510.2, 603.2c/g, 615.6: match actual
                 // positive members against their frozen pre-commit transaction.
                 // Aggregate life results are not damage occurrences. The combat
@@ -561,6 +565,28 @@ impl Game {
                     })
                     .unwrap_or_default(),
             };
+            let mut lore = vec![];
+            if let EventOutcome::TurnTransitioned { lore: changes, .. } = &occurrence.actual {
+                lore.extend(changes.iter().cloned());
+            }
+            for witness in &witnesses {
+                if let TriggerEventWitness::Moved { movement } = witness
+                    && movement.destination == Zone::Battlefield
+                    && self.saga_final_chapter(movement.successor.card)?.is_some()
+                    && let Ok(entered) = self.current(movement.successor)
+                {
+                    lore.push(LoreChange {
+                        object: movement.successor,
+                        controller: entered.controller,
+                        before: Quantity::zero(),
+                        after: Quantity::from(1),
+                    });
+                }
+            }
+            witnesses.extend(
+                lore.into_iter()
+                    .map(|change| TriggerEventWitness::LoreAdded { change }),
+            );
             // CR 510.2/603.2c/700.1: "one or more ... to a player" groups
             // qualifying members of this actual occurrence by damaged player.
             // Ordered leaves, separate damage steps and separate transactions
@@ -607,7 +633,8 @@ impl Game {
                     || witness.enters()
                     || matches!(
                         witness,
-                        TriggerEventWitness::StepBegan { .. }
+                        TriggerEventWitness::LoreAdded { .. }
+                            | TriggerEventWitness::StepBegan { .. }
                             | TriggerEventWitness::CreatureAttacked { .. }
                             | TriggerEventWitness::DamageDealt { .. }
                             | TriggerEventWitness::Tapped { .. }
@@ -750,6 +777,7 @@ impl Game {
                 let mut grouped_members = None;
                 let mut power_entry = None;
                 let matches = match &definition.condition {
+                    TriggerCondition::SagaChapter {number} => matches!(&witness, TriggerEventWitness::LoreAdded{change} if change.object==object.id && change.controller==object.controller && change.crosses(*number)),
                     TriggerCondition::ControlledCreatureEntersWithPower {
                         minimum_power,
                         other,
@@ -1507,6 +1535,7 @@ impl Game {
             || (matches!(
                 definition.condition,
                 TriggerCondition::SelfEntersBattlefield
+                    | TriggerCondition::SagaChapter { .. }
                     | TriggerCondition::SpellCastWithOrigin { .. }
             ) && fact.controller != controller)
             || handles.len() != 4
@@ -1529,6 +1558,9 @@ impl Game {
         let definition = self.effective_trigger(source, ability)?;
         let condition = &definition.condition;
         let valid = match witness {
+            TriggerEventWitness::LoreAdded { change } => {
+                matches!(condition, TriggerCondition::SagaChapter {number} if change.object==source && change.controller==controller && change.crosses(*number) && {let mut after=change.before.clone();after.add(&Quantity::from(1));after==change.after})
+            }
             TriggerEventWitness::GroupedDamageDealt {
                 kind,
                 transaction,

@@ -470,3 +470,85 @@ fn damage_controller_discard_choice_binding_and_host_search_admission_remain_str
         .is_err()
     );
 }
+
+#[test]
+fn paid_saga_tracks_each_chapter_and_waits_for_the_final_stack_exit() {
+    let mut p = prepared(false, false);
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/synthetic-saga-life.json"),
+    ) else {
+        panic!("original complete life Saga must lower")
+    };
+    let unsupported = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"),
+    );
+    assert!(matches!(
+        unsupported,
+        mtg_compiler::CompileResult::Unsupported { .. }
+    ));
+    let player = PlayerId(0);
+    p.config.cards[0].oracle_id = SWAMP.into();
+    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    let card = CardId(1);
+    answer(&mut g, Response::Cast { card });
+    let land = g.object_id(CardId(0)).unwrap();
+    assert!(matches!(settle(&mut g), Request::Mana { .. }));
+    answer(&mut g, Response::ActivateMana { object: land });
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    if matches!(settle(&mut g), Request::SpendMana { .. }) {
+        answer(
+            &mut g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::B, Quantity::from(1))]),
+            },
+        );
+    }
+    assert!(matches!(settle(&mut g), Request::Priority { .. }));
+    assert_eq!(g.top().unwrap().paid.as_ref().unwrap().generic, 1.into());
+    let mut chapter = 0u32;
+    let mut seen = BTreeSet::new();
+    for _ in 0..2000 {
+        let _ = settle(&mut g);
+        if let Some(entry) = g.state.rules.stack.last()
+            && let StackKind::Triggered {
+                trigger_id,
+                ability: EffectiveTriggerAbility::Intrinsic { index },
+                witness: TriggerEventWitness::LoreAdded { change },
+                ..
+            } = &entry.kind
+            && seen.insert(*trigger_id)
+        {
+            chapter += 1;
+            assert_eq!(*index, chapter - 1);
+            assert_eq!(entry.source, change.object);
+            assert_eq!(change.before, Quantity::from(i64::from(chapter - 1)));
+            assert_eq!(change.after, Quantity::from(i64::from(chapter)));
+            let object = g.current(entry.source).unwrap();
+            assert_eq!(object.zone, Zone::Battlefield);
+            assert_eq!(object.lore_counters, change.after);
+            assert_eq!(change.controller, player);
+            recover(&g);
+        }
+        let object = g.current(g.object_id(card).unwrap()).unwrap();
+        if matches!(object.zone, Zone::Graveyard { .. }) {
+            assert_eq!(chapter, 3);
+            assert_eq!(object.lore_counters, Quantity::zero());
+            assert_eq!(g.state.rules.players[0].life, 50.into());
+            recover(&g);
+            return;
+        }
+        passive(&mut g);
+    }
+    panic!("final chapter did not release its Saga");
+}

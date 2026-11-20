@@ -68,6 +68,7 @@ mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
 mod power_filtered_removal;
+mod saga;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
@@ -187,6 +188,10 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    Chapter {
+        chapters: Vec<u32>,
+        effects: Vec<Sentence>,
+    },
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
@@ -1407,7 +1412,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if source.defense.is_some() {
         return Err(unsupported("source.type_line.card_type", "Battle"));
     }
-    if source.layout != "normal"
+    if !(source.layout == "normal"
+        || (source.layout == "saga" && source.type_line == "Enchantment — Saga"))
         || source.card_faces.is_some()
         || source.loyalty.is_some()
         || source.defense.is_some()
@@ -1671,6 +1677,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     {
         return Err(unsupported("mana_cost", "unsupported X cost"));
     }
+    let saga = saga::bind(&shape, &r.oracle_identity, &binding, &result, &abilities)?;
     let mut labels = SourceLabels {
         text: source.oracle_text.clone(),
         blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
@@ -1766,7 +1773,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            let remaining_abilities = if let Some(stats) = color_stats {
+            let remaining_abilities = if let Some(chapters) = &saga {
+                for chapter in chapters {
+                    for ability in chapter.abilities() {
+                        labels.triggered.push(chapter.source_block);
+                        definition.triggered.push(ability);
+                    }
+                }
+                &abilities[abilities.len()..]
+            } else if let Some(stats) = color_stats {
                 // The complete family consumed the static and activated blocks.
                 labels.statics.push(1);
                 definition.static_abilities.push(stats);

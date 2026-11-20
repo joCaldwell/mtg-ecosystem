@@ -1938,6 +1938,13 @@ impl Game {
             && (force_tapped
                 || optional_declined
                 || self.entry_tapped(*object, controller, before)?);
+        let entry_lore = if *destination == Zone::Battlefield
+            && self.saga_final_chapter(object.card)?.is_some()
+        {
+            Quantity::from(1)
+        } else {
+            Quantity::zero()
+        };
         self.state.rules.objects.insert(
             object.card,
             Object {
@@ -1946,6 +1953,7 @@ impl Game {
                 keyword_timestamp: (*destination == Zone::Battlefield)
                     .then_some(self.state.rules.next_batch_id),
                 plus_one_counters: Quantity::zero(),
+                lore_counters: entry_lore,
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
@@ -2701,7 +2709,13 @@ impl Game {
                         }
                     }
                 }
+                let lore = if next.step == TurnStep::PrecombatMain {
+                    self.advance_saga_lore(*owner)?
+                } else {
+                    vec![]
+                };
                 EventOutcome::TurnTransitioned {
+                    lore,
                     previous,
                     current: next.clone(),
                     previous_owner,

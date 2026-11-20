@@ -173,6 +173,7 @@ mod tests {
                 restrictions: vec![],
                 token: None,
                 plus_one_counters: Quantity::zero(),
+                lore_counters: 0.into(),
                 characteristics: Some(d.characteristics.clone()),
                 marked_damage: Quantity::zero(),
                 attack_ready: true,
