@@ -101,6 +101,10 @@ pub enum ResolvedEffectKind {
     AdditionalLandPlays {
         count: Quantity,
     },
+    GrantHandCastCascade {
+        triggered_ability_index: u32,
+        source_facts: Box<ObjectBefore>,
+    },
     PreventNextDamage {
         target: TargetEntity,
         remaining: Quantity,
@@ -528,6 +532,27 @@ impl Game {
                     ResolvedEffectKind::PreventNextDamage {
                         target,
                         remaining: amount,
+                    },
+                    source_block,
+                )
+            }
+            Instruction::GrantHandCastCascade { source_block } => {
+                let StackKind::Triggered {
+                    ability: EffectiveTriggerAbility::Intrinsic { index },
+                    ..
+                } = frame.spell.kind
+                else {
+                    return Err("hand cast cascade requires an intrinsic trigger".into());
+                };
+                let source_facts = frame
+                    .spell
+                    .source_facts
+                    .clone()
+                    .ok_or("missing hand cast cascade source facts")?;
+                (
+                    ResolvedEffectKind::GrantHandCastCascade {
+                        triggered_ability_index: index,
+                        source_facts: Box::new(source_facts),
                     },
                     source_block,
                 )
@@ -1373,6 +1398,21 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::GrantHandCastCascade { source_block },
+                        ResolvedEffectKind::GrantHandCastCascade {
+                            triggered_ability_index,
+                            source_facts,
+                        },
+                    ) => {
+                        matches!(frame.spell.kind, StackKind::Triggered {
+                            ability: EffectiveTriggerAbility::Intrinsic { index },
+                            ..
+                        } if index == *triggered_ability_index)
+                            && frame.spell.source_facts.as_ref() == Some(source_facts.as_ref())
+                            && *source_block == effect.origin.source_block
+                            && self.is_live(effect.origin.controller)
+                    }
+                    (
                         Instruction::PreventNextDamage {
                             target_slot,
                             amount,
@@ -1661,6 +1701,27 @@ impl Game {
             }
             if e.origin.stack_id.0 >= self.state.rules.next_stack_id {
                 return Err("effect origin stack identity invariant".into());
+            }
+            if let ResolvedEffectKind::GrantHandCastCascade {
+                triggered_ability_index,
+                source_facts,
+            } = &e.kind
+            {
+                self.temporary_grant_program(e.origin.source, *triggered_ability_index)?;
+                self.validate_grant_source_facts(
+                    e.origin.source,
+                    source_facts,
+                    &e.origin.source_handles,
+                )?;
+                if e.origin.source_block != spell_cascade_grants::HAND_CAST_CASCADE_BLOCK
+                    || e.origin.cursor != 0
+                    || e.origin.activated_ability.is_some()
+                    || e.origin.mode.is_some()
+                    || !e.target_handles.is_empty()
+                {
+                    return Err("invalid hand cast cascade effect attachment".into());
+                }
+                continue;
             }
             let programs = self.origin_programs(&e.origin)?;
             let instructions = programs.iter().filter_map(|p| {
@@ -2029,6 +2090,11 @@ pub enum VisibleEffect {
         count: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
+    GrantHandCastCascade {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        expires_in_cleanup_of_turn: u64,
+    },
     PreventNextDamage {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2279,6 +2345,13 @@ impl Game {
                     handle,
                     origin,
                     count: count.clone(),
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
+            ResolvedEffectKind::GrantHandCastCascade { .. } => {
+                VisibleEffect::GrantHandCastCascade {
+                    handle,
+                    origin,
                     expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
                 }
             }

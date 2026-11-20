@@ -56,6 +56,11 @@ impl Game {
                 grant_source,
                 static_ability_index,
             } => (grant_source, static_ability_index, true),
+            EffectiveTriggerAbility::TemporaryGrant {
+                grant_source,
+                triggered_ability_index,
+                ..
+            } => (grant_source, triggered_ability_index, false),
         };
         let labels = self.definition(source.card).ok()?.source_labels.as_ref()?;
         let blocks = if is_static {
@@ -131,21 +136,22 @@ impl Game {
                 ..
             } => (DecisionSourceKind::Triggered, Some(index)),
             StackKind::Triggered {
-                ability:
-                    EffectiveTriggerAbility::Granted {
-                        grant_source,
-                        static_ability_index,
-                    },
-                ref grant,
-                ..
+                ability, ref grant, ..
             } => {
                 // The grantor describes this ability; the cast spell remains its
                 // rules source. Preserve the viewer's captured public handle after departure.
-                let labels = self
-                    .definition(grant_source.card)
-                    .ok()?
-                    .source_labels
-                    .as_ref()?;
+                let (grant_source, index) = match ability {
+                    EffectiveTriggerAbility::Granted {
+                        grant_source,
+                        static_ability_index,
+                    } => (grant_source, static_ability_index),
+                    EffectiveTriggerAbility::TemporaryGrant {
+                        grant_source,
+                        triggered_ability_index,
+                        ..
+                    } => (grant_source, triggered_ability_index),
+                    EffectiveTriggerAbility::Intrinsic { .. } => unreachable!(),
+                };
                 return Some(DecisionSource {
                     kind: DecisionSourceKind::Triggered,
                     oracle_id: self.definition(grant_source.card).ok()?.oracle_id.clone(),
@@ -154,11 +160,8 @@ impl Game {
                         .source_handles
                         .get(viewer.0 as usize)
                         .cloned(),
-                    ability: Some(static_ability_index),
-                    text: labels
-                        .blocks
-                        .get(*labels.statics.get(static_ability_index as usize)? as usize)?
-                        .clone(),
+                    ability: Some(index),
+                    text: self.trigger_source_label(entry.source, ability)?.into(),
                 });
             }
         };
