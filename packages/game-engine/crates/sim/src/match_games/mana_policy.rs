@@ -29,6 +29,7 @@ struct Planner<'a> {
     used: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
+    filter_retries: usize,
 }
 impl Planner<'_> {
     fn fund(&mut self, cost: &ManaCost) -> bool {
@@ -66,15 +67,9 @@ impl Planner<'_> {
                 });
             let Some(i) = chosen else { return false };
             self.used[self.sources[i].object_index] = true;
-            if let Some(cost) = self.sources[i].cost.clone() {
-                if !self.fund(&cost) {
-                    return false;
-                }
-                let payment = spend(&cost, &self.pool).expect("funded inner cost");
-                for (c, n) in payment {
-                    self.pool.get_mut(&c).unwrap().subtract(&n);
-                }
-            }
+            let Some(i) = self.fund_source_cost(i) else {
+                return false;
+            };
             let source = &self.sources[i];
             let color = match source.production {
                 ManaProduction::Fixed { .. } => None,
@@ -131,6 +126,44 @@ impl Planner<'_> {
             });
         }
         false
+    }
+
+    fn fund_source_cost(&mut self, index: usize) -> Option<usize> {
+        let Some(cost) = self.sources[index].cost.clone() else {
+            return Some(index);
+        };
+        let mut funded = index;
+        let mut cost = cost;
+        if spend(&cost, &self.pool).is_none() {
+            let alternate = self.sources[index].filter_input.and_then(|input| {
+                let source = &self.sources[index];
+                self.sources.iter().position(|other| {
+                    other.object_index == source.object_index
+                        && other.ability == source.ability
+                        && other.filter_input.is_some_and(|color| color != input)
+                })
+            });
+            let checkpoint =
+                alternate.map(|_| (self.used.clone(), self.pool.clone(), self.plan.len()));
+            if !self.fund(&cost) {
+                // Charge retries across the entire search, including any
+                // recursively attempted branch that is rolled back.
+                let (used, pool, length) = checkpoint?;
+                self.filter_retries = self.filter_retries.checked_sub(1)?;
+                self.used = used;
+                self.pool = pool;
+                self.plan.truncate(length);
+                funded = alternate?;
+                cost = self.sources[funded].cost.clone()?;
+                if !self.fund(&cost) {
+                    return None;
+                }
+            }
+        }
+        for (color, quantity) in spend(&cost, &self.pool)? {
+            self.pool.get_mut(&color)?.subtract(&quantity);
+        }
+        Some(funded)
     }
 }
 fn commander_colors<'a>(catalog: &'a Catalog, view: &PermittedView) -> &'a [Color] {
@@ -345,6 +378,7 @@ pub(super) fn plan(
         }
     }
     let mut planner = Planner {
+        filter_retries: sources.len(),
         sources,
         used: vec![false; view.objects.len()],
         pool: pool.clone(),
@@ -415,6 +449,7 @@ mod tests {
             used: vec![false],
             pool: BTreeMap::new(),
             plan: vec![],
+            filter_retries: 1,
         };
         let cost = ManaCost {
             generic: 0.into(),
@@ -525,6 +560,63 @@ mod tests {
                 object: ObjectHandle("Commander's Sphere".into()),
                 ability: 0
             }
+        );
+    }
+
+    #[test]
+    fn hybrid_filter_mana_retries_the_unfundable_input_before_using_the_output() {
+        let filter = ObjectHandle("filter".into());
+        let land = ObjectHandle("colored-provider".into());
+        let source = |color| Source {
+            object_index: 0,
+            ability: ManaAbilityIdentity::Printed { index: 1 },
+            handle: &filter,
+            land: true,
+            amount: 2.into(),
+            production: ManaProduction::HybridFilter {
+                colors: [Color::U, Color::R],
+            },
+            colors: vec![Color::U, Color::R],
+            cost: Some(ManaCost {
+                generic: 0.into(),
+                colored: vec![color],
+            }),
+            filter_input: Some(color),
+        };
+        let mut planner = Planner {
+            sources: vec![
+                source(Color::U),
+                source(Color::R),
+                Source {
+                    object_index: 1,
+                    ability: ManaAbilityIdentity::Printed { index: 0 },
+                    handle: &land,
+                    land: true,
+                    amount: 1.into(),
+                    production: ManaProduction::Choice {
+                        colors: vec![Color::U, Color::W, Color::G],
+                    },
+                    colors: vec![Color::U, Color::W, Color::G],
+                    cost: None,
+                    filter_input: None,
+                },
+            ],
+            used: vec![false; 2],
+            pool: BTreeMap::new(),
+            plan: vec![],
+            filter_retries: 3,
+        };
+        assert!(planner.fund(&ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::U, Color::U]
+        }));
+        assert_eq!(planner.plan.len(), 2);
+        assert_eq!(planner.plan[0].source, land);
+        assert_eq!(planner.plan[1].source, filter);
+        assert_eq!(planner.plan[1].color, Some(Color::U));
+        assert_eq!(
+            planner.plan[1].combination,
+            Some([0_i64, 2, 0, 0, 0].map(Quantity::from))
         );
     }
 }
