@@ -1234,10 +1234,13 @@ fn land_entry_life_gain_and_fixed_creature_damage_use_existing_resolution() {
             ("Grizzly Bears", 1, 1, false),
             ("Mountain", 0, 0, false),
             ("Mountain", 0, 0, false),
+            ("Hieroglyphic Illumination", 0, 0, true),
+            ("Island", 0, 0, false),
         ],
         &[
             include_str!("../../../../tests/fixtures/5d641bf6-0f93-4189-8dc1-ec7ea446dade.json"),
             include_str!("../../../../tests/fixtures/breath-of-fire.json"),
+            include_str!("../../../../tests/fixtures/hieroglyphic-illumination.json"),
         ],
     );
     let mut g = Game::with_trace(p, TraceMode::Detailed);
@@ -1258,6 +1261,35 @@ fn land_entry_life_gain_and_fixed_creature_damage_use_existing_resolution() {
     assert_eq!(
         g.zone(object(&g, 1)),
         Some(Zone::Graveyard { owner: controller })
+    );
+    let player_library = g.state.rules.libraries[&controller].len();
+    let cycled = object(&g, 5);
+    answer(
+        &mut g,
+        q,
+        Response::ActivateAbility {
+            object: cycled,
+            ability: 0,
+        },
+    );
+    let land = object(&g, 6);
+    answer(&mut g, q, Response::ActivateMana { object: land });
+    answer(&mut g, q, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        q,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::U, 1.into())]),
+        },
+    );
+    resolve(&mut g, q, |_| {});
+    assert_eq!(
+        g.zone(object(&g, 5)),
+        Some(Zone::Graveyard { owner: controller })
+    );
+    assert_eq!(
+        g.state.rules.libraries[&controller].len(),
+        player_library - 1
     );
     recover(&g);
 }

@@ -262,5 +262,5 @@ fn bind_spell(
         &you,
         "109.5",
     );
-    graph.validate_block(binding, root)
+    graph.validate_block(binding, root, "incomplete spell cycling binding graph")
 }
