@@ -24,13 +24,13 @@ Follow [development](game-engine-development.md); names identify witnesses, neve
 ## Qualified checkpoints and limits
 
 [Evidence](game-engine-evidence.md) owns qualified M0–M4 producers, limits and receipts.
-Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
+[Historical plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
 
 ## Ordered remaining milestones
 
 ### M2 Complete land and ramp infrastructure
 
-`b9a27f44` compiles **71/85 original rows**, plus five source-identical reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`038172b7` validates **79/85** (73 original, six source-identical reparses). [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history

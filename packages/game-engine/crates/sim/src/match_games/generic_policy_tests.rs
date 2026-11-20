@@ -21,6 +21,7 @@ mod reactive_tests {
                 restrictions: vec![],
                 token: None,
                 plus_one_counters: 0.into(),
+                lore_counters: 0.into(),
                 characteristics: Some(d.characteristics.clone()),
                 marked_damage: 0.into(),
                 attack_ready: true,
@@ -80,6 +81,7 @@ mod reactive_tests {
             ("Goliath Sphinx", 2),
         ] {
             v.stack.push(mtg_core::VisibleStackEntry {
+                bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x: None,
@@ -233,6 +235,7 @@ mod wipe_tests {
             restrictions: vec![],
             token: None,
             plus_one_counters: 0.into(),
+            lore_counters: 0.into(),
             characteristics: Some(d.characteristics.clone()),
             marked_damage: 0.into(),
             attack_ready: true,
@@ -254,6 +257,7 @@ mod wipe_tests {
         ] {
             v.objects.push(card(&c, name, 1, Zone::Stack));
             v.stack.push(mtg_core::VisibleStackEntry {
+                bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x,
@@ -497,6 +501,7 @@ fn observation(view: PermittedView) -> Observation {
 fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = wipe_tests::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
+        bestowed: false,
         hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,
@@ -2320,6 +2325,7 @@ mod activated_permanent_tap_policy_tests {
         );
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
+            bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
@@ -2498,6 +2504,7 @@ mod activated_headless_policy_tests {
     }
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
+            bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
@@ -2864,6 +2871,7 @@ mod temporal_adept_policy_tests {
             );
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
+                bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x: None,

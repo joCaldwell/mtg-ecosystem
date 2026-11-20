@@ -64,6 +64,8 @@ state_layout! {
         match_state: Option<MatchState>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         effects: Vec<ResolvedEffect>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        delayed_chapters: Vec<DelayedChapterRegistration>,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]
         next_effect_id: u64,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]

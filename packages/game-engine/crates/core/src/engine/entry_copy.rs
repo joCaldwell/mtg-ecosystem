@@ -136,7 +136,10 @@ impl Game {
         if !aura.characteristics.subtypes.iter().any(|s| s == "Aura") {
             return Ok(None);
         }
-        let colors = self.battlefield_color_layer(&aura.characteristics, controller)?;
+        let colors = self.battlefield_color_layer(
+            std::borrow::Cow::Borrowed(&aura.characteristics),
+            controller,
+        )?;
         let mut targets = Vec::new();
         for o in self
             .state

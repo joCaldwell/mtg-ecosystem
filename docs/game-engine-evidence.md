@@ -241,4 +241,5 @@ Search/mana `1bb122a7`:70 exact, `generated/ramos/colored-search-granted-mana-ma
 Controller window/hand cast `02b35e35`:73 exact, 65/42/38.
 Receipts: `generated/ramos/{combat-cast-protection-main121,reparsed-audit}/`.
 Leyline `b9a27f44`:76 exact, 68/45/41, `generated/ramos/opening-hybrid-main125/`.
-Schema-only `27ce86d6`: `generated/ramos/opening-hybrid-schema-fix/`. Deck admission remains open.
+Leyline schema `27ce86d6`. Saga/Bestow `038172b7`:79 exact,70/47/43.
+Receipts: `generated/ramos/{saga-bestow-main128-03,saga-bestow-schema-main129}/`. Deck admission open.

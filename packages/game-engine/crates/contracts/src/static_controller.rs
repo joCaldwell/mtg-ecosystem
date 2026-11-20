@@ -53,6 +53,18 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
         ("enchanted", "enchantment", "Aura"),
         ("equipped", "artifact", "Equipment"),
     ] {
+        let attachment = serde_json::json!({"properties":{"characteristics":{"properties":{
+            "kind":{"const":kind},"subtypes":{"contains":{"const":subtype}}
+        }}}});
+        let attachment = if scope == "enchanted" {
+            serde_json::json!({"anyOf":[attachment,{"required":["static_abilities"],"properties":{
+                "static_abilities":{"contains":{"required":["effect"],"properties":{
+                    "effect":{"type":"object","required":["bestow"]}
+                }}}
+            }}]})
+        } else {
+            attachment
+        };
         schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap()
             .push(serde_json::json!({"if":{"required":["static_abilities"],"properties":{
                 "static_abilities":{"contains":{"required":["effect"],"properties":{
@@ -60,9 +72,7 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
                         "modify_creatures":{"required":["scope"],"properties":{"scope":{"const":scope}}}
                     }}
                 }}}
-            }},"then":{"properties":{"characteristics":{"properties":{
-                "kind":{"const":kind},"subtypes":{"contains":{"const":subtype}}
-            }}}}}));
+            }},"then":attachment}));
     }
     schema["$defs"]["StaticEffect"]["allOf"]
         .as_array_mut()

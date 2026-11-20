@@ -19,6 +19,7 @@ pub enum ActionInitiation {
     Pass,
     PlayLand { object: ObjectHandle },
     Cast { card: ObjectHandle },
+    Bestow { card: ObjectHandle },
     ActivateMana { object: ObjectHandle },
     ActivateAbility { object: ObjectHandle, ability: u32 },
     FinishMana { undo_mana: bool },
@@ -30,6 +31,7 @@ impl ActionInitiation {
             Self::PlayLand { object } => PlayerResponse::PlayLand {
                 object: object.clone(),
             },
+            Self::Bestow { card } => PlayerResponse::Bestow { card: card.clone() },
             Self::Cast { card } => PlayerResponse::Cast { card: card.clone() },
             Self::ActivateMana { object } => PlayerResponse::ActivateMana {
                 object: object.clone(),
@@ -168,6 +170,7 @@ struct ObjectCandidates {
     handle: ObjectHandle,
     index: usize,
     activated: usize,
+    bestow: bool,
 }
 
 impl Game {
@@ -359,6 +362,10 @@ impl Game {
             work.object = Some(ObjectCandidates {
                 handle,
                 index: 0,
+                bestow: priority
+                    && self
+                        .definition(id.card)
+                        .is_ok_and(|d| mtg_contracts::bestow_alternative(d).is_some()),
                 activated,
             });
         }
@@ -369,6 +376,9 @@ impl Game {
                 0 => ActionInitiation::PlayLand { object: handle },
                 1 => ActionInitiation::Cast { card: handle },
                 2 => ActionInitiation::ActivateMana { object: handle },
+                index if object.bestow && index == 3 + object.activated => {
+                    ActionInitiation::Bestow { card: handle }
+                }
                 index => ActionInitiation::ActivateAbility {
                     object: handle,
                     ability: u32::try_from(index - 3).map_err(|_| ActionUnavailable::Invariant)?,
@@ -378,7 +388,13 @@ impl Game {
             ActionInitiation::ActivateMana { object: handle }
         };
         object.index += 1;
-        if object.index == if priority { 3 + object.activated } else { 1 } {
+        if object.index
+            == if priority {
+                3 + object.activated + usize::from(object.bestow)
+            } else {
+                1
+            }
+        {
             work.object = None;
         }
         Ok(Some(initiation))
@@ -425,8 +441,12 @@ impl Game {
                 None,
             ),
             ActionInitiation::PlayLand { .. } => ("Play land", None),
-            ActionInitiation::Cast { card } => (
-                "Cast spell",
+            ActionInitiation::Cast { card } | ActionInitiation::Bestow { card } => (
+                if matches!(action, ActionInitiation::Bestow { .. }) {
+                    "Cast for bestow cost"
+                } else {
+                    "Cast spell"
+                },
                 self.resolve_handle(viewer, card).ok().and_then(|id| {
                     self.described_source(viewer, id, DecisionSourceKind::Spell, None)
                 }),
@@ -448,6 +468,7 @@ impl Game {
             action,
             ActionInitiation::ActivateAbility { .. }
                 | ActionInitiation::ActivateMana { .. }
+                | ActionInitiation::Bestow { .. }
                 | ActionInitiation::Cast { .. }
         ) && source.is_none()
         {

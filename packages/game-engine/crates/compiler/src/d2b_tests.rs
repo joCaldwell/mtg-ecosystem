@@ -160,6 +160,10 @@ fn rule_bearing_subtypes_are_explicit_boundaries_in_intake_and_ir() {
         "Adventure",
         "Omen",
     ] {
+        if subtype == "Saga" {
+            assert!(type_line::parse_source("Enchantment — Saga", "normal").is_err());
+            assert!(type_line::parse_source("Enchantment — Saga Class", "saga").is_err());
+        }
         let failure = type_line::parse(&format!("Artifact — {subtype}"))
             .err()
             .unwrap();

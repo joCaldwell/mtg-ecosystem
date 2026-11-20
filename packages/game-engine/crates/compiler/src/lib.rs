@@ -12,6 +12,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod bestow;
 mod bindings;
 mod cascade_land_entry;
 mod cast_entry;
@@ -77,6 +78,7 @@ mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
 mod power_filtered_removal;
+mod saga;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
@@ -197,6 +199,10 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    Chapter {
+        chapters: Vec<u32>,
+        effects: Vec<serde_json::Value>,
+    },
     // The complete spell, cast trigger, and source graph are verified together.
     #[serde(skip)]
     Demonstrate,
@@ -282,14 +288,14 @@ impl<'de> Deserialize<'de> for SourceKeyword {
         };
         if !matches!(
             keyword.as_str(),
-            "equip" | "enchant" | "cascade" | "kicker" | "affinity" | "cycling"
+            "bestow" | "equip" | "enchant" | "cascade" | "kicker" | "affinity" | "cycling"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "equip" | "kicker" | "cycling" => ["keyword", "cost"].as_slice(),
+            "bestow" | "equip" | "kicker" | "cycling" => ["keyword", "cost"].as_slice(),
             "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
@@ -1449,7 +1455,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if source.defense.is_some() {
         return Err(unsupported("source.type_line.card_type", "Battle"));
     }
-    if source.layout != "normal"
+    if !(source.layout == "normal"
+        || (source.layout == "saga" && source.type_line == "Enchantment — Saga"))
         || source.card_faces.is_some()
         || source.loyalty.is_some()
         || source.defense.is_some()
@@ -1474,7 +1481,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     // CR 201.5: canonicalize only exact archive-bound references to this source.
     // Source and AST integrity checks above still cover the original bytes.
-    let types = type_line::parse(&source.type_line)?;
+    let types = type_line::parse_source(&source.type_line, &source.layout)?;
     let noun = match types.kind {
         CardKind::Creature => "creature",
         CardKind::Artifact => "artifact",
@@ -1484,6 +1491,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
+    let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
     let canonical_abilities = self_reference::canonicalize(
         result.abilities.get(),
         &binding,
@@ -1731,6 +1739,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     {
         return Err(unsupported("mana_cost", "unsupported X cost"));
     }
+    let saga = saga::bind(&shape, &r.oracle_identity, &binding, &result, &abilities)?;
     let mut labels = SourceLabels {
         text: source.oracle_text.clone(),
         blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
@@ -1861,7 +1870,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            let remaining_abilities = if has_linked_hideaway {
+            let remaining_abilities = if let Some(chapters) = &saga {
+                for chapter in chapters {
+                    for ability in chapter.abilities() {
+                        labels.triggered.push(chapter.source_block);
+                        definition.triggered.push(ability);
+                    }
+                }
+                &abilities[abilities.len()..]
+            } else if has_linked_hideaway {
                 use mtg_contracts::linked_hideaway;
                 labels.triggered.push(0);
                 labels.statics.push(1);
@@ -1914,6 +1931,19 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));
                         }
                         for (keyword_index, keyword) in keywords.iter().enumerate() {
+                            if keyword.keyword == "bestow"
+                                && let Some(plan) = &bestow
+                            {
+                                labels.statics.push(source_block(block)?);
+                                definition.static_abilities.push(StaticAbility {
+                                    functioning_zone: FunctioningZone::Stack,
+                                    effect: StaticEffect::Bestow {
+                                        cost: plan.base_cost(BestowForm::Aura).clone(),
+                                        program: canonical_bestow_program(),
+                                    },
+                                });
+                                continue;
+                            }
                             if keyword.keyword == "cycling" {
                                 labels.activated.push(source_block(block)?);
                                 definition

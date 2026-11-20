@@ -1120,6 +1120,9 @@ impl Game {
                 source_block,
             } => self.begin_linked_play(frame, hideaway_block, minimum_total_power, source_block),
             Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
+            Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
+                self.register_delayed_chapter(frame)
+            }
             Instruction::RevealAndCast { source_block } => {
                 self.begin_library_shuffle(frame, source_block)
             }

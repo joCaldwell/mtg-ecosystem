@@ -619,3 +619,316 @@ fn combat_hand_cast_uses_trigger_controller_and_pays_the_child_additional_cost()
     );
     recover(&game);
 }
+
+#[test]
+fn paid_saga_tracks_each_chapter_and_waits_for_the_final_stack_exit() {
+    let mut p = prepared(false, false);
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/synthetic-saga-life.json"),
+    ) else {
+        panic!("original complete life Saga must lower")
+    };
+    let player = PlayerId(0);
+    p.config.cards[0].oracle_id = SWAMP.into();
+    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    let card = CardId(1);
+    answer(&mut g, Response::Cast { card });
+    let land = g.object_id(CardId(0)).unwrap();
+    assert!(matches!(settle(&mut g), Request::Mana { .. }));
+    answer(&mut g, Response::ActivateMana { object: land });
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    if matches!(settle(&mut g), Request::SpendMana { .. }) {
+        answer(
+            &mut g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::B, Quantity::from(1))]),
+            },
+        );
+    }
+    assert!(matches!(settle(&mut g), Request::Priority { .. }));
+    assert_eq!(g.top().unwrap().paid.as_ref().unwrap().generic, 1.into());
+    let mut chapter = 0u32;
+    let mut seen = BTreeSet::new();
+    for _ in 0..2000 {
+        let _ = settle(&mut g);
+        if let Some(entry) = g.state.rules.stack.last()
+            && let StackKind::Triggered {
+                trigger_id,
+                ability: EffectiveTriggerAbility::Intrinsic { index },
+                witness: TriggerEventWitness::LoreAdded { change },
+                ..
+            } = &entry.kind
+            && seen.insert(*trigger_id)
+        {
+            chapter += 1;
+            assert_eq!(*index, chapter - 1);
+            assert_eq!(entry.source, change.object);
+            assert_eq!(change.before, Quantity::from(i64::from(chapter - 1)));
+            assert_eq!(change.after, Quantity::from(i64::from(chapter)));
+            let object = g.current(entry.source).unwrap();
+            assert_eq!(object.zone, Zone::Battlefield);
+            assert_eq!(object.lore_counters, change.after);
+            assert_eq!(change.controller, player);
+            recover(&g);
+        }
+        let object = g.current(g.object_id(card).unwrap()).unwrap();
+        if matches!(object.zone, Zone::Graveyard { .. }) {
+            assert_eq!(chapter, 3);
+            assert_eq!(object.lore_counters, Quantity::zero());
+            assert_eq!(g.state.rules.players[0].life, 50.into());
+            recover(&g);
+            return;
+        }
+        passive(&mut g);
+    }
+    panic!("final chapter did not release its Saga");
+}
+
+#[test]
+fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
+    let mut p = prepared(false, false);
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("complete frozen chapter program failed: {compiled:?}")
+    };
+    let owner = PlayerId(0);
+    let saga = CardId(1);
+    p.config.cards[0].oracle_id = SWAMP.into();
+    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let mut add = |id: &str, zone: Zone| {
+        let card = CardId(p.config.cards.len() as u32);
+        p.config.cards.push(CardSetup {
+            id: card,
+            owner,
+            controller: owner,
+            zone,
+            oracle_id: id.into(),
+        });
+        card
+    };
+    let red = add("a3fb7228-e76b-4e96-a40e-20b5fed75685", Zone::Battlefield);
+    let white = add("bc71ebf6-2056-41f7-be35-b2e5c34afa99", Zone::Battlefield);
+    let entrant = add(ISAMARU, Zone::Hand { owner });
+    for _ in 0..4 {
+        add(SWAMP, Zone::Library { owner });
+    }
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    let pay = |g: &mut Game, card: CardId, lands: &[CardId]| {
+        answer(g, Response::Cast { card });
+        for &land in lands {
+            let object = g.object_id(land).unwrap();
+            answer(g, Response::ActivateMana { object });
+        }
+        answer(g, Response::FinishMana { undo_mana: false });
+        if let Request::SpendMana { cost, .. } = settle(g) {
+            assert_eq!(cost.generic, 0.into());
+            let mut spending = BTreeMap::<Color, Quantity>::new();
+            for color in cost.colored {
+                spending.entry(color).or_default().add(&1.into());
+            }
+            answer(g, Response::SpendMana { spending });
+        }
+    };
+    pay(&mut g, saga, &[CardId(0), red, white]);
+    let mut saw_second = false;
+    let mut saw_cleanup = false;
+    for _ in 0..2000 {
+        settle(&mut g);
+        let registrations = &g.state.rules.delayed_chapters;
+        if !saw_second && registrations.first().is_some_and(|r| r.chapter() == Ok(1)) {
+            let mut rogue = g.fork();
+            let mut duplicate = registrations[0].clone();
+            let StackId(id) = duplicate.issuer.id;
+            duplicate.issuer.id = StackId(id.saturating_sub(1));
+            assert_ne!(duplicate.issuer.id, registrations[0].issuer.id);
+            rogue.state.rules.delayed_chapters.push(duplicate);
+            let err = Game::restore(g.prepared.as_ref().clone(), &rogue.snapshot().unwrap())
+                .err()
+                .expect("duplicate original trigger issuance must be rejected");
+            assert_eq!(err, "duplicate or expired delayed chapter registration");
+            saw_second = true;
+        }
+        if saw_second && registrations.is_empty() {
+            saw_cleanup = true;
+        }
+        if matches!(
+            g.current(g.object_id(saga).unwrap()).unwrap().zone,
+            Zone::Graveyard { .. }
+        ) {
+            assert!(saw_second && saw_cleanup);
+            assert_eq!(registrations.len(), 1);
+            assert_eq!(registrations[0].chapter(), Ok(2));
+            assert_eq!(g.state.rules.players[0].life, 38.into());
+            recover(&g);
+            pay(&mut g, entrant, &[white]);
+            let mut saw_ability = false;
+            for _ in 0..200 {
+                settle(&mut g);
+                if g.state.rules.stack.last().is_some_and(|e| {
+                    matches!(
+                        e.kind,
+                        StackKind::Triggered {
+                            ability: EffectiveTriggerAbility::DelayedChapter { chapter: 2, .. },
+                            ..
+                        }
+                    )
+                }) {
+                    saw_ability = true;
+                }
+                if g.state.rules.delayed_chapters.is_empty() {
+                    assert!(saw_ability);
+                    for (index, seat) in g.state.rules.players.iter().enumerate() {
+                        assert_eq!(seat.life, 39.into(), "seat {index}");
+                    }
+                    recover(&g);
+                    return;
+                }
+                passive(&mut g);
+            }
+            panic!("delayed entry did not resolve before cleanup");
+        }
+        passive(&mut g);
+    }
+    panic!("final Saga chapter did not leave its granted entry trigger");
+}
+
+#[test]
+fn paid_bestow_ordinary_attachment_detachment_and_illegal_target_fallback() {
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/ramos/695ee4fe-356d-47fb-9442-d171b618151c.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("bestow source must lower: {compiled:?}")
+    };
+    let mut setup = prepared(false, false);
+    setup.config.cards[0].oracle_id = ISAMARU.into();
+    setup.config.cards[0].owner = PlayerId(1);
+    setup.config.cards[0].controller = PlayerId(1);
+    setup.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let mut lands = Vec::new();
+    for id in [
+        "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
+        "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+        SWAMP,
+        "a3fb7228-e76b-4e96-a40e-20b5fed75685",
+        FOREST,
+        SWAMP,
+        SWAMP,
+    ] {
+        let card = CardId(setup.config.cards.len() as u32);
+        lands.push(card);
+        setup.config.cards.push(CardSetup {
+            id: card,
+            oracle_id: id.into(),
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: Zone::Battlefield,
+        });
+    }
+    let catalog = Arc::make_mut(&mut setup.catalog);
+    catalog.definitions.push(*definition.clone());
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    setup.catalog_digest = digest(catalog).unwrap();
+    setup.profile_digest = digest(&setup.config).unwrap();
+    for (bestow, depart_before_resolution) in [(false, false), (true, false), (true, true)] {
+        let mut g = Game::new(setup.clone());
+        let card = CardId(1);
+        let target = g.object_id(CardId(0)).unwrap();
+        let before = g.characteristics(target).unwrap();
+        if bestow {
+            answer(&mut g, Response::Bestow { card });
+            assert!(matches!(settle(&mut g), Request::Targets { .. }));
+            answer(
+                &mut g,
+                Response::Targets {
+                    objects: vec![target],
+                },
+            );
+        } else {
+            answer(&mut g, Response::Cast { card });
+        }
+        assert!(matches!(settle(&mut g), Request::Mana { .. }));
+        let cost = g.top().unwrap().total_cost.clone();
+        assert_eq!(cost.generic, if bestow { 2.into() } else { 0.into() });
+        for &land in lands.iter().take(if bestow { 7 } else { 5 }) {
+            let object = g.object_id(land).unwrap();
+            answer(&mut g, Response::ActivateMana { object });
+        }
+        answer(&mut g, Response::FinishMana { undo_mana: false });
+        if matches!(settle(&mut g), Request::SpendMana { .. }) {
+            let mut spending = BTreeMap::<Color, Quantity>::new();
+            for c in &cost.colored {
+                spending.entry(*c).or_default().add(&1.into());
+            }
+            spending.entry(Color::B).or_default().add(&cost.generic);
+            answer(&mut g, Response::SpendMana { spending });
+        }
+        settle(&mut g);
+        let entry = g.top().unwrap();
+        assert_eq!(entry.paid.as_ref(), Some(&cost));
+        assert_eq!(g.is_bestowed_spell(entry.source), bestow);
+        assert_eq!(
+            g.characteristics(entry.source)
+                .unwrap()
+                .has_type(CardKind::Creature),
+            !bestow
+        );
+        recover(&g);
+        if depart_before_resolution {
+            g.concede(PlayerId(1)).unwrap();
+        }
+        for _ in 0..40 {
+            settle(&mut g);
+            if g.state.rules.stack.is_empty() {
+                break;
+            }
+            passive(&mut g);
+        }
+        let permanent = g.object_id(card).unwrap();
+        assert_eq!(g.zone(permanent), Some(Zone::Battlefield));
+        if bestow && !depart_before_resolution {
+            let c = g.characteristics(permanent).unwrap();
+            assert_eq!(c.subtypes, ["Aura"]);
+            assert_eq!(g.current(permanent).unwrap().attached_to, Some(target));
+            let mut expected = before.power.clone().unwrap();
+            expected.add(&4.into());
+            assert_eq!(g.characteristics(target).unwrap().power, Some(expected));
+            assert!(g.has_keyword(target, KeywordAbility::Flying));
+            recover(&g);
+            g.concede(PlayerId(1)).unwrap();
+            settle(&mut g);
+        }
+        assert_eq!(g.object_id(card), Some(permanent));
+        assert_eq!(g.current(permanent).unwrap().attached_to, None);
+        assert_eq!(
+            g.characteristics(permanent).unwrap(),
+            definition.characteristics
+        );
+        recover(&g);
+    }
+}

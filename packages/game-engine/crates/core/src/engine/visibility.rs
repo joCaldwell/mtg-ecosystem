@@ -35,6 +35,9 @@ pub struct TriggerHandle(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VisibleTriggerAbility {
+    DelayedChapter {
+        chapter: u32,
+    },
     Intrinsic {
         index: u32,
     },
@@ -119,6 +122,8 @@ pub struct VisibleObject {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub lore_counters: Quantity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
@@ -171,6 +176,8 @@ pub enum VisibleEntityTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bestowed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -758,6 +765,9 @@ pub enum PlayerResponse {
     ActivateMana {
         object: ObjectHandle,
     },
+    Bestow {
+        card: ObjectHandle,
+    },
     Cast {
         card: ObjectHandle,
     },
@@ -983,6 +993,9 @@ impl Game {
         grant: Option<&CascadeGrantProvenance>,
     ) -> Result<VisibleTriggerAbility, String> {
         let grant_source = match ability {
+            EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                return Ok(VisibleTriggerAbility::DelayedChapter { chapter });
+            }
             EffectiveTriggerAbility::Intrinsic { index } => {
                 return Ok(VisibleTriggerAbility::Intrinsic { index });
             }
@@ -1027,7 +1040,8 @@ impl Game {
                     .effect_handle(viewer, &EffectKey::Resolved { id: effect })
                     .ok(),
             },
-            EffectiveTriggerAbility::Intrinsic { .. } => unreachable!(),
+            EffectiveTriggerAbility::Intrinsic { .. }
+            | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
         })
     }
     pub(super) fn player_entity(
@@ -1211,6 +1225,7 @@ impl Game {
                 copied_values: None,
                 entered_this_turn: false,
                 face_down: true,
+                lore_counters: Quantity::zero(),
                 exiled_by: Some(link.source_handle(viewer).clone()),
                 oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
                     physical.oracle_id.clone()
@@ -1296,6 +1311,7 @@ impl Game {
                 .first()
                 .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
             plus_one_counters: object.plus_one_counters.clone(),
+            lore_counters: object.lore_counters.clone(),
             characteristics: { Some(self.characteristics(object.id)?) },
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
@@ -1433,6 +1449,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            bestowed: instance.alternative_cost == Some(cascade::AlternativeCost::Bestow),
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
@@ -2837,6 +2854,9 @@ impl Game {
             }),
             PlayerResponse::ActivateMana { object } => Ok(Response::ActivateMana {
                 object: self.resolve_handle(viewer, object)?,
+            }),
+            PlayerResponse::Bestow { card } => Ok(Response::Bestow {
+                card: self.resolve_handle(viewer, card)?.card,
             }),
             PlayerResponse::Cast { card } => Ok(Response::Cast {
                 card: self.resolve_handle(viewer, card)?.card,

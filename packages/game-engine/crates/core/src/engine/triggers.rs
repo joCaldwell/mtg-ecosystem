@@ -92,6 +92,14 @@ pub struct GroupedDamageMember {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerEventWitness {
+    DelayedCreatureEntered {
+        registration: Box<DelayedChapterRegistration>,
+        movement: Option<MoveOutcome>,
+        entrant: Box<ObjectBefore>,
+    },
+    LoreAdded {
+        change: LoreChange,
+    },
     /// Immutable damage-time facts, independent of departure-refreshed source
     /// LKI. None identifies the genuine legacy CombatDamage leaf; Some names
     /// the original frozen transaction, never the current combat state.
@@ -142,6 +150,8 @@ pub enum TriggerEventWitness {
 impl TriggerEventWitness {
     pub fn subject(&self) -> Option<ObjectId> {
         match self {
+            Self::DelayedCreatureEntered { entrant, .. } => Some(entrant.object),
+            Self::LoreAdded { change } => Some(change.object),
             Self::Moved { movement: m } => Some(if m.destination == Zone::Battlefield {
                 m.successor
             } else {
@@ -412,7 +422,7 @@ impl Game {
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
         for occurrence in occurrences {
-            let witnesses = match &occurrence.actual {
+            let mut witnesses = match &occurrence.actual {
                 // CR 120.4b/120.8, 510.2, 603.2c/g, 615.6: match actual
                 // positive members against their frozen pre-commit transaction.
                 // Aggregate life results are not damage occurrences. The combat
@@ -566,6 +576,28 @@ impl Game {
                     })
                     .unwrap_or_default(),
             };
+            let mut lore = vec![];
+            if let EventOutcome::TurnTransitioned { lore: changes, .. } = &occurrence.actual {
+                lore.extend(changes.iter().cloned());
+            }
+            for witness in &witnesses {
+                if let TriggerEventWitness::Moved { movement } = witness
+                    && movement.destination == Zone::Battlefield
+                    && self.saga_final_chapter(movement.successor)?.is_some()
+                    && let Ok(entered) = self.current(movement.successor)
+                {
+                    lore.push(LoreChange {
+                        object: movement.successor,
+                        controller: entered.controller,
+                        before: Quantity::zero(),
+                        after: Quantity::from(1),
+                    });
+                }
+            }
+            witnesses.extend(
+                lore.into_iter()
+                    .map(|change| TriggerEventWitness::LoreAdded { change }),
+            );
             // CR 510.2/603.2c/700.1: "one or more ... to a player" groups
             // qualifying members of this actual occurrence by damaged player.
             // Ordered leaves, separate damage steps and separate transactions
@@ -612,7 +644,8 @@ impl Game {
                     || witness.enters()
                     || matches!(
                         witness,
-                        TriggerEventWitness::StepBegan { .. }
+                        TriggerEventWitness::LoreAdded { .. }
+                            | TriggerEventWitness::StepBegan { .. }
                             | TriggerEventWitness::CreatureAttacked { .. }
                             | TriggerEventWitness::DamageDealt { .. }
                             | TriggerEventWitness::Tapped { .. }
@@ -710,10 +743,6 @@ impl Game {
         let enters = witness.enters();
 
         let subject = witness.subject();
-        let creature = subject.is_some_and(|o| {
-            self.copiable_definition(o)
-                .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
-        });
         let observers = if dies {
             before
                 .ok_or("death trigger requires actual pre-event lookback")?
@@ -721,6 +750,7 @@ impl Game {
         } else {
             &*self
         };
+        let creature = subject.is_some_and(|o| observers.target_is_creature(o));
         // Capture from the actual event's resulting game, including genuine
         // legacy leaves. Prepared damage retains assignment-time facts, while
         // a creature filter requires this exact incarnation still on the
@@ -755,6 +785,8 @@ impl Game {
                 let mut grouped_members = None;
                 let mut power_entry = None;
                 let matches = match &definition.condition {
+                    TriggerCondition::DelayedControllerCreatureEntry => false,
+                    TriggerCondition::SagaChapter {number} => matches!(&witness, TriggerEventWitness::LoreAdded{change} if change.object==object.id && change.controller==object.controller && change.crosses(*number)),
                     TriggerCondition::ControlledCreatureEntersWithPower {
                         minimum_power,
                         other,
@@ -1020,6 +1052,41 @@ impl Game {
                 }
             }
         }
+        if witness.enters()
+            && let Some(entrant) = witness.subject()
+            && self.is_battlefield_creature(entrant)
+        {
+            let entrant = self.object_before(entrant)?;
+            for registration in &self.state.rules.delayed_chapters {
+                let issuer = &registration.issuer;
+                if issuer.controller != entrant.controller || !self.is_live(issuer.controller) {
+                    continue;
+                }
+                let facts = issuer
+                    .source_facts
+                    .clone()
+                    .ok_or("missing delayed source facts")?;
+                let chapter = registration.chapter()?;
+                matched.push((
+                    None,
+                    facts,
+                    EffectiveTriggerAbility::DelayedChapter {
+                        chapter,
+                        issuer: issuer.id,
+                    },
+                    None,
+                    TriggerEventWitness::DelayedCreatureEntered {
+                        registration: Box::new(registration.clone()),
+                        movement: match &witness {
+                            TriggerEventWitness::Moved { movement } => Some(movement.clone()),
+                            _ => None,
+                        },
+                        entrant: Box::new(entrant.clone()),
+                    },
+                    None,
+                ));
+            }
+        }
         // Preflight the COMPLETE effective emission before diagnostics, handles,
         // IDs or pending rows publish. Failed intervening checks still retain
         // their ordinary diagnostic below, but consume no trigger capacity.
@@ -1054,9 +1121,19 @@ impl Game {
                 .checked_add(1)
                 .ok_or("trigger ID resource limit")?;
             let source = source_facts.object;
-            let controller = source_facts.controller;
+            let controller = match &witness {
+                TriggerEventWitness::DelayedCreatureEntered { registration, .. } => {
+                    registration.issuer.controller
+                }
+                _ => source_facts.controller,
+            };
             let consumed = source_facts.clone();
-            let source_handles = self.capture_trigger_source_handles(source)?;
+            let source_handles = match &witness {
+                TriggerEventWitness::DelayedCreatureEntered { registration, .. } => {
+                    registration.source_handles()?.to_vec()
+                }
+                _ => self.capture_trigger_source_handles(source)?,
+            };
             let grant = match grant_fact {
                 Some(MatchedCascadeGrant::Static(fact)) => Some(CascadeGrantProvenance {
                     source_handles: self.capture_trigger_source_handles(fact.object)?,
@@ -1556,6 +1633,7 @@ impl Game {
             || (matches!(
                 definition.condition,
                 TriggerCondition::SelfEntersBattlefield
+                    | TriggerCondition::SagaChapter { .. }
                     | TriggerCondition::SpellCastWithOrigin { .. }
             ) && fact.controller != controller
                 && !departed_hideaway)
@@ -1568,17 +1646,91 @@ impl Game {
         }
         Ok(())
     }
+    fn valid_creature_entry(
+        &self,
+        entrant: &ObjectBefore,
+        movement: Option<&MoveOutcome>,
+    ) -> Result<bool, String> {
+        self.validate_characteristic_identity(
+            entrant.object,
+            entrant.zone,
+            &entrant.characteristics,
+        )?;
+        let token = self.state.rules.tokens.get(&entrant.object.card);
+        let actual_entry = match movement {
+            Some(m) => {
+                token.is_none_or(|t| {
+                    t.is_copy() && m.from == Zone::Stack && m.previous.incarnation == 0
+                }) && m.destination == Zone::Battlefield
+                    && match m.from {
+                        Zone::Battlefield => false,
+                        Zone::Stack | Zone::Exile => true,
+                        Zone::Hand { owner }
+                        | Zone::Library { owner }
+                        | Zone::Command { owner }
+                        | Zone::Graveyard { owner } => owner == entrant.owner,
+                    }
+                    && m.successor == entrant.object
+                    && m.previous.card == m.successor.card
+                    && m.previous.incarnation.checked_add(1) == Some(m.successor.incarnation)
+            }
+            None => {
+                token.is_some_and(|t| !t.is_copy())
+                    && entrant.object.incarnation == 0
+                    && entrant.default_controller == entrant.owner
+            }
+        };
+        Ok(actual_entry
+            && entrant.default_controller.0 < 4
+            && entrant.marked_damage == Quantity::zero()
+            && !entrant.deathtouch_damage
+            && !entrant.attack_ready
+            && self
+                .state
+                .rules
+                .cards
+                .get(&entrant.object.card)
+                .is_some_and(|c| c.owner == entrant.owner))
+    }
     fn validate_trigger_witness(
         &self,
         source: ObjectId,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         death_controller: Option<PlayerId>,
+        facts: &ObjectBefore,
+        handles: &[ObjectHandle],
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
         let condition = &definition.condition;
         let valid = match witness {
+            TriggerEventWitness::DelayedCreatureEntered {
+                registration,
+                movement,
+                entrant,
+            } => {
+                self.validate_delayed_registration(registration)?;
+                let issuer = &registration.issuer;
+                self.validate_characteristic_identity(
+                    entrant.object,
+                    entrant.zone,
+                    &entrant.characteristics,
+                )?;
+                matches!(ability,EffectiveTriggerAbility::DelayedChapter {chapter,issuer:id} if id==issuer.id && chapter==registration.chapter()?)
+                    && issuer.source_facts.as_ref() == Some(facts)
+                    && registration.source_handles()? == handles
+                    && source == issuer.source
+                    && controller == issuer.controller
+                    && self.valid_creature_entry(entrant, movement.as_ref())?
+                    && entrant.controller == controller
+                    && entrant.zone == Zone::Battlefield
+                    && entrant.characteristics.has_type(CardKind::Creature)
+                    && death_controller.is_none()
+            }
+            TriggerEventWitness::LoreAdded { change } => {
+                matches!(condition, TriggerCondition::SagaChapter {number} if change.object==source && change.controller==controller && change.crosses(*number) && {let mut after=change.before.clone();after.add(&Quantity::from(1));after==change.after})
+            }
             TriggerEventWitness::GroupedDamageDealt {
                 kind,
                 transaction,
@@ -1802,48 +1954,8 @@ impl Game {
                     && death_controller.is_none()
             }
             TriggerEventWitness::CreatureEnteredWithPower { entrant, movement } => {
-                self.validate_characteristic_identity(
-                    entrant.object,
-                    entrant.zone,
-                    &entrant.characteristics,
-                )?;
-                let identity = self.state.rules.tokens.get(&entrant.object.card);
-                let actual_entry = match movement {
-                    Some(m) => {
-                        identity.is_none_or(|t| {
-                            t.is_copy() && m.from == Zone::Stack && m.previous.incarnation == 0
-                        }) && m.destination == Zone::Battlefield
-                            && match m.from {
-                                Zone::Battlefield => false,
-                                Zone::Stack | Zone::Exile => true,
-                                Zone::Hand { owner }
-                                | Zone::Library { owner }
-                                | Zone::Command { owner }
-                                | Zone::Graveyard { owner } => owner == entrant.owner,
-                            }
-                            && m.successor == entrant.object
-                            && m.previous.card == m.successor.card
-                            && m.previous.incarnation.checked_add(1)
-                                == Some(m.successor.incarnation)
-                    }
-                    None => {
-                        identity.is_some_and(|t| !t.is_copy())
-                            && entrant.object.incarnation == 0
-                            && entrant.default_controller == entrant.owner
-                    }
-                };
-                actual_entry
+                self.valid_creature_entry(entrant, movement.as_ref())?
                     && death_controller.is_none()
-                    && entrant.default_controller.0 < 4
-                    && entrant.marked_damage == Quantity::zero()
-                    && !entrant.deathtouch_damage
-                    && !entrant.attack_ready
-                    && self
-                        .state
-                        .rules
-                        .cards
-                        .get(&entrant.object.card)
-                        .is_some_and(|c| c.owner == entrant.owner)
                     && matches!(condition, TriggerCondition::ControlledCreatureEntersWithPower { minimum_power, other }
                         if power_entry_matches(minimum_power, *other, source, controller, entrant))
             }
@@ -1853,6 +1965,8 @@ impl Game {
                     && m.previous.incarnation.checked_add(1) == Some(m.successor.incarnation)
                     && (match condition {
                         TriggerCondition::SelfSpellCast
+                        | TriggerCondition::DelayedControllerCreatureEntry
+                        | TriggerCondition::SagaChapter { .. }
                         | TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
                         | TriggerCondition::SpellCastWithOrigin { .. }
@@ -1909,6 +2023,12 @@ impl Game {
             (TriggerOccurrenceId::Cast(id), TriggerEventWitness::SpellCast { cast }) => {
                 id.cast == cast.stack_id && id.cast.0 < self.state.rules.next_stack_id
             }
+            (
+                TriggerOccurrenceId::Batch(id),
+                TriggerEventWitness::DelayedCreatureEntered { registration, .. },
+            ) => {
+                matches!(&registration.issuer.kind, StackKind::Triggered {event:TriggerOccurrenceId::Batch(origin),..} if origin.batch < id.batch && id.batch < self.state.rules.next_batch_id)
+            }
             (TriggerOccurrenceId::Batch(id), w) => {
                 !matches!(w, TriggerEventWitness::SpellCast { .. })
                     && id.batch < self.state.rules.next_batch_id
@@ -1955,6 +2075,8 @@ impl Game {
             *ability,
             entry.controller,
             entry.death_controller,
+            entry.source_facts.as_ref().ok_or("missing trigger facts")?,
+            source_handles,
             witness,
         )?;
         if trigger_id.0 >= self.state.rules.next_trigger_id
@@ -1989,6 +2111,7 @@ impl Game {
         Ok(Some(*trigger_id))
     }
     pub(super) fn validate_trigger_state(&self) -> Result<(), String> {
+        self.validate_delayed_chapters()?;
         if self.state.rules.pending_triggers.len() + self.state.rules.stack.len()
             > self.stack_limit()
         {
@@ -2028,6 +2151,8 @@ impl Game {
                 trigger.ability,
                 trigger.controller,
                 trigger.death_controller,
+                &trigger.source_facts,
+                &trigger.source_handles,
                 &trigger.witness,
             )?;
         }
