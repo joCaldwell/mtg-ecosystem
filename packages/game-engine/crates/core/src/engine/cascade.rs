@@ -36,20 +36,29 @@ pub(super) enum CastCompletion {
 }
 /// The original cascade progress remains its serialized resolution owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub(super) enum CastOwner {
+    LinkedPlay {
+        progress: Box<LinkedPlayProgress>,
+        object: ObjectId,
+        receipt: HideawayLink,
+    },
     Cascade(Box<CascadeProgress>),
     RevealAndCast(Box<RevealAndCastProgress>),
 }
 impl CastOwner {
     pub(super) fn permission(&self) -> Result<CastPermission, String> {
         match self {
+            Self::LinkedPlay {
+                progress, object, ..
+            } => Ok(progress.permission(*object)),
             Self::Cascade(progress) => progress.permission(),
             Self::RevealAndCast(progress) => progress.permission(),
         }
     }
     pub(super) fn resume(self) -> Frame {
         match self {
+            Self::LinkedPlay { progress, .. } => Frame::PlayHideawayLinked { progress },
             Self::Cascade(progress) => Frame::Cascade { progress },
             Self::RevealAndCast(progress) => Frame::RevealAndCast { progress },
         }
@@ -212,16 +221,29 @@ impl Game {
         {
             return Err("resolution cast permission invariant".into());
         }
-        if !self.is_live(permission.caster) || self.cast_is_prohibited(permission.caster)? {
+        self.resolution_spell_proposable(permission.caster, permission.object)
+    }
+    pub(super) fn resolution_spell_proposable(
+        &self,
+        caster: PlayerId,
+        object: ObjectId,
+    ) -> Result<bool, String> {
+        if !self.is_live(caster)
+            || self.cast_is_prohibited(caster)?
+            || self
+                .definition(object.card)?
+                .characteristics
+                .has_type(CardKind::Land)
+        {
             return Ok(false);
         }
-        let definition = self.definition(permission.object.card)?;
+        let definition = self.definition(object.card)?;
         let program = definition
             .spell
             .as_ref()
             .ok_or("revealed nonland is not a supported spell")?;
         Ok(self
-            .spell_proposal_obstacle(program, permission.caster, &definition.characteristics)
+            .spell_proposal_obstacle(program, caster, &definition.characteristics)
             .is_none())
     }
     pub(super) fn resulting_permission_matches(
@@ -704,9 +726,10 @@ impl Game {
     pub(super) fn cascade_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         match frame {
-            Frame::Cascade { .. } | Frame::HandCast { .. } | Frame::RevealAndCast { .. } => {
-                stored_history::payload_charge(frame)
-            }
+            Frame::PlayHideawayLinked { .. }
+            | Frame::Cascade { .. }
+            | Frame::HandCast { .. }
+            | Frame::RevealAndCast { .. } => stored_history::payload_charge(frame),
             Frame::CommanderReturn { continuation, .. }
                 if matches!(
                     continuation.as_ref(),
@@ -734,60 +757,74 @@ impl Game {
         }
     }
     pub(super) fn validate_cascade_state(&self) -> Result<(), String> {
-        let (progress, permission, announcing) =
-            match self.underlying_mana_frame(&self.state.rules.frame) {
-                Frame::RevealAndCast { progress } => {
-                    return self.validate_reveal_and_cast(progress, None);
+        let (progress, permission, announcing) = match self
+            .underlying_mana_frame(&self.state.rules.frame)
+        {
+            Frame::PlayHideawayLinked { progress } => {
+                return self.validate_linked_play(progress, None);
+            }
+            Frame::RevealAndCast { progress } => {
+                return self.validate_reveal_and_cast(progress, None);
+            }
+            Frame::Cascade { progress }
+            | Frame::LandEntry {
+                origin: EntryOrigin::Cascade { progress },
+                ..
+            } => (progress.as_ref(), None, false),
+            Frame::AdditionalCosts { cast }
+            | Frame::AnnounceX { cast }
+            | Frame::Modes { cast }
+            | Frame::Targets { cast }
+            | Frame::EntityTargets { cast }
+            | Frame::StackTargets { cast }
+            | Frame::PlayerTargets { cast }
+            | Frame::Mana { cast }
+            | Frame::SpendMana { cast }
+            | Frame::Payment { cast }
+            | Frame::SacrificeCost { cast } => {
+                let CastCompletion::Resolution {
+                    permission,
+                    progress,
+                } = &cast.completion
+                else {
+                    return Ok(());
+                };
+                if cast.original_object != permission.object
+                    || !self.resulting_permission_matches(permission, self.top()?)?
+                    || self
+                        .top()?
+                        .x
+                        .as_ref()
+                        .is_some_and(|x| *x != Quantity::zero())
+                {
+                    return Err("snapshot permission announcement invariant".into());
                 }
-                Frame::Cascade { progress }
-                | Frame::LandEntry {
-                    origin: EntryOrigin::Cascade { progress },
-                    ..
-                } => (progress.as_ref(), None, false),
-                Frame::AdditionalCosts { cast }
-                | Frame::AnnounceX { cast }
-                | Frame::Modes { cast }
-                | Frame::Targets { cast }
-                | Frame::EntityTargets { cast }
-                | Frame::StackTargets { cast }
-                | Frame::PlayerTargets { cast }
-                | Frame::Mana { cast }
-                | Frame::SpendMana { cast }
-                | Frame::Payment { cast }
-                | Frame::SacrificeCost { cast } => {
-                    let CastCompletion::Resolution {
-                        permission,
+                match progress {
+                    CastOwner::LinkedPlay {
                         progress,
-                    } = &cast.completion
-                    else {
-                        return Ok(());
-                    };
-                    if cast.original_object != permission.object
-                        || !self.resulting_permission_matches(permission, self.top()?)?
-                        || self
-                            .top()?
-                            .x
-                            .as_ref()
-                            .is_some_and(|x| *x != Quantity::zero())
-                    {
-                        return Err("snapshot permission announcement invariant".into());
-                    }
-                    match progress {
-                        CastOwner::Cascade(progress) => (progress.as_ref(), Some(permission), true),
-                        CastOwner::RevealAndCast(progress) => {
-                            return self.validate_reveal_and_cast(progress, Some(permission));
+                        object,
+                        receipt,
+                    } => {
+                        if !progress.receipt_matches(receipt, *object) {
+                            return Err("snapshot linked announcement receipt".into());
                         }
+                        return self.validate_linked_play(progress, Some((permission, *object)));
+                    }
+                    CastOwner::Cascade(progress) => (progress.as_ref(), Some(permission), true),
+                    CastOwner::RevealAndCast(progress) => {
+                        return self.validate_reveal_and_cast(progress, Some(permission));
                     }
                 }
-                Frame::CommanderReturn { continuation, .. } => {
-                    let CommanderContinuation::CascadeBottom { progress } = continuation.as_ref()
-                    else {
-                        return Ok(());
-                    };
-                    (progress.as_ref(), None, false)
-                }
-                _ => return Ok(()),
-            };
+            }
+            Frame::CommanderReturn { continuation, .. } => {
+                let CommanderContinuation::CascadeBottom { progress } = continuation.as_ref()
+                else {
+                    return Ok(());
+                };
+                (progress.as_ref(), None, false)
+            }
+            _ => return Ok(()),
+        };
         self.validate_resolving_owned(
             &progress.frame,
             if announcing {

@@ -46,6 +46,11 @@ fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
+        Frame::PlayHideawayLinked { progress }
+        | Frame::LandEntry {
+            origin: EntryOrigin::LinkedPlay { progress, .. },
+            ..
+        } => Some(&progress.frame.spell),
         Frame::RevealAndCast { progress } => Some(&progress.frame.spell),
         Frame::HandCast { frame, .. } => Some(&frame.spell),
         Frame::Cascade { progress }
@@ -85,6 +90,32 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
+        Frame::PlayHideawayLinked { progress }
+        | Frame::LandEntry {
+            origin: EntryOrigin::LinkedPlay { progress, .. },
+            ..
+        } => update_entry(&mut progress.frame.spell, fact),
+        Frame::AdditionalCosts { cast }
+        | Frame::AnnounceX { cast }
+        | Frame::Modes { cast }
+        | Frame::Targets { cast }
+        | Frame::EntityTargets { cast }
+        | Frame::StackTargets { cast }
+        | Frame::PlayerTargets { cast }
+        | Frame::Mana { cast }
+        | Frame::SpendMana { cast }
+        | Frame::SacrificeCost { cast }
+        | Frame::Payment { cast } => {
+            if let CastCompletion::Resolution {
+                progress: CastOwner::LinkedPlay { progress, .. },
+                ..
+            } = &mut cast.completion
+            {
+                update_entry(&mut progress.frame.spell, fact);
+            }
+        }
+        Frame::ManaSourceChoice { resume, .. } => update_frame(resume, fact),
+        Frame::ManaAbility { activation } => update_frame(&mut activation.resume, fact),
         Frame::RevealAndCast { progress } => update_entry(&mut progress.frame.spell, fact),
         Frame::HandCast { frame, .. } => update_entry(&mut frame.spell, fact),
         Frame::Cascade { progress }
@@ -109,6 +140,10 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
             update_source_appearances(transaction, fact);
             if let DamageContinuation::Instruction { frame } = transaction.continuation.as_mut() {
                 update_entry(&mut frame.spell, fact);
+            } else if let DamageContinuation::Mana { activation, .. } =
+                transaction.continuation.as_mut()
+            {
+                update_frame(&mut activation.resume, fact);
             }
             // Assigned damage retains its frozen assignment source facts.
         }

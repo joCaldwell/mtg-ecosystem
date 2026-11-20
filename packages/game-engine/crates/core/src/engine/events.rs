@@ -260,6 +260,7 @@ enum FactKey {
 #[derive(Clone, Copy)]
 enum BatchAuthority<'a> {
     Ordinary,
+    SpellToStack(PlayerId),
     LandEntry(&'a PreparedEntryAuthority),
     CounterReplacement,
     PlaceCounters,
@@ -1592,6 +1593,19 @@ impl Game {
             } else {
                 BatchAuthority::PlaceCounters
             }
+        } else if let (
+            BatchCause::Casting { player, source, .. },
+            EventGroup::Occurrence {
+                proposed:
+                    ProposedEvent::Move {
+                        object,
+                        destination: Zone::Stack,
+                    },
+            },
+        ) = (&cause, &group)
+            && source == object
+        {
+            BatchAuthority::SpellToStack(*player)
         } else {
             entry
                 .as_ref()
@@ -2013,6 +2027,8 @@ impl Game {
         }
         let controller = if *destination == Zone::Battlefield {
             intended_controller.unwrap_or(o.controller)
+        } else if *destination == Zone::Stack {
+            intended_controller.unwrap_or(owner)
         } else {
             owner
         };
@@ -3021,7 +3037,13 @@ impl Game {
             ProposedEvent::Move {
                 object,
                 destination,
-            } => self.apply_move(*object, *destination, None, false, before, entry)?,
+            } => {
+                let caster = match authority {
+                    BatchAuthority::SpellToStack(player) => Some(player),
+                    _ => None,
+                };
+                self.apply_move(*object, *destination, caster, false, before, entry)?
+            }
         };
         self.update_library_position_memory(proposed, &actual);
         Ok(actual)

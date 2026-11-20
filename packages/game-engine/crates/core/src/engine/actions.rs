@@ -1069,6 +1069,11 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::PlayHideawayLinked {
+                hideaway_block,
+                minimum_total_power,
+                source_block,
+            } => self.begin_linked_play(frame, hideaway_block, minimum_total_power, source_block),
             Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
             Instruction::RevealAndCast { source_block } => {
                 self.begin_library_shuffle(frame, source_block)
@@ -1844,6 +1849,9 @@ impl Game {
                 Frame::Resolve { frame } if frame.stack_id == entry.id => {
                     self.resolution_copy_children(frame)?
                 }
+                Frame::PlayHideawayLinked { progress } if progress.frame.stack_id == entry.id => {
+                    self.linked_play_children(progress)
+                }
                 _ => self.resolution_child(entry.id).into_iter().collect(),
             };
             let suffix = &self.state.rules.stack[index + 1..];
@@ -1865,7 +1873,7 @@ impl Game {
                 .rules
                 .cards
                 .get(&entry.source.card)
-                .is_some_and(|card| self.is_live(card.owner))
+                .is_some_and(|card| self.is_live(card.owner) && self.is_live(entry.controller))
         } else {
             self.is_live(entry.controller)
         }
@@ -1888,7 +1896,7 @@ impl Game {
         }
         self.validate_resolving_children(frame, child.as_slice())
     }
-    fn validate_resolving_children(
+    pub(super) fn validate_resolving_children(
         &self,
         frame: &Resolving,
         children: &[StackId],
