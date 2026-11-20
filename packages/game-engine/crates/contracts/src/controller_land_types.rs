@@ -13,7 +13,7 @@ pub fn controller_nonland_colors_ast() -> Value {
     json!([{"kind":"static","effect":{"static":"modify","what":{"ref":"each","filter":{"nonTypes":["land"],"cls":"permanent","control":"you"}},"modifiers":[{"modifier":"colors","operation":"set","colors":["white","blue","black","red","green"]}]}}])
 }
 
-fn complete_text(text: &str) -> bool {
+pub(super) fn complete_text(text: &str) -> bool {
     text.strip_prefix("Lands you control are ")
         .and_then(|s| s.strip_suffix(" in addition to their other types."))
         .is_some_and(|s| matches!(s, "every basic land type" | "all basic land types"))

@@ -656,6 +656,19 @@ fn equipped_indestructible_paid_exile_removes_grant_before_lethal_sba() {
 
 #[test]
 fn paid_hybrid_colors_are_bound_per_symbol_and_replay() {
+    hybrid_payment_witness(
+        include_str!("../../../../tests/fixtures/synthetic-glaze-lattice.json"),
+        false,
+    );
+}
+#[test]
+fn paid_hybrid_controller_grants_begin_only_after_resolution() {
+    hybrid_payment_witness(
+        include_str!("../../../../tests/fixtures/synthetic-glasshouse-field.json"),
+        true,
+    );
+}
+fn hybrid_payment_witness(raw: &str, grants: bool) {
     let mut p = prepared(
         &[
             ("Darksteel Plate", true),
@@ -664,7 +677,6 @@ fn paid_hybrid_colors_are_bound_per_symbol_and_replay() {
         ],
         false,
     );
-    let raw = include_str!("../../../../tests/fixtures/synthetic-glaze-lattice.json");
     let result = mtg_compiler::compile(mtg_compiler::fixtures::MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")
@@ -724,6 +736,13 @@ fn paid_hybrid_colors_are_bound_per_symbol_and_replay() {
     pay_and_resolve(&mut g, 1, vec![]);
     let permanent = object(&g, 0);
     assert_ne!(permanent, source);
+    if grants {
+        assert_eq!(
+            g.characteristics(permanent).unwrap().colors,
+            [Color::W, Color::U, Color::B, Color::R, Color::G]
+        );
+        assert_eq!(g.characteristics(object(&g, 1)).unwrap().subtypes.len(), 5);
+    }
     assert_eq!(g.zone(permanent), Some(Zone::Battlefield));
     recover(&g);
 }

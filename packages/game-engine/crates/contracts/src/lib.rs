@@ -7,7 +7,7 @@ pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
 mod opening_placement;
-pub use opening_placement::{opening_placement_ability, opening_placement_ast};
+pub use opening_placement::{opening_placement_ability, opening_placement_ast, three_static_ast};
 mod controller_land_types;
 pub use controller_land_types::{controller_land_type_ast, controller_nonland_colors_ast};
 mod colored_library_search;
@@ -2996,8 +2996,11 @@ impl Definition {
         }
         // Sacrifice programs admit enchantment programs and creature statics.
         // Other programs retain their narrower kind constraints.
-        opening_placement::validate(self)?;
-        controller_land_types::validate(self)?;
+        let opening_composition = opening_placement::validate_composition(self)?;
+        if !opening_composition {
+            opening_placement::validate(self)?;
+            controller_land_types::validate(self)?;
+        }
         let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
         let wipes = self.capabilities.contains(&Capability::BoardWipesV1);
         if self.x_mana_cost
@@ -3118,7 +3121,7 @@ impl Definition {
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         granted_land_mana::validate_definition(self)?;
-        color_hybrid_cost::validate_definition(self)?;
+        color_hybrid_cost::validate_definition(self, opening_composition)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -7027,10 +7030,14 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":cap}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}
     }));
+        opening_placement::permit_composition(&mut schema);
     }
     colored_library_search::extend_schema(&mut schema);
     opening_placement::schema(&mut schema);
+    opening_placement::permit_composition(&mut schema);
     color_hybrid_cost::extend_schema(&mut schema);
+    opening_placement::permit_composition(&mut schema);
+    opening_placement::require_composition(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {

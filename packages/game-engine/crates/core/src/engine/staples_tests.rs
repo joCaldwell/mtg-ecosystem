@@ -1586,8 +1586,20 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
 
 #[test]
 fn kept_opening_enchantment_enters_before_turn_without_casting_and_replays() {
+    opening_enchantment_witness(
+        include_str!("../../../../tests/fixtures/synthetic-opening-placement.json"),
+        false,
+    );
+}
+#[test]
+fn hybrid_controller_grants_apply_from_the_kept_hand_before_normal_play() {
+    opening_enchantment_witness(
+        include_str!("../../../../tests/fixtures/synthetic-glasshouse-field.json"),
+        true,
+    );
+}
+fn opening_enchantment_witness(raw: &str, grants: bool) {
     let mut p = search_prepared("Rampant Growth");
-    let raw = include_str!("../../../../tests/fixtures/synthetic-opening-placement.json");
     let compiled = mtg_compiler::compile(mtg_compiler::fixtures::MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}")
@@ -1696,6 +1708,12 @@ fn kept_opening_enchantment_enters_before_turn_without_casting_and_replays() {
         assert!(candidates.is_empty());
         if seat == 0 {
             let successor = g.object_id(candidate.card).unwrap();
+            if grants {
+                assert_eq!(
+                    g.characteristics(successor).unwrap().colors,
+                    [Color::W, Color::U, Color::B, Color::R, Color::G]
+                );
+            }
             assert_ne!(candidate, successor);
             assert_eq!(g.zone(successor), Some(Zone::Battlefield));
             assert!(g.state.rules.stack.is_empty());

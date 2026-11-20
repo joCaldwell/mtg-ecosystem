@@ -1708,19 +1708,29 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     labels
         .mana
         .extend(mana_abilities.iter().map(|a| a.source_block));
+    let opening_composition = three_static_ast(&source.name, &source.oracle_text);
     let (base_cost, hybrid_mana) =
         if let Some((cost, symbols)) = color_hybrid_cost(&source.mana_cost) {
             // Keep source binding exact until a family binds other ability blocks alongside hybrid.
-            if !source.oracle_text.is_empty() || !abilities.is_empty() {
+            if let Some(expected) = &opening_composition {
+                if *expected != decode::<serde_json::Value>(result.abilities.get(), "abilities")? {
+                    return Err(unsupported(
+                        "abilities",
+                        "controller composition does not match source",
+                    ));
+                }
+            } else if !source.oracle_text.is_empty() || !abilities.is_empty() {
                 return Err(unsupported(
                     "source.mana_cost",
                     "hybrid ability composition is unsupported",
                 ));
             }
-            bindings::Bindings::new(&r.oracle_identity, &shape).validate(
-                &binding,
-                "hybrid cost requires the exact printed face binding",
-            )?;
+            if opening_composition.is_none() {
+                bindings::Bindings::new(&r.oracle_identity, &shape).validate(
+                    &binding,
+                    "hybrid cost requires the exact printed face binding",
+                )?;
+            }
             (cost, symbols)
         } else {
             (mana_cost(&source.mana_cost.replace("{X}", ""))?, vec![])
@@ -2672,7 +2682,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         let mut graph = bindings::Bindings::new(&definition.oracle_id, &shape);
         let p = "/faces/0/abilities/0";
         graph.ability(p, "static", "static-source-controller");
-        let ast = opening_placement_ast(&definition.name, &source.oracle_text)
+        let ast = opening_composition
+            .clone()
+            .or_else(|| opening_placement_ast(&definition.name, &source.oracle_text))
             .ok_or_else(|| unsupported("source", "incomplete opening action"))?;
         graph.reference(
             &format!("{p}/effect/what"),
@@ -2686,12 +2698,20 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             &graph.id(p, "you"),
             "109.5",
         );
-        graph.validate(
+        if opening_composition.is_some() {
+            for i in [1, 2] {
+                let ability = format!("/faces/0/abilities/{i}");
+                controller_land_types::bind_grant(&mut graph, &ability, &ast[i]["effect"]["what"]);
+            }
+        }
+        graph.validate_ordered(
             &binding,
             "opening placement requires owner and exact source",
         )?;
     }
-    controller_land_types::bind(&definition, &shape, &binding)?;
+    if opening_composition.is_none() {
+        controller_land_types::bind(&definition, &shape, &binding)?;
+    }
     definition.source_labels = Some(labels);
     definition
         .validate()

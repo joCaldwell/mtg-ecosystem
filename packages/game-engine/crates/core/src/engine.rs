@@ -648,10 +648,10 @@ impl Prepared {
             .any(|d| d.capabilities.contains(&Capability::OpeningPlacementV1))
     }
     fn has_new_cast_or_setup(&self) -> bool {
-        self.catalog
-            .definitions
-            .iter()
-            .any(|d| !d.characteristics.hybrid_mana.is_empty() || d.capabilities.contains(&Capability::OpeningPlacementV1))
+        self.catalog.definitions.iter().any(|d| {
+            !d.characteristics.hybrid_mana.is_empty()
+                || d.capabilities.contains(&Capability::OpeningPlacementV1)
+        })
     }
     fn hybrid_work_version(&self) -> u32 {
         if self.has_new_cast_or_setup() { 39 } else { 37 }
@@ -3612,7 +3612,12 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != (if prepared.has_new_cast_or_setup() { 66 } else { 64 })
+        if s.snapshot_version
+            != (if prepared.has_new_cast_or_setup() {
+                66
+            } else {
+                64
+            })
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
