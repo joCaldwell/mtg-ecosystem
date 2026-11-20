@@ -131,3 +131,79 @@ describe("plural pronouns in ability grants", () => {
     assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-reference" && diagnostic.path.endsWith("/what")));
   });
 });
+
+describe("stack and text operations", () => {
+  it("distinguishes changing the old target from optionally rechoosing targets", () => {
+    const change = analyze("Change the target of target spell or ability with a single target.", "Instant");
+    const choose = analyze("You may choose new targets for target spell or ability.", "Instant");
+    boundCard(change);
+    boundCard(choose);
+    assert.deepEqual(change.nodes.find(node => node.node === "stack-instruction")?.action,
+      { kind: "change-targets", scope: "all" });
+    assert.deepEqual(choose.nodes.find(node => node.node === "stack-instruction")?.action,
+      { kind: "choose-new-targets", timing: "resolution" });
+  });
+
+  it("does not borrow a copy created in a preceding conditional branch", () => {
+    const graph = analyze("If you control a creature, copy target spell. You may choose new targets for the copy.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.references.some(reference => "ref" in reference.expression &&
+      reference.expression.ref === "copy-result" && reference.binding === "unresolved"));
+  });
+
+  it("does not resolve a bare original-or-copy pronoun by recency", () => {
+    const graph = analyze("Copy target instant or sorcery spell, then return it to its owner's hand.", "Instant");
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "ambiguous-antecedent"));
+  });
+
+  it("binds the target and the contextual word choices separately", () => {
+    const graph = analyze("Change the text of target permanent by replacing all instances of one color word with another "
+      + "or one basic land type with another.", "Instant");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "text-choice");
+    assert.ok(choice);
+    assert.equal(choice.subject, bound(graph, "/steps/0/what"));
+    assert.deepEqual(choice.replacements.map(option => option.category), ["color-word", "basic-land-type"]);
+    assert.equal(graph.engineFeatures[0]?.feature, "text-change");
+  });
+});
+
+describe("private information and player roles", () => {
+  it("binds the viewer and library owner, and defers refreshing the private look", () => {
+    const graph = analyze("You may look at the top card of your library any time.", "Artifact");
+    boundCard(graph);
+    const look = graph.nodes.find(node => node.node === "private-library-look");
+    assert.ok(look);
+    assert.equal(look.viewer, look.libraryOwner);
+    assert.equal(look.viewer, bound(graph, "/permission/who"));
+    assert.equal(look.refresh, "after-announcement-or-special-action");
+    assert.equal(graph.engineFeatures[0]?.feature, "private-library-look");
+  });
+
+  it("binds a cast trigger's possessive zone to the matching caster", () => {
+    const graph = analyze("Whenever a player casts a spell from their hand, that player draws a card.", "Artifact");
+    boundCard(graph);
+    assert.equal(bound(graph, "/trigger/from/owner"), bound(graph, "/trigger/who"));
+  });
+
+  it("retains your library or hand as a separate role from another caster", () => {
+    const graph = analyze("Whenever a player casts a spell from your hand, that player draws a card.", "Artifact");
+    boundCard(graph);
+    assert.notEqual(bound(graph, "/trigger/from/owner"), bound(graph, "/trigger/who"));
+  });
+
+  it("recognizes repeated ownership of the same announced object", () => {
+    const graph = analyze("The owner of target permanent shuffles it into their library, then reveals the top card "
+      + "of their library. If it's a permanent card, they put it onto the battlefield.", "Instant");
+    boundCard(graph);
+    const player = graph.nodes.find(node => node.id === bound(graph, "/effects/1/steps/0/who"));
+    assert.ok(player?.node === "selection" && "player" in player.expression && player.expression.player === "owner");
+    assert.equal(bound(graph, player.path + "/of"), bound(graph, "/effects/0/steps/0/who/of"));
+  });
+
+  it("does not identify owners of independently chosen objects", () => {
+    const graph = analyze("The owner of target permanent draws a card. The owner of target artifact loses 1 life. "
+      + "They gain 1 life.", "Instant");
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "ambiguous-antecedent"));
+  });
+});

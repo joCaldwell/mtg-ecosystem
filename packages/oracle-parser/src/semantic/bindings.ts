@@ -4,7 +4,7 @@
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import { isDeepStrictEqual } from "node:util";
-import type { Ability, Amount, CascadeExiledCards, Color, Cost, CostModification, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, Color, Cost, CostModification, Effect, GainedAbility, KeywordInstance, LookPermission, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -160,14 +160,15 @@ function replacementObject(object: ObjectRef | PlayerRef | undefined): boolean {
   if (!object || !("ref" in object)) return false;
   if (object.ref === "equipped") return object.noun === "creature";
   return object.ref === "filter" && object.count.amount === "fixed" && object.count.value === 1 &&
-    Object.keys(object).length === 3 && Object.keys(object.filter).every(key => ["cls", "types", "control"].includes(key));
+    Object.keys(object).length === 3 && Object.keys(object.filter).every(key => ["cls", "types", "supertypes", "control"].includes(key));
 }
 
 function quantityUnit(event: ReplacementInstruction["event"]): QuantityUnit | undefined {
   switch (event.event) {
     case "create-token":
       if (event.match === "creation-event" && replacementPlayer(event.under) &&
-          isDeepStrictEqual(event.tokens, { cls: "token" }) && event.quantity.value.amount === "fixed") return "token-specification";
+          event.tokens?.cls === "token" && Object.keys(event.tokens).every(key => ["cls", "types"].includes(key)) &&
+          event.quantity.value.amount === "fixed") return "token-specification";
       return;
     case "tap-for-mana":
       if (replacementObject(event.what) && (!event.by || replacementPlayer(event.by)) &&
@@ -183,6 +184,23 @@ function quantityUnit(event: ReplacementInstruction["event"]): QuantityUnit | un
           event.quantity.value.amount === "fixed") return "counter-kind-and-recipient";
       return;
   }
+}
+
+type StackInstruction = Extract<Effect, { effect: "copy-stack-object" | "change-targets" | "choose-new-targets" | "change-text" }>;
+type StackObjectClass = "spell" | "ability" | "spell-or-ability";
+type StackCopyCapture = { event: string; result: Candidate; chooser: string; inlineRetarget: boolean };
+
+function stackClasses(filter: ObjectFilter | undefined): StackObjectClass | undefined {
+  if (!filter || filter.orPlayer || filter.orOpponent) return;
+  if (filter.cls === "spell" || filter.cls === "ability") return filter.cls;
+  for (const clause of filter.allOf ?? []) {
+    const classes = stackClasses(clause);
+    if (classes) return classes;
+  }
+  if (!filter.anyOf?.length) return;
+  const alternatives = filter.anyOf.map(stackClasses);
+  if (alternatives.some(kind => !kind)) return;
+  return alternatives.every(kind => kind === alternatives[0]) ? alternatives[0] : "spell-or-ability";
 }
 
 interface Context {
@@ -203,6 +221,7 @@ interface Context {
   eventPredicate?: true;
   sourceExclusionPath?: string;
   sacrificedCost?: Candidate;
+  stackCopies?: StackCopyCapture[];
   entryChoice?: ChoiceOrigin;
   resolutionChoice?: ChoiceOrigin;
   availableChoice?: ChoiceOrigin;
@@ -686,6 +705,7 @@ class Analyzer {
     if (value.static === "prevent-damage" || value.effect === "prevent-damage" || value.choice === "damage-source"
       || value.amount === "prevention-event-quantity" || value.condition === "damage-prevented")
       this.engineFeature("damage-prevention", path, "Prevention needs the engine's future damage events, source-choice eligibility, shield consumption, and prevented quantities.", ["609.7", "615.5", "615.7", "615.8", "615.10", "615.12"]);
+    if (value.static === "look-permission" && this.privateLibraryLook(value.permission as LookPermission, path, context)) return;
     if (value.static === "look-permission" || value.effect === "grant-look-permission"
       || value.static === "commander-eligibility" || value.static === "optional-untap"
       || value.static === "untap-during-step" || value.static === "untap-step-limit") {
@@ -1151,6 +1171,25 @@ class Analyzer {
     }
     bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), scope));
   }
+  /** CR 401.5: the looked-at object is queried when the permission is used.
+   * A newly exposed top card is hidden until the current action finishes. */
+  privateLibraryLook(permission: LookPermission, path: string, context: Context): boolean {
+    const [card] = permission.what;
+    if (context.barrier || context.phase !== "continuous" || !context.permanentSource ||
+        permission.who.player !== "you" || permission.timing !== "any-time" || permission.what.length !== 1 ||
+        permission.topLibraryChanges !== "after-casting-activation-or-special-action" ||
+        card.ref !== "library-cards" || card.position !== "top" || card.count.amount !== "fixed" ||
+        card.count.value !== 1 || card.of?.zone !== "library" || card.of.owner !== "your" ||
+        Object.keys(card).some(key => !["ref", "position", "count", "of"].includes(key))) return false;
+    const at = child(path, "permission");
+    this.walk(permission, at, context);
+    const rules = ["109.5", "401.5", "601.2i", "602.2b"];
+    this.node({ id: this.id(path, "private-library-look"), path, node: "private-library-look", scope: context.ability,
+      viewer: context.you, libraryOwner: context.you, refresh: "after-announcement-or-special-action", rules });
+    this.engineFeature("private-library-look", path,
+      "Allow only the bound viewer to inspect the current top card, after any in-progress casting, activation, or special action finishes.", rules);
+    return true;
+  }
   /** CR 614.5–7, 616.1: match the proposed event and modify its quantities.
    * The pattern's participants are predicates on that event, not selections. */
   quantityReplacement(replacement: ReplacementInstruction, path: string, context: Context): boolean {
@@ -1564,7 +1603,19 @@ class Analyzer {
       // A player named only through an object ("its owner's hand", "a land an
       // opponent controls") is meant only when no player is named outright.
       const strong = context.players.filter(player => !this.weakPlayers.has(player.id));
-      return this.antecedent(expression, path, strong.length ? strong : context.players, "unknown", ["608.2k"]);
+      const found = strong.length ? strong : context.players;
+      const owners = new Set<string>();
+      const distinct = found.filter(player => {
+        const node = this.result.nodes.find(candidate => candidate.id === player.id);
+        const owned = node?.node === "derived-player" && node.role === "owner" ? node.of
+          : node?.node === "selection" && "player" in node.expression && node.expression.player === "owner"
+            ? this.at(child(node.path, "of"))?.id : undefined;
+        if (!owned) return true;
+        if (owners.has(owned)) return false;
+        owners.add(owned);
+        return true;
+      });
+      return this.antecedent(expression, path, distinct, "unknown", distinct.length < found.length ? ["108.3", "608.2k"] : ["608.2k"]);
     }
     if (expression.player === "that-player-or-controller") {
       this.unresolved(expression, path, "unsupported-reference", "This player depends on whether one earlier object-or-player antecedent is a player or an object; that shared antecedent must be bound first.", ["608.2c"]);
@@ -1847,7 +1898,7 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined };
+      sacrificedCost: undefined, stackCopies: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
     const delayed = this.nestedAbility(path, context, "delayed-triggered", ["603.7"]);
@@ -2163,7 +2214,96 @@ class Analyzer {
       }
     }
   }
+  /** CR 115.7a–f, 707.10: copies retain the original choices and source.
+   * Selecting new targets during copy creation is tied to the copy event. */
+  stackInstruction(effect: StackInstruction, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "resolution" || effect.forEach || effect.forEachVote ||
+        effect.decidedBy || effect.who.player !== "you" || effect === context.directCreatureSpellCopy) return false;
+    const whatPath = child(path, "what");
+    const whoPath = child(path, "who");
+    const subject = effect.what;
+    if (effect.effect === "choose-new-targets" && effect.timing === "copy-creation") {
+      const [copy] = context.stackCopies ?? [];
+      if (context.stackCopies?.length !== 1 || copy.inlineRetarget || copy.chooser !== context.you ||
+          context.conditional || context.decider || !effect.optional || subject.ref !== "copy-result" ||
+          copy.result.cardinality !== (subject.number === "singular" ? "one" : "many")) return false;
+      const rules = ["115.7d", "115.7e", "115.7f", "707.10c"];
+      this.player(effect.who, whoPath, context);
+      this.bound(subject, whatPath, copy.result.id, rules);
+      this.node({ id: this.id(path, "stack-instruction"), path, node: "stack-instruction", scope: context.ability,
+        subject: copy.result.id, chooser: copy.chooser,
+        action: { kind: "choose-new-targets", timing: "copy-creation", copyEvent: copy.event }, rules });
+      context.stackCopies = [{ ...copy, inlineRetarget: true }];
+      return true;
+    }
+
+    if (effect.effect === "change-text") {
+      if (subject.ref !== "target" || objectCardinality(subject) !== "one" ||
+          !effect.replacements.length || effect.optional) return false;
+      const candidate = this.object(subject, whatPath, context);
+      if (!candidate) return false;
+      this.player(effect.who, whoPath, context);
+      const rules = ["608.2d", "611.2a", "612.1", "612.2", "613.1c"];
+      this.node({ id: this.id(path, "text-choice"), path, node: "text-choice", scope: context.ability,
+        subject: candidate.id, chooser: context.you, replacements: effect.replacements, rules });
+      this.engineFeature("text-change", path, "Choose the printed word replacement and apply it only where the word has the chosen rules meaning.", rules);
+      context.objects = combine(context.objects, [candidate]);
+      return true;
+    }
+
+    const stack = subject.ref === "target" ? stackClasses(subject.filter)
+      : subject.ref === "this" && subject.noun === "spell" && context.spellAbility ? "spell"
+      : subject.ref === "trigger-event-object" && context.triggerObject?.event === subject.event
+        ? subject.event === "cast" ? "spell" : "ability" : undefined;
+    if (!stack || objectCardinality(subject) !== "one") return false;
+    if (effect.effect === "change-targets" && (effect.to || effect.newTarget)) return false;
+    if (effect.effect === "copy-stack-object" && (effect.copyExceptions || effect.copyGrant ||
+        effect.count.amount !== "fixed" || !Number.isSafeInteger(effect.count.value) || effect.count.value < 1 ||
+        (effect.retarget && (effect.retarget.who.player !== "you" || !effect.retarget.optional)))) return false;
+
+    const candidate = this.object(subject, whatPath, context);
+    if (!candidate) return false;
+    const chooser = this.player(effect.who, whoPath, context)!;
+    if (effect.optional) {
+      this.beforeDecision.set(path, context.objects);
+      context.decisions?.push(path);
+    }
+    context.objects = combine(context.objects, [candidate]);
+    const at = this.id(path, "stack-instruction");
+    const scope = context.ability;
+    const event = this.event(path, context, effect.effect, [candidate, chooser], {
+      ...(effect.optional || context.decider ? { optional: true as const, decider: context.decider ?? chooser.id } : {}),
+      ...(context.conditional ? { conditional: true as const } : {}),
+    });
+    if (effect.effect === "copy-stack-object" && effect.count.amount === "fixed") {
+      const rules = ["707.10", "707.10b", "707.10c", "707.10f"];
+      const count = effect.count.value;
+      if (effect.retarget) this.player(effect.retarget.who, `${path}/retarget/who`, context);
+      const result = this.eventResult(path, event, "objects", count === 1 ? "one" : "many", "new-objects",
+        stack === "spell-or-ability" ? undefined : { cls: stack });
+      this.node({ id: at, path, node: "stack-instruction", scope, subject: candidate.id, chooser: chooser.id,
+        action: { kind: "copy", event, count, retarget: Boolean(effect.retarget) }, rules });
+      // The copy is not the original. A later bare pronoun with both in
+      // scope is ambiguous; an explicit copy-result has its own capture.
+      context.objects = combine(context.objects, [result]);
+      context.quantities = combine(context.quantities,
+        [this.eventResult(child(path, "count"), event, "quantity", "one", "measured-quantity")]);
+      context.stackCopies = [...(context.stackCopies ?? []), { event, result, chooser: chooser.id, inlineRetarget: Boolean(effect.retarget) }];
+      this.engineFeature("stack-instruction", path, "Create copies on the stack with inherited choices and the original ability source. Apply printed retargeting during creation.", rules);
+    } else if (effect.effect === "change-targets" || effect.effect === "choose-new-targets") {
+      const rules = [effect.effect === "choose-new-targets" ? "115.7d" :
+        effect.scope === "all" ? "115.7a" : effect.scope === "one" ? "115.7b" : "115.7c", "115.7e", "115.7f"];
+      this.node({ id: at, path, node: "stack-instruction", scope, subject: candidate.id, chooser: chooser.id,
+        action: effect.effect === "change-targets" ? { kind: effect.effect, scope: effect.scope }
+          : { kind: effect.effect, timing: "resolution" }, rules });
+      this.engineFeature("stack-instruction", path, "Apply the printed target-change procedure to the bound stack object, preserving modes and division.", rules);
+    }
+    return true;
+  }
   effect(effect: Effect, path: string, context: Context): void {
+    if ((effect.effect === "copy-stack-object" || effect.effect === "change-targets" ||
+        effect.effect === "choose-new-targets" || effect.effect === "change-text") &&
+        this.stackInstruction(effect, path, context)) return;
     if (effect.effect === "grant-cast-keyword") {
       const caster = this.player(effect.caster, child(path, "caster"), context);
       const from = child(path, "from");
@@ -2640,7 +2780,13 @@ class Analyzer {
       return;
     }
     const match = { ...context, phase: "trigger-match" as const };
-    this.walk(trigger, path, match);
+    if (!context.barrier && trigger.trigger === "cast" && trigger.from?.owner === "their" &&
+        (trigger.who?.player === "a-player" || trigger.who?.player === "an-opponent")) {
+      // The origin is the casting player's zone at the matched occurrence.
+      // Another trigger or a later pronoun cannot supply this role (CR 603.2c).
+      match.actor = this.player(trigger.who, child(path, "who"), { ...match, eventPredicate: true });
+      for (const [key, value] of Object.entries(trigger)) if (key !== "who") this.walk(value, child(path, key), match);
+    } else this.walk(trigger, path, match);
     const objects: Candidate[] = [];
     if ("what" in trigger && trigger.what && "ref" in trigger.what) {
       const what = this.at(child(path, "what"));

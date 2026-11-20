@@ -129,6 +129,15 @@ export type BindingNode = NodeBase & (
   /** CR 122.2, 122.6, 603.2c: a matched counter change, grouped by its one recipient. */
   | { node: "counter-change-match"; scope: string; event: string;
       pattern: Extract<Trigger, { trigger: "counter-change" }>; recipients: string[]; actor?: string }
+  /** CR 115.7, 707.10: operate on one exact stack object or on copies as they are created. */
+  | { node: "stack-instruction"; scope: string; subject: string; chooser: string;
+      action: { kind: "copy"; event: string; count: number; retarget: boolean }
+        | { kind: "change-targets"; scope: "all" | "one" | "any" }
+        | { kind: "choose-new-targets"; timing: "resolution" | "copy-creation"; copyEvent?: string } }
+  | { node: "private-library-look"; scope: string; viewer: string; libraryOwner: string;
+      refresh: "after-announcement-or-special-action" }
+  | { node: "text-choice"; scope: string; subject: string; chooser: string;
+      replacements: Extract<Effect, { effect: "change-text" }>["replacements"] }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
@@ -177,7 +186,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
