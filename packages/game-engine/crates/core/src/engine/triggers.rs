@@ -50,11 +50,12 @@ pub struct CastOccurrenceId {
 }
 /// Semantic successful-cast ledger, independent of observers and tracing.
 /// Original physical seats never compact on departure (CR 601.2i/800.4).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TurnCastHistory {
     pub(super) any_cast: bool,
     pub(super) exile_cast: bool,
+    pub(super) mana_value: Quantity,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -687,6 +688,9 @@ impl Game {
         // Inside the full collector transaction, including the zero-match case.
         // Never consume on proposal, failed payment or a failed sibling batch.
         if let TriggerEventWitness::SpellCast { cast } = &witness {
+            // CR 202.3e, 608.2i: measure mana value on the stack with paid X,
+            // independently of costs and the card's later zone.
+            let mana_value = self.stack_mana_value(self.top()?)?;
             let row = self
                 .state
                 .rules
@@ -695,6 +699,7 @@ impl Game {
                 .ok_or("invalid cast history seat")?;
             row.any_cast = true;
             row.exile_cast |= cast.cast_from == Zone::Exile;
+            row.mana_value.add(&mana_value);
         }
         let dies = witness.dies();
         let enters = witness.enters();

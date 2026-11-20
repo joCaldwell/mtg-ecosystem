@@ -312,6 +312,12 @@ impl Game {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<(), String> {
+        if self.has_granted_land_mana(object)? {
+            if self.reserved_mana_source(object) {
+                return Err("reserved granted mana source".into());
+            }
+            return self.mixed_mana_choices(player, object).map(|_| ());
+        }
         if self.is_permanent_mana(object) {
             return self.validate_permanent_mana_activation(player, object);
         }
@@ -332,6 +338,16 @@ impl Game {
         color: Color,
     ) -> Result<ManaActivationUndo, String> {
         self.validate_intrinsic_choice(input.player, object, color)?;
+        self.commit_unrestricted_tap_mana(input, object, color)
+    }
+
+    /// Called only after binding a concrete intrinsic or granted ability.
+    pub(super) fn commit_unrestricted_tap_mana(
+        &mut self,
+        input: &AcceptedInput,
+        object: ObjectId,
+        color: Color,
+    ) -> Result<ManaActivationUndo, String> {
         let receipt = ManaActivationUndo {
             permanent: None,
             object,

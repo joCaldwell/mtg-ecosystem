@@ -34,9 +34,10 @@ pub(super) enum CastCompletion {
     },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum CascadeStage {
     Scan,
+    LandOffer { provider: ObjectId },
     Offer,
     Randomize,
     Bottom,
@@ -44,13 +45,21 @@ pub(super) enum CascadeStage {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct CascadeLandChoice {
+    provider: ObjectId,
+    entered: Option<ObjectId>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct CascadeProgress {
     pub(super) frame: Resolving,
-    source_block: u32,
+    pub(super) source_block: u32,
     threshold: Quantity,
     pub(super) stage: CascadeStage,
     exiled: Vec<ObjectId>,
     hit: Option<ObjectId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    land_choices: Vec<CascadeLandChoice>,
     pub(super) child: Option<StackId>,
     remainder: Vec<ObjectId>,
     permutation: Vec<u32>,
@@ -119,6 +128,7 @@ impl Game {
             stage: CascadeStage::Scan,
             exiled: vec![],
             hit: None,
+            land_choices: vec![],
             child: None,
             remainder: vec![],
             permutation: vec![],
@@ -221,10 +231,154 @@ impl Game {
             Ok(Frame::Mana { cast })
         }
     }
+    // CR 702.85b, 608.2c, 110.2a, 614.12. The provider modifies the
+    // resolving cascade after its scan, even when there is no castable card.
+    // https://magic.wizards.com/en/news/feature/commander-legends-release-notes-2020-11-06
+    fn cascade_land_ability(
+        &self,
+        object: &Object,
+        controller: PlayerId,
+    ) -> Result<Option<u32>, String> {
+        if object.zone != Zone::Battlefield
+            || object.controller != controller
+            || !self.is_live(controller)
+        {
+            return Ok(None);
+        }
+        self.definition(object.id.card)?
+            .static_abilities
+            .iter()
+            .position(|a| {
+                a.functioning_zone == FunctioningZone::Battlefield
+                    && matches!(a.effect, StaticEffect::CascadeLandEntry)
+            })
+            .map(|i| u32::try_from(i).map_err(|_| "static ability index limit".into()))
+            .transpose()
+    }
+    pub(super) fn cascade_land_source(
+        &self,
+        progress: &CascadeProgress,
+    ) -> Result<Option<EffectKey>, String> {
+        let CascadeStage::LandOffer { provider } = progress.stage else {
+            return Ok(None);
+        };
+        let Ok(object) = self.current(provider) else {
+            return Ok(None);
+        };
+        Ok(self
+            .cascade_land_ability(object, progress.caster())?
+            .map(|ability| EffectKey::Static {
+                source: provider,
+                ability,
+            }))
+    }
+    fn cascade_exiled_land(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(self.current(object).is_ok_and(|o| o.zone == Zone::Exile)
+            && self
+                .definition(object.card)?
+                .characteristics
+                .has_type(CardKind::Land))
+    }
+    pub(super) fn cascade_land_available(
+        &self,
+        progress: &CascadeProgress,
+        object: ObjectId,
+    ) -> Result<bool, String> {
+        Ok(self.cascade_land_source(progress)?.is_some()
+            && progress.exiled.contains(&object)
+            && self.cascade_exiled_land(object)?)
+    }
+    fn next_cascade_offer(&self, progress: &mut CascadeProgress) -> Result<(), String> {
+        // Each live instance grants the same optional action. A concession can
+        // change controllers before state-based actions check the legend rule.
+        for object in self.state.rules.objects.values() {
+            if !progress
+                .land_choices
+                .iter()
+                .any(|choice| choice.provider == object.id)
+                && self
+                    .cascade_land_ability(object, progress.caster())?
+                    .is_some()
+            {
+                for &id in &progress.exiled {
+                    if self.cascade_exiled_land(id)? {
+                        progress.stage = CascadeStage::LandOffer {
+                            provider: object.id,
+                        };
+                        return Ok(());
+                    }
+                }
+                break;
+            }
+        }
+        if progress.hit.is_some() {
+            progress.stage = CascadeStage::Offer;
+        } else {
+            progress.stage = CascadeStage::Randomize;
+            self.prepare_cascade_remainder(progress)?;
+        }
+        Ok(())
+    }
+    pub(super) fn resume_cascade_land(
+        &mut self,
+        mut progress: Box<CascadeProgress>,
+        entered: Option<ObjectId>,
+    ) -> Result<(), String> {
+        let CascadeStage::LandOffer { provider } = progress.stage else {
+            return Err("missing cascade land provider".into());
+        };
+        progress
+            .land_choices
+            .push(CascadeLandChoice { provider, entered });
+        self.next_cascade_offer(&mut progress)?;
+        self.state.rules.frame = Frame::Cascade { progress };
+        Ok(())
+    }
+    // The public query walks this cascade's publicly observed scan in order.
+    pub(super) fn cascade_land_query_len(&self) -> usize {
+        match &self.state.rules.frame {
+            Frame::Cascade { progress } => progress.exiled.len(),
+            _ => 0,
+        }
+    }
+    pub(super) fn cascade_land_query_row(
+        &self,
+        viewer: PlayerId,
+        index: usize,
+    ) -> Result<Option<ObjectHandle>, String> {
+        let Frame::Cascade { progress } = &self.state.rules.frame else {
+            return Ok(None);
+        };
+        if viewer == progress.caster()
+            && let Some(&object) = progress.exiled.get(index)
+            && self.cascade_exiled_land(object)?
+        {
+            return self.handle_for(viewer, object).map(Some);
+        }
+        Ok(None)
+    }
     pub(super) fn cascade_request(&self) -> Result<Option<Request>, String> {
         let Frame::Cascade { progress } = &self.state.rules.frame else {
             return Ok(None);
         };
+        if matches!(progress.stage, CascadeStage::LandOffer { .. }) {
+            if self.cascade_land_source(progress)?.is_none() {
+                return Ok(None);
+            }
+            let mut candidates = vec![];
+            for &object in &progress.exiled {
+                if self.cascade_exiled_land(object)? {
+                    candidates.push(object);
+                }
+            }
+            return Ok(
+                (!candidates.is_empty()).then_some(Request::CascadeLandEntry {
+                    decision_id: self.state.rules.revision,
+                    player: progress.caster(),
+                    candidates,
+                }),
+            );
+        }
         Ok((self.is_live(progress.caster())
             && progress.stage == CascadeStage::Offer
             && self.cascade_offer_legal(progress)?)
@@ -239,6 +393,21 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Result<(), String> {
+        if let Response::CascadeLandEntry { object } = response {
+            let Some(Request::CascadeLandEntry {
+                player: chooser,
+                candidates,
+                ..
+            }) = self.cascade_request()?
+            else {
+                return Err("no cascade land offer".into());
+            };
+            return if player == chooser && object.is_none_or(|id| candidates.contains(&id)) {
+                Ok(())
+            } else {
+                Err("invalid cascade land choice".into())
+            };
+        }
         if player != progress.caster() || !matches!(response, Response::OptionalEffect { .. }) {
             return Err("cascade offer belongs only to its caster".into());
         }
@@ -288,12 +457,35 @@ impl Game {
                     progress.exiled.push(successor);
                     if self.cascade_hit(successor, &progress.threshold)? {
                         progress.hit = Some(successor);
-                        progress.stage = CascadeStage::Offer;
+                        self.next_cascade_offer(&mut progress)?;
                     }
                 } else {
-                    progress.stage = CascadeStage::Randomize;
-                    self.prepare_cascade_remainder(&mut progress)?;
+                    self.next_cascade_offer(&mut progress)?;
                 }
+            }
+            CascadeStage::LandOffer { .. } => {
+                if let Some(input) = self.state.rules.pending.take() {
+                    let Response::CascadeLandEntry { object } = input.response else {
+                        return Err("cascade land response shape invariant".into());
+                    };
+                    if input.player != progress.caster() {
+                        return Err("cascade land chooser invariant".into());
+                    }
+                    if let Some(object) = object
+                        && self.cascade_land_available(&progress, object)?
+                    {
+                        self.begin_land_entry(
+                            EntryOrigin::Cascade {
+                                progress: Box::new(progress),
+                            },
+                            vec![object],
+                        )?;
+                        return Ok(());
+                    }
+                } else if self.cascade_request()?.is_some() {
+                    return Err("missing accepted cascade land choice".into());
+                }
+                return self.resume_cascade_land(Box::new(progress), None);
             }
             CascadeStage::Offer => {
                 let permission = progress.permission()?;
@@ -450,6 +642,13 @@ impl Game {
         let Frame::Cascade { progress } = &self.state.rules.frame else {
             return Ok(());
         };
+        if matches!(progress.stage, CascadeStage::LandOffer { .. })
+            && self.is_live(progress.caster())
+            && self.cascade_request()?.is_none()
+        {
+            self.state.rules.pending = None;
+            return self.resume_cascade_land(progress.clone(), None);
+        }
         if progress.stage == CascadeStage::Offer
             && self.is_live(progress.caster())
             && self.state.rules.pending.as_ref().is_some_and(|input| {
@@ -499,7 +698,11 @@ impl Game {
         let (progress, permission, announcing) = match self
             .underlying_mana_frame(&self.state.rules.frame)
         {
-            Frame::Cascade { progress } => (progress.as_ref(), None, false),
+            Frame::Cascade { progress }
+            | Frame::LandEntry {
+                origin: EntryOrigin::Cascade { progress },
+                ..
+            } => (progress.as_ref(), None, false),
             Frame::AdditionalCosts { cast }
             | Frame::AnnounceX { cast }
             | Frame::Modes { cast }
@@ -580,7 +783,70 @@ impl Game {
         {
             return Err("snapshot cascade source/progress invariant".into());
         }
-        if matches!(progress.stage, CascadeStage::Scan | CascadeStage::Offer) {
+        let mut used_providers = BTreeSet::new();
+        let mut entered_lands = BTreeSet::new();
+        if progress.land_choices.len() > self.state.rules.cards.len()
+            || (progress.stage == CascadeStage::Scan && !progress.land_choices.is_empty())
+        {
+            return Err("snapshot cascade land choice bound/stage".into());
+        }
+        for choice in &progress.land_choices {
+            if !used_providers.insert(choice.provider)
+                || !self
+                    .definition(choice.provider.card)?
+                    .static_abilities
+                    .iter()
+                    .any(|a| {
+                        a.functioning_zone == FunctioningZone::Battlefield
+                            && matches!(a.effect, StaticEffect::CascadeLandEntry)
+                    })
+            {
+                return Err("snapshot cascade land provider invariant".into());
+            }
+            let Some(land) = choice.entered else {
+                continue;
+            };
+            // The free child may subsequently tap or sacrifice this permanent.
+            // Check the first successor while it exists and retain the old exile ID.
+            if !entered_lands.insert(land)
+                || !progress.exiled.contains(&land)
+                || !self
+                    .definition(land.card)?
+                    .characteristics
+                    .has_type(CardKind::Land)
+                || self.is_live(progress.caster())
+                    && self.state.rules.objects.get(&land.card).is_none_or(|o| {
+                        o.id.incarnation <= land.incarnation
+                            || land.incarnation.checked_add(1) == Some(o.id.incarnation)
+                                && (o.zone != Zone::Battlefield
+                                    || o.default_controller != progress.caster())
+                    })
+            {
+                return Err("snapshot cascade entered land invariant".into());
+            }
+        }
+        if let CascadeStage::LandOffer { provider } = progress.stage
+            && self.is_live(progress.caster())
+            && (used_providers.contains(&provider)
+                || self.cascade_land_source(progress)?.is_none()
+                || !progress
+                    .exiled
+                    .iter()
+                    .any(|id| self.cascade_exiled_land(*id) == Ok(true))
+                || progress.hit.is_none()
+                    && self
+                        .state
+                        .rules
+                        .libraries
+                        .get(&progress.caster())
+                        .is_some_and(|l| !l.is_empty()))
+        {
+            return Err("snapshot cascade land offer source/scan invariant".into());
+        }
+        if matches!(
+            progress.stage,
+            CascadeStage::Scan | CascadeStage::LandOffer { .. } | CascadeStage::Offer
+        ) {
             if !progress.remainder.is_empty()
                 || progress.random_index != 0
                 || progress.commander_cursor != 0
@@ -593,7 +859,7 @@ impl Game {
                 return Err("snapshot cascade scan/offer invariant".into());
             }
             for x in &progress.exiled {
-                if announcing && Some(*x) == progress.hit {
+                if entered_lands.contains(x) || announcing && Some(*x) == progress.hit {
                     continue;
                 }
                 if self.is_live(progress.caster()) && self.current(*x)?.zone != Zone::Exile {
@@ -605,7 +871,10 @@ impl Game {
                 .exiled
                 .iter()
                 .copied()
-                .filter(|x| !(progress.child.is_some() && Some(*x) == progress.hit))
+                .filter(|x| {
+                    !entered_lands.contains(x)
+                        && !(progress.child.is_some() && Some(*x) == progress.hit)
+                })
                 .collect::<Vec<_>>();
             let mut sorted = progress.permutation.clone();
             sorted.sort_unstable();

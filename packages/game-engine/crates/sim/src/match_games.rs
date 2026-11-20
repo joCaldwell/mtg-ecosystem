@@ -146,9 +146,11 @@ impl Strategy<'_> {
             },
             PlayerRequest::ChooseManaAbility { choices, .. } => {
                 let desired = self.mana_color;
-                let ability=choices.iter().find(|choice| matches!(choice,mtg_core::ManaAbilityIdentity::Intrinsic{color} if Some(*color)==desired))
+                use mtg_core::ManaAbilityIdentity::{GrantedLandTap, Intrinsic};
+                let ability = choices.iter().find(|choice|
+                    matches!(choice, Intrinsic { color } | GrantedLandTap { color } if Some(*color)==desired))
                     .or_else(||choices.first()).copied().ok_or("empty mana ability choices")?;
-                if matches!(ability, mtg_core::ManaAbilityIdentity::Intrinsic { .. }) {
+                if matches!(ability, Intrinsic { .. } | GrantedLandTap { .. }) {
                     self.mana_color = None;
                 }
                 PlayerResponse::ChooseManaAbility { ability }
@@ -161,6 +163,9 @@ impl Strategy<'_> {
                     .or_else(|| colors.first().copied())
                     .ok_or("empty mana colors")?,
             },
+            PlayerRequest::CascadeLandEntry { .. } => {
+                return Err("cascade land entry outside this policy admission".into());
+            }
             PlayerRequest::SearchLandBattlefield { candidates, .. } => {
                 PlayerResponse::SearchLandBattlefield {
                     object: candidates
@@ -169,6 +174,9 @@ impl Strategy<'_> {
                         .ok_or("empty revealed land partition")?,
                 }
             }
+            PlayerRequest::ColoredSearch { .. } => PlayerResponse::ColoredSearch {
+                assignments: vec![],
+            },
             PlayerRequest::SearchLands {
                 maximum,
                 candidates,

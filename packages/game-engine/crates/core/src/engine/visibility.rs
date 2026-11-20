@@ -193,6 +193,8 @@ pub struct KnownLibraryPosition {
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_searched_hand: Vec<(PlayerId, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
@@ -293,10 +295,22 @@ pub enum PlayerRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana_ability_source: Option<ObjectHandle>,
     },
+    CascadeLandEntry {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     SearchLandBattlefield {
         token: DecisionToken,
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
+    },
+    ColoredSearch {
+        token: DecisionToken,
+        player: PlayerId,
+        library: Vec<String>,
+        colors: Vec<Color>,
+        candidates: Vec<ColoredCardCandidate>,
     },
     SearchLands {
         token: DecisionToken,
@@ -473,7 +487,9 @@ impl PlayerRequest {
             Self::LegendRule { token, .. }
             | Self::ChooseManaAbility { token, .. }
             | Self::ManaColor { token, .. }
+            | Self::ColoredSearch { token, .. }
             | Self::SearchLands { token, .. }
+            | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
@@ -556,8 +572,14 @@ pub enum PlayerResponse {
     ManaColor {
         color: Color,
     },
+    ColoredSearch {
+        assignments: Vec<ColoredCardAssignment>,
+    },
     SearchLands {
         objects: Vec<ObjectHandle>,
+    },
+    CascadeLandEntry {
+        object: Option<ObjectHandle>,
     },
     SearchLandBattlefield {
         object: ObjectHandle,
@@ -724,6 +746,8 @@ impl ObjectHandles {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(super) revealed_hand: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(super) public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -948,6 +972,10 @@ impl Game {
         if matches!(&self.state.rules.frame,
             Frame::ResolutionChoice { choice: ResolutionChoice::SearchSplit { objects, .. }, .. }
             if objects.contains(&object.id))
+        {
+            return true;
+        }
+        if matches!(&self.state.rules.frame, Frame::ResolutionChoice{choice:ResolutionChoice::ColoredSearch{revealed:Some(cards),..},..} if cards.iter().any(|(_,id)|*id==object.id))
         {
             return true;
         }
@@ -1280,6 +1308,7 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            known_searched_hand: self.publicly_searched_hand(viewer)?,
             known_library_positions: self.known_library_positions(viewer)?,
             sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
                 &self.state.rules.frame
@@ -1497,10 +1526,21 @@ impl Game {
                 }),
             );
         }
-        if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
-            return Ok(
-                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
-            );
+        if let Some(request) = self.cascade_request()? {
+            if request.player() != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(match request {
+                Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
+                    token,
+                    player,
+                    candidates: vec![],
+                },
+                Request::OptionalEffect { player, .. } => {
+                    PlayerRequest::OptionalEffect { token, player }
+                }
+                _ => return Err("unknown cascade decision".into()),
+            }));
         }
         if let Some(Request::Modes {
             player,
@@ -1645,6 +1685,18 @@ impl Game {
                     token,
                     player: viewer,
                     candidates: vec![],
+                },
+                Request::ColoredSearch {
+                    library,
+                    colors,
+                    candidates,
+                    ..
+                } => PlayerRequest::ColoredSearch {
+                    token,
+                    player: viewer,
+                    library,
+                    colors,
+                    candidates,
                 },
                 Request::SearchLands {
                     maximum,
@@ -2099,11 +2151,15 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 45))
-            } else if self
-                .cascade_request()?
-                .is_some_and(|r| r.player() == viewer)
+            } else if let Some(request) = self.cascade_request()?
+                && request.player() == viewer
             {
-                Some((self.state.rules.revision, 22))
+                let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
+                    23
+                } else {
+                    22
+                };
+                Some((self.state.rules.revision, kind))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
                 Some((self.state.rules.revision, 13))
             } else if self
@@ -2407,11 +2463,20 @@ impl Game {
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
             }),
+            PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
+                object: object
+                    .as_ref()
+                    .map(|handle| self.resolve_handle(viewer, handle))
+                    .transpose()?,
+            }),
             PlayerResponse::SearchLandBattlefield { object } => {
                 Ok(Response::SearchLandBattlefield {
                     object: self.resolve_handle(viewer, object)?,
                 })
             }
+            PlayerResponse::ColoredSearch { assignments } => Ok(Response::ColoredSearch {
+                assignments: assignments.clone(),
+            }),
             PlayerResponse::SearchLands { objects } => Ok(Response::SearchLands {
                 objects: objects
                     .iter()

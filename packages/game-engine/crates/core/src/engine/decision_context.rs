@@ -93,7 +93,11 @@ impl Game {
                 oracle_id: definition.oracle_id.clone(),
                 object: Some(self.handle_for(viewer, object).ok()?),
                 ability: None,
-                text: format!("Tap: Add {symbols}. (Intrinsic basic land mana ability.)"),
+                text: if self.has_granted_land_mana(object).unwrap_or(false) {
+                    format!("Tap: Add {symbols}. (Available land mana abilities.)")
+                } else {
+                    format!("Tap: Add {symbols}. (Intrinsic basic land mana ability.)")
+                },
             });
         }
         let labels = definition.source_labels.as_ref()?;
@@ -170,6 +174,12 @@ impl Game {
         request: Option<&PlayerRequest>,
     ) -> Option<DecisionContext> {
         let request = request?;
+        if let PlayerRequest::CascadeLandEntry { .. } = request
+            && let Frame::Cascade { progress } = &self.state.rules.frame
+        {
+            return self
+                .effect_decision_context(viewer, &self.cascade_land_source(progress).ok()??);
+        }
         if let Some((player, source, ability)) = self.land_entry_offer().ok()? {
             return (player == viewer)
                 .then(|| {

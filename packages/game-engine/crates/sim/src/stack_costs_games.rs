@@ -283,7 +283,9 @@ impl Strategy {
             }
             PlayerRequest::ChooseManaAbility { .. }
             | PlayerRequest::ManaColor { .. }
+            | PlayerRequest::ColoredSearch { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::CascadeLandEntry { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {

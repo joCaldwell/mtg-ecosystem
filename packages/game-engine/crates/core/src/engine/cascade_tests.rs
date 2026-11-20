@@ -294,6 +294,103 @@ fn offer(g: &mut Game) {
     }
     panic!("offer not reached");
 }
+
+#[test]
+fn cast_mana_value_sweep_counts_paid_and_free_casts_at_resolution() {
+    let mut prepared = prepared("Grizzly Bears", &["Sol Ring", "Wall of Wood"]);
+    let wounded = m4a_tests::replace(
+        &mut prepared,
+        PlayerId(1),
+        "Wall of Wood",
+        Zone::Battlefield,
+    );
+    let caster = PlayerId(0);
+    let archive = std::env::var_os("MTG_CAST_MANA_VALUE_SWEEP_ARCHIVE_PROBE")
+        .map(|path| std::fs::read_to_string(path).expect("read the pinned one-record archive"));
+    if let Some(archive) = &archive {
+        let mut lines = archive.lines();
+        let manifest = lines.next().unwrap();
+        let record = lines.next().unwrap();
+        assert!(lines.next().is_none());
+        assert_eq!(
+            mtg_contracts::sha256(record.as_bytes()),
+            "2df6ba718258e19da7296786458c8f24f3bf56421272b6e15a63b4baea44a4ab",
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } =
+            mtg_compiler::compile(manifest, record)
+        else {
+            panic!("the exact source must lower");
+        };
+        let catalog = Arc::make_mut(&mut prepared.catalog);
+        catalog.definitions.push(*definition);
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog.validate().unwrap();
+        prepared.catalog_digest = digest(catalog).unwrap();
+        m4a_tests::replace(
+            &mut prepared,
+            caster,
+            "Call Forth the Tempest",
+            Zone::Hand { owner: caster },
+        );
+        for _ in 0..3 {
+            m4a_tests::replace(&mut prepared, caster, "Mountain", Zone::Battlefield);
+        }
+    }
+    prepared.profile_digest = digest(&prepared.config).unwrap();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let prior = paid(&mut game, "Grizzly Bears");
+    let own_creature = game.top().unwrap().source.card;
+    m4a_tests::resolve_entry(&mut game, prior);
+    assert_eq!(game.state.rules.cast_history[0].mana_value, 2.into());
+    if archive.is_none() {
+        // The ordinary paid ledger witness runs even without the private archive.
+        prove(&game);
+        return;
+    }
+    let original = paid(&mut game, "Call Forth the Tempest");
+    assert_eq!(game.state.rules.cast_history[0].mana_value, 10.into());
+    for _ in 0..2 {
+        offer(&mut game);
+        answer(&mut game, Response::OptionalEffect { perform: true });
+        assert!(matches!(request(&mut game), Request::Priority { .. }));
+        let child = game.top().unwrap();
+        assert_eq!(child.cast_from, Zone::Exile);
+        assert_eq!(child.paid.as_ref(), Some(&zero_mana_cost()));
+        assert_eq!(game.stack_mana_value(child).unwrap(), 1.into());
+        let child_id = child.id;
+        m4a_tests::resolve_entry(&mut game, child_id);
+    }
+    assert_eq!(game.state.rules.cast_history[0].mana_value, 12.into());
+    let mut restored =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+    m4a_tests::resolve_entry(&mut game, original);
+    m4a_tests::resolve_entry(&mut restored, original);
+    assert_eq!(game.state, restored.state);
+    assert_eq!(game.trace, restored.trace);
+    assert_eq!(
+        game.state.rules.objects[&own_creature].zone,
+        Zone::Battlefield
+    );
+    assert_eq!(
+        game.state.rules.objects[&wounded].zone,
+        Zone::Graveyard { owner: PlayerId(1) }
+    );
+    let damage = game.trace.records.iter().find_map(|record| {
+        let EvidenceRecord::Batch { batch } = &record.record else { return None };
+        if !matches!(batch.cause, BatchCause::Instruction { stack_id, source_block: 1, .. } if stack_id == original) {
+            return None;
+        }
+        batch.occurrences.iter().find_map(|r| match &r.actual {
+            EventOutcome::DamageCommitted { actual, .. } => Some(actual),
+            _ => None,
+        })
+    }).expect("damage from the original spell");
+    assert_eq!(damage.len(), 1);
+    assert_eq!(damage[0].amount, 4.into());
+}
+
 #[test]
 fn cascade_paid_original_free_creature_exact_parent_and_replay() {
     for raw_name in ["Shardless Agent", "Bloodbraid Elf"] {
@@ -1670,5 +1767,183 @@ fn cascade_complete_opt_child_scry_draw_preserves_original_and_private_recovery(
         assert_eq!(drawn.zone, Zone::Hand { owner: PlayerId(0) });
         assert_ne!(drawn.id, looked);
         prove(&g);
+    }
+}
+
+#[test]
+#[ignore = "requires the frozen one-card MTG_CASCADE_LAND_ENTRY_ARCHIVE_PROBE"]
+fn cascade_land_entry_paid_averna_before_hit_or_bottom() {
+    let archive = std::fs::read_to_string(
+        std::env::var_os("MTG_CASCADE_LAND_ENTRY_ARCHIVE_PROBE").expect("external Averna sheet"),
+    )
+    .unwrap();
+    assert_eq!(
+        mtg_contracts::sha256(archive.as_bytes()),
+        "77f05799c86e9b978130d58909100259cdca766cafedab30b7f8483826e92c4c"
+    );
+    let mut lines = archive.lines();
+    let manifest = lines.next().unwrap();
+    let row = lines.next().unwrap();
+    assert_eq!(
+        mtg_contracts::sha256(row.as_bytes()),
+        "5472a36613d5d9a84db4d240c6e244a1da42ec3c5a0daa2f30613326c059ae46"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(manifest, row)
+    else {
+        panic!("complete Averna source must lower");
+    };
+    let player = PlayerId(0);
+    for hit in [true, false] {
+        let mut library = vec!["Forest", "Island"];
+        if hit {
+            library.push("Sol Ring");
+        }
+        let mut p = prepared("Shardless Agent", &library);
+        let c = Arc::make_mut(&mut p.catalog);
+        c.definitions.push((*definition).clone());
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        p.catalog_digest = digest(c).unwrap();
+        m4a_tests::replace(
+            &mut p,
+            player,
+            &definition.name,
+            Zone::Hand { owner: player },
+        );
+        let unrelated = m4a_tests::replace(&mut p, player, "Forest", Zone::Exile);
+        p.profile_digest = digest(&p.config).unwrap();
+
+        let mut g = Game::with_trace(p, TraceMode::Off);
+        let hand_land = g
+            .state
+            .rules
+            .objects
+            .values()
+            .find(|o| {
+                o.zone == (Zone::Hand { owner: player })
+                    && g.definition(o.id.card).unwrap().name == "Forest"
+            })
+            .unwrap()
+            .id
+            .card;
+        answer(&mut g, Response::PlayLand { card: hand_land });
+        let averna = paid(&mut g, &definition.name);
+        m4a_tests::resolve_entry(&mut g, averna);
+        let original = paid(&mut g, "Shardless Agent");
+        let parent = g.top().unwrap().id;
+        for _ in 0..4 {
+            answer(&mut g, Response::Pass);
+        }
+        let Request::CascadeLandEntry {
+            candidates: lands, ..
+        } = request(&mut g)
+        else {
+            panic!("land offer immediately after the scan")
+        };
+        assert_eq!(lands.len(), 2);
+        assert_eq!(g.definition(lands[0].card).unwrap().name, "Forest");
+        let QueryResult::Complete(QueryValue::Observation(observation)) =
+            g.observe(player, Budget::unlimited())
+        else {
+            panic!("complete land observation")
+        };
+        let QueryResult::Incomplete { work, .. } = g.player_decision_for(player, Budget::new(2))
+        else {
+            panic!("one reconstructed choice row expected")
+        };
+        let saved = g.save_work(&work).unwrap();
+        let QueryResult::Complete(QueryValue::Decision(decision)) =
+            g.resume_work(g.restore_work(&saved).unwrap(), Budget::unlimited())
+        else {
+            panic!("complete restored land decision")
+        };
+        assert_eq!(observation.decision, decision);
+        assert!(observation.view.priority.is_none());
+        let Some(PlayerRequest::CascadeLandEntry {
+            token, candidates, ..
+        }) = decision
+        else {
+            panic!("public land offer")
+        };
+        assert_eq!(
+            candidates,
+            lands
+                .iter()
+                .map(|o| g.handle_for(player, *o).unwrap())
+                .collect::<Vec<_>>()
+        );
+        if hit {
+            let mut decline = g.fork();
+            answer(&mut decline, Response::CascadeLandEntry { object: None });
+            assert!(matches!(
+                request(&mut decline),
+                Request::OptionalEffect { .. }
+            ));
+            assert!(
+                lands
+                    .iter()
+                    .all(|id| decline.current(*id).unwrap().zone == Zone::Exile)
+            );
+        }
+        let foreign = g
+            .handle_for(player, g.object_id(unrelated).unwrap())
+            .unwrap();
+        assert!(matches!(
+            g.check_player_response(
+                player,
+                token.clone(),
+                PlayerResponse::CascadeLandEntry {
+                    object: Some(foreign)
+                },
+                Budget::unlimited()
+            ),
+            QueryResult::Rejected(_)
+        ));
+        let QueryResult::Complete(QueryValue::Validated(choice)) = g.check_player_response(
+            player,
+            token.clone(),
+            PlayerResponse::CascadeLandEntry {
+                object: Some(candidates[0].clone()),
+            },
+            Budget::unlimited(),
+        ) else {
+            panic!("accepted exact public land")
+        };
+        g.submit(choice).unwrap();
+        if hit {
+            assert!(matches!(request(&mut g), Request::OptionalEffect { .. }));
+            assert!(matches!(
+                g.check_player_response(
+                    player,
+                    token,
+                    PlayerResponse::OptionalEffect { perform: true },
+                    Budget::unlimited()
+                ),
+                QueryResult::Rejected(_)
+            ));
+            assert!(g.state.rules.stack.iter().any(|s| s.id == parent));
+            prove(&g);
+            answer(&mut g, Response::OptionalEffect { perform: true });
+        }
+        assert!(matches!(request(&mut g), Request::Priority { .. }));
+        let entered = &g.state.rules.objects[&lands[0].card];
+        assert_eq!(entered.id.incarnation, lands[0].incarnation + 1);
+        assert_eq!(
+            (entered.zone, entered.controller, entered.tapped),
+            (Zone::Battlefield, player, true)
+        );
+        assert_eq!(g.turn().lands_played, 1);
+        assert_eq!(g.state.rules.objects[&unrelated].zone, Zone::Exile);
+        assert_eq!(g.state.rules.libraries[&player], [lands[1].card]);
+        assert!(!g.state.rules.stack.iter().any(|s| s.id == parent));
+        if hit {
+            let child = g.top().unwrap();
+            assert_eq!(g.definition(child.source.card).unwrap().name, "Sol Ring");
+            assert_eq!(child.cast_from, Zone::Exile);
+            assert_eq!(child.paid.as_ref(), Some(&zero_mana_cost()));
+            assert!(g.state.rules.stack.iter().any(|s| s.id == original));
+        } else {
+            assert_eq!(g.top().unwrap().id, original);
+        }
     }
 }

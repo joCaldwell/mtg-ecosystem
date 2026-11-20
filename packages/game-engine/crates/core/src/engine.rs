@@ -73,9 +73,11 @@ mod blocking_target_tests;
 mod counter_placement;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
+mod colored_search;
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
+pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
 mod staples;
 pub use counter_placement::*;
 use land_entry::{EntryOrigin, PreparedEntryAuthority};
@@ -349,6 +351,7 @@ mod casting_foundation_tests;
 mod controller_land_type_tests;
 #[cfg(test)]
 mod distinct_permanent_colors_tests;
+mod granted_land_mana;
 mod hand_return;
 mod intrinsic_mana;
 mod library_order;
@@ -1158,6 +1161,7 @@ enum Frame {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "ability", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaAbilityIdentity {
+    GrantedLandTap { color: Color },
     Intrinsic { color: Color },
     Printed { index: u32 },
 }
@@ -1203,8 +1207,14 @@ pub enum Response {
     ManaColor {
         color: Color,
     },
+    ColoredSearch {
+        assignments: Vec<ColoredCardAssignment>,
+    },
     SearchLands {
         objects: Vec<ObjectId>,
+    },
+    CascadeLandEntry {
+        object: Option<ObjectId>,
     },
     SearchLandBattlefield {
         object: ObjectId,
@@ -1378,10 +1388,22 @@ pub enum Request {
         player: PlayerId,
         colors: Vec<Color>,
     },
+    CascadeLandEntry {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
     SearchLandBattlefield {
         decision_id: u64,
         player: PlayerId,
         candidates: Vec<ObjectId>,
+    },
+    ColoredSearch {
+        decision_id: u64,
+        player: PlayerId,
+        library: Vec<String>,
+        colors: Vec<Color>,
+        candidates: Vec<ColoredCardCandidate>,
     },
     SearchLands {
         decision_id: u64,
@@ -1546,7 +1568,9 @@ impl Request {
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
+            | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
@@ -1588,7 +1612,9 @@ impl Request {
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
             | Self::ManaColor { player, .. }
+            | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
@@ -1686,6 +1712,10 @@ pub enum ProposedEvent {
     },
     DestroyCreature {
         object: ObjectId,
+    },
+    CascadeLandEntry {
+        object: ObjectId,
+        player: PlayerId,
     },
     SearchLandEntry {
         object: ObjectId,
@@ -2407,7 +2437,7 @@ impl Game {
                     lands_played: 0,
                 },
                 original_seating: (0..4).map(PlayerId).collect(),
-                cast_history: [triggers::TurnCastHistory::default(); 4],
+                cast_history: std::array::from_fn(|_| triggers::TurnCastHistory::default()),
                 commanders: CommanderLedger::new(),
                 commander_returns: BTreeSet::new(),
                 control_effects: vec![],
@@ -2539,6 +2569,13 @@ impl Game {
                     if !mixed || !colors.contains(&color) {
                         colors.push(color);
                     }
+                }
+            }
+        }
+        if self.has_granted_land_mana(object)? {
+            for color in Self::granted_land_mana_colors() {
+                if !colors.contains(&color) {
+                    colors.push(color);
                 }
             }
         }
@@ -3137,11 +3174,7 @@ impl Game {
                         self.play_land(input.player, input.decision_id, card)?;
                     }
                     Response::ActivateMana { object } => {
-                        if self.is_permanent_mana(object) {
-                            self.begin_permanent_mana(&input, object, Frame::Priority)?;
-                        } else {
-                            self.begin_intrinsic_mana(&input, object, Frame::Priority)?;
-                        }
+                        self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
                     Response::Cast { card } => {
                         self.announce_priority_spell(input.player, card)?;
@@ -3452,7 +3485,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 61,
+            snapshot_version: 64,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3494,7 +3527,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 61
+        if s.snapshot_version != 64
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3540,10 +3573,10 @@ impl Game {
             || s.rules.turn_owner.0 >= 4
             || s.rules.turn.number == 0
             || s.rules.active.is_some_and(|p| !self.is_live(p))
-            || s.rules
-                .cast_history
-                .iter()
-                .any(|h| h.exile_cast && !h.any_cast)
+            || s.rules.cast_history.iter().any(|h| {
+                h.mana_value.is_negative()
+                    || !h.any_cast && (h.exile_cast || h.mana_value != Quantity::zero())
+            })
             || s.rules.original_seating != (0..4).map(PlayerId).collect::<Vec<_>>()
             || s.rules.priority.0 >= 4
             || (!self.is_live(s.rules.priority) && !matches!(s.rules.frame, Frame::Draw))

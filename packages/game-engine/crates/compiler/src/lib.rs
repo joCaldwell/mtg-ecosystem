@@ -13,11 +13,14 @@ mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
 mod bindings;
+mod cascade_land_entry;
 mod cast_entry;
+mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
 mod combat_hand_cast;
+mod colored_library_search;
 mod commander_modal_keyword;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -84,6 +87,7 @@ mod controller_land_types;
 mod cycling;
 #[cfg(test)]
 mod cycling_tests;
+mod granted_land_mana;
 mod targeted_counted_draw;
 mod targeted_discard;
 #[cfg(test)]
@@ -1110,6 +1114,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    AsCascade {
+        controller: serde_json::Value,
+        choice: serde_json::Value,
+    },
     CastSpellAbilities {
         scope: serde_json::Value,
         abilities: Vec<serde_json::Value>,
@@ -1538,6 +1546,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    cascade_land_entry::validate(&abilities, &result, &shape, &binding, &source)?;
     let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
     let mut counted_artifact_modes =
         artifact_modal::bind(&result, &shape, &binding, &r.oracle_identity)?;
@@ -1546,9 +1555,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let (color_stats, color_mana) =
         distinct_permanent_colors::lower(&abilities, &result, &binding, &source)?
             .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
+    let granted_mana = granted_land_mana::lower(&source, &shape, &result, &binding)?;
+    let grants_land_mana = granted_mana.is_some();
     let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let set_exile = set_exile::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let colored_library = colored_library_search::lower(&source, &shape, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let keyword_removal_wipe = keyword_removal_wipe::lower(&source, &shape, &result, &binding)?;
     source_dies_nonland_destroy::bind(&source, &result, &binding)?;
@@ -1685,6 +1697,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .flatten()
         .chain(opponent_land_mana)
         .chain(color_mana)
+        .chain(granted_mana)
         .collect();
     labels
         .mana
@@ -1738,6 +1751,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Sorcery if keyword_removal_wipe.is_some() => {
             definition.spell = keyword_removal_wipe;
         }
+        CardKind::Sorcery if colored_library.is_some() => {
+            definition.spell = colored_library;
+        }
         CardKind::Sorcery if opponent_nonland_destroy.is_some() => {
             definition.spell = opponent_nonland_destroy;
         }
@@ -1770,7 +1786,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            let remaining_abilities = if let Some(stats) = color_stats {
+            let remaining_abilities = if grants_land_mana {
+                labels.statics.push(0);
+                definition
+                    .static_abilities
+                    .push(mtg_contracts::granted_land_mana_static());
+                &[]
+            } else if let Some(stats) = color_stats {
                 // The complete family consumed the static and activated blocks.
                 labels.statics.push(1);
                 definition.static_abilities.push(stats);
@@ -2369,6 +2391,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     optional_costs::append(&mut program, effects, block, &mut slots)?;
                 }
             }
+            // Multiple intrinsic instances on a spell are reviewed only with this
+            // complete sweep. Definition validation also binds source, AST and block indices.
+            if definition.triggered.len() == 2
+                && !matches!(
+                    program.instructions.as_slice(),
+                    [Instruction::DamageSet {
+                        amount: WipeAmount::OtherCastsManaValue,
+                        ..
+                    }]
+                )
+            {
+                return Err(unsupported(
+                    "abilities.keywords",
+                    "unsupported spell keyword combination",
+                ));
+            }
             definition.spell = Some(program);
         }
     }
@@ -2550,6 +2588,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         definition
             .validate()
             .map_err(|e| unsupported("definition", e))?;
+    }
+    if definition
+        .capabilities
+        .contains(&Capability::CastManaValueSweepV1)
+    {
+        cast_mana_value_sweep::validate_binding(&definition.oracle_id, &shape, &binding)?;
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
@@ -4080,8 +4124,15 @@ fn lower_wipes_step(
                 if counted {
                     return Err(unsupported("binding", "unused X"));
                 }
-                WipeAmount::Fixed {
-                    value: fixed_positive_value(amount)?,
+                if *amount
+                    == json!({"amount":"cast-mana-value-sum","who":{"player":"you"},
+                    "during":"this-turn","excluding":{"ref":"this","noun":"spell"}})
+                {
+                    WipeAmount::OtherCastsManaValue
+                } else {
+                    WipeAmount::Fixed {
+                        value: fixed_positive_value(amount)?,
+                    }
                 }
             };
             Instruction::DamageSet {
@@ -4501,6 +4552,13 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if matches!(effect, SourceStaticEffect::AsCascade { .. }) {
+        // The complete source and occurrence graph were checked before lowering.
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::CascadeLandEntry,
+        });
+    }
     if let Some(entry) = conditional_lands::lower(effect)? {
         return Ok(entry);
     }

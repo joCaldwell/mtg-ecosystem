@@ -30,17 +30,16 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-`226507a0` compiles **66/85 definitions**, with 19 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`1bb122a7` compiles **68/85 original rows**, plus two source-identical authorized reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
 
-See the retained cascade proofs. Yidris awaits complete AST/binding; Enigma and Vega have focused witnesses. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
-values.
+Averna and Call Forth compile through source-identical authorized reparses. Yidris awaits complete rules support.
 
 ### M5 Add color and mana engines
 
-Prismatic Omen has a live land-type witness. Complete Leyline, Lantern, Selvala and Omnath.
+Prismatic Omen and Lantern have live mana witnesses. Complete Leyline, Selvala and Omnath.
 
 ### M6 Complete card advantage and flexible choices
 
