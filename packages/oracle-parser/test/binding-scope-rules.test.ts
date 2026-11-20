@@ -435,3 +435,159 @@ describe("engine features beyond reference binding", () => {
     assert.equal(graph.referencesBound, false);
   });
 });
+
+describe("linked choice values (CR 607.1c, 607.2d, 614.12a, 707.6)", () => {
+  const banner = "As this artifact enters, choose a creature type.\n"
+    + "Creatures you control of the chosen type get +1/+1.\n"
+    + "Whenever you cast a creature spell of the chosen type, draw a card.";
+  const chooseType = "Choose a creature type.";
+  const drawForType = "Draw a card for each permanent you control of the chosen type.";
+
+  it("binds both Banner consumers to the same choice of the entering incarnation", () => {
+    const graph = analyze(banner, "Artifact");
+    fully(graph);
+    const producer = graph.nodes.find(node => node.node === "value-choice");
+    assert.ok(producer);
+    assert.equal(producer.category, "creature-type");
+    assert.deepEqual(producer.lifetime,
+      { kind: "source-incarnation", source: sourceId(graph).id, lookup: "current-or-last-known" });
+    assert.deepEqual(graph.nodes.find(node => node.id === producer.chooser)?.node, "runtime-player");
+    assert.equal(bound(graph, "/filter/chosenType"), producer);
+    assert.equal(bound(graph, "/trigger/what/chosenType"), producer);
+  });
+
+  it("binds an earlier mandatory choice within the same resolution", () => {
+    const graph = analyze(`${chooseType} ${drawForType}`, "Sorcery");
+    fully(graph);
+    const producer = bound(graph, "/forEach/chosenType");
+    assert.ok(typeof producer !== "string" && producer.node === "value-choice");
+    assert.deepEqual(producer.lifetime, { kind: "resolution" });
+  });
+
+  it("does not choose between two printed producers", () => {
+    const graph = analyze(`As this artifact enters, choose a creature type.\n${banner}`, "Artifact");
+    unresolved(graph, "/filter/chosenType");
+    unresolved(graph, "/trigger/what/chosenType");
+  });
+
+  it("does not borrow a future, conditional, or different-category choice", () => {
+    for (const text of [
+      `${drawForType} ${chooseType}`,
+      `If you control a creature, choose a creature type. ${drawForType}`,
+      `Choose a color. ${drawForType}`,
+    ]) unresolved(analyze(text, "Sorcery"), "/forEach/chosenType");
+  });
+
+  it("does not export a choice from a mode or bind a sibling to it", () => {
+    const graph = analyze(`Choose one —\n• ${chooseType}\n• ${drawForType}`, "Sorcery");
+    unresolved(graph, "/forEach/chosenType");
+  });
+
+  it("does not use a choice from resolution in a target eligibility filter", () => {
+    const graph = analyze(`${chooseType} Destroy target creature of the chosen type.`, "Sorcery");
+    unresolved(graph, "/what/filter/chosenType");
+  });
+
+  it("does not carry the resolution's choice into a new delayed ability", () => {
+    const graph = analyze(`${chooseType} At the beginning of the next end step, ${drawForType.toLowerCase()}`, "Sorcery");
+    unresolved(graph, "/forEach/chosenType");
+  });
+
+  it("does not read a chosen value from a source's public-zone successor", () => {
+    const graph = analyze("As this artifact enters, choose a creature type.\n"
+      + "{T}, Sacrifice this artifact: " + drawForType, "Artifact");
+    unresolved(graph, "/forEach/chosenType");
+  });
+});
+
+describe("announced target counts (CR 115.3, 601.2c, 602.2b, 603.3d)", () => {
+  it("separates the selected count from the exiled successors returned later", () => {
+    const graph = analyze("Exile any number of target creatures you control. Return those cards to the battlefield "
+      + "under their owner's control at the beginning of the next end step.", "Instant");
+    fully(graph);
+    const target = bound(graph, "/effects/0/steps/0/what");
+    assert.ok(typeof target !== "string" && target.node === "selection" && target.countChoice);
+    const count = graph.nodes.find(node => node.id === target.countChoice);
+    assert.ok(count?.node === "target-count");
+    assert.equal(count.scope, target.scope);
+    assert.equal(count.minimum, 0);
+    assert.equal(graph.nodes.find(node => node.id === count.chooser)?.node, "runtime-player");
+    const returned = bound(graph, "/effects/1/steps/0/effects/0/steps/0/what");
+    assert.ok(typeof returned !== "string" && returned.node === "event-result" && returned.identity === "zone-successors");
+    assert.notEqual(returned.id, target.id);
+  });
+
+  it("uses distinct counts for separate modal target phrases", () => {
+    const graph = analyze("Choose one —\n• Tap any number of target creatures.\n• Untap any number of target creatures.", "Instant");
+    fully(graph);
+    const counts = graph.nodes.filter(node => node.node === "target-count");
+    assert.equal(counts.length, 2);
+    assert.equal(new Set(counts.map(count => count.id)).size, 2);
+  });
+
+  it("leaves a divided, bounded announcement unresolved", () => {
+    const graph = analyze("Distribute two +1/+1 counters among one or two target creatures.", "Instant");
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
+    assert.ok(!graph.nodes.some(node => node.node === "target-count"));
+  });
+
+  it("does not use a target-count binding for a resolution choice", () => {
+    const graph = analyze("Discard any number of cards, then draw that many cards.", "Sorcery");
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
+    assert.ok(!graph.nodes.some(node => node.node === "target-count"));
+  });
+});
+
+describe("state reads and quantity replacements", () => {
+  it("checks the opponent count from the entering land's controller", () => {
+    const graph = analyze("This land enters tapped unless you have two or more opponents.\n{T}: Add {R} or {G}.", "Land");
+    fully(graph);
+    const condition = graph.nodes.find(node => node.node === "player-state-condition");
+    assert.ok(condition?.query === "opponent-count");
+    const player = graph.nodes.find(node => node.id === condition.who);
+    assert.ok(player?.node === "runtime-player" && player.role === "entering-controller");
+  });
+
+  it("binds one player's dungeon history and retains the engine requirement", () => {
+    const graph = analyze("At the beginning of your upkeep, if you've completed a dungeon, draw a card.", "Enchantment");
+    assert.equal(graph.referencesBound, true);
+    assert.equal(graph.fullyBound, false);
+    assert.deepEqual(graph.engineFeatures.map(need => need.feature), ["event-history"]);
+    assert.equal(graph.nodes.find(node => node.node === "player-state-condition")?.query, "completed-dungeon");
+  });
+
+  it("keeps an existential designation query unsupported", () => {
+    const graph = analyze("At the beginning of your upkeep, if a player is the monarch, draw a card.", "Enchantment");
+    assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope" && d.path.endsWith("/condition")));
+    assert.ok(!graph.nodes.some(node => node.node === "player-state-condition"));
+  });
+
+  it("captures the counter event and its recipient filter without creating a target", () => {
+    const graph = analyze("If one or more +1/+1 counters would be put on a creature you control, "
+      + "that many plus one +1/+1 counters are put on it instead.", "Enchantment");
+    assert.equal(graph.referencesBound, true);
+    assert.equal(graph.fullyBound, false);
+    assert.deepEqual(graph.engineFeatures.map(need => need.feature), ["quantity-replacement"]);
+    const replacement = graph.nodes.find(node => node.node === "quantity-replacement");
+    assert.ok(replacement?.match.event === "put-counters");
+    assert.equal(replacement.unit, "counter-kind-and-recipient");
+    assert.deepEqual(replacement.change, { operation: "add", amount: { amount: "fixed", value: 1 } });
+    const recipient = bound(graph, "/replacement/event/on/0");
+    assert.ok(typeof recipient !== "string" && recipient.node === "selection" && recipient.selection === "event-participant-filter");
+  });
+
+  it("rejects a replacement that needs an additional captured event role", () => {
+    const graph = analyze("If another creature would deal combat damage to equipped creature, "
+      + "it deals double that damage to equipped creature instead.\nEquip {2}", "Artifact — Equipment");
+    assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope" && d.path.endsWith("/abilities/0")));
+    assert.ok(!graph.nodes.some(node => node.node === "quantity-replacement"));
+  });
+
+  it("binds a devotion query's chosen color without claiming layered evaluation", () => {
+    const graph = analyze("{2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.", "Land");
+    assert.equal(graph.referencesBound, true);
+    assert.equal(graph.fullyBound, false);
+    assert.deepEqual(graph.engineFeatures.map(need => need.feature), ["devotion"]);
+    assert.equal(bound(graph, "/mana/amount/colors"), bound(graph, "/mana/choice"));
+  });
+});

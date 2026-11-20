@@ -125,8 +125,8 @@ describe("chosen protection qualities and honest reference status", () => {
     for (const text of ["Protection from the chosen power", "Protection from the chosen colors"])
       assert.equal(parseOracleText(text).ok, false, text);
   });
-  it("never reports a chosen value as bound merely because a compatible choice appears nearby", () => {
-    for (const text of ["Add one mana of the chosen color.", "Choose a color. Add one mana of the chosen color.",
+  it("keeps unproven chosen values unresolved", () => {
+    for (const text of ["Add one mana of the chosen color.", "Add one mana of the chosen color. Choose a color.",
       "As this artifact enters, choose a color.\n{T}: Add one mana of the chosen color.", "Creatures of the last chosen color get +1/+1."]) {
       const result = parseOracleText(text, "Choice fixture", { includeSourceProvenance: true });
       assert.ok(result.ok, JSON.stringify(result.lines));

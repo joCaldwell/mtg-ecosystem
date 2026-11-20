@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
+import type { Amount, CascadeExiledCards, ChosenValueRef, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, ValueChoice } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -18,12 +18,13 @@ export interface CardBindingInput {
   faces: { sourceFaceIndex: number; result?: ParseCardResult }[];
 }
 
-export type BindingPhase = "payment" | "resolution" | "continuous" | "trigger-match";
+export type BindingPhase = "payment" | "resolution" | "continuous" | "trigger-match" | "replacement-match";
 export type BindingCardinality = "one" | "many" | "unknown";
 export type SymbolicAmount = Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" }>;
 /** `implicit` is a player relation printed inside a filter ("an opponent
  * controls", "you don't control"). */
 export type ReferenceExpression = ObjectRef | CascadeExiledCards | { ref: "affected-object" } | { ref: "those-counters" } | { recipient: "they" } | PlayerRef | SymbolicAmount
+  | ChosenValueRef | NonNullable<ObjectFilter["chosenType"]>
   | { implicit: "opponents" | "other-players" };
 
 interface NodeBase { id: string; path: string; rules: string[] }
@@ -65,7 +66,8 @@ export type BindingNode = NodeBase & (
   | { node: "selection"; scope: string; expression: ObjectRef | PlayerRef; cardinality: BindingCardinality;
       /** Explicit player binding for the announced target when established. */
       chooser?: string;
-      timing: BindingPhase | "stack-announcement"; selection: "target" | "evaluate-reference" }
+      countChoice?: string;
+      timing: BindingPhase | "stack-announcement"; selection: "target" | "evaluate-reference" | "event-participant-filter" }
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
   | { node: "event"; scope: string; operation: string; inputs: string[]; availability: "when-performed";
@@ -111,6 +113,19 @@ export type BindingNode = NodeBase & (
       subsetOf?: string;
       /** Result sets can be empty when an instruction is impossible or replaced. */
       availability: "if-produced"; identity: "same-objects" | "zone-successors" | "new-objects" | "measured-quantity" }
+  /** CR 607.1c/607.2d, 608.2d, 614.12a: a value belongs to one
+   * resolution or is stored for the entering source incarnation. */
+  | { node: "value-choice"; scope: string; event: string; chooser: string; category: ValueChoice["category"];
+      lifetime: { kind: "resolution" } | { kind: "source-incarnation"; source: string; lookup: "current-or-last-known" } }
+  | { node: "player-state-condition"; scope: string; who: string;
+      query: "designation" | "completed-dungeon" | "opponent-count" | "turn-of" }
+  | { node: "target-count"; scope: string; chooser: string; minimum: number }
+  | { node: "devotion"; scope: string; who: string; colors: Extract<Amount, { amount: "devotion" }>["colors"] }
+  /** The proposed event and the scalar change made when this replacement applies. */
+  | { node: "quantity-replacement"; scope: string; source: string; match: ReplacementInstruction["event"];
+      change: Extract<ReplacementInstruction["replace"], { replacement: "modify-quantity" }>["change"];
+      unit: "token-specification" | "mana-specification" | "damage-source-and-recipient" | "life-source-and-recipient" | "counter-kind-and-recipient";
+      operands: string[] }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
@@ -159,7 +174,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

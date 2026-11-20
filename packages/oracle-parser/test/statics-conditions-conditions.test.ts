@@ -59,17 +59,19 @@ describe("number of opponents (CR 102.2-102.3)", () => {
 });
 
 describe("condition nodes stay visible to reference analysis", () => {
-  it("never reports history, designation or player-count conditions as fully bound", () => {
-    for (const clause of ["you're the monarch", "it's day", "you've completed a dungeon", "you have a full party",
-      "you have the city's blessing", "you've drawn two or more cards this turn", "you gained life this turn",
+  it("keeps history and unsupported quantified conditions from fully bound status", () => {
+    for (const clause of ["it's day", "you've completed a dungeon", "you have a full party",
+      "you've drawn two or more cards this turn", "you gained life this turn",
       "you've committed a crime this turn", "you control more creatures than each other player",
-      "you have two or more opponents", "this is the second time this ability has resolved this turn",
+      "this is the second time this ability has resolved this turn",
       "this ability has been activated four or more times this turn"])
       assert.equal(fullyBound(`At the beginning of your upkeep, if ${clause}, you gain 1 life.`, "Enchantment"), false, clause);
   });
 
-  it("leaves plain state queries of the controller unaffected", () => {
-    assert.equal(fullyBound("At the beginning of your upkeep, if you have ten or more life, you gain 1 life.", "Enchantment"), true);
+  it("binds the controller in plain state queries", () => {
+    for (const clause of ["you have ten or more life", "you're the monarch", "you have the city's blessing",
+      "you have two or more opponents"])
+      assert.equal(fullyBound(`At the beginning of your upkeep, if ${clause}, you gain 1 life.`, "Enchantment"), true, clause);
   });
 });
 
