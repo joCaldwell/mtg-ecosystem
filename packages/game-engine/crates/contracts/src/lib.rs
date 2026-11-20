@@ -283,6 +283,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    PlayerGraveyardShuffleV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
@@ -480,6 +481,10 @@ pub enum EvaluationStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
+    PlayerGraveyardCards {
+        owner_slot: u32,
+        maximum: u8,
+    },
     BattlefieldPermanent,
     ControlledBattlefieldPermanent,
     ControlledBattlefieldCreature,
@@ -781,6 +786,9 @@ pub enum Instruction {
     OrderLibraryTop {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         amount: Quantity,
+        source_block: u32,
+    },
+    ShufflePlayerGraveyard {
         source_block: u32,
     },
     OptionalShuffleLibrary {
@@ -1207,6 +1215,7 @@ impl Instruction {
             | Self::GrantLandPlaysThisTurn { source_block, .. }
             | Self::PutHandOnLibrary { source_block, .. } => *source_block,
             Self::OrderLibraryTop { source_block, .. }
+            | Self::ShufflePlayerGraveyard { source_block }
             | Self::OptionalShuffleLibrary { source_block }
             | Self::SelectLibraryCard { source_block, .. }
             | Self::Scry { source_block, .. }
@@ -3072,6 +3081,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        graveyard_shuffle::validate_definition(self)?;
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
         colored_library_search::validate_definition(self)?;
@@ -4528,7 +4538,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         .windows(2)
         .any(|targets| targets[0].domain != targets[1].domain)
     {
-        return Err("mixed target domains are unsupported".into());
+        if graveyard_shuffle::offered_by(p).is_none() {
+            return Err("mixed target domains are unsupported".into());
+        }
     }
     // Requests expose one common candidate set, and execution uses that common
     // predicate. Distinct per-slot filters need a different request contract;
@@ -4999,6 +5011,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PutHandOnLibrary { .. }
             | Instruction::OrderLibraryTop { .. }
+            | Instruction::ShufflePlayerGraveyard { .. }
             | Instruction::OptionalShuffleLibrary { .. }
             | Instruction::SelectLibraryCard { .. } => None,
             Instruction::MillCards {
@@ -5273,6 +5286,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
             TargetDomain::OwnGraveyardCard => Capability::OwnGraveyardCardReturnV1,
+            TargetDomain::PlayerGraveyardCards { .. } => Capability::PlayerGraveyardShuffleV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
@@ -5503,6 +5517,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
             Instruction::SelectLibraryCard { .. } => Capability::ControllerLibrarySelectionV1,
+            Instruction::ShufflePlayerGraveyard { .. } => Capability::PlayerGraveyardShuffleV1,
             Instruction::OrderLibraryTop { .. } | Instruction::OptionalShuffleLibrary { .. } => {
                 Capability::ControllerLibraryOrderV1
             }
@@ -6894,6 +6909,7 @@ pub fn catalog_schema() -> serde_json::Value {
     optional_costs::schema(&mut schema);
     counted_costs::schema(&mut schema);
     fixed_artifact_sacrifice_schema(&mut schema);
+    graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     opponent_mana::extend_schema(&mut schema);
@@ -7101,6 +7117,7 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            PlayerGraveyardShuffleV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
@@ -7670,6 +7687,7 @@ mod tests {
         definitions.push(opponent_life_drain::witness());
         definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
+        definitions.push(graveyard_shuffle::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());

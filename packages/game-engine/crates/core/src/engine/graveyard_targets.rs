@@ -14,6 +14,13 @@ impl Game {
                 .is_some_and(|c| c.owner == player)
     }
 
+    pub(super) fn graveyard_group_structure(&self, entities: &[TargetEntity], maximum: u8) -> bool {
+        let [TargetEntity::Player { player }, cards @ ..] = entities else {
+            return false;
+        };
+        player.0<4 && cards.len()<=usize::from(maximum) && cards.iter().enumerate().all(|(i,c)| matches!(c,TargetEntity::Object{object} if !cards[..i].contains(c) && self.state.rules.cards.get(&object.card).is_some_and(|card|card.owner==*player)))
+    }
+
     pub(super) fn announced_graveyard_group(
         &self,
         caster: PlayerId,
@@ -121,5 +128,134 @@ mod tests {
         )
         .unwrap();
         assert_eq!(g.remaining_graveyard_targets(owner, &cards), [ids[1]]);
+    }
+}
+
+impl Game {
+    fn targeted_graveyard_moves(
+        &self,
+        frame: &Resolving,
+        block: u32,
+    ) -> Result<(PlayerId, Vec<ObjectId>), String> {
+        let p = self.program_for(&frame.spell)?;
+        let maximum = mtg_contracts::graveyard_shuffle::offered_by(p)
+            .ok_or("unbound player graveyard program")?;
+        if !matches!(p.instructions.get(frame.cursor as usize),Some(Instruction::ShufflePlayerGraveyard{source_block}) if *source_block==block)
+            || !self.graveyard_group_structure(&frame.spell.entity_targets, maximum)
+            || frame.spell.kind.is_spell() == false
+            || frame.spell.paid.is_none()
+            || frame.legal_targets.len() != frame.spell.entity_targets.len()
+        {
+            return Err("invalid resolving graveyard shuffle".into());
+        }
+        let TargetEntity::Player { player } = frame.spell.entity_targets[0] else {
+            return Err("missing shuffle recipient".into());
+        };
+        let ids = frame
+            .spell
+            .entity_targets
+            .iter()
+            .zip(&frame.legal_targets)
+            .skip(1)
+            .filter_map(|(target, legal)| match target {
+                TargetEntity::Object { object } if *legal => Some(*object),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        Ok((player, self.remaining_graveyard_targets(player, &ids)))
+    }
+    pub(super) fn start_graveyard_shuffle(
+        &mut self,
+        frame: Resolving,
+        block: u32,
+    ) -> Result<(), String> {
+        let (player, objects) = self.targeted_graveyard_moves(&frame, block)?;
+        if frame.legal_targets.first() != Some(&true) || !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        let remaining = objects
+            .iter()
+            .copied()
+            .filter(|id| self.state.rules.commanders.history(id.card).is_some())
+            .collect();
+        self.continue_graveyard_shuffle(frame, objects, remaining, vec![], block)
+    }
+    pub(super) fn validate_graveyard_shuffle_continuation(
+        &self,
+        frame: &Resolving,
+        objects: &[ObjectId],
+        remaining: &[ObjectId],
+        choices: &[(ObjectId, bool)],
+        block: u32,
+    ) -> Result<(), String> {
+        self.validate_resolving(frame)?;
+        let (_, selected) = self.targeted_graveyard_moves(frame, block)?;
+        let commanders = objects
+            .iter()
+            .copied()
+            .filter(|id| self.state.rules.commanders.history(id.card).is_some());
+        if frame.legal_targets.first() != Some(&true)
+            || objects != selected
+            || !commanders.eq(choices
+                .iter()
+                .map(|(id, _)| *id)
+                .chain(remaining.iter().copied()))
+        {
+            return Err(
+                "graveyard replacement choices are not the exact announced commander prefix".into(),
+            );
+        }
+        Ok(())
+    }
+    pub(super) fn continue_graveyard_shuffle(
+        &mut self,
+        frame: Resolving,
+        objects: Vec<ObjectId>,
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        block: u32,
+    ) -> Result<(), String> {
+        let (player, _) = self.targeted_graveyard_moves(&frame, block)?;
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        self.validate_graveyard_shuffle_continuation(
+            &frame, &objects, &remaining, &choices, block,
+        )?;
+        let destination = Zone::Library { owner: player };
+        if let Some(object) = remaining.first().copied() {
+            self.state.rules.frame = Frame::CommanderReturn {
+                object,
+                destination,
+                continuation: Box::new(CommanderContinuation::GraveyardShuffle {
+                    frame,
+                    objects,
+                    remaining,
+                    choices,
+                    source_block: block,
+                }),
+            };
+            return Ok(());
+        }
+        if !objects.is_empty() {
+            let occurrences = objects
+                .iter()
+                .map(|object| ProposedEvent::Move {
+                    object: *object,
+                    destination: if choices.contains(&(*object, true)) {
+                        Zone::Command { owner: player }
+                    } else {
+                        destination
+                    },
+                })
+                .collect();
+            self.commit_batch(
+                Self::staple_cause(&frame, block),
+                EventGroup::Simultaneous { occurrences },
+            )?;
+        }
+        self.begin_library_shuffle(frame, player, block)
     }
 }

@@ -58,6 +58,7 @@ fn target_graveyard_shuffle_requires_both_owner_edges_and_distinct_occurrences()
         .as_array_mut()
         .unwrap()
         .retain(|r| r["path"].as_str().unwrap().starts_with(&path));
+    binding["counts"] = json!({"obligations":4,"bound":4,"unresolved":0});
     graph.validate(&binding, "shuffle graph").unwrap();
     let owner = binding["references"]
         .as_array_mut()
@@ -67,4 +68,50 @@ fn target_graveyard_shuffle_requires_both_owner_edges_and_distinct_occurrences()
         .unwrap();
     owner["target"] = json!("unrelated-seat");
     assert!(graph.validate(&binding, "shuffle graph").is_err());
+}
+
+pub(super) fn lower(
+    source: &Value,
+    result: &ParseResult,
+    binding: &Value,
+    identity: &str,
+) -> Result<Option<SpellProgram>, Failure> {
+    let text = source["oracle_text"].as_str().unwrap_or("");
+    if !text.starts_with("Target player shuffles up to ") {
+        return Ok(None);
+    }
+    let ast: Value = decode(result.abilities.get(), "abilities")?;
+    let step = &ast[0]["effects"][0]["steps"][0];
+    let fail = || {
+        unsupported(
+            "graveyard shuffle",
+            "requires the whole ordinary player-targeted shuffle",
+        )
+    };
+    let shape = GraveyardShuffle::from_clause(text, step).ok_or_else(fail)?;
+    if ast != json!([{"kind":"spell","effects":[{"steps":[step]}]}])
+        || !matches!(result.lines.as_slice(),[line] if line.text==text)
+    {
+        return Err(fail());
+    }
+    let timing = match source["type_line"].as_str() {
+        Some("Instant") => SpellTiming::Instant,
+        Some("Sorcery") => SpellTiming::MainPhase,
+        _ => return Err(fail()),
+    };
+    let root = "/faces/0/abilities/0";
+    let mut graph = Bindings::new(identity, source);
+    graph.ability(root, "spell", "spell-controller");
+    bind_step(
+        &mut graph,
+        root,
+        &format!("{root}/effects/0/steps/0"),
+        step,
+        &shape,
+    );
+    graph.validate(
+        binding,
+        "requires both owner links, target collection and exact shuffle event",
+    )?;
+    Ok(Some(shape.program(timing)))
 }

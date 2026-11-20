@@ -201,6 +201,8 @@ enum Ability {
     DividedPlusOneCountersModal,
     #[serde(skip)]
     CommanderModalKeyword,
+    #[serde(skip)]
+    PlayerGraveyardShuffle,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1457,7 +1459,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = if commander_modal_keyword::validate(&shape, &result, &binding)? {
+    let graveyard_shuffle =
+        graveyard_shuffle::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let abilities = if graveyard_shuffle.is_some() {
+        vec![Ability::PlayerGraveyardShuffle]
+    } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
         vec![Ability::CommanderModalKeyword]
     } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
         vec![Ability::DividedPlusOneCountersModal]
@@ -1741,6 +1747,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if graveyard_shuffle.is_some() => {
+            definition.spell = graveyard_shuffle;
+        }
         CardKind::Sorcery | CardKind::Instant if set_exile.is_some() => {
             definition.spell = set_exile;
         }

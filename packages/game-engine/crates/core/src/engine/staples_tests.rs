@@ -1583,3 +1583,52 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
         g.state
     );
 }
+
+#[test]
+fn paid_target_graveyard_shuffle_moves_distinct_opposing_cards_and_replays_owner_shuffle() {
+    let p = typed_land_search_tests::typed_prepared(include_str!(
+        "../../../../tests/fixtures/synthetic-target-graveyard-shuffle.json"
+    ));
+    let mut g = Game::new(p);
+    // Other seats pass through cleanup without playing from hand.
+    let spell = develop_search(&mut g, "Letters for Tomorrow", 3);
+    let owner = PlayerId(1);
+    let selected: Vec<_> = g
+        .state
+        .rules
+        .objects
+        .values()
+        .filter(|o| g.player_graveyard_card(o, owner))
+        .map(|o| o.id)
+        .take(2)
+        .collect();
+    assert_eq!(selected.len(), 2);
+    let entities = std::iter::once(TargetEntity::Player { player: owner })
+        .chain(selected.iter().map(|o| TargetEntity::Object { object: *o }))
+        .collect();
+    let before = g.state.rules.match_state.as_ref().unwrap().library_shuffles;
+    announce(&mut g, spell.0, entities);
+    assert!(g.top().unwrap().paid.is_some());
+    check(&g);
+    while !g.state.rules.stack.is_empty() {
+        let r = request(&mut g);
+        if g.state.rules.stack.is_empty() {
+            break;
+        }
+        assert!(matches!(r, Request::Priority { .. }));
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
+    }
+    for old in selected {
+        let current = g.object_id(old.card).unwrap();
+        assert_ne!(old, current);
+        assert_eq!(g.zone(current), Some(Zone::Library { owner }));
+    }
+    let mut expected = before;
+    expected[1] += 1;
+    assert_eq!(
+        g.state.rules.match_state.as_ref().unwrap().library_shuffles,
+        expected
+    );
+    check(&g);
+}

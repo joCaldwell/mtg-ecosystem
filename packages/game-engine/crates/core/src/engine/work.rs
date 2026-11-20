@@ -400,9 +400,9 @@ impl Game {
                     candidates.push(visible.handle.clone());
                 }
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
-                    && self
-                        .top()
-                        .is_ok_and(|entry| self.object_target_legal(entry, object.id))
+                    && self.top().is_ok_and(|entry| {
+                        self.entity_target_legal(TargetEntity::Object { object: object.id }, entry)
+                    })
                 {
                     candidates.push(PlayerTargetEntity::Object {
                         object: visible.handle.clone(),
@@ -683,7 +683,14 @@ impl Game {
                     } else {
                         cache
                             .next_object(self)
-                            .filter(|o| self.top().is_ok_and(|e| self.object_target_legal(e, o.id)))
+                            .filter(|o| {
+                                self.top().is_ok_and(|e| {
+                                    self.entity_target_legal(
+                                        TargetEntity::Object { object: o.id },
+                                        e,
+                                    )
+                                })
+                            })
                             .map(|o| TargetEntity::Object { object: o.id })
                     };
                     if let Some(target) = target {
@@ -806,7 +813,13 @@ impl Game {
                         (
                             Frame::EntityTargets { .. },
                             PlayerResponse::EntityTargets { entities },
-                        ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
+                        ) => {
+                            let p = self.program().map_err(invalid)?;
+                            mtg_contracts::graveyard_shuffle::offered_by(p)
+                                .map_or(entities.len() == p.targets.len(), |m| {
+                                    (1..=usize::from(m) + 1).contains(&entities.len())
+                                })
+                        }
                         (
                             Frame::DamageAllocation { .. },
                             PlayerResponse::DamageAllocation { allocations },
@@ -859,7 +872,13 @@ impl Game {
                         (
                             Frame::TriggerTargets { .. },
                             PlayerResponse::EntityTargets { entities },
-                        ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
+                        ) => {
+                            let p = self.program().map_err(invalid)?;
+                            mtg_contracts::graveyard_shuffle::offered_by(p)
+                                .map_or(entities.len() == p.targets.len(), |m| {
+                                    (1..=usize::from(m) + 1).contains(&entities.len())
+                                })
+                        }
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len() == self.program().map_err(invalid)?.targets.len()
                         }

@@ -892,6 +892,27 @@ impl Game {
                     index,
                     source_block,
                 },
+                Instruction::ShufflePlayerGraveyard { source_block: b },
+            ) => {
+                source_block == b
+                    && frame.spell.entity_targets.first()
+                        == Some(&TargetEntity::Player { player: *player })
+                    && frame.legal_targets.first() == Some(&true)
+                    && (*index as usize)
+                        < self
+                            .state
+                            .rules
+                            .libraries
+                            .get(player)
+                            .map_or(1, Vec::len)
+                            .max(1)
+            }
+            (
+                ResolutionChoice::Shuffle {
+                    player,
+                    index,
+                    source_block,
+                },
                 Instruction::SearchBasicLands {
                     source_block: b, ..
                 }

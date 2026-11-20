@@ -215,6 +215,14 @@ impl Game {
                 Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
                     Frame::StackTargets { cast }
                 }
+                Some(TargetDomain::AnyPlayer)
+                    if mtg_contracts::graveyard_shuffle::offered_by(self.program()?).is_some() =>
+                {
+                    Frame::EntityTargets { cast }
+                }
+                Some(TargetDomain::PlayerGraveyardCards { .. }) => {
+                    return Err("dependent targets need their player".into());
+                }
                 Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
                 Some(TargetDomain::PlayerOrPlaneswalker) => {
                     return Err("player-or-planeswalker requires an activated mode".into());

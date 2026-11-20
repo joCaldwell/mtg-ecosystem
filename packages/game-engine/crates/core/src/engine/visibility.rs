@@ -1818,11 +1818,12 @@ impl Game {
         match &self.state.rules.frame {
             Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
                 if self.top()?.controller == viewer
-                    && self
-                        .program()?
-                        .targets
-                        .first()
-                        .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
+                    && self.program()?.targets.first().is_some_and(|t| {
+                        t.domain == TargetDomain::AnyDamageTarget
+                            || self.program().is_ok_and(|p| {
+                                mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
+                            })
+                    }) =>
             {
                 Ok(Some(PlayerRequest::EntityTargets {
                     token,
@@ -2176,11 +2177,12 @@ impl Game {
                     }
                     Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
                         if self.top()?.controller == viewer
-                            && self
-                                .program()?
-                                .targets
-                                .first()
-                                .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
+                            && self.program()?.targets.first().is_some_and(|t| {
+                                t.domain == TargetDomain::AnyDamageTarget
+                                    || self.program().is_ok_and(|p| {
+                                        mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
+                                    })
+                            }) =>
                     {
                         Some((self.state.rules.revision, 10))
                     }

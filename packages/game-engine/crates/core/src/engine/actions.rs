@@ -155,6 +155,7 @@ impl Game {
                 .any(|mode| self.has_target_domain(&mode.program, player, source));
         }
         match program.targets.first().map(|target| target.domain) {
+            Some(TargetDomain::PlayerGraveyardCards { .. }) => false,
             None => true,
             Some(
                 TargetDomain::AnyDamageTarget
@@ -1022,6 +1023,9 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_library_order(frame, amount, source_block),
+            Instruction::ShufflePlayerGraveyard { source_block } => {
+                self.start_graveyard_shuffle(frame, source_block)
+            }
             Instruction::OptionalShuffleLibrary { source_block } => {
                 self.begin_optional_shuffle(frame, source_block)
             }

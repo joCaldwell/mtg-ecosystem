@@ -6,6 +6,13 @@ pub(super) enum CommanderContinuation {
     CascadeBottom {
         progress: Box<CascadeProgress>,
     },
+    GraveyardShuffle {
+        frame: Resolving,
+        objects: Vec<ObjectId>,
+        remaining: Vec<ObjectId>,
+        choices: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    },
     HandReturn {
         frame: Resolving,
         objects: Vec<ObjectId>,
@@ -252,6 +259,22 @@ impl Game {
         match continuation {
             CommanderContinuation::CascadeBottom { progress } => {
                 self.resume_cascade_commander(progress, object, to_command)?
+            }
+            CommanderContinuation::GraveyardShuffle {
+                frame,
+                objects,
+                mut remaining,
+                mut choices,
+                source_block,
+            } => {
+                if remaining.first() != Some(&object) {
+                    return Err("graveyard shuffle commander order".into());
+                }
+                remaining.remove(0);
+                if present {
+                    choices.push((object, to_command));
+                }
+                self.continue_graveyard_shuffle(frame, objects, remaining, choices, source_block)?;
             }
             CommanderContinuation::HandReturn {
                 frame,
@@ -500,6 +523,27 @@ impl Game {
                         || progress.stage != cascade::CascadeStage::Bottom
                     {
                         return Err("snapshot cascade commander replacement invariant".into());
+                    }
+                }
+                CommanderContinuation::GraveyardShuffle {
+                    frame,
+                    objects,
+                    remaining,
+                    choices,
+                    source_block,
+                } => {
+                    self.validate_graveyard_shuffle_continuation(
+                        frame,
+                        objects,
+                        remaining,
+                        choices,
+                        *source_block,
+                    )?;
+                    if remaining.first() != Some(object)
+                        || *destination != (Zone::Library { owner })
+                        || current.zone != (Zone::Graveyard { owner })
+                    {
+                        return Err("graveyard shuffle commander destination".into());
                     }
                 }
                 CommanderContinuation::HandReturn {

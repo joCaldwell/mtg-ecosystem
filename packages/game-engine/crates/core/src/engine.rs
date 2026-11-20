@@ -139,9 +139,9 @@ const EFFECT_EXTRA: [(&str, &str); 6] = [
 mod allocation;
 pub use allocation::*;
 mod choices;
-mod graveyard_targets;
 #[cfg(test)]
 mod choices_tests;
+mod graveyard_targets;
 pub use choices::*;
 mod effects;
 #[cfg(test)]
@@ -3775,7 +3775,7 @@ impl Game {
                         | Frame::SpendMana { .. }
                         | Frame::SacrificeCost { .. }
                         | Frame::Payment { .. }
-                ) && self.bound_target_count(top) != self.program()?.targets.len()
+                ) && !self.announced_target_count_valid(self.program()?, top)
                 {
                     return Err("snapshot payment target invariant".into());
                 }

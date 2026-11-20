@@ -46,7 +46,8 @@ impl Game {
                 Self::target_information_frame(resume)
             }
             Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-                CommanderContinuation::HandReturn { frame, .. }
+                CommanderContinuation::GraveyardShuffle { frame, .. }
+                | CommanderContinuation::HandReturn { frame, .. }
                 | CommanderContinuation::LibrarySelect { frame, .. }
                 | CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }

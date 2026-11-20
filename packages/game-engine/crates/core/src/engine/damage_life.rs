@@ -68,7 +68,8 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         }
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-            CommanderContinuation::HandReturn { frame, .. }
+            CommanderContinuation::GraveyardShuffle { frame, .. }
+            | CommanderContinuation::HandReturn { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
@@ -110,7 +111,8 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         }
         Frame::Stabilize { resume, .. } => update_frame(resume, fact),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-            CommanderContinuation::HandReturn { frame, .. }
+            CommanderContinuation::GraveyardShuffle { frame, .. }
+            | CommanderContinuation::HandReturn { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
@@ -249,6 +251,11 @@ impl Game {
     ) -> Result<(), String> {
         let top = self.top()?;
         let program = self.program_for(top)?;
+        if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(program) {
+            return self
+                .announced_graveyard_group(top.controller, player, maximum, entities)
+                .map(|_| ());
+        }
         if player != top.controller
             || entities.len() != program.targets.len()
             || entities.iter().enumerate().any(|(slot, target)| {
@@ -387,6 +394,7 @@ impl Game {
             return Err("unexpected spell effect source references".into());
         }
         let program = self.program_for(entry)?;
+        let graveyard = mtg_contracts::graveyard_shuffle::offered_by(program);
         let damage = program
             .targets
             .first()
@@ -411,11 +419,15 @@ impl Game {
             }
         }
         if !entry.entity_targets.is_empty() {
-            if !damage
+            if (!damage && graveyard.is_none())
                 || !entry.targets.is_empty()
                 || !entry.player_targets.is_empty()
                 || !entry.stack_targets.is_empty()
-                || entry.entity_targets.len() > program.targets.len()
+                || if let Some(maximum) = graveyard {
+                    !self.graveyard_group_structure(&entry.entity_targets, maximum)
+                } else {
+                    entry.entity_targets.len() > program.targets.len()
+                }
                 || entry.announced_entity_targets.len() != 4
                 || entry.announced_entity_targets.iter().any(|row| {
                     row.len() != entry.entity_targets.len()
@@ -436,7 +448,7 @@ impl Game {
         } else if !entry.announced_entity_targets.is_empty() {
             return Err("snapshot entity announcement invariant".into());
         }
-        if damage
+        if (damage || graveyard.is_some())
             && (!entry.targets.is_empty()
                 || !entry.player_targets.is_empty()
                 || !entry.stack_targets.is_empty())
