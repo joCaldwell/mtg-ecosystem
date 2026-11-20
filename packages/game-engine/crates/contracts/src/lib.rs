@@ -9,7 +9,7 @@ pub use granted_land_mana::{
 mod opening_placement;
 pub use opening_placement::{opening_placement_ability, opening_placement_ast};
 mod controller_land_types;
-pub use controller_land_types::controller_land_type_ast;
+pub use controller_land_types::{controller_land_type_ast, controller_nonland_colors_ast};
 mod colored_library_search;
 pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
@@ -330,6 +330,7 @@ pub enum Capability {
     TypedNonbasicIntrinsicManaV1,
     ControllerLandGrantedManaV1,
     ControllerLandBasicTypesV1,
+    ControllerNonlandColorsV1,
     FlashV1,
     CastArtifactV1,
     PermanentManaV1,
@@ -1384,6 +1385,7 @@ pub enum StaticEffect {
     GrantControllerLandsAnyColorMana,
     MayBeginOnBattlefield,
     GrantControllerLandsAllBasicTypes,
+    ControllerNonlandsAllColors,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
     /// grants one independent cascade to this controller's qualifying cast.
     /// The program is exactly canonical_cascade_program, never arbitrary code.
@@ -2617,6 +2619,7 @@ impl Definition {
                 StaticEffect::GrantControllerLandsAnyColorMana => {
                     Capability::ControllerLandGrantedManaV1
                 }
+                StaticEffect::ControllerNonlandsAllColors => Capability::ControllerNonlandColorsV1,
                 StaticEffect::MayBeginOnBattlefield => Capability::OpeningPlacementV1,
                 StaticEffect::GrantControllerLandsAllBasicTypes => {
                     Capability::ControllerLandBasicTypesV1
@@ -6961,16 +6964,30 @@ pub fn catalog_schema() -> serde_json::Value {
     entry_graveyard_exile::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
-    let grant = serde_json::json!({"required":["effect"],"properties":{"effect":{"const":StaticEffect::GrantControllerLandsAllBasicTypes}}});
-    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+    for (effect, cap, pattern) in [
+        (
+            StaticEffect::GrantControllerLandsAllBasicTypes,
+            Capability::ControllerLandBasicTypesV1,
+            r#""oracle_text"\s*:\s*"Lands you control are (?:all basic land types|every basic land type) in addition to their other types\.""#,
+        ),
+        (
+            StaticEffect::ControllerNonlandsAllColors,
+            Capability::ControllerNonlandColorsV1,
+            r#""oracle_text"\s*:\s*"Nonland permanents you control are all colors\.""#,
+        ),
+    ] {
+        let grant =
+            serde_json::json!({"required":["effect"],"properties":{"effect":{"const":effect}}});
+        schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
             "if":{"anyOf":[{"required":["static_abilities"],"properties":{"static_abilities":{"contains":grant}}},
-            {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"Lands you control are (?:all basic land types|every basic land type) in addition to their other types\.""#}}}}}]},
+            {"properties":{"provenance":{"properties":{"source_json":{"pattern":pattern}}}}}]},
         "then":{"required":["static_abilities"],"properties":{"characteristics":{"properties":{"kind":{"const":"enchantment"},"basic":{"const":false},"snow":{"const":false},"legendary":{"const":false},"subtypes":{"maxItems":0},"additional_types":{"maxItems":0}}},
-            "static_abilities":{"const":[StaticAbility{functioning_zone:FunctioningZone::Battlefield,effect:StaticEffect::GrantControllerLandsAllBasicTypes}]},
+            "static_abilities":{"const":[StaticAbility{functioning_zone:FunctioningZone::Battlefield,effect:effect}]},
             "activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0},
-            "capabilities":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}},
-        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}}}
+            "capabilities":{"contains":{"const":cap}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}
     }));
+    }
     colored_library_search::extend_schema(&mut schema);
     opening_placement::schema(&mut schema);
     schema
@@ -7255,6 +7272,7 @@ mod tests {
             ControllerLandBasicTypesV1,
             ControllerLandGrantedManaV1,
             OpeningPlacementV1,
+            ControllerNonlandColorsV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
@@ -7904,7 +7922,7 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
-        let mut grant = definitions
+        let grant = definitions
             .iter()
             .find(|d| {
                 d.characteristics.kind == CardKind::Enchantment
@@ -7915,33 +7933,45 @@ mod tests {
             })
             .unwrap()
             .clone();
-        grant.static_abilities = vec![StaticAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::GrantControllerLandsAllBasicTypes,
-        }];
-        let record: serde_json::Value = strict_read(include_str!(
-            "../../../tests/fixtures/synthetic-controller-land-types.json"
-        ))
-        .unwrap();
-        let raw = &record["source"];
-        grant.name = raw["name"].as_str().unwrap().into();
-        grant.oracle_id = raw["oracle_id"].as_str().unwrap().into();
-        grant.characteristics.mana_cost = ManaCost {
-            generic: 2.into(),
-            colored: vec![Color::W],
-        };
-        grant.characteristics.colors = vec![Color::W];
-        grant.characteristics.color_identity = vec![Color::W];
-        grant.source_labels = None;
-        grant.provenance.printing_id = raw["id"].as_str().unwrap().into();
-        grant.provenance.source_json = canonical(raw).unwrap();
-        grant.provenance.source_sha256 = sha256(grant.provenance.source_json.as_bytes());
-        grant.provenance.abilities_json = canonical(&controller_land_type_ast()).unwrap();
-        grant.provenance.ast_sha256 =
-            sha256(format!("[{}]", grant.provenance.abilities_json).as_bytes());
-        grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
-        grant.capabilities = grant.requirements();
-        definitions.push(grant);
+        for (effect, record, ast) in [
+            (
+                StaticEffect::GrantControllerLandsAllBasicTypes,
+                include_str!("../../../tests/fixtures/synthetic-controller-land-types.json"),
+                controller_land_type_ast(),
+            ),
+            (
+                StaticEffect::ControllerNonlandsAllColors,
+                include_str!("../../../tests/fixtures/synthetic-nonland-colors.json"),
+                controller_nonland_colors_ast(),
+            ),
+        ] {
+            let mut grant = grant.clone();
+            grant.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect,
+            }];
+            let record: serde_json::Value = strict_read(record).unwrap();
+            let raw = &record["source"];
+            grant.name = raw["name"].as_str().unwrap().into();
+            grant.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+            grant.characteristics.mana_cost = ManaCost {
+                generic: 2.into(),
+                colored: vec![Color::W],
+            };
+            grant.characteristics.colors = vec![Color::W];
+            grant.characteristics.color_identity = vec![Color::W];
+            grant.source_labels = None;
+            grant.provenance.printing_id = raw["id"].as_str().unwrap().into();
+            grant.provenance.source_json = canonical(raw).unwrap();
+            grant.provenance.source_sha256 = sha256(grant.provenance.source_json.as_bytes());
+            grant.provenance.abilities_json = canonical(&ast).unwrap();
+            grant.provenance.ast_sha256 =
+                sha256(format!("[{}]", grant.provenance.abilities_json).as_bytes());
+            grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+            grant.capabilities = grant.requirements();
+            definitions.push(grant);
+        }
+
         let artifact = definitions
             .iter()
             .find(|d| d.name == "Sol Ring")

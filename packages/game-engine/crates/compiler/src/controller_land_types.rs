@@ -6,27 +6,47 @@ pub(super) fn lower(effect: &SourceStaticEffect) -> Option<StaticAbility> {
     let SourceStaticEffect::Modify { what, modifiers } = effect else {
         return None;
     };
-    let ast = controller_land_type_ast();
-    let expected = &ast[0]["effect"];
-    (*what == expected["what"] && expected["modifiers"].as_array() == Some(modifiers)).then_some(
-        StaticAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::GrantControllerLandsAllBasicTypes,
-        },
-    )
+    for (ast, grant) in [
+        (
+            controller_land_type_ast(),
+            StaticEffect::GrantControllerLandsAllBasicTypes,
+        ),
+        (
+            controller_nonland_colors_ast(),
+            StaticEffect::ControllerNonlandsAllColors,
+        ),
+    ] {
+        let expected = &ast[0]["effect"];
+        if *what == expected["what"] && expected["modifiers"].as_array() == Some(modifiers) {
+            return Some(StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect: grant,
+            });
+        }
+    }
+    None
 }
 
 pub(super) fn bind(d: &Definition, raw: &Value, binding: &Value) -> Result<(), Failure> {
-    if !d
+    let colors = d
         .capabilities
-        .contains(&Capability::ControllerLandBasicTypesV1)
+        .contains(&Capability::ControllerNonlandColorsV1);
+    if !colors
+        && !d
+            .capabilities
+            .contains(&Capability::ControllerLandBasicTypesV1)
     {
         return Ok(());
     }
     let mut graph = Bindings::new(&d.oracle_id, raw);
     let ability = "/faces/0/abilities/0";
     let path = "/faces/0/abilities/0/effect/what";
-    let selector = json!({"ref":"each","filter":{"types":["land"],"control":"you"}});
+    let ast = if colors {
+        controller_nonland_colors_ast()
+    } else {
+        controller_land_type_ast()
+    };
+    let selector = ast[0]["effect"]["what"].clone();
     graph.ability(ability, "static", "static-source-controller");
     let query=graph.node(path,"query","selection",json!({"scope":graph.id(ability,"ability"),"expression":selector,
         "cardinality":"many","timing":"continuous","selection":"evaluate-reference","rules":["608.2h"]}));
@@ -39,7 +59,7 @@ pub(super) fn bind(d: &Definition, raw: &Value, binding: &Value) -> Result<(), F
     graph.reference(path, &selector, &query, "608.2h");
     graph.validate(
         binding,
-        "requires the exact controlled land query and static controller",
+        "requires the exact continuous query and static controller",
     )
 }
 
@@ -89,5 +109,32 @@ fn controller_land_type_grant_requires_complete_source_and_continuous_binding() 
             ),
             "mutation {n}"
         );
+    }
+}
+
+#[test]
+fn controller_nonland_colors_require_the_complete_continuous_selection() {
+    let record = include_str!("../../../tests/fixtures/synthetic-nonland-colors.json");
+    for mutation in 0..3 {
+        let changed = crate::tests::changed_source(record, |r| match mutation {
+            0 => r["binding"]["references"][0]["target"] = json!("different-controller"),
+            1 => {
+                r["binding"]["nodes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|node| node["node"] == "selection")
+                    .unwrap()["expression"]["filter"]["other"] = json!(true)
+            }
+            _ => {
+                let line = "Other nonland permanents you control are all colors.";
+                r["source"]["oracle_text"] = json!(line);
+                r["faces"][0]["result"]["lines"][0]["text"] = json!(line);
+            }
+        });
+        assert!(!matches!(
+            compile(fixtures::MANIFEST, &changed),
+            CompileResult::Lowered { .. }
+        ));
     }
 }

@@ -9,6 +9,10 @@ pub fn controller_land_type_ast() -> Value {
         "modifiers":[{"modifier":"types","change":{"subtypes":[{"family":"land","operation":"add","types":{"all":true,"basic":true}}]}}]}}])
 }
 
+pub fn controller_nonland_colors_ast() -> Value {
+    json!([{"kind":"static","effect":{"static":"modify","what":{"ref":"each","filter":{"nonTypes":["land"],"cls":"permanent","control":"you"}},"modifiers":[{"modifier":"colors","operation":"set","colors":["white","blue","black","red","green"]}]}}])
+}
+
 fn complete_text(text: &str) -> bool {
     text.strip_prefix("Lands you control are ")
         .and_then(|s| s.strip_suffix(" in addition to their other types."))
@@ -16,17 +20,25 @@ fn complete_text(text: &str) -> bool {
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
-    let has = d
-        .static_abilities
-        .iter()
-        .any(|a| a.effect == StaticEffect::GrantControllerLandsAllBasicTypes);
+    let has = d.static_abilities.iter().any(|a| {
+        matches!(
+            a.effect,
+            StaticEffect::GrantControllerLandsAllBasicTypes
+                | StaticEffect::ControllerNonlandsAllColors
+        )
+    });
     let raw = &d.provenance.source_json;
-    if !has && !raw.contains("basic land type") && !raw.contains(r"\u") {
+    if !has
+        && !raw.contains("basic land type")
+        && !raw.contains("all colors")
+        && !raw.contains(r"\u")
+    {
         return Ok(());
     }
     let source: Value = strict_read(raw)?;
     let text = source["oracle_text"].as_str().unwrap_or("");
-    if !has && !complete_text(text) {
+    let is_colors = text == "Nonland permanents you control are all colors.";
+    if !has && !complete_text(text) && !is_colors {
         return Ok(());
     }
     let c = &d.characteristics;
@@ -38,7 +50,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     for color in &mana.colored {
         printed.push_str(&format!("{{{color:?}}}"));
     }
-    if !complete_text(text)
+    if (!complete_text(text) && !is_colors)
         || !has
         || source["name"] != d.name
         || source["oracle_id"] != d.oracle_id
@@ -67,8 +79,8 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
             d.static_abilities.as_slice(),
             [StaticAbility {
                 functioning_zone: FunctioningZone::Battlefield,
-                effect: StaticEffect::GrantControllerLandsAllBasicTypes
-            }]
+                effect
+            }] if *effect == (if is_colors {StaticEffect::ControllerNonlandsAllColors} else {StaticEffect::GrantControllerLandsAllBasicTypes})
         )
         || d.spell.as_ref().is_none_or(|p| {
             p.timing != SpellTiming::MainPhase
@@ -80,7 +92,12 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
                 || p.additional_sacrifice.is_some()
                 || !p.optional_additional_costs.is_empty()
         })
-        || strict_read::<Value>(&d.provenance.abilities_json)? != controller_land_type_ast()
+        || strict_read::<Value>(&d.provenance.abilities_json)?
+            != (if is_colors {
+                controller_nonland_colors_ast()
+            } else {
+                controller_land_type_ast()
+            })
         || d.source_labels.as_ref().is_some_and(|l| {
             l.text != text
                 || !matches!(l.blocks.as_slice(),[block] if block==text)
@@ -91,7 +108,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
                 || !l.spell_modes.is_empty()
         })
     {
-        return Err("unsupported complete controller land type grant source".into());
+        return Err("unsupported complete controller characteristic grant source".into());
     }
     Ok(())
 }

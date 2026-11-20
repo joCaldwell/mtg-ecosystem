@@ -138,7 +138,7 @@ impl Game {
         Ok(self.has_target_domain(
             self.program_for(top)?,
             top.controller,
-            self.targeting_characteristics(top)?,
+            self.targeting_characteristics(top)?.as_ref(),
         ))
     }
 
@@ -376,7 +376,7 @@ impl Game {
         {
             return Err("no payable sacrifice permanent".into());
         }
-        if !self.has_target_domain(&ability.program, player, &definition.characteristics) {
+        if !self.has_target_domain(&ability.program, player, self.color_layer(object)?.as_ref()) {
             return Err("no eligible ability targets".into());
         }
         Ok(())

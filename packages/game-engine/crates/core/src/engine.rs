@@ -634,6 +634,12 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn has_nonland_color_grant(&self) -> bool {
+        self.catalog.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::ControllerNonlandColorsV1)
+        })
+    }
     fn includes_opening_placement(&self) -> bool {
         self.catalog
             .definitions
@@ -2315,6 +2321,7 @@ pub struct SnapshotWriteInfo {
 }
 pub struct Game {
     catalog_has_land_type_grant: bool,
+    catalog_has_nonland_color_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     state: State,
@@ -2471,6 +2478,7 @@ impl Game {
         };
         let mut game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2493,6 +2501,7 @@ impl Game {
     pub fn fork(&self) -> Self {
         Self {
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
+            catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
@@ -3541,6 +3550,7 @@ impl Game {
         }
         let game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
