@@ -327,7 +327,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
         TriggeredAbilityV1,
         LifeGainV1,
         LifeLossV1,
-        ControllerDrawV1,
+        TargetPlayerDrawV1,
+        SacrificeV1,
         DelayedControllerCreatureEntryV1,
     ];
     let fixed = |op: &str, recipient: &str, field: &str| json!({"type":"object","required":["op","recipient",field],"properties":{"op":{"const":op},"recipient":{"const":recipient},(field):{"pattern":"^[1-9][0-9]*$"}}});
@@ -354,7 +355,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             {"properties":{"characteristics":{"properties":{"subtypes":{"contains":{"const":"Saga"}}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""layout"\s*:\s*"saga""#}}}}}]},
         "then":{"required":["triggered","spell"],"properties":{
-            "capabilities":{"minItems":4,"maxItems":allowed.len(),"allOf":[{"contains":{"const":SagaChaptersV1}},{"contains":{"const":TriggeredAbilityV1}},{"contains":{"const":CastEnchantmentV1}}],"uniqueItems":true,"items":{"enum":allowed}},
+            "capabilities":{"minItems":4,"maxItems":allowed.len(),"allOf":[{"contains":{"const":SagaChaptersV1}},{"contains":{"const":TriggeredAbilityV1}},{"contains":{"const":CastEnchantmentV1}},{"contains":{"const":SacrificeV1}}],"uniqueItems":true,"items":{"enum":allowed}},
             "characteristics":{"properties":{"kind":{"const":"enchantment"},"subtypes":{"const":["Saga"]},"basic":{"const":false},
                 "legendary":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0}}},
             "x_mana_cost":{"const":false},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"keywords":{"maxItems":0},
