@@ -209,6 +209,12 @@ export type BindingNode = NodeBase & (
       pool: string; matches: string }
   | { node: "linked-exile-ledger"; scope: string; source: string; writers: { event: string; result: string }[];
       membership: "still-in-exile"; identity: "source-incarnation"; cardinality: "many" }
+  | { node: "cast-after-exile-payment"; scope: string; caster: string; spell: string; payment: string; actualExile: string;
+      ledger: string; pool: string; cast: string; check: "mandatory-exile-payment-started" }
+  | { node: "shared-exile-play"; scope: string; ledger: string; player: string; maximum: 1;
+      alternatives: { action: "play-land" | "cast-spell"; use: string; player: string; refill: string; mana?: "any-color" }[];
+      period: "actual-turn-per-player-and-source-incarnation"; commit: "completed-use-of-this-permission";
+      refillController: "source-controller-at-use" }
   | { node: "linked-scan-cleanup"; scope: string; ledger: string; caster: string; spell: string; match: string;
       cast: string; cleanup: string; destination: "owners-libraries-random" }
   | { node: "grouped-library-scan"; scope: string; event: string; group: string; member: string; pool: string; matches: string;

@@ -4329,6 +4329,148 @@ class Analyzer {
       cardinality: "many", rules });
   }
 
+  /** A ledger reader can name one exact group-seeding ability and its own
+   * writer. Unrelated printed exile operations require a stronger linkage. */
+  private linkedSeedPath(ability: Ability, abilities: Ability[], path: string, kind: "artifact" | "enchantment"): string | undefined {
+    const self = { ref: "this", noun: kind };
+    const enters = { trigger: "enters", what: self };
+    const source = kind === "artifact" ? enters : {
+      trigger: "any-of", events: [enters, { trigger: "loses-game", who: { player: "an-opponent" } }],
+    };
+    const group = kind === "artifact" ? { who: { player: "each-player" } } : {};
+    const exile = { effect: "exile", what: { ref: "library-cards", position: "top", count: { amount: "fixed",
+      value: kind === "artifact" ? 3 : 1 }, of: { zone: "library", owner: kind === "artifact" ? "their" : "each-player" } }, ...group };
+    const producers = abilities.flatMap((candidate, index) => hasExileInstruction(candidate) ? [{ candidate, index }] : []);
+    const seed = producers.find(({ candidate }) => candidate !== ability && candidate.kind === "triggered" &&
+      !candidate.condition && isDeepStrictEqual(candidate.trigger, source) &&
+      isDeepStrictEqual(candidate.effects, [{ steps: [exile] }]));
+    if (producers.length !== 2 || !seed || !producers.some(entry => entry.candidate === ability)) return;
+    const siblings = path.slice(0, path.lastIndexOf("/"));
+    return `${siblings}/${seed.index}/effects/0/steps/0`;
+  }
+
+  private seedLedgerWriter(path: string, rules: string[]): { event: string; result: string } {
+    const event = this.id(path, "event");
+    const cards = this.eventResult(child(path, "linked-cards"), event, "objects", "many", "zone-successors", { cls: "card" });
+    this.engineFeature("linked-exile-pool", path,
+      "Capture the actual cards exiled from each participating library as source-incarnation ledger inputs.", rules);
+    return { event, result: cards.id };
+  }
+
+  /** CR 118.11–12 and 607.1c, 607.2a. The ability's immediate cast is
+   * gated by the caster's mandatory action. Its actual exile output is
+   * tracked separately for ledger insertion and exclusion. */
+  private castFromSeededExile(ability: Extract<Ability, { kind: "triggered" }>, path: string, context: Context,
+    abilities?: Ability[]): boolean {
+    const { trigger, effects } = ability;
+    const cast = context.triggerObject;
+    const caster = context.castActors?.caster;
+    const them = { player: "they" } as const;
+    const definite = { player: "the-player" } as const;
+    const source = { ref: "this", noun: "artifact" } as const;
+    const other = { ref: "related", number: "plural", filter: { other: true, cls: "card" },
+      relation: { relation: "linked-exile", source } } as const;
+    if (context.barrier || !context.permanentSource || !abilities || ability.condition || cast?.event !== "cast" || !caster ||
+        !isDeepStrictEqual(trigger, { trigger: "cast", who: { player: "a-player" }, what: { cls: "spell" },
+          from: { zone: "hand", owner: "their" } }) || effects.length !== 2 ||
+        !isDeepStrictEqual(effects[0], { steps: [{ effect: "exile", what: { ref: "it" }, who: { player: "that-player" } }] }) ||
+        !isDeepStrictEqual(effects[1], { condition: { condition: "preceding-action", who: definite, outcome: "performed" },
+          conditionKind: "if", steps: [{ effect: "play-card", optional: true, decidedBy: them, instruction: {
+            who: them, action: "cast", what: { ref: "filter", filter: { cls: "spell" }, count: { amount: "fixed", value: 1 } },
+            fromAmong: other, alternativeCost: { cost: "without-mana-cost" },
+          } }],
+        })) return false;
+    const seed = this.linkedSeedPath(ability, abilities, path, "artifact");
+    if (!seed) return false;
+    const rules = ["107.3b", "118.9", "118.11", "118.12", "400.7j", "607.1c", "607.2a", "607.4", "607.5", "608.2g"];
+    const at = `${path}/effects/0/steps/0`;
+    this.effect(effects[0].steps[0], at, { ...context, actor: caster, boundOperand: {
+      path: child(at, "what"), candidate: cast.candidate, rules,
+    } });
+    const paid = this.id(at, "event");
+    const exiled = this.id(at, "objects");
+    const condition = `${path}/effects/1/condition`;
+    this.bound(definite, child(condition, "who"), caster.id, rules);
+    const play = `${path}/effects/1/steps/0`;
+    const from = `${play}/instruction/fromAmong`;
+    const ledger = this.makeExileLedger(from, context, [this.seedLedgerWriter(seed, rules), { event: paid, result: exiled }], rules);
+    this.walk(source, `${from}/relation/source`, context);
+    const remaining = this.node({ id: this.id(from, "remainder"), path: from, node: "remainder", scope: context.ability,
+      pool: ledger, excluding: exiled, rules });
+    this.bound({ ref: "it" }, `${from}/filter/other`, exiled, rules);
+    this.effect(effects[1].steps[0], play, { ...context, actor: caster, conditional: true, boundOperand: {
+      path: from, candidate: { id: remaining, cardinality: "many", domain: "object", description: { cls: "card" } }, rules,
+    } });
+    this.node({ id: this.id(condition, "cast-after-exile-payment"), path: condition, node: "cast-after-exile-payment",
+      scope: context.ability, caster: caster.id, spell: cast.candidate.id, payment: paid, actualExile: exiled,
+      ledger, pool: remaining, cast: this.id(play, "event"), check: "mandatory-exile-payment-started", rules });
+    this.engineFeature("linked-exile-play", play,
+      "Only the triggering caster who starts paying the mandatory exile may cast one card from the linked pool during resolution. Exclude only the actual new exile card, if any.", rules);
+    return true;
+  }
+
+  /** CR 603.11 and 607.2h, with normal play timing and one committed
+   * use per player, source incarnation and turn across both alternatives.
+   * https://magic.wizards.com/en/news/feature/adventures-forgotten-realms-release-notes-2021-07-09 */
+  private sharedExilePlay(ability: Extract<Ability, { kind: "static" }>, path: string, context: Context, abilities?: Ability[]): boolean {
+    const effect = ability.effect;
+    if (context.barrier || !context.permanentSource || !abilities || effect.static !== "play-permission-choice") return false;
+    const active = { player: "active-player" } as const;
+    const source = { ref: "this", noun: "enchantment" } as const;
+    const pool = { ref: "related", number: "plural", filter: { cls: "card" }, relation: { relation: "linked-exile", source } } as const;
+    const count = { amount: "fixed", value: 1 } as const;
+    const exile = { effect: "exile", what: { ref: "library-cards", position: "top", count,
+      of: { zone: "library", owner: "their" } } } as const;
+    const rider = (event: "play" | "cast") => ({ rider: "use-trigger", event, effects: [{ steps: [exile] }] });
+    if (!isDeepStrictEqual(effect, { static: "play-permission-choice",
+          useLimit: { maximum: 1, period: "turn", during: "active-player" }, permissions: [
+            { who: active, action: "play", what: { ref: "filter", filter: { types: ["land"] }, count }, fromAmong: pool,
+              riders: [rider("play")] },
+            { who: active, action: "cast", what: { ref: "filter", filter: { cls: "spell" }, count }, fromAmong: pool,
+              manaPayment: "any-color", riders: [rider("cast")] },
+          ],
+        })) return false;
+    const seed = this.linkedSeedPath(ability, abilities, path, "enchantment");
+    if (!seed) return false;
+    const at = child(path, "effect");
+    const rules = ["305.1", "305.2", "400.7", "601.2i", "603.7g", "603.9", "603.11", "607.2a", "607.2h", "607.5",
+      "609.4b", "611.3", "733.1", "800.4"];
+    const actor = this.player(active, `${at}/useLimit/during`, context);
+    if (!actor) return true;
+    const writers = [this.seedLedgerWriter(seed, rules)];
+    const alternatives: Extract<BindingNode, { node: "shared-exile-play" }>["alternatives"] = [];
+    const ledgerId = this.id(at, "linked-exile-ledger");
+    for (const [index, permission] of effect.permissions.entries()) {
+      const option = `${at}/permissions/${index}`;
+      const from = child(option, "fromAmong");
+      this.bound(active, child(option, "who"), actor.id, rules);
+      this.walk(permission.what, child(option, "what"), { ...context, actor });
+      this.bound(pool, from, ledgerId, rules);
+      this.walk(source, `${from}/relation/source`, context);
+      this.node({ id: this.id(child(from, "relation"), "linked-exile-filter"), path: child(from, "relation"),
+        node: "linked-exile-filter", scope: context.ability, pool: ledgerId, rules });
+      const used = this.event(option, context, `permission-used:${permission.action}`, [actor]);
+      const user = this.eventResult(option, used, "player", "one", "same-objects");
+      const riderPath = `${option}/riders/0`;
+      const you = this.id(riderPath, "you");
+      const refill = this.nestedAbility(riderPath, { ...context, you }, "delayed-triggered", rules);
+      this.node({ id: you, path: riderPath, node: "runtime-player", scope: refill.ability, role: "trigger-controller", rules });
+      const top = `${riderPath}/effects/0/steps/0`;
+      this.effect(exile, top, { ...refill, actor: user, objects: [], players: [], quantities: [] });
+      writers.push({ event: this.id(top, "event"), result: this.id(top, "objects") });
+      alternatives.push({ action: permission.action === "play" ? "play-land" : "cast-spell", use: used, player: user.id,
+        refill: refill.ability, ...(permission.manaPayment ? { mana: "any-color" as const } : {}) });
+    }
+    this.makeExileLedger(at, context, writers, rules);
+    this.node({ id: this.id(at, "shared-exile-play"), path: at, node: "shared-exile-play", scope: context.ability,
+      ledger: ledgerId, player: actor.id, alternatives, maximum: 1,
+      period: "actual-turn-per-player-and-source-incarnation", commit: "completed-use-of-this-permission",
+      refillController: "source-controller-at-use", rules });
+    this.engineFeature("linked-exile-play", at,
+      "Share one normal-timing land play or spell cast from this source's exile ledger during the active player's turn. A completed use spends the permission and triggers the refill for that exact user.", rules);
+    return true;
+  }
+
   /** CR 608.2h: the scan compares to the triggering spell as it
    * last existed, even if exiling it failed. Only the actual match can be cast. */
   private scanAgainstCastSpell(ability: Extract<Ability, { kind: "triggered" }>, path: string, context: Context,
@@ -6600,7 +6742,8 @@ class Analyzer {
       case "triggered":
         if (this.attackDeclarationGuard(ability, path, context)) break;
         this.trigger(ability.trigger, child(path, "trigger"), context);
-        if (this.entrantExchange(ability, path, context) || this.scanAgainstCastSpell(ability, path, context, cardAbilities)) break;
+        if (this.entrantExchange(ability, path, context) || this.scanAgainstCastSpell(ability, path, context, cardAbilities) ||
+            this.castFromSeededExile(ability, path, context, cardAbilities)) break;
         const kickers = this.kickers.get(context.face);
         if (!context.announcedX && kickers?.length === 1 && kickers[0].announcedX && !definesX(ability) &&
             ability.trigger.trigger === "enters" && (ability.trigger.what.ref === "self" || ability.trigger.what.ref === "this") &&
@@ -6673,6 +6816,7 @@ class Analyzer {
       }
       case "chapter": this.sentences(ability.effects, child(path, "effects"), context); break;
       case "static":
+        if (this.sharedExilePlay(ability, path, context, cardAbilities)) break;
         if (entryCopy) {
           this.bindEntryCopy(entryCopy, child(path, "effect"), context);
           break;

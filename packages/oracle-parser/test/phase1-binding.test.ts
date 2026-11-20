@@ -2658,3 +2658,74 @@ describe("distinct library scan and spell-copy results", () => {
     assert.equal(retarget.subject, bound(graph, "/effects/1/steps/0/what"));
   });
 });
+
+describe("source-incarnation exile ledgers", () => {
+  const pool = "When this artifact enters, each player exiles the top three cards of their library.\n"
+    + "Whenever a player casts a spell from their hand, that player exiles it. If the player does, they may cast a spell "
+    + "from among other cards exiled with this artifact without paying its mana cost.";
+
+  it("keeps the mandatory action gate separate from actual exile membership", () => {
+    const graph = analyze(pool, "Artifact");
+    boundCard(graph);
+    const permission = graph.nodes.find(node => node.node === "cast-after-exile-payment");
+    const ledger = graph.nodes.find(node => node.node === "linked-exile-ledger");
+    assert.ok(permission && ledger?.writers.length === 2);
+    assert.equal(permission.check, "mandatory-exile-payment-started");
+    assert.equal(permission.caster, bound(graph, "/condition/who"));
+    assert.equal(permission.caster, bound(graph, "/instruction/who"));
+    assert.equal(permission.spell, bound(graph, "/abilities/1/effects/0/steps/0/what"));
+    assert.equal(ledger.writers[1].result, permission.actualExile);
+    assert.notEqual(permission.spell, permission.actualExile);
+    const rest = graph.nodes.find(node => node.id === permission.pool);
+    assert.ok(rest?.node === "remainder" && rest.pool === ledger.id && rest.excluding === permission.actualExile);
+    assert.equal(rest.id, bound(graph, "/instruction/fromAmong"));
+  });
+
+  it("does not treat a different exile producer or a different casting origin as part of the ledger", () => {
+    for (const text of [
+      pool + "\nAt the beginning of your upkeep, exile the top card of your library.",
+      pool.replace("from their hand", "from exile"),
+    ]) {
+      const graph = analyze(text, "Artifact");
+      assert.equal(graph.referencesBound, false);
+      assert.ok(!graph.nodes.some(node => node.node === "cast-after-exile-payment"));
+    }
+  });
+
+  const shared = "When this enchantment enters and whenever an opponent loses the game, exile the top card of each player's library.\n"
+    + "During each player's turn, that player may play a land or cast a spell from among cards exiled with this enchantment, "
+    + "and they may spend mana as though it were mana of any color to cast that spell. When they do, exile the top card of their library.";
+
+  it("shares one committed-use quota across both actions and captures the correct library for each refill", () => {
+    const graph = analyze(shared, "Enchantment");
+    boundCard(graph);
+    const permission = graph.nodes.find(node => node.node === "shared-exile-play");
+    const ledger = graph.nodes.find(node => node.node === "linked-exile-ledger");
+    assert.ok(permission?.maximum === 1 && ledger?.writers.length === 3);
+    assert.equal(permission.ledger, ledger.id);
+    assert.equal(ledger.identity, "source-incarnation");
+    assert.equal(permission.period, "actual-turn-per-player-and-source-incarnation");
+    assert.equal(permission.commit, "completed-use-of-this-permission");
+    assert.equal(permission.refillController, "source-controller-at-use");
+    assert.equal(permission.player, bound(graph, "/useLimit/during"));
+    assert.deepEqual(permission.alternatives.map(option => [option.action, option.mana]), [["play-land", undefined], ["cast-spell", "any-color"]]);
+    permission.alternatives.forEach((option, index) => {
+      assert.equal(ledger.id, bound(graph, `/permissions/${index}/fromAmong`));
+      assert.equal(option.player, bound(graph, `/permissions/${index}/riders/0/effects/0/steps/0/what/of/owner`));
+      assert.ok(graph.nodes.some(node => node.id === ledger.writers[index + 1].event &&
+        node.node === "event" && node.scope === option.refill));
+    });
+    assert.notEqual(permission.alternatives[0].use, permission.alternatives[1].use);
+  });
+
+  it("does not infer a face-up seed pool across a face-down seed or unrelated producer", () => {
+    for (const text of [
+      shared.replace("each player's library.", "each player's library face down."),
+      shared + "\nAt the beginning of your upkeep, exile the top card of your library.",
+    ]) {
+      const graph = analyze(text, "Enchantment");
+      assert.equal(graph.referencesBound, false);
+      assert.ok(!graph.nodes.some(node => node.node === "shared-exile-play"));
+    }
+  });
+});
