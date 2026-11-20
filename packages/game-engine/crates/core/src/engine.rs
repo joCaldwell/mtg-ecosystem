@@ -69,8 +69,8 @@ mod aura_control_tests;
 #[cfg(test)]
 mod blocking_target_tests;
 mod counter_placement;
-mod counter_unless;
-use counter_unless::{CounterPayment, CounterPaymentStage};
+mod resolution_payment;
+use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
@@ -381,6 +381,7 @@ mod commander_damage_library_tests;
 mod commander_tests;
 mod legend;
 mod scenarios;
+mod targeted_loss;
 pub use combat::*;
 mod turns;
 pub use turns::*;
@@ -1036,9 +1037,9 @@ enum Frame {
         choices: Vec<(PlayerId, ObjectId)>,
         source_block: u32,
     },
-    CounterUnless {
+    ResolutionPayment {
         frame: Resolving,
-        payment: CounterPayment,
+        payment: ResolutionPayment,
     },
     OptionalDamage {
         frame: Resolving,
@@ -2672,7 +2673,7 @@ impl Game {
                 colors: self.mana_source_colors(*player, *source, *scope)?,
             },
             Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
-            Frame::CounterUnless { payment, .. } => self.counter_payment_request(payment),
+            Frame::ResolutionPayment { payment, .. } => self.resolution_payment_request(payment),
             Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
                 object,
@@ -2725,8 +2726,8 @@ impl Game {
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return self.validate_land_entry_response(player, response);
         }
-        if let Frame::CounterUnless { payment, .. } = &self.state.rules.frame {
-            return self.validate_counter_payment_response(payment, player, response);
+        if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
+            return self.validate_resolution_payment_response(payment, player, response);
         }
         if let Frame::Cascade { progress } = &self.state.rules.frame {
             return self.validate_cascade_response(progress, player, response);
@@ -3015,7 +3016,9 @@ impl Game {
         match self.state.rules.frame.clone() {
             Frame::LandEntry { .. } => self.land_entry_step()?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
-            Frame::CounterUnless { frame, payment } => self.counter_payment_step(frame, payment)?,
+            Frame::ResolutionPayment { frame, payment } => {
+                self.resolution_payment_step(frame, payment)?
+            }
             Frame::LegendRule { .. } => self.legend_step()?,
             Frame::SacrificeCost { .. }
             | Frame::ForcedSacrifice { .. }
@@ -3349,7 +3352,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 49,
+            snapshot_version: 54,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3391,7 +3394,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 49
+        if s.snapshot_version != 54
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3588,6 +3591,13 @@ impl Game {
         self.validate_land_entry_state()?;
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.rules.frame)?;
+        // Paid mana damage can retain the resolving instruction even after its
+        // payer departs and the activation no longer has a live mana window.
+        if let Frame::ResolutionPayment { frame, payment } =
+            spell_cascade_grants::retained_effect_frame(&s.rules.frame)
+        {
+            self.validate_resolution_payment(frame, payment)?;
+        }
         match self.underlying_mana_frame(&s.rules.frame) {
             Frame::AdditionalCosts { cast }
             | Frame::AnnounceX { cast }
@@ -3663,9 +3673,6 @@ impl Game {
                 {
                     return Err("snapshot payment target invariant".into());
                 }
-            }
-            Frame::CounterUnless { frame, payment } => {
-                self.validate_counter_payment(frame, payment)?
             }
             Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }

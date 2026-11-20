@@ -157,7 +157,7 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
-A fixed counter tax gives the targeted spell's controller a resolution payment window.
+Counter taxes and cast-payer draws share a resolution payment window.
 X is announced nonnegative and frozen; stack mana value and supported draw, damage, life and mill effects use it.
 CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
 of BoardWipes. Every validated slot applies; the legacy creature reducer shares
@@ -213,6 +213,7 @@ this rules state without adding a public object field.
 | --- | --- |
 | Ordinary tap (`TapPermanentV1`) | One unqualified creature target, instant/sorcery tap, optionally followed by one mandatory controller draw-one |
 | Artifact tap activation (`ActivatedTapPermanentV1`) | Battlefield artifact, finite mana plus tap-source cost, one tap instruction, artifact/creature/land target union; no sacrifice/modes/triggers/extra effects |
+| Cast-entry land untap (`UntapControllerLandsV1`) | Standalone paid creature entry. Simultaneously untap the trigger controller’s currently tapped lands, including multitype lands. |
 | Ordinary untap (`UntapPermanentV1`) | One ordinary nonmodal instant/sorcery, one unqualified permanent target and instruction; no additional costs/qualifiers/extra instructions |
 | Tap-source creature untap (`TapSourceUntapCreatureV1`) | Battlefield creature, pure tap-source cost, instant-timed stack, one mandatory creature-filter target at slot zero and one untap instruction |
 | Tap-source destruction | Separately validated creature activation and tapped-creature target; preserve cost/readiness and ordinary destruction guards |
@@ -221,9 +222,7 @@ this rules state without adding a public object field.
 Already tapped/untapped is a legal target; produce no false second status event.
 Tap/untap does not itself remove combat membership. Self-targeting tap/untap
 abilities still pay tap first. Paid activations survive source departure.
-Complete Pressure Point, Icy Manipulator, Burst of Energy, Seeker of Skybreak,
-Royal Assassin, Temporal Adept and Unsummon source fixtures witness these shapes;
-they do not authorize broader combinations. See compiler tests for exact fencing.
+Compiler tests fence each complete source shape.
 
 <a id="combat-damage-and-state-based-actions"></a>
 
@@ -573,7 +572,7 @@ hosting/search or consumer admission; Card IR remains schema 1.
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
 controllers, actors, incarnations and witnesses. Power-filtered entries use
-derived post-event power. Intervening conditions recheck at resolution. Source
+derived post-event power. Intervening conditions recheck at resolution. Cast-gated entries retain the paid stack predecessor, caster and battlefield successor. Source
 status uses current incarnation or departure-refreshed LKI in live continuations.
 Cast triggers collect after
 successful payment; declared attacks use the real declaration batch. Ordinary

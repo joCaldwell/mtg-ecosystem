@@ -401,6 +401,7 @@ impl Game {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn collect_triggers(
         &mut self,
+        cause: &BatchCause,
         before: &Game,
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
@@ -590,7 +591,7 @@ impl Game {
             for (recipient, mut members) in damage_groups {
                 members.sort_by_key(|m| m.damage.id);
                 self.collect_trigger_witness(
-                    Some(before),
+                    Some((before, cause)),
                     TriggerOccurrenceId::Batch(occurrence.id.clone()),
                     TriggerEventWitness::GroupedDamageDealt {
                         kind: DamageKind::Combat,
@@ -612,7 +613,7 @@ impl Game {
                     )
                 {
                     self.collect_trigger_witness(
-                        Some(before),
+                        Some((before, cause)),
                         TriggerOccurrenceId::Batch(occurrence.id.clone()),
                         witness,
                     )?;
@@ -657,7 +658,7 @@ impl Game {
     }
     fn collect_trigger_witness(
         &mut self,
-        before: Option<&Game>,
+        before: Option<(&Game, &BatchCause)>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -679,7 +680,7 @@ impl Game {
     }
     fn collect_trigger_witness_staged(
         &mut self,
-        before: Option<&Game>,
+        before: Option<(&Game, &BatchCause)>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -704,7 +705,9 @@ impl Game {
                 .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
         });
         let observers = if dies {
-            before.ok_or("death trigger requires actual pre-event lookback")?
+            before
+                .ok_or("death trigger requires actual pre-event lookback")?
+                .0
         } else {
             &*self
         };
@@ -915,6 +918,11 @@ impl Game {
                                     object.controller,
                                     object.id,
                                     &observers.object_before(object.id)?,
+                                    if *condition == InterveningCondition::SourceCastByController {
+                                        before.and_then(|(prior, cause)| prior.completed_entry_cast(cause, &witness))
+                                    } else {
+                                        None
+                                    },
                                 )
                             })
                             .transpose()?,
@@ -1209,6 +1217,7 @@ impl Game {
                         trigger.ability,
                         trigger.controller,
                         trigger.match_condition.as_ref(),
+                        &trigger.witness,
                     )?;
                     if !self.is_live(trigger.controller) {
                         self.state.rules.frame = Frame::TriggerOrder { placement };
@@ -1846,6 +1855,7 @@ impl Game {
             *ability,
             entry.controller,
             match_condition.as_ref(),
+            witness,
         )?;
         self.validate_trigger_witness(
             entry.source,
@@ -1911,6 +1921,7 @@ impl Game {
                 trigger.ability,
                 trigger.controller,
                 trigger.match_condition.as_ref(),
+                &trigger.witness,
             )?;
             if !self.is_live(trigger.controller)
                 || trigger.id.0 >= self.state.rules.next_trigger_id

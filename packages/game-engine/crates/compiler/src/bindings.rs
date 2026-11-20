@@ -124,6 +124,45 @@ impl<'a> Bindings<'a> {
         self.node(path, kind, "event-result", fields);
     }
 
+    /// A card may have independently supported siblings. Compare every field of
+    /// the shared source/face anchors and every node/reference owned by this block.
+    pub(super) fn validate_block(&self, binding: &Value, root: &str) -> Result<(), Failure> {
+        let fail = || unsupported("binding", "incomplete cast trigger binding graph");
+        let prefix = format!("card:{}{root}", self.identity);
+        let local_path = |path: &str| {
+            path == root
+                || path
+                    .strip_prefix(root)
+                    .is_some_and(|tail| tail.starts_with('/'))
+        };
+        let local_id = |id: &str| {
+            id.strip_prefix(&prefix)
+                .is_some_and(|tail| tail.starts_with(['#', '/']))
+        };
+        let mut scoped = binding.clone();
+        let nodes = scoped["nodes"].as_array_mut().ok_or_else(fail)?;
+        nodes.retain(|node| {
+            node["path"]
+                .as_str()
+                .is_some_and(|path| matches!(path, "/source" | "/faces/0") || local_path(path))
+                || node["id"]
+                    .as_str()
+                    .is_some_and(|id| local_id(id) || self.nodes.iter().any(|n| n["id"] == id))
+                || node["scope"].as_str().is_some_and(local_id)
+        });
+        let refs = scoped["references"].as_array_mut().ok_or_else(fail)?;
+        let total = refs.len();
+        if binding["counts"] != json!({"obligations":total,"bound":total,"unresolved":0}) {
+            return Err(fail());
+        }
+        refs.retain(|r| {
+            r["path"].as_str().is_some_and(local_path) || r["target"].as_str().is_some_and(local_id)
+        });
+        let n = refs.len();
+        scoped["counts"] = json!({"obligations":n,"bound":n,"unresolved":0});
+        self.validate(&scoped, "incomplete cast trigger binding graph")
+    }
+
     /// Archive v1 can report a scope gap even when every emitted reference is bound.
     /// Callers must independently bind the missing operand from the executable source.
     pub(super) fn with_scope_diagnostic(self, diagnostic: Value) -> Value {
@@ -138,6 +177,15 @@ impl<'a> Bindings<'a> {
         })
     }
 
+    #[cfg(test)]
+    pub(super) fn synthetic_envelope(&self) -> Value {
+        json!({"artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,
+            "rules":{"edition":RULES_EDITION,"url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
+            "identity":self.identity,"fullyBound":true,"referencesBound":true,"diagnostics":[],"engineFeatures":[],
+            "nodes":self.nodes,"references":self.references,"counts":{"obligations":self.references.len(),
+            "bound":self.references.len(),"unresolved":0}})
+    }
+
     pub(super) fn validate_ordered(&self, binding: &Value, message: &str) -> Result<(), Failure> {
         if binding["nodes"].as_array() != Some(&self.nodes)
             || binding["references"].as_array() != Some(&self.references)
@@ -148,6 +196,15 @@ impl<'a> Bindings<'a> {
     }
 
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        self.validate_with_features(binding, &[], message)
+    }
+
+    pub(super) fn validate_with_features(
+        &self,
+        binding: &Value,
+        features: &[Value],
+        message: &str,
+    ) -> Result<(), Failure> {
         let same_members = |actual: &Value, expected: &[Value]| {
             actual.as_array().is_some_and(|items| {
                 items.len() == expected.len() && expected.iter().all(|item| items.contains(item))
@@ -162,10 +219,10 @@ impl<'a> Bindings<'a> {
                 != json!({"edition":RULES_EDITION,
                 "url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"})
             || binding["identity"] != self.identity
-            || binding["fullyBound"] != true
+            || binding["fullyBound"] != features.is_empty()
             || binding["referencesBound"] != true
             || binding["diagnostics"] != json!([])
-            || binding["engineFeatures"] != json!([])
+            || !same_members(&binding["engineFeatures"], features)
             || binding["counts"]
                 != json!({"obligations":self.references.len(),"bound":self.references.len(),"unresolved":0})
             || !same_members(&binding["nodes"], &self.nodes)

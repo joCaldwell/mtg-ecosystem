@@ -668,9 +668,12 @@ impl Game {
                                     && (*count == Quantity::from(1)
                                         || frame.draw_progress.is_some())
                             }
-                            Some(Instruction::OptionalDrawCards { source_block: b }) => {
-                                b == source_block
-                            }
+                            Some(
+                                Instruction::OptionalDrawCards { source_block: b }
+                                | Instruction::OptionalDrawUnlessCasterPays {
+                                    source_block: b, ..
+                                },
+                            ) => b == source_block,
                             Some(
                                 Instruction::DrawDamageAmount { source_block: b }
                                 | Instruction::DrawCardsIfAdditionalCost {

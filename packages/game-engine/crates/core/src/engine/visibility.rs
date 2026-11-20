@@ -1810,8 +1810,13 @@ impl Game {
                 colors: self.mana_source_colors(*player, *source, *scope)?,
                 mana_ability_source: Some(self.handle_for(viewer, *source)?),
             })),
-            Frame::CounterUnless { payment, .. } if payment.payer == viewer => self
-                .visible_payment_request(viewer, token, self.counter_payment_request(payment), None)
+            Frame::ResolutionPayment { payment, .. } if payment.payer == viewer => self
+                .visible_payment_request(
+                    viewer,
+                    token,
+                    self.resolution_payment_request(payment),
+                    None,
+                )
                 .map(Some),
             Frame::ManaAbility { activation } if activation.player == viewer => {
                 Ok(Some(match self.permanent_mana_request(activation)? {
@@ -2105,7 +2110,7 @@ impl Game {
                     {
                         Some((self.state.rules.revision, 20))
                     }
-                    Frame::CounterUnless { ref payment, .. } if payment.payer == viewer => {
+                    Frame::ResolutionPayment { ref payment, .. } if payment.payer == viewer => {
                         Some((self.state.rules.revision, 20))
                     }
                     Frame::ManaSourceChoice { player, .. } if player == viewer => {

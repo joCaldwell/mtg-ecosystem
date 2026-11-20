@@ -942,6 +942,7 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,
@@ -987,7 +988,8 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
-            i @ (Instruction::MoveSet { .. }
+            i @ (Instruction::UntapControllerLands { .. }
+            | Instruction::MoveSet { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -1188,20 +1190,7 @@ impl Game {
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
             Instruction::OptionalDrawCards { source_block } => {
-                if !self.is_live(player) {
-                    return self.finish_instruction(
-                        frame,
-                        InstructionOutcome::PlayerActionSkipped { player },
-                    );
-                }
-                self.state.rules.frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::OptionalDraw {
-                        player,
-                        source_block,
-                    },
-                };
-                Ok(())
+                self.offer_controller_draw(frame, source_block)
             }
             Instruction::DiscardPlayerSet {
                 scope,
@@ -1245,11 +1234,10 @@ impl Game {
                 target_slot,
                 source_block,
             } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
-            Instruction::CounterSpellUnlessPays {
-                target_slot,
-                generic,
-                ..
-            } => self.begin_counter_payment(frame, target_slot, generic),
+            Instruction::CounterSpellUnlessPays { .. }
+            | Instruction::OptionalDrawUnlessCasterPays { .. } => {
+                self.begin_resolution_payment(frame)
+            }
             Instruction::CounterSpellAndMillController {
                 target_slot,
                 count,
@@ -1258,6 +1246,26 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
+    pub(super) fn offer_controller_draw(
+        &mut self,
+        frame: Resolving,
+        source_block: u32,
+    ) -> Result<(), String> {
+        let player = frame.spell.controller;
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        self.state.rules.frame = Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::OptionalDraw {
+                player,
+                source_block,
+            },
+        };
+        Ok(())
+    }
+
     pub(super) fn draw_one(
         &mut self,
         frame: Resolving,
@@ -1694,6 +1702,9 @@ impl Game {
             || entry.id.0 >= self.state.rules.next_stack_id
             || !self.announced_target_count_valid(program, entry)
             || entry.paid.as_ref() != Some(&entry.total_cost)
+            // Immediate loss and completion of its activated ability share one
+            // atomic rule step. There is no post-loss resolving continuation.
+            || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)
             || frame.cursor as usize > program.instructions.len()
             || frame.outcomes.len() != frame.cursor as usize
             || frame.legal_targets.len() != self.bound_target_count(entry)

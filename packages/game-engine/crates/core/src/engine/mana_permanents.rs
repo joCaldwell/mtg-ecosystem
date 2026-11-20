@@ -251,7 +251,7 @@ impl Game {
                 }
                 // This new root owns the entire suspended resolution and any
                 // nested activation wrappers and receipts. Count their bytes once.
-                Frame::CounterUnless { .. } => {
+                Frame::ResolutionPayment { .. } => {
                     return stored_history::payload_charge(&self.state.rules.frame);
                 }
                 Frame::Mana { cast }
@@ -816,7 +816,9 @@ impl Game {
         match &mut resume {
             Frame::ManaAbility { activation } => activation.receipts.extend(receipts),
             Frame::Mana { cast } => cast.mana_activations.extend(receipts),
-            Frame::CounterUnless { payment, .. } if payment.stage == CounterPaymentStage::Mana => {
+            Frame::ResolutionPayment { payment, .. }
+                if payment.stage == ResolutionPaymentStage::Mana =>
+            {
                 payment.receipts.extend(receipts)
             }
             Frame::Priority => {
@@ -830,7 +832,7 @@ impl Game {
         if matches!(self.state.rules.frame, Frame::Priority) {
             return self.stabilize();
         }
-        self.revalidate_counter_payment_departure()
+        self.revalidate_resolution_payment_departure()
     }
     pub(super) fn undo_mana_receipts(
         &mut self,
@@ -1047,7 +1049,7 @@ impl Game {
             self.state.rules.pending = None;
             return self.resolve_mana_ability(activation, None);
         }
-        self.revalidate_counter_payment_departure()
+        self.revalidate_resolution_payment_departure()
     }
     pub(super) fn validate_nested_mana_frame(&self, frame: &Frame) -> Result<(), String> {
         let mut f = frame;
