@@ -85,6 +85,7 @@ pub mod graveyard_shuffle;
 mod group_discard;
 mod hand_return;
 pub mod modal_targets;
+pub mod repeated_target_modes;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
