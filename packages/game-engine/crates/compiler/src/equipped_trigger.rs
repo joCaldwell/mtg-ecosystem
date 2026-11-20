@@ -149,6 +149,12 @@ pub(super) fn bind_creation(
     you: &str,
     step: &Value,
 ) {
+    graph.reference(
+        &format!("{path}/who"),
+        &json!({"player":"you"}),
+        you,
+        "109.5",
+    );
     graph.event(base, path, "create-token", you, false);
     graph.node(path,"objects","event-result",json!({
         "event":graph.id(path,"event"),"result":"objects","cardinality":if step["count"]["value"]==1{"one"}else{"many"},

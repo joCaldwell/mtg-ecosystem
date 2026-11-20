@@ -270,3 +270,75 @@ fn slice4_created_treasure_pays_a_real_cost_and_retains_its_template_after_sacri
         },
     );
 }
+
+#[test]
+fn slice4_food_and_clue_use_normal_paid_abilities() {
+    use super::equipped_indestructible_tests::{cast, pay_and_resolve};
+    const FOOD: &str =
+        include_str!("../../../../tests/fixtures/c8c88c33-b8df-4b19-b12c-79c9709af8f1.json");
+    const CLUE: &str =
+        include_str!("../../../../tests/fixtures/a5a05edd-2a30-414b-b766-f0651d5783f5.json");
+    for (raw, rows, caster, targets, kind) in [
+        (
+            FOOD,
+            vec![
+                ("Mintstrosity", 0, 0, false),
+                ("Murder", 0, 0, true),
+                ("Swamp", 0, 0, false),
+                ("Swamp", 0, 0, false),
+                ("Swamp", 0, 0, false),
+                ("Swamp", 0, 0, false),
+                ("Swamp", 0, 0, false),
+            ],
+            1,
+            Some(0),
+            "Food",
+        ),
+        (
+            CLUE,
+            vec![
+                ("Forecasting Fortune Teller", 0, 0, true),
+                ("Island", 0, 0, false),
+                ("Island", 0, 0, false),
+                ("Island", 0, 0, false),
+                ("Island", 0, 0, false),
+            ],
+            0,
+            None,
+            "Clue",
+        ),
+    ] {
+        both(prepared_with_sources(&rows, &[raw]), |g, q| {
+            cast(
+                g,
+                q,
+                caster,
+                targets.map_or_else(Vec::new, |id| target(g, id)),
+            );
+            let (id, token) = g.state.rules.tokens.first_key_value().unwrap();
+            assert_eq!(token.definition.characteristics.subtypes, [kind]);
+            let artifact = object(g, id.0);
+            let n = g.state.rules.libraries[&PlayerId(0)].len();
+            let mut life = g.state.rules.players[0].life.clone();
+            recover(g);
+            answer(
+                g,
+                q,
+                Response::ActivateAbility {
+                    object: artifact,
+                    ability: 0,
+                },
+            );
+            pay_and_resolve(g, q, vec![]);
+            assert!(g.current(artifact).is_err());
+            if kind == "Food" {
+                life.add(&3.into());
+                assert_eq!(g.state.rules.players[0].life, life);
+                assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), n);
+            } else {
+                assert_eq!(g.state.rules.players[0].life, life);
+                assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), n - 1);
+            }
+        });
+    }
+}
