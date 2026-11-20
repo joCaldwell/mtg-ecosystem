@@ -52,8 +52,7 @@ Death-trigger destruction, Exterminatus, Farewell and Akroma's Will have paid wi
 
 ### M8 Add spell and permanent copies
 
-Double Major and Creative Technique compile from authorized reparses. Complete
-Protege’s copying with independent choices and exact ownership.
+Double Major, Creative Technique and Protege compile from authorized reparses.
 
 ### M9 Add linked permissions, bestow and Sagas
 

@@ -63,7 +63,11 @@ impl Game {
                 ..
             } => (grant_source, triggered_ability_index, false),
         };
-        let labels = self.definition(source.card).ok()?.source_labels.as_ref()?;
+        let labels = self
+            .copiable_definition(source)
+            .ok()?
+            .source_labels
+            .as_ref()?;
         let blocks = if is_static {
             &labels.statics
         } else {
@@ -84,7 +88,7 @@ impl Game {
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
             return None;
         }
-        let definition = self.definition(object.card).ok()?;
+        let definition = self.copiable_definition(object).ok()?;
         if kind == DecisionSourceKind::ManaAbility && definition.mana_abilities.is_empty() {
             // Use precisely the runtime's intrinsic CR 305.6 production query.
             // Never describe a permanent ability as intrinsic when its labels are missing.
@@ -99,7 +103,7 @@ impl Game {
                 .join(" or ");
             return Some(DecisionSource {
                 kind,
-                oracle_id: definition.oracle_id.clone(),
+                oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
                 object: Some(self.handle_for(viewer, object).ok()?),
                 ability: None,
                 text: if self.has_granted_land_mana(object).unwrap_or(false) {
@@ -129,7 +133,7 @@ impl Game {
         };
         Some(DecisionSource {
             kind,
-            oracle_id: definition.oracle_id.clone(),
+            oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
             object: self.handle_for(viewer, object).ok(),
             ability,
             text,
@@ -165,7 +169,11 @@ impl Game {
                 };
                 return Some(DecisionSource {
                     kind: DecisionSourceKind::Triggered,
-                    oracle_id: self.definition(grant_source.card).ok()?.oracle_id.clone(),
+                    oracle_id: self
+                        .copiable_definition(grant_source)
+                        .ok()?
+                        .oracle_id
+                        .clone(),
                     object: grant
                         .as_ref()?
                         .source_handles
@@ -189,6 +197,27 @@ impl Game {
         {
             return self
                 .effect_decision_context(viewer, &self.cascade_land_source(progress).ok()??);
+        }
+        if matches!(
+            request,
+            PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. }
+        ) && let Some(
+            Request::EntryCopy { player, source, .. }
+            | Request::EntryAttachment { player, source, .. },
+        ) = self.land_entry_request().ok()?
+            && player == viewer
+        {
+            let definition = self.definition(source.card).ok()?;
+            let ability = definition.static_abilities.iter().position(|ability| {
+                ability.effect == StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn
+            })?;
+            return self.effect_decision_context(
+                viewer,
+                &EffectKey::Static {
+                    source,
+                    ability: u32::try_from(ability).ok()?,
+                },
+            );
         }
         if let Some((player, source, ability)) = self.land_entry_offer().ok()? {
             return (player == viewer)
@@ -276,7 +305,7 @@ impl Game {
             ..Default::default()
         };
         let labels = self
-            .definition(entry.source.card)
+            .copiable_definition(entry.source)
             .ok()?
             .source_labels
             .as_ref()?;
@@ -330,7 +359,11 @@ impl Game {
     ) -> Option<DecisionContext> {
         let (object, source_block, mode) = match effect {
             EffectKey::Static { source, ability } => {
-                let labels = self.definition(source.card).ok()?.source_labels.as_ref()?;
+                let labels = self
+                    .copiable_definition(*source)
+                    .ok()?
+                    .source_labels
+                    .as_ref()?;
                 (*source, *labels.statics.get(*ability as usize)?, None)
             }
             EffectKey::Resolved { id } => {
@@ -342,7 +375,7 @@ impl Game {
                 )
             }
         };
-        let definition = self.definition(object.card).ok()?;
+        let definition = self.copiable_definition(object).ok()?;
         let labels = definition.source_labels.as_ref()?;
         let text = mode
             .and_then(|mode| labels.spell_modes.get(mode as usize))
@@ -351,7 +384,7 @@ impl Game {
         Some(DecisionContext {
             source: Some(DecisionSource {
                 kind: DecisionSourceKind::Effect,
-                oracle_id: definition.oracle_id.clone(),
+                oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
                 object: self.handle_for(viewer, object).ok(),
                 ability: None,
                 text: text.clone(),

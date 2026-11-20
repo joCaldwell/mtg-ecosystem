@@ -100,7 +100,7 @@ impl Game {
         }
         self.validate_activation(player, object, ability)?;
         let cost = self
-            .definition(object.card)?
+            .copiable_definition(object)?
             .activated
             .get(ability as usize)
             .ok_or("missing activated cost")?
@@ -136,11 +136,11 @@ impl Game {
                 | ActivationCost::DiscardSource { .. }
                 | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
-        let modal = !self.definition(object.card)?.activated[ability as usize]
+        let modal = !self.copiable_definition(object)?.activated[ability as usize]
             .program
             .modes
             .is_empty();
-        let targeted = !self.definition(object.card)?.activated[ability as usize]
+        let targeted = !self.copiable_definition(object)?.activated[ability as usize]
             .program
             .targets
             .is_empty();
@@ -202,7 +202,7 @@ impl Game {
             self.state.rules.frame = if modal {
                 Frame::Modes { cast }
             } else {
-                match self.definition(object.card)?.activated[ability as usize]
+                match self.copiable_definition(object)?.activated[ability as usize]
                     .program
                     .targets[0]
                     .domain
@@ -314,7 +314,7 @@ impl Game {
         ability: u32,
         source_handles: &[ObjectHandle],
     ) -> Result<(), String> {
-        let definition = self.definition(entry.source.card)?;
+        let definition = self.copiable_definition(entry.source)?;
         let activated = definition
             .activated
             .get(ability as usize)
@@ -461,7 +461,7 @@ impl Game {
         {
             return Err("snapshot alternative casting cost/origin invariant".into());
         }
-        let x_spell = self.definition(entry.source.card)?.x_mana_cost && entry.kind.is_spell();
+        let x_spell = self.copiable_definition(entry.source)?.x_mana_cost && entry.kind.is_spell();
         let choosing_mode =
             matches!(&self.state.rules.frame, Frame::Modes { cast } if cast.stack_id == entry.id);
         let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
@@ -548,7 +548,7 @@ impl Game {
     pub(super) fn spell_cannot_be_countered(&self, entry: &StackInstance) -> Result<bool, String> {
         Ok(entry.kind.is_spell()
             && self
-                .definition(entry.source.card)?
+                .copiable_definition(entry.source)?
                 .static_abilities
                 .iter()
                 .any(|ability| {

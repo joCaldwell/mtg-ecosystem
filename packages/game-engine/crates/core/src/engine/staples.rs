@@ -400,6 +400,9 @@ impl Game {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
                 }
+                if self.begin_copy_entry(&frame, target)? {
+                    return Ok(());
+                }
                 let movement = self.move_object_for(
                     target,
                     Zone::Battlefield,

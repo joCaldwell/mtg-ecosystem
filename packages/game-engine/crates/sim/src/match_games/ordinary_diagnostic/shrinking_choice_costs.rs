@@ -1323,9 +1323,11 @@ fn choice_defender_probe_requires_other_attack_eligibility_without_changing_root
     assert_eq!(defender.characteristics.kind, CardKind::Creature);
     // Pure public-row selection domain, not a newly admitted/root position.
     let row = mtg_core::VisibleObject {
+        copied_values: None,
         face_down: false,
         exiled_by: None,
         phased_out: false,
+        entered_this_turn: false,
         mana_ability_used: None,
         attached_to: None,
         attachments: vec![],

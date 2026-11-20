@@ -22,7 +22,7 @@ impl Game {
                     return false;
                 }
 
-                let Ok(d) = self.definition(o.id.card) else {
+                let Ok(d) = self.copiable_definition(o.id) else {
                     return false;
                 };
                 let creature = self.target_is_creature(o.id);
@@ -67,7 +67,7 @@ impl Game {
     }
     pub(super) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
         let mut q = self
-            .definition(entry.source.card)?
+            .copiable_definition(entry.source)?
             .characteristics
             .printed_mana_value();
         if let Some(x) = &entry.x {
@@ -432,7 +432,7 @@ impl Game {
                         && object.tapped
                         && object.controller == frame.spell.controller
                         && self
-                            .definition(object.id.card)?
+                            .copiable_definition(object.id)?
                             .characteristics
                             .has_type(CardKind::Land)
                     {
@@ -617,7 +617,7 @@ impl Game {
             && targets.iter().collect::<BTreeSet<_>>().len() == targets.len()
             && targets.iter().all(|o| {
                 self.state.rules.cards.contains_key(&o.card)
-                    && self.definition(o.card).is_ok_and(|d| match set {
+                    && self.copiable_definition(o).is_ok_and(|d| match set {
                         Some(ObjectSet::OpponentNonlandPermanents) => {
                             !d.characteristics.has_type(CardKind::Land)
                         }
@@ -682,7 +682,7 @@ impl Game {
                 TargetEntity::Object { object } => {
                     !self.state.rules.cards.contains_key(&object.card)
                         || !self
-                            .definition(object.card)
+                            .copiable_definition(object)
                             .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
                 }
             })

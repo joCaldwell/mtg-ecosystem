@@ -1226,6 +1226,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                 match &a.effect {
                     StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::MayBeginOnBattlefield
+                    | StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn
                     | StaticEffect::Bestow { .. }
                     | StaticEffect::ControllerNonlandsAllColors
                     | StaticEffect::GrantControllerLandsAllBasicTypes

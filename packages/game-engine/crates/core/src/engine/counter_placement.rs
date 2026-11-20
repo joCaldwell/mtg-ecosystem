@@ -245,7 +245,7 @@ impl Game {
         let provider = self.current(key.source)?;
         let recipient = self.current(member.object)?;
         let ability = self
-            .definition(key.source.card)?
+            .copiable_definition(key.source)?
             .static_abilities
             .get(key.ability as usize)
             .ok_or("counter replacement ability")?;
@@ -282,21 +282,25 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
             .flat_map(|o| {
-                self.definition(o.id.card).into_iter().flat_map(move |d| {
-                    d.static_abilities
-                        .iter()
-                        .enumerate()
-                        .filter_map(move |(i, a)| {
-                            matches!(
-                                a.effect,
-                                StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
-                            )
-                            .then_some(CounterPlacementEffectKey {
-                                source: o.id,
-                                ability: i as u32,
+                self.copiable_definition(o.id)
+                    .into_iter()
+                    .flat_map(move |d| {
+                        d.static_abilities
+                            .iter()
+                            .enumerate()
+                            .filter_map(move |(i, a)| {
+                                matches!(
+                                    a.effect,
+                                    StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
+                                )
+                                .then_some(
+                                    CounterPlacementEffectKey {
+                                        source: o.id,
+                                        ability: i as u32,
+                                    },
+                                )
                             })
-                        })
-                })
+                    })
             })
             .filter(|key| self.counter_application(member, key).is_ok())
             .collect()
@@ -544,7 +548,7 @@ impl Game {
         let mut keys = BTreeSet::new();
         for a in &member.applications {
             let ability = self
-                .definition(a.effect.source.card)?
+                .copiable_definition(a.effect.source)?
                 .static_abilities
                 .get(a.effect.ability as usize)
                 .ok_or("counter prefix ability")?;
