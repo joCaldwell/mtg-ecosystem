@@ -3388,7 +3388,9 @@ impl Game {
                             target_slot,
                             source_block,
                         } => {
-                            let target = stack.targets[*target_slot as usize];
+                            let target = *self
+                                .bound_object_target(&stack, *target_slot as usize)
+                                .ok_or("missing return target")?;
                             let outcome = if !frame.legal_targets[*target_slot as usize] {
                                 InstructionOutcome::IllegalTarget { target }
                             } else if self.current(target).is_err() {

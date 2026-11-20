@@ -602,10 +602,8 @@ impl Game {
         mill_count: Option<Quantity>,
     ) -> Result<(), String> {
         let slot = target_slot as usize;
-        let target = *frame
-            .spell
-            .stack_targets
-            .get(slot)
+        let target = *self
+            .bound_stack_target(&frame.spell, slot)
             .ok_or("missing counter target binding")?;
         if frame.legal_targets.get(slot) != Some(&true) {
             return self

@@ -82,11 +82,11 @@ impl Game {
             .map(|(slot, spec)| {
                 legal.get(slot) == Some(&true)
                     && if spec.domain == TargetDomain::StackSpell {
-                        entry.stack_targets.get(slot).is_some_and(|id| {
+                        self.bound_stack_target(entry, slot).is_some_and(|id| {
                             self.state.rules.stack.iter().any(|entry| entry.id == *id)
                         })
                     } else {
-                        entry.targets.get(slot).is_some_and(|id| {
+                        self.bound_object_target(entry, slot).is_some_and(|id| {
                             self.current(*id)
                                 .is_ok_and(|object| object.present_on_battlefield())
                         })
@@ -206,16 +206,15 @@ impl Game {
                         .rules
                         .stack
                         .iter()
-                        .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
+                        .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
                         .ok_or("missing LKI stack target")?;
                     (
                         e.controller,
                         self.definition(e.source.card)?.characteristics.clone(),
                     )
                 } else {
-                    let object = *entry
-                        .targets
-                        .get(slot)
+                    let object = *self
+                        .bound_object_target(entry, slot)
                         .ok_or("missing LKI permanent target")?;
                     (
                         self.current(object)?.controller,
@@ -232,7 +231,7 @@ impl Game {
                         .rules
                         .stack
                         .iter()
-                        .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
+                        .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
                         .ok_or("missing stack mana value")?;
                     mana_value = self.stack_mana_value(entry)?;
                 }

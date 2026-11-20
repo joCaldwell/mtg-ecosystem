@@ -388,6 +388,62 @@ impl BoundModeSubset {
     }
 }
 impl Game {
+    /// Stack targets and permanent targets retain separate typed vectors. A
+    /// selected mode operand is numbered in the complete printed occurrence list.
+    pub(super) fn selected_storage_index(
+        &self,
+        entry: &StackInstance,
+        slot: usize,
+        matches: impl Fn(TargetDomain) -> bool,
+    ) -> Option<usize> {
+        if entry.mode_subset.is_none() {
+            return Some(slot);
+        }
+        let targets = &self.program_for(entry).ok()?.targets;
+        matches(targets.get(slot)?.domain).then(|| {
+            targets[..slot]
+                .iter()
+                .filter(|spec| matches(spec.domain))
+                .count()
+        })
+    }
+
+    pub(super) fn bound_object_target<'a>(
+        &self,
+        entry: &'a StackInstance,
+        slot: usize,
+    ) -> Option<&'a ObjectId> {
+        let index = self.selected_storage_index(entry, slot, |d| {
+            matches!(
+                d,
+                TargetDomain::CreatureOrPlaneswalker
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BlockingBattlefieldCreature
+                    | TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent
+                    | TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+            )
+        })?;
+        entry.targets.get(index)
+    }
+
+    pub(super) fn bound_stack_target<'a>(
+        &self,
+        entry: &'a StackInstance,
+        slot: usize,
+    ) -> Option<&'a StackId> {
+        let index = self.selected_storage_index(entry, slot, |d| {
+            matches!(
+                d,
+                TargetDomain::StackSpell
+                    | TargetDomain::ControlledCreatureSpell
+                    | TargetDomain::StackActivatedOrTriggeredAbility
+            )
+        })?;
+        entry.stack_targets.get(index)
+    }
     pub(super) fn authorize_mode_subset(
         &self,
         player: PlayerId,
