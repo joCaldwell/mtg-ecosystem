@@ -151,6 +151,8 @@ pub struct PreEventFacts {
         deserialize_with = "multiplayer::player_quantity_map"
     )]
     pub entry_other_lands: BTreeMap<PlayerId, Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entry_live_seats: Vec<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) control: Option<Box<ControlBefore>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -179,12 +181,14 @@ pub struct PreEventFacts {
 enum EntryLandCount {
     Basic,
     Other,
+    Opponents,
 }
 
 #[derive(Default)]
 struct EntryLandCounts {
     basic: BTreeMap<PlayerId, Quantity>,
     other: BTreeMap<PlayerId, Quantity>,
+    live_seats: Vec<PlayerId>,
 }
 
 /// Consumed layer-2 authority, separate from the leaf's ordinary object facts
@@ -423,6 +427,10 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
             (read, BTreeSet::from([FactKey::Libraries]))
         }
+        ProposedEvent::RevealHandCardForEntry { player, card } => (
+            BTreeSet::from([FactKey::Object(card.card), FactKey::Life(*player)]),
+            BTreeSet::new(),
+        ),
         ProposedEvent::RevealLibraryCard { object, .. } => (
             BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
             BTreeSet::new(),
@@ -723,7 +731,10 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             .collect(),
         _ => vec![],
     };
-    if game.conditional_entry(event).is_some() {
+    if matches!(
+        game.conditional_entry(event),
+        Some(EntryLandCount::Basic | EntryLandCount::Other)
+    ) {
         // Only prior battlefield objects are dependencies. A simultaneously
         // entering sibling is deliberately absent (CR614.12).
         reads.extend(
@@ -982,6 +993,10 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
+                ProposedEvent::RevealHandCardForEntry { player, card } => {
+                    objects.insert(*card);
+                    players.insert(*player);
+                }
                 ProposedEvent::RevealLibraryCard { player, object } => {
                     objects.insert(*object);
                     libraries.insert(*player);
@@ -1519,6 +1534,14 @@ impl Game {
             } else {
                 BTreeMap::new()
             },
+            entry_live_seats: if events
+                .iter()
+                .any(|event| self.conditional_entry(event) == Some(EntryLandCount::Opponents))
+            {
+                counts.live_seats.clone()
+            } else {
+                vec![]
+            },
             control: if events.iter().any(|event| changes_control_inputs(event)) {
                 self.control_before()?
             } else {
@@ -1887,6 +1910,7 @@ impl Game {
                     Some(before) => EntryLandCounts {
                         basic: before.entry_basic_lands.clone(),
                         other: before.entry_other_lands.clone(),
+                        live_seats: before.entry_live_seats.clone(),
                     },
                     None => common.entry_land_counts(&occurrences.iter().collect::<Vec<_>>())?,
                 };
@@ -2042,6 +2066,9 @@ impl Game {
                 StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
                     Some(EntryLandCount::Other)
                 }
+                StaticEffect::EntersTappedUnlessOpponentCount { .. } => {
+                    Some(EntryLandCount::Opponents)
+                }
                 _ => None,
             })
     }
@@ -2049,14 +2076,19 @@ impl Game {
     fn entry_land_counts(&self, events: &[&ProposedEvent]) -> Result<EntryLandCounts, String> {
         let mut basic = false;
         let mut other = false;
+        let mut opponents = false;
         for event in events {
             match self.conditional_entry(event) {
                 Some(EntryLandCount::Basic) => basic = true,
                 Some(EntryLandCount::Other) => other = true,
+                Some(EntryLandCount::Opponents) => opponents = true,
                 None => {}
             }
         }
         let mut counts = EntryLandCounts::default();
+        if opponents {
+            counts.live_seats = self.live_players();
+        }
         if !basic && !other {
             return Ok(counts);
         }
@@ -2116,12 +2148,20 @@ impl Game {
                     }
                     (EntryLandCount::Other, *comparison, threshold)
                 }
+                StaticEffect::EntersTappedUnlessOpponentCount { minimum } => {
+                    let count = opponent_count_entry::count(self, before, controller)?;
+                    if &count < minimum {
+                        return Ok(true);
+                    }
+                    continue;
+                }
                 _ => continue,
             };
             let current;
             let counts = match (before, kind) {
                 (Some(before), EntryLandCount::Basic) => &before.entry_basic_lands,
                 (Some(before), EntryLandCount::Other) => &before.entry_other_lands,
+                (Some(_), EntryLandCount::Opponents) => unreachable!("seat count handled above"),
                 (None, kind) => {
                     current = self.entry_land_counts(&[&ProposedEvent::Move {
                         object,
@@ -2130,6 +2170,7 @@ impl Game {
                     match kind {
                         EntryLandCount::Basic => &current.basic,
                         EntryLandCount::Other => &current.other,
+                        EntryLandCount::Opponents => unreachable!("seat count handled above"),
                     }
                 }
             };
@@ -2413,6 +2454,9 @@ impl Game {
         }
         let entry = authority.entry();
         let actual = match proposed {
+            ProposedEvent::RevealHandCardForEntry { player, card } => {
+                self.apply_entry_hand_reveal(*player, *card, entry)?
+            }
             ProposedEvent::RevealLibraryCard { player, object } => {
                 self.apply_reveal_library_card(*player, *object)?
             }

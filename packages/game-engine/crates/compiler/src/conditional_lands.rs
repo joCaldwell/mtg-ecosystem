@@ -6,11 +6,15 @@ use serde_json::{Value, json};
 // Deliberately separate from SourceCost: entry replacement is no casting cost.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "cost", rename_all = "kebab-case", deny_unknown_fields)]
-pub(super) enum EntryLifeCost {
+pub(super) enum SourceEntryCost {
     PayLife { amount: Value },
+    Reveal { what: Value },
 }
 
 pub(super) fn lower(effect: &SourceStaticEffect) -> Result<Option<StaticAbility>, Failure> {
+    if let Some(reveal) = reveal_land_entry::lower(effect)? {
+        return Ok(Some(reveal));
+    }
     if let SourceStaticEffect::EntryChoice {
         what,
         who,
@@ -24,7 +28,7 @@ pub(super) fn lower(effect: &SourceStaticEffect) -> Result<Option<StaticAbility>
                 "unsupported complete optional-life land entry",
             )
         };
-        let [EntryLifeCost::PayLife { amount }] = costs.as_slice() else {
+        let [SourceEntryCost::PayLife { amount }] = costs.as_slice() else {
             return Err(bad());
         };
         // serde_json's exact native integer range is the SOURCE decoder limit.
@@ -57,6 +61,9 @@ pub(super) fn lower(effect: &SourceStaticEffect) -> Result<Option<StaticAbility>
         return Ok(None);
     }
     if let Some(entry) = other_land_entry::lower(effect)? {
+        return Ok(Some(entry));
+    }
+    if let Some(entry) = opponent_count_entry::lower(effect)? {
         return Ok(Some(entry));
     }
     let bad = || {
@@ -172,6 +179,8 @@ fn legacy_binding(effect: &SourceStaticEffect) -> Result<bool, Failure> {
         !matches!(
             entry.effect,
             StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
+                | StaticEffect::EntersTappedUnlessOpponentCount { .. }
+                | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
         )
     }))
 }

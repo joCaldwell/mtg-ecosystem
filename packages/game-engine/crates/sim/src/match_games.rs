@@ -357,6 +357,9 @@ impl Strategy<'_> {
                     .or_else(|| colors.first().copied())
                     .ok_or("empty mana colors")?,
             },
+            PlayerRequest::EntryReveal { candidates, .. } => PlayerResponse::EntryReveal {
+                card: candidates.first().cloned(),
+            },
             PlayerRequest::CascadeLandEntry { candidates, .. } => {
                 PlayerResponse::CascadeLandEntry {
                     object: candidates.first().cloned(),

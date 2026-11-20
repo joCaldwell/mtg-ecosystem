@@ -383,6 +383,12 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
     },
+    EntryReveal {
+        token: DecisionToken,
+        player: PlayerId,
+        source: ObjectHandle,
+        candidates: Vec<ObjectHandle>,
+    },
     SearchLandBattlefield {
         token: DecisionToken,
         player: PlayerId,
@@ -587,6 +593,7 @@ impl PlayerRequest {
             | Self::ColoredSearch { token, .. }
             | Self::SearchLands { token, .. }
             | Self::CascadeLandEntry { token, .. }
+            | Self::EntryReveal { token, .. }
             | Self::SearchLandBattlefield { token, .. }
             | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
@@ -702,6 +709,9 @@ pub enum PlayerResponse {
     },
     CascadeLandEntry {
         object: Option<ObjectHandle>,
+    },
+    EntryReveal {
+        card: Option<ObjectHandle>,
     },
     SearchLandBattlefield {
         object: ObjectHandle,
@@ -1796,6 +1806,12 @@ impl Game {
                 Request::OptionalEffect { player, .. } => {
                     PlayerRequest::OptionalEffect { token, player }
                 }
+                Request::EntryReveal { player, source, .. } => PlayerRequest::EntryReveal {
+                    token,
+                    player,
+                    source: self.handle_for(viewer, source)?,
+                    candidates: vec![],
+                },
                 _ => return Err("unknown battlefield entry decision".into()),
             }));
         }
@@ -2832,6 +2848,12 @@ impl Game {
             }),
             PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
                 object: object
+                    .as_ref()
+                    .map(|handle| self.resolve_handle(viewer, handle))
+                    .transpose()?,
+            }),
+            PlayerResponse::EntryReveal { card } => Ok(Response::EntryReveal {
+                card: card
                     .as_ref()
                     .map(|handle| self.resolve_handle(viewer, handle))
                     .transpose()?,

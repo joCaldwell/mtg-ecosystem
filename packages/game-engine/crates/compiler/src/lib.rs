@@ -84,6 +84,7 @@ mod linked_hideaway;
 mod listed_mana;
 mod nonland_exile_life;
 mod normalization;
+mod opponent_count_entry;
 mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
@@ -95,6 +96,7 @@ mod pain_mana;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
+mod reveal_land_entry;
 mod saga;
 mod scoped_creature_stats;
 mod self_graveyard_shuffle;
@@ -1206,7 +1208,7 @@ enum SourceStaticEffect {
     EntryChoice {
         what: serde_json::Value,
         who: serde_json::Value,
-        costs: Vec<conditional_lands::EntryLifeCost>,
+        costs: Vec<conditional_lands::SourceEntryCost>,
         declined: serde_json::Value,
     },
     EntryCopy {
@@ -1620,6 +1622,13 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     } else {
         read_abilities(&canonical_abilities)?
     };
+    let mut opponent_entry_mana = opponent_count_entry::bind(
+        &abilities,
+        result.abilities.get(),
+        &shape,
+        &binding,
+        &r.oracle_identity,
+    )?;
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
@@ -2345,14 +2354,17 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                         restriction,
                         ..
                     } => {
-                        let mana = listed_mana::lower(
-                            ability,
-                            block,
-                            &result.lines[block].text,
-                            &shape,
-                            &binding,
-                            &definition.oracle_id,
-                        )?;
+                        let mana = match opponent_entry_mana.take() {
+                            Some(mana) => Some(mana),
+                            None => listed_mana::lower(
+                                ability,
+                                block,
+                                &result.lines[block].text,
+                                &shape,
+                                &binding,
+                                &definition.oracle_id,
+                            )?,
+                        };
                         let mana = match mana {
                             Some(mana) => Some(mana),
                             None => lower_mana_ability(
@@ -2984,6 +2996,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
+    reveal_land_entry::validate_binding(&definition, &shape, &binding)?;
     land_sacrifice_draw::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell

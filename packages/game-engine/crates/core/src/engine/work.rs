@@ -487,7 +487,8 @@ impl Game {
         }
         if let Some(
             PlayerRequest::EntryCopy { candidates, .. }
-            | PlayerRequest::EntryAttachment { candidates, .. },
+            | PlayerRequest::EntryAttachment { candidates, .. }
+            | PlayerRequest::EntryReveal { candidates, .. },
         ) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(&object) = cache
@@ -578,7 +579,11 @@ impl Game {
                 cache.allocation(self)?.map_or(0, |ids| ids.len())
             } else if matches!(
                 b.decision,
-                Some(PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. })
+                Some(
+                    PlayerRequest::EntryCopy { .. }
+                        | PlayerRequest::EntryAttachment { .. }
+                        | PlayerRequest::EntryReveal { .. }
+                )
             ) {
                 cache.entry_candidates(self, viewer)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::PlayHideawayLinked { .. })) {
@@ -679,7 +684,8 @@ impl Game {
                 }
                 if let Some(
                     PlayerRequest::EntryCopy { candidates, .. }
-                    | PlayerRequest::EntryAttachment { candidates, .. },
+                    | PlayerRequest::EntryAttachment { candidates, .. }
+                    | PlayerRequest::EntryReveal { candidates, .. },
                 ) = request
                 {
                     let objects = cache.entry_candidates(self, *viewer)?;
@@ -989,7 +995,8 @@ impl Game {
                             Frame::LandEntry { .. },
                             PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::EntryCopy { .. }
-                            | PlayerResponse::EntryAttachment { .. },
+                            | PlayerResponse::EntryAttachment { .. }
+                            | PlayerResponse::EntryReveal { .. },
                         ) => true,
                         (
                             Frame::HandCast { child: None, .. },
@@ -1385,9 +1392,11 @@ impl Game {
             ) => self
                 .private_library_choice_candidates(viewer)
                 .map_or(0, |ids| ids.len() as u64),
-            Some(PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. }) => {
-                self.entry_work_candidates(viewer)?.len() as u64
-            }
+            Some(
+                PlayerRequest::EntryCopy { .. }
+                | PlayerRequest::EntryAttachment { .. }
+                | PlayerRequest::EntryReveal { .. },
+            ) => self.entry_work_candidates(viewer)?.len() as u64,
             Some(PlayerRequest::PlayHideawayLinked { .. }) => {
                 self.linked_play_work_candidates(viewer)?.len() as u64
             }
@@ -1425,6 +1434,9 @@ impl Game {
                     player, candidates, ..
                 }
                 | Request::EntryAttachment {
+                    player, candidates, ..
+                }
+                | Request::EntryReveal {
                     player, candidates, ..
                 },
             ) if viewer == player => candidates,
@@ -1466,6 +1478,7 @@ impl Game {
                     | PlayerRequest::PlayHideawayLinked { .. }
                     | PlayerRequest::EntryCopy { .. }
                     | PlayerRequest::EntryAttachment { .. }
+                    | PlayerRequest::EntryReveal { .. }
                     | PlayerRequest::HandReturn { .. }
                     | PlayerRequest::LibraryOrder { .. }
                     | PlayerRequest::Hideaway { .. }

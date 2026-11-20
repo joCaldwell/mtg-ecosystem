@@ -890,3 +890,9 @@ mod optional_life_entry_tests;
 
 #[path = "pain_mana_tests.rs"]
 mod pain_mana_tests;
+
+#[path = "opponent_count_entry_tests.rs"]
+mod opponent_count_entry_tests;
+
+#[path = "reveal_land_entry_tests.rs"]
+mod reveal_land_entry_tests;
