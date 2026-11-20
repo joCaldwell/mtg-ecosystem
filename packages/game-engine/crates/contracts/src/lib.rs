@@ -48,7 +48,7 @@ pub mod basic_landwalk;
 mod cast_entry;
 mod entry_copy;
 mod saga;
-pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
+pub use saga::{ChapterEffect, FixedChapter, LifeChapter, chapter_lines, life_chapters};
 pub mod fixed_color_protection;
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
@@ -3319,7 +3319,11 @@ impl Definition {
             .activated
             .iter()
             .any(|a| has_keyword_grant(&a.program) && !sacrifice_set::definition(self))
-            || self.triggered.iter().any(|a| has_keyword_grant(&a.program))
+            || self.triggered.iter().any(|a| {
+                has_keyword_grant(&a.program)
+                    && !(matches!(a.condition, TriggerCondition::SagaChapter { .. })
+                        && saga_targeted_keyword_program(&a.program))
+            })
             || self.spell.as_ref().is_some_and(|p| {
                 has_keyword_grant(p)
                     && (!matches!(
@@ -3498,6 +3502,7 @@ impl Definition {
             new_ops(&a.program) && !matches!(a.cost, ActivationCost::SacrificePermanent { .. })
         }) || self.triggered.iter().any(|a| {
             new_ops(&a.program)
+                && !matches!(a.condition, TriggerCondition::SagaChapter { .. })
                 && a.condition != TriggerCondition::SelfEntersBattlefield
                 && a.condition != TriggerCondition::SelfDies
                 && !matches!(
@@ -4179,13 +4184,16 @@ impl Definition {
                     "cast-entry condition requires the entering creature's own trigger".into(),
                 );
             }
-            if matches!(ability.condition, TriggerCondition::SagaChapter { .. })
-                || matches!(
-                    p.instructions.as_slice(),
-                    [Instruction::OfferHandCastWithoutManaCost { .. }]
-                )
-            {
-                // The whole definition gate binds this one operation to the source's own combat event.
+            if matches!(ability.condition, TriggerCondition::SagaChapter { .. }) {
+                // Whole-definition validation has matched each chapter to its
+                // original printed clause and source block.
+                validate_instruction_program_with_chapter(p, true)?;
+                continue;
+            }
+            if matches!(
+                p.instructions.as_slice(),
+                [Instruction::OfferHandCastWithoutManaCost { .. }]
+            ) {
                 validate_instruction_program(p)?;
                 continue;
             }
@@ -4864,6 +4872,12 @@ pub struct TemporaryTargetedKeywordProgram<'a> {
 pub fn temporary_creature_keyword_program(
     p: &SpellProgram,
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
+    temporary_creature_keyword_shape(p, false)
+}
+fn temporary_creature_keyword_shape(
+    p: &SpellProgram,
+    chapter: bool,
+) -> Option<TemporaryTargetedKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
@@ -4889,7 +4903,7 @@ pub fn temporary_creature_keyword_program(
     else {
         return None;
     };
-    if modifier.is_some() && *source_block != 0 {
+    if modifier.is_some() && *source_block != 0 && !chapter {
         return None;
     }
     let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
@@ -4899,6 +4913,15 @@ pub fn temporary_creature_keyword_program(
         controller_life: None,
         controller_scry: None,
     })
+}
+/// Checked only after a Saga's whole-source validation. The source block
+/// belongs to the original chapter line (CR 714.2b).
+pub fn saga_targeted_keyword_program(p: &SpellProgram) -> bool {
+    matches!(p.targets.as_slice(), [target]
+        if target.domain == TargetDomain::ControlledBattlefieldCreature)
+        && temporary_creature_keyword_shape(p, true).is_some_and(|grant| {
+            grant.keywords == [KeywordAbility::Trample] && grant.modifier.is_some()
+        })
 }
 /// Complete scalar union; narrow wrappers preserve their own target policy.
 pub fn temporary_targeted_keyword_program(
@@ -5084,6 +5107,12 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    validate_instruction_program_with_chapter(p, false)
+}
+fn validate_instruction_program_with_chapter(
+    p: &SpellProgram,
+    chapter: bool,
+) -> Result<(), String> {
     let scalar_sequence = ordinary_sequence::program(p) || ability_sequence::program(p);
     if p.functioning_zone == FunctioningZone::Any {
         return Err("all-zone functioning is reserved for the self graveyard replacement".into());
@@ -5168,7 +5197,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("unsupported complete controller scry program".into());
     }
-    if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
+    if has_keyword_grant(p)
+        && !ordinary_keyword_grant(p)
+        && !(chapter && saga_targeted_keyword_program(p))
+    {
         return Err("unsupported temporary keyword grant program".into());
     }
     if has_permanent_owner_hand(p)
@@ -5604,7 +5636,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     CounterRecipient::Source => None,
                     CounterRecipient::Target { target_slot } => Some((
                         *target_slot,
-                        if composed_spell::program(p) {
+                        if chapter {
+                            TargetDomain::ControlledBattlefieldCreature
+                        } else if composed_spell::program(p) {
                             p.targets[0].domain
                         } else {
                             TargetDomain::BattlefieldCreature
@@ -7338,7 +7372,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}}}},
-        "then":{"anyOf":[{"$ref":composed_spell::SCHEMA},{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"properties":{
+        "then":{"anyOf":[{"$ref":composed_spell::SCHEMA},{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"$ref":"#/$defs/SagaTargetedGrantProgram"},{"properties":{
             "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"enum":["battlefield_creature","controlled_battlefield_creature"]},"filter":{"type":"null"}}}},
@@ -7400,7 +7434,23 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":family_grant,
         "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
             "capabilities":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}},
-        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}}}
+        "else":{
+            "if":{"required":["triggered"],"properties":{"triggered":{"contains":{"$ref":"#/$defs/SagaTargetedGrantChapter"}}}},
+            "then":{"properties":{"capabilities":{"allOf":[
+                {"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}},
+                {"contains":{"const":Capability::TemporaryPowerToughnessV1}},
+                {"contains":{"const":Capability::TrampleV1}},
+                {"contains":{"const":Capability::AttachmentsV1}}
+            ]}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}}}
+        }
+    }));
+    // Grant programs with a chapter's nonzero source block cannot enter as spells.
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "properties":{"spell":{"not":{"allOf":[{"$ref":"#/$defs/SagaTargetedGrantProgram"},
+            {"type":"object","required":["instructions"],"properties":{"instructions":{
+                "items":{"required":["source_block"],"properties":{"source_block":{"minimum":1}}}
+            }}}]}}}
     }));
     let any_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
         "type":"object","required":["instructions"],"properties":{"instructions":{
@@ -7466,7 +7516,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordAbility"}]}},
-        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
+        "triggered":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SagaTargetedGrantChapter"}]}},
         "spell":{"anyOf":[{"$ref":"#/$defs/CommanderModalKeywordProgram"},{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}]}
     }}));
     // Optional fields deserialize null as None. Only a non-null cost/restriction

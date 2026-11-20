@@ -764,6 +764,11 @@ impl Game {
     // effect subsequently follows only the exact incarnation, never control.
     fn scalar_keyword_target_legal(&self, entry: &StackInstance, target: ObjectId) -> bool {
         self.program_for(entry).is_ok_and(|program| {
+            if saga_targeted_keyword_program(program)
+                && matches!(entry.kind, StackKind::Triggered { .. })
+            {
+                return self.object_target_legal(entry, target);
+            }
             temporary_targeted_keyword_program(program).is_some()
                 && if temporary_permanent_keyword_program(program).is_some() {
                     entry.kind.is_spell() && self.object_target_legal(entry, target)
@@ -2144,7 +2149,8 @@ impl Game {
                         // CR 611.2c: authenticate source properties here without
                         // reselecting the captured target from current state.
                         // Normalized input replay proves the historical capture.
-                        temporary_targeted_keyword_program(program).is_some()
+                        (temporary_targeted_keyword_program(program).is_some()
+                            || saga_targeted_keyword_program(program))
                             && modifier == applied_modifier
                             && keywords == grants
                             && supported_temporary_keywords(grants)

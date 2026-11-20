@@ -3,6 +3,9 @@ use super::*;
 use serde_json::{Value, json};
 use std::num::NonZeroU32;
 
+mod composed;
+pub use composed::FixedChapter;
+
 pub struct LifeChapter {
     pub numbers: Vec<NonZeroU32>,
     pub effect: ChapterEffect,
@@ -12,6 +15,7 @@ pub enum ChapterEffect {
     Gain { amount: u32 },
     DrawLose { draw: u32, loss: u32 },
     DelayedEntry { loss: u32, gain: u32 },
+    Fixed(FixedChapter),
 }
 fn program(instructions: Vec<Instruction>) -> SpellProgram {
     SpellProgram {
@@ -53,6 +57,7 @@ impl LifeChapter {
                     steps.push(lose(LifeRecipient::Controller, loss));
                     steps
                 }
+                ChapterEffect::Fixed(ref chapter) => chapter.instructions(block),
                 ChapterEffect::DelayedEntry { loss, gain: life } => {
                     vec![Instruction::RegisterControllerCreatureEntryThisTurn {
                         source_block: block,
@@ -63,12 +68,25 @@ impl LifeChapter {
                     }]
                 }
             };
+            let mut program = program(ops);
+            if let ChapterEffect::Fixed(effect) = &self.effect
+                && let Some(selection_id) = effect.selection_id(block)
+            {
+                program.targets.push(TargetSpec {
+                    slot: 0,
+                    selection_id,
+                    domain: TargetDomain::ControlledBattlefieldCreature,
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    filter: None,
+                });
+            }
             TriggeredAbility {
                 condition: TriggerCondition::SagaChapter { number },
                 functioning_zone: FunctioningZone::Battlefield,
                 intervening_if: None,
                 death_filter: None,
-                program: program(ops),
+                program,
             }
         })
     }
@@ -76,6 +94,7 @@ impl LifeChapter {
         let step = |effect: &str, player: &str, n: u32| json!({"effect":effect,"who":{"player":player},"amount":{"amount":"fixed","value":n}});
         let steps = match self.effect {
             ChapterEffect::Gain { amount } => vec![step("gain-life", "you", amount)],
+            ChapterEffect::Fixed(ref chapter) => chapter.steps(self.source_block),
             ChapterEffect::DrawLose { draw, loss } => {
                 vec![step("draw", "you", draw), step("lose-life", "you", loss)]
             }
@@ -96,6 +115,9 @@ fn number(digits: &str) -> Result<u32, String> {
 }
 fn effect(line: &str) -> Result<ChapterEffect, String> {
     let invalid = || "unsupported complete chapter instruction".to_owned();
+    if let Some(program) = FixedChapter::parse(line) {
+        return Ok(ChapterEffect::Fixed(program));
+    }
     if let Some(digits) = line
         .strip_prefix("You gain ")
         .and_then(|s| s.strip_suffix(" life."))
@@ -330,6 +352,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
         TargetPlayerDrawV1,
         SacrificeV1,
         DelayedControllerCreatureEntryV1,
+        CreatureTokensV1,
+        CreatureTargetV1,
+        PlusOneCountersV1,
+        TemporaryCreatureKeywordProgramV1,
+        TemporaryPowerToughnessV1,
+        AttachmentsV1,
+        TrampleV1,
     ];
     let fixed = |op: &str, recipient: &str, field: &str| json!({"type":"object","required":["op","recipient",field],"properties":{"op":{"const":op},"recipient":{"const":recipient},(field):{"pattern":"^[1-9][0-9]*$"}}});
     let gain = fixed("gain_life", "controller", "amount");
@@ -348,7 +377,43 @@ pub(super) fn extend_schema(schema: &mut Value) {
         steps.push(fixed("lose_life", "controller", "amount"));
         variants.push(sequence(steps));
     }
+    variants.push(sequence(vec![
+        json!({"required":["op","count"],"properties":{
+            "op":{"const":"create_creature_tokens"},"count":{"const":1}
+        }}),
+    ]));
     let programs = json!({"oneOf":variants});
+    let target = json!({"required":["slot","domain","chooser","stage","selection_id"],"properties":{
+        "slot":{"const":0},"domain":{"const":"controlled_battlefield_creature"},
+        "selection_id":{"minLength":1},"chooser":{"const":"controller"},
+        "stage":{"const":"announcement"},"filter":{"type":"null"}
+    }});
+    let grant = sequence(vec![json!({
+        "required":["op","target_slot","modifier","keywords","duration"],
+        "properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},
+            "modifier":{"type":"object"},"keywords":{"const":["trample"]},"duration":{"const":"until_end_of_turn"}}
+    })]);
+    let targeted = |instructions: Value| {
+        json!({"type":"object","required":["targets","instructions","optional_additional_costs"],
+        "properties":{
+            "targets":{"minItems":1,"maxItems":1,"items":target},"instructions":instructions,
+            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+            "timing":{"const":"instant"},"modes":{"maxItems":0},
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}
+        }})
+    };
+    let grant_program = targeted(grant);
+    let counter_program = targeted(sequence(vec![json!({
+        "required":["op","on","amount"],"properties":{"op":{"const":"put_plus_one_counters"},
+            "on":{"const":{"recipient":"target","target_slot":0}},"amount":{"pattern":"^[1-9][0-9]*$"}}
+    })]));
+    schema["$defs"]["SagaTargetedGrantProgram"] = grant_program.clone();
+    schema["$defs"]["SagaTargetedGrantChapter"] = json!({"allOf":[chapter],
+        "required":["program"],"properties":{"program":{"$ref":"#/$defs/SagaTargetedGrantProgram"}}});
+    let chapter_programs = json!({"oneOf":[
+        {"properties":{"targets":{"maxItems":0},"instructions":programs}},
+        grant_program, counter_program
+    ]});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":SagaChaptersV1}}}},
             {"required":["triggered"],"properties":{"triggered":{"contains":chapter}}},
@@ -362,9 +427,9 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "spell":{"type":"object","properties":{"resolution":{"const":"permanent"},"timing":{"const":"main_phase"},"functioning_zone":{"const":"stack"},
                 "instructions":{"maxItems":0},"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}},
             "triggered":{"minItems":1,"maxItems":3,"items":{"allOf":[chapter],"properties":{"functioning_zone":{"const":"battlefield"},
-                "intervening_if":{"type":"null"},"death_filter":{"type":"null"},"program":{"properties":{"functioning_zone":{"const":"stack"},
-                "timing":{"const":"instant"},"resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},
-                "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"instructions":programs}}}}},
+                "intervening_if":{"type":"null"},"death_filter":{"type":"null"},"program":{"allOf":[chapter_programs],"properties":{"functioning_zone":{"const":"stack"},
+                "timing":{"const":"instant"},"resolution":{"const":"instructions"},"modes":{"maxItems":0},
+                "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}},
             "provenance":{"properties":{"source_json":{"pattern":r#""layout"\s*:\s*"saga""#}}}
         }}
     }));
