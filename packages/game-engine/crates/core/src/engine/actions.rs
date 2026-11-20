@@ -862,11 +862,12 @@ impl Game {
                     .stack
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
-                    .player_targets = players;
+                    .player_targets
+                    .extend(players);
                 if cast.origin == AnnouncementOrigin::Activated {
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.state.rules.frame = self.continue_spell_targeting(cast)?;
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
@@ -1214,10 +1215,8 @@ impl Game {
                 source_block,
             } => {
                 let slot = target_slot as usize;
-                let target = *frame
-                    .spell
-                    .targets
-                    .get(slot)
+                let target = *self
+                    .bound_object_target(&frame.spell, slot)
                     .ok_or("missing phasing target")?;
                 // CR 608.2b, 702.26b: keep resolution-start legality, but a
                 // previous mode may already have phased this incarnation out.
@@ -1451,10 +1450,8 @@ impl Game {
                                 InstructionOutcome::Effect { actual: None },
                             );
                         }
-                        *frame
-                            .spell
-                            .player_targets
-                            .get(target_slot as usize)
+                        *self
+                            .bound_player_target(&frame.spell, target_slot as usize)
                             .ok_or("missing draw player target")?
                     }
                 };

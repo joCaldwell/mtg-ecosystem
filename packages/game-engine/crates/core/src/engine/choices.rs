@@ -340,6 +340,14 @@ impl BoundModeSubset {
                                 recipient: LifeRecipient::Target { target_slot },
                                 ..
                             }
+                            | Instruction::DrawCards {
+                                recipient: Some(LifeRecipient::Target { target_slot }),
+                                ..
+                            }
+                            | Instruction::ExileTargetGraveyard { target_slot, .. }
+                            | Instruction::DealDamage { target_slot, .. }
+                            | Instruction::DestroyPermanent { target_slot, .. }
+                            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
                             | Instruction::CounterStackObject { target_slot, .. }
                             | Instruction::ReturnToOwnerHand { target_slot, .. }
                             | Instruction::PutPlusOneCounters {
@@ -408,6 +416,9 @@ impl Game {
                     .ok_or_else(|| "missing selected mode".to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
+        if matches!(root.resolution, SpellResolution::ChooseRepeatedModes { .. }) {
+            return Ok(Some(children));
+        }
         Ok(children
             .iter()
             .any(|p| {
@@ -431,21 +442,27 @@ impl Game {
         let Some(children) = self.mixed_mode_children(entry)? else {
             return Ok(None);
         };
+        let mut players = entry.player_targets.len();
+        let mut entities = entry.entity_targets.len();
         let mut objects = entry.targets.len();
         let mut stack = entry.stack_targets.len();
         let mut group = usize::from(!entry.entity_targets.is_empty());
         for child in children {
             let used = match child.targets.first().map(|t| t.domain) {
                 None => continue,
-                Some(TargetDomain::BattlefieldCreature | TargetDomain::CreatureOrPlaneswalker) => {
-                    &mut objects
-                }
+                Some(
+                    TargetDomain::BattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::CreatureOrPlaneswalker,
+                ) => &mut objects,
                 Some(TargetDomain::StackSpell) => &mut stack,
                 Some(TargetDomain::AnyPlayer)
                     if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() =>
                 {
                     &mut group
                 }
+                Some(TargetDomain::AnyPlayer) => &mut players,
+                Some(TargetDomain::AnyDamageTarget) => &mut entities,
                 _ => return Err("unsupported selected-mode target group".into()),
             };
             if *used == 0 {
@@ -464,42 +481,43 @@ impl Game {
         let Some(children) = self.mixed_mode_children(entry)? else {
             return Ok(false);
         };
-        if !entry.player_targets.is_empty() {
-            return Ok(false);
-        }
-        let mut objects = 0;
-        let mut stack = 0;
-        let mut entities = 0;
+        let mut found = [0usize; 4];
+        let actual = [
+            entry.targets.len(),
+            entry.stack_targets.len(),
+            entry.player_targets.len(),
+            entry.entity_targets.len(),
+        ];
         for child in children {
-            let bound = match child.targets.first().map(|t| t.domain) {
+            let (bucket, count) = match child.targets.first().map(|t| t.domain) {
                 None => continue,
-                Some(TargetDomain::CreatureOrPlaneswalker | TargetDomain::BattlefieldCreature) => {
-                    objects += 1;
-                    objects <= entry.targets.len()
-                }
-                Some(TargetDomain::StackSpell) => {
-                    stack += 1;
-                    stack <= entry.stack_targets.len()
-                }
+                Some(
+                    TargetDomain::CreatureOrPlaneswalker
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::BattlefieldPermanent,
+                ) => (0, 1),
+                Some(TargetDomain::StackSpell) => (1, 1),
+                Some(TargetDomain::AnyDamageTarget) => (3, 1),
                 Some(TargetDomain::AnyPlayer) => {
-                    let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(child) else {
-                        return Ok(false);
-                    };
-                    entities += 1;
-                    entities == 1 && self.graveyard_group_structure(&entry.entity_targets, maximum)
+                    if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(child) {
+                        if !entry.entity_targets.is_empty()
+                            && !self.graveyard_group_structure(&entry.entity_targets, maximum)
+                        {
+                            return Ok(false);
+                        }
+                        (3, entry.entity_targets.len().max(1))
+                    } else {
+                        (2, 1)
+                    }
                 }
                 _ => return Ok(false),
             };
-            if !bound {
-                return Ok(!complete
-                    && entry.targets.len() <= objects
-                    && entry.stack_targets.len() <= stack
-                    && entry.entity_targets.is_empty());
+            if found[bucket] == actual[bucket] {
+                return Ok(!complete && found == actual);
             }
+            found[bucket] += count;
         }
-        Ok(objects == entry.targets.len()
-            && stack == entry.stack_targets.len()
-            && entities == usize::from(!entry.entity_targets.is_empty()))
+        Ok(found == actual)
     }
     pub(super) fn continue_spell_targeting(&mut self, cast: Casting) -> Result<Frame, String> {
         if self.mixed_mode_children(self.top()?)?.is_some() {
@@ -528,6 +546,29 @@ impl Game {
         })
     }
 
+    pub(super) fn bound_player_target<'a>(
+        &self,
+        entry: &'a StackInstance,
+        slot: usize,
+    ) -> Option<&'a PlayerId> {
+        let i = self.selected_storage_index(entry, slot, |d| {
+            matches!(
+                d,
+                TargetDomain::AnyPlayer
+                    | TargetDomain::OpponentPlayer
+                    | TargetDomain::PlayerOrPlaneswalker
+            )
+        })?;
+        entry.player_targets.get(i)
+    }
+    pub(super) fn bound_damage_target<'a>(
+        &self,
+        entry: &'a StackInstance,
+        slot: usize,
+    ) -> Option<&'a TargetEntity> {
+        let i = self.selected_storage_index(entry, slot, |d| d == TargetDomain::AnyDamageTarget)?;
+        entry.entity_targets.get(i)
+    }
     pub(super) fn bound_object_target<'a>(
         &self,
         entry: &'a StackInstance,

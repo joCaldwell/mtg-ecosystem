@@ -384,9 +384,17 @@ impl Game {
                 target_slot,
                 source_block,
             } => {
-                let target = frame.spell.targets[target_slot as usize];
+                let target = *self
+                    .bound_object_target(&frame.spell, target_slot as usize)
+                    .ok_or("missing removal target")?;
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.object_target_legal(&frame.spell, target)
+                    || !self.object_target_legal_for(
+                        &frame.spell,
+                        target,
+                        self.program_for(&frame.spell)?
+                            .targets
+                            .get(target_slot as usize),
+                    )
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });

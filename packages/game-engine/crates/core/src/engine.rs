@@ -2732,7 +2732,10 @@ impl Game {
         let entry = self.top()?;
         if matches!(
             self.state.rules.frame,
-            Frame::Targets { .. } | Frame::StackTargets { .. } | Frame::EntityTargets { .. }
+            Frame::PlayerTargets { .. }
+                | Frame::Targets { .. }
+                | Frame::StackTargets { .. }
+                | Frame::EntityTargets { .. }
         ) {
             if let Some(child) = self.next_mode_target(entry)? {
                 return Ok(child);
