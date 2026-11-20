@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import type { Amount, Condition, Effect, ObjectRef } from "../src/ast.ts";
 import { lex } from "../src/lexer.ts";
@@ -59,6 +60,52 @@ describe("aggregate values retain the measured set and characteristic", () => {
     amount("the total toughness of those creatures", { amount: "attribute-sum", attribute: "toughness", among: { ref: "that", filter: { types: ["creature"] }, plural: true } });
     amount("the total mana value of cards in your graveyard", { amount: "attribute-sum", attribute: "mana-value", among: graveyard });
     condition("creatures you control have total power 8 or greater", { condition: "compare", value: { amount: "attribute-sum", attribute: "power", among: creatures }, comparison: { op: "ge", value: n(8) } });
+  });
+  it("binds Call Forth's mana value sum to the caster and excludes the resolving spell", () => {
+    const fixture = new URL("../../game-engine/tests/fixtures/ramos/0623c51a-e829-413f-a3a0-817c0902821e.json", import.meta.url);
+    const record = JSON.parse(readFileSync(fixture, "utf8"));
+    const result = parseOracleText(record.source.oracle_text, record.source.name, {
+      includeSourceProvenance: true,
+      typeLine: record.source.type_line,
+    });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    assert.deepEqual(result.abilities[0], {
+      kind: "keywords",
+      keywords: [{ keyword: "cascade" }, { keyword: "cascade" }],
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(result.abilities[1])), {
+      kind: "spell",
+      effects: [{ steps: [{
+        effect: "damage",
+        source: { ref: "self" },
+        amount: {
+          amount: "cast-mana-value-sum", who: { player: "you" }, during: "this-turn",
+          excluding: { ref: "this", noun: "spell" },
+        },
+        to: { to: "object", ref: { ref: "each", filter: { types: ["creature"], control: "opponent" } } },
+      }] }],
+    });
+    const binding = analyzeCardBindings({
+      identity: record.oracleIdentity,
+      source: record.source,
+      faces: [{ sourceFaceIndex: 0, result }],
+    });
+    assert.equal(binding.fullyBound, true, JSON.stringify(binding.diagnostics));
+    const wrongScope = parseOracleText("{T}: You gain life equal to the total mana value of other spells you've cast this turn.",
+      "Aggregate Activation", { typeLine: "Artifact", includeSourceProvenance: true });
+    assert.ok(wrongScope.ok);
+    const wrongBinding = analyzeCardBindings({
+      identity: "aggregate-activation",
+      source: { name: "Aggregate Activation", layout: "normal", type_line: "Artifact" },
+      faces: [{ sourceFaceIndex: 0, result: wrongScope }],
+    });
+    assert.equal(wrongBinding.fullyBound, false);
+    assert.ok(wrongBinding.diagnostics.some(diagnostic =>
+      diagnostic.code === "unsupported-scope" && diagnostic.path.endsWith("/amount")));
+    for (const invalid of ["the total mana value of other spells you've cast this game", "the total power of other spells you've cast this turn"]) {
+      const c = new Cursor(lex(invalid));
+      assert.ok(!parseAmount(c) || !c.done(), invalid);
+    }
   });
   it("rewinds malformed descriptors and leaves unrelated iteration unsupported", () => {
     for (const text of ["the number of basic land types among", "the number of card types of cards in your graveyard", "the number of colors of mana spent to cast", "the total loyalty of creatures you control"]) {
