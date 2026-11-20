@@ -1777,6 +1777,7 @@ impl Game {
                     candidates: self
                         .eligible_stack_targets_for(
                             &self.program()?.targets[0],
+                            viewer,
                             Some(self.top()?.id),
                         )
                         .into_iter()

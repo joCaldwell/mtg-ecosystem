@@ -157,11 +157,13 @@ impl Game {
                 | TargetDomain::PlayerOrPlaneswalker,
             ) => !self.live_players().is_empty(),
             Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
-            Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
-                !self
-                    .eligible_stack_targets_for(&program.targets[0], None)
-                    .is_empty()
-            }
+            Some(
+                TargetDomain::StackSpell
+                | TargetDomain::ControlledCreatureSpell
+                | TargetDomain::StackActivatedOrTriggeredAbility,
+            ) => !self
+                .eligible_stack_targets_for(&program.targets[0], player, None)
+                .is_empty(),
             Some(
                 TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
             ) => self.state.rules.objects.values().any(|o| {
@@ -210,7 +212,7 @@ impl Game {
                 .map(|(slot, target)| {
                     self.program_for(entry).is_ok_and(|program| {
                         program.targets.get(slot).is_some_and(|spec| {
-                            self.eligible_stack_targets_for(spec, Some(entry.id))
+                            self.eligible_stack_targets_for(spec, entry.controller, Some(entry.id))
                                 .contains(target)
                         })
                     })

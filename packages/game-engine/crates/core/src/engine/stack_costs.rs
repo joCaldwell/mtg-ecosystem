@@ -469,7 +469,9 @@ impl Game {
         let stack_domain = program.targets.first().is_some_and(|target| {
             matches!(
                 target.domain,
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility
+                TargetDomain::StackSpell
+                    | TargetDomain::ControlledCreatureSpell
+                    | TargetDomain::StackActivatedOrTriggeredAbility
             )
         });
         if !entry.stack_targets.is_empty() {
@@ -549,7 +551,7 @@ impl Game {
             || entries.len() != program.targets.len()
             || entries.iter().enumerate().any(|(slot, target)| {
                 !self
-                    .eligible_stack_targets_for(&program.targets[slot], Some(top.id))
+                    .eligible_stack_targets_for(&program.targets[slot], player, Some(top.id))
                     .contains(target)
             })
         {

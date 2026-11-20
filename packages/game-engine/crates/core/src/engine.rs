@@ -2623,8 +2623,11 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
-                candidates: self
-                    .eligible_stack_targets_for(&self.program()?.targets[0], Some(self.top()?.id)),
+                candidates: self.eligible_stack_targets_for(
+                    &self.program()?.targets[0],
+                    self.top()?.controller,
+                    Some(self.top()?.id),
+                ),
             },
             Frame::TriggerTargets { .. }
                 if self.program()?.targets.first().is_some_and(|t| {
