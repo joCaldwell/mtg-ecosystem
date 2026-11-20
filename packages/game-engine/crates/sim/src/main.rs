@@ -701,6 +701,7 @@ fn complete_spending(game: &mut Game) -> Result<(), String> {
         decision_id,
         cost,
         available,
+        ..
     }) = game.advance(Budget::unlimited())
     {
         let spending = match_games::spend(&cost, &available).ok_or("unpayable spending request")?;

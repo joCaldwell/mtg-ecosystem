@@ -84,8 +84,12 @@ mod blocking_target_tests;
 #[cfg(test)]
 mod composed_spell_tests;
 mod counter_placement;
+mod equipped_events;
+#[cfg(test)]
+mod equipped_events_tests;
 #[cfg(test)]
 mod phase1_sequences_tests;
+mod predefined_token_templates;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
@@ -434,6 +438,9 @@ pub use events::*;
 pub use trace::*;
 mod control;
 mod controlled_land_entry;
+mod land_reclamation;
+mod restricted_mana;
+use restricted_mana::ManaConsumer;
 mod multiplayer;
 pub use multiplayer::*;
 mod permitted_history;
@@ -936,6 +943,8 @@ struct Player {
     failed_draw: bool,
     life: Quantity,
     mana: BTreeMap<Color, Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    restricted_mana: Vec<RestrictedMana>,
     status: PlayerStatus,
     last_known: Option<PlayerLastKnown>,
 }
@@ -1056,6 +1065,8 @@ struct Casting {
     origin: AnnouncementOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     spending: Option<BTreeMap<Color, Quantity>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    spending_restricted: Vec<RestrictedMana>,
     stack_id: StackId,
     original_object: ObjectId,
     prior_passes: Vec<PlayerId>,
@@ -1406,6 +1417,10 @@ pub enum Response {
     SpendMana {
         spending: BTreeMap<Color, Quantity>,
     },
+    SpendManaAllocated {
+        spending: BTreeMap<Color, Quantity>,
+        restricted: Vec<RestrictedMana>,
+    },
     CommanderReturn {
         to_command: bool,
     },
@@ -1703,6 +1718,8 @@ pub enum Request {
         player: PlayerId,
         cost: ManaCost,
         available: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        restricted_available: Vec<RestrictedMana>,
     },
     CommanderReturn {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1976,6 +1993,12 @@ pub enum ProposedEvent {
         player: PlayerId,
         index: u32,
     },
+    CreatePredefinedTokens {
+        controller: PlayerId,
+        source: ObjectId,
+        count: u32,
+        kind: mtg_contracts::PredefinedToken,
+    },
     CreateCreatureTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -2043,6 +2066,8 @@ pub enum ProposedEvent {
         player: PlayerId,
         cost: ManaCost,
         spending: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        restricted: Vec<RestrictedMana>,
     },
     PutOnTopOwnerLibrary {
         object: ObjectId,
@@ -2105,6 +2130,8 @@ pub enum ProposedEvent {
         color: Color,
         amount: Quantity,
         source: ObjectId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restriction: Option<ManaSpendRestriction>,
     },
     PayMana {
         player: PlayerId,
@@ -2233,6 +2260,11 @@ pub enum EventOutcome {
         before: RngPosition,
         after: RngPosition,
     },
+    PredefinedTokensCreated {
+        objects: Vec<ObjectId>,
+        controller: PlayerId,
+        kind: mtg_contracts::PredefinedToken,
+    },
     TokensCreated {
         objects: Vec<ObjectId>,
         controller: PlayerId,
@@ -2314,6 +2346,8 @@ pub enum EventOutcome {
         player: PlayerId,
         cost: ManaCost,
         spending: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        restricted: Vec<RestrictedMana>,
     },
     LibraryTopMoved {
         movement: MoveOutcome,
@@ -2357,6 +2391,8 @@ pub enum EventOutcome {
     ManaCleared {
         player: PlayerId,
         previous: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        previous_restricted: Vec<RestrictedMana>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         retained_as: Option<Color>,
     },
@@ -2392,6 +2428,8 @@ pub enum EventOutcome {
         player: PlayerId,
         color: Color,
         amount: Quantity,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restriction: Option<ManaSpendRestriction>,
     },
     ManaPaid {
         player: PlayerId,
@@ -2621,6 +2659,7 @@ pub struct SnapshotWriteInfo {
 pub struct Game {
     opening_library_sizes: [u32; 4],
     catalog_has_land_type_grant: bool,
+    catalog_has_land_reclamation: bool,
     catalog_has_nonland_color_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
@@ -2755,6 +2794,7 @@ impl Game {
                         failed_draw: false,
                         life: prepared.config.initial_life(PlayerId(p)),
                         mana: BTreeMap::new(),
+                        restricted_mana: vec![],
                         status: PlayerStatus::Live,
                         last_known: None,
                     })
@@ -2795,6 +2835,11 @@ impl Game {
         let mut game = Self {
             opening_library_sizes,
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_land_reclamation: prepared
+                .catalog
+                .definitions
+                .iter()
+                .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             definition_index: Self::definition_index(&prepared.catalog, &state.rules.cards),
             prepared: Arc::new(prepared),
@@ -2820,6 +2865,7 @@ impl Game {
         Self {
             opening_library_sizes: self.opening_library_sizes,
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
+            catalog_has_land_reclamation: self.catalog_has_land_reclamation,
             catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             prepared: self.prepared.clone(),
             definition_index: self.definition_index.clone(),
@@ -3325,11 +3371,9 @@ impl Game {
                 && entry.hybrid_colors.is_empty()
             {
                 self.validate_hybrid_colors(entry.source.card, colors)?;
-                if !self.state.rules.players[player.0 as usize]
-                    .can_pay_life(&payments::phyrexian_life(colors))
-                {
-                    return Err("announced Phyrexian life payment is unpayable".into());
-                }
+                // CR 601.2b/g/h: life affordability is evaluated at payment,
+                // after mana abilities have had a chance to change the total.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 return Ok(());
             }
             return Err("invalid hybrid mana announcement".into());
@@ -3416,10 +3460,17 @@ impl Game {
         if let Frame::ManaAbility { activation } = &self.state.rules.frame {
             return self.validate_permanent_mana_response(activation, player, response);
         }
-        if let (Frame::SpendMana { .. }, Response::SpendMana { spending }) =
-            (&self.state.rules.frame, response)
-        {
-            return self.validate_spending(player, spending);
+        if matches!(self.state.rules.frame, Frame::SpendMana { .. }) {
+            match response {
+                Response::SpendMana { spending } => {
+                    return self.validate_spending(player, spending, &[]);
+                }
+                Response::SpendManaAllocated {
+                    spending,
+                    restricted,
+                } => return self.validate_spending(player, spending, restricted),
+                _ => {}
+            }
         }
         if self.combat_decision_player().is_some() {
             return self.validate_combat_response(player, response);
@@ -4015,10 +4066,7 @@ impl Game {
         cost: &ManaCost,
     ) -> Result<BTreeMap<Color, Quantity>, payments::PaymentError> {
         use payments::PaymentError;
-        if cost.generic.is_negative() {
-            return Err(PaymentError::Invariant("negative mana cost"));
-        }
-        let mut pool = self
+        let pool = self
             .state
             .rules
             .players
@@ -4026,6 +4074,17 @@ impl Game {
             .ok_or(PaymentError::Invariant("missing paying player"))?
             .mana
             .clone();
+        Self::deduct_payment_cost(pool, cost)
+    }
+
+    fn deduct_payment_cost(
+        mut pool: BTreeMap<Color, Quantity>,
+        cost: &ManaCost,
+    ) -> Result<BTreeMap<Color, Quantity>, payments::PaymentError> {
+        use payments::PaymentError;
+        if cost.generic.is_negative() {
+            return Err(PaymentError::Invariant("negative mana cost"));
+        }
         if pool.values().any(Quantity::is_negative) {
             return Err(PaymentError::Invariant("negative mana pool"));
         }
@@ -4112,6 +4171,11 @@ impl Game {
         let game = Self {
             opening_library_sizes: prepared.config.initial_library_sizes(),
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_land_reclamation: prepared
+                .catalog
+                .definitions
+                .iter()
+                .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             definition_index: Self::definition_index(&prepared.catalog, &s.state.rules.cards),
             prepared: Arc::new(prepared),
@@ -4236,14 +4300,18 @@ impl Game {
         self.validate_hand_cast_state()?;
         for p in &s.rules.players {
             if (p.status == PlayerStatus::Left) != p.last_known.is_some()
-                || p.last_known
-                    .as_ref()
-                    .is_some_and(|last| last.life != p.life || last.mana != p.mana)
+                || p.last_known.as_ref().is_some_and(|last| {
+                    last.life != p.life
+                        || last.mana != p.mana
+                        || last.restricted_mana != p.restricted_mana
+                })
             {
                 return Err("snapshot departed-player history invariant".into());
             }
-            if p.mana.values().any(|n| n.is_negative()) {
-                return Err("snapshot negative mana".into());
+            if p.mana.values().any(|n| n.is_negative())
+                || !restricted_mana::valid_buckets(&p.restricted_mana)
+            {
+                return Err("snapshot invalid mana pool".into());
             }
         }
         let ids: BTreeSet<_> = s.rules.stack.iter().map(|entry| entry.id).collect();
@@ -4471,6 +4539,7 @@ impl Game {
             decision_id,
             cost,
             available,
+            restricted_available: _,
         }) = self.advance(Budget::unlimited())
         {
             let remaining = self.payment_pool(player, &cost).unwrap();

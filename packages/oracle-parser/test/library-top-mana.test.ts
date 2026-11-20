@@ -61,7 +61,8 @@ it("reparses the frozen Omnath trigger and binds both outcomes to one looked-at 
     [`${path}/library/owner`, controller], [`${path}/to/owner`, controller],
   ]);
   assert.deepEqual(graph.diagnostics.filter(d => d.path.startsWith(ability)), []);
-  assert.deepEqual(graph.engineFeatures.map(need => [need.feature, need.path]), [[step.effect, path]]);
+  assert.deepEqual(graph.engineFeatures.map(need => [need.feature, need.path]),
+    [["keep-unspent-mana", "/faces/0/abilities/0/effect/replacement"], [step.effect, path]]);
   assert.equal(graph.executable, false);
 
   const variant = parse(source.oracle_text.replace("first main phase", "precombat main phase")

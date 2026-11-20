@@ -106,7 +106,10 @@ all finish before Commander SBAs; departure never redirects attempts.
 
 Ordinary spell sequences preserve the source order of eligible fixed library,
 life, removal and land-allowance instructions across printed blocks. A library
-decision resumes the same instruction before later instructions execute.
+decision resumes the same instruction before later instructions execute. Fixed
+library steps also compose in supported self-entry and declared-attack
+triggers, and in paid source-sacrifice activations. The stack invocation's
+controller receives each look decision during resolution.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
@@ -247,6 +250,22 @@ movement never redirects a grant to a successor incarnation. Ordering never come
 from object IDs, map iteration or trace retention. Simultaneous competing
 attachments need the unimplemented ordering of CR 613.7m and reject explicitly.
 Timestamps and their allocator are canonical state and replay inputs.
+
+Equipment-owned combat-damage and death triggers capture the exact attached
+creature incarnation when matching the committed event. Damage uses the
+resulting battlefield and death uses the prior battlefield. The Equipment's
+controller receives the trigger through normal APNAP placement. Reequipping
+or removing the Equipment leaves the collected witness intact.
+
+Signed attachment stats apply in the creature power and toughness layer.
+Fixed-color protection follows the current creature and affects targeting,
+blocking, damage prevention and attachment legality. Applied prevention keeps
+the protection facts captured when the damage was processed.
+
+Predefined Treasure, Food and Clue use their standard artifact token templates.
+Creation stages the new objects together. The normal mana and activation paths
+pay the printed token costs. Restore reconstructs the template from its creating
+source and token identity, including after the token ceases to exist.
 
 Continuous subtype grants evaluate each permanent's current controller and
 structural subtypes. An explicit creature restriction limits eligibility to

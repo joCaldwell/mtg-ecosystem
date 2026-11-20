@@ -668,6 +668,7 @@ fn compound_policy_parameterized_announcement_finishes_targets_and_planned_payme
             player: o.view.viewer,
             cost,
             available: available.clone(),
+            restricted_available: vec![],
             mana_ability_source: None,
         });
         assert_eq!(

@@ -1711,11 +1711,15 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let (choices, plan) = mana_policy::hybrid_plan(
+        let (choices, plan) = mana_policy::hybrid_plan_for(
             self.catalog,
             v,
             cost.clone(),
             &d.characteristics.hybrid_mana,
+            d.characteristics
+                .colors
+                .is_empty()
+                .then_some(mana_policy::ManaPurpose::CastColorless),
         )?;
         self.payment.announced_cost = unchanged_cost.then_some(cost);
         self.hybrid_choices = choices;
@@ -2065,11 +2069,12 @@ impl Strategy<'_> {
                 return None;
             }
         }
-        self.mana_plan = mana_policy::plan(
+        self.mana_plan = mana_policy::plan_for(
             self.catalog,
             v,
             &cost,
             if tap || sac { Some(&o.handle) } else { None },
+            Some(mana_policy::ManaPurpose::Activate),
         )?;
         self.payment.exclude = (tap || sac).then(|| o.handle.clone());
         self.payment.announced_cost = Some(cost);
@@ -2147,26 +2152,50 @@ impl Strategy<'_> {
             }
             return Ok(PlayerResponse::Pass);
         }
-        let land_allowance = v
-            .effects
-            .iter()
-            .fold(Quantity::from(1), |mut allowance, effect| {
-                if let mtg_core::VisibleEffect::AdditionalLandPlays {
-                    origin,
-                    count,
-                    expires_in_cleanup_of_turn,
-                    ..
-                } = effect
-                    && origin.controller == v.viewer
-                    && *expires_in_cleanup_of_turn == v.turn.number
-                {
-                    allowance.add(count);
+        let mut land_allowance =
+            v.effects
+                .iter()
+                .fold(Quantity::from(1), |mut allowance, effect| {
+                    if let mtg_core::VisibleEffect::AdditionalLandPlays {
+                        origin,
+                        count,
+                        expires_in_cleanup_of_turn,
+                        ..
+                    } = effect
+                        && origin.controller == v.viewer
+                        && *expires_in_cleanup_of_turn == v.turn.number
+                    {
+                        allowance.add(count);
+                    }
+                    allowance
+                });
+        let mut graveyard_lands = false;
+        for object in &v.objects {
+            if object.zone != Zone::Battlefield
+                || object.controller != v.viewer
+                || object.phased_out
+            {
+                continue;
+            }
+            let identity = object
+                .copied_values
+                .as_ref()
+                .and_then(|copy| copy.oracle_id.as_deref())
+                .unwrap_or(&object.oracle_id);
+            if let Ok(definition) = definition(self.catalog, identity) {
+                for ability in &definition.static_abilities {
+                    match ability.effect {
+                        StaticEffect::AdditionalLandPlay => land_allowance.add(&1.into()),
+                        StaticEffect::PlayLandsFromOwnGraveyard => graveyard_lands = true,
+                        _ => {}
+                    }
                 }
-                allowance
-            });
+            }
+        }
         if Quantity::from(i64::from(v.turn.lands_played)) < land_allowance
             && let Some(o) = v.objects.iter().find(|o| {
-                o.zone == (Zone::Hand { owner: v.viewer })
+                (o.zone == (Zone::Hand { owner: v.viewer })
+                    || (graveyard_lands && o.zone == (Zone::Graveyard { owner: v.viewer })))
                     && definition(self.catalog, &o.oracle_id)
                         .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
             })

@@ -47,7 +47,9 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
                 | ManaProduction::Choice { .. }
                 | ManaProduction::GreatestControlledPowerCombination
                 | ManaProduction::EachPermanentColor { .. }
-                | ManaProduction::HybridFilter { .. } => false,
+                | ManaProduction::HybridFilter { .. }
+                | ManaProduction::FixedWithLifeGain { .. }
+                | ManaProduction::RestrictedFixed { .. } => false,
             }
     });
     if !valid_kind

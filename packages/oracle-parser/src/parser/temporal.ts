@@ -129,6 +129,17 @@ export function parseCurrentPhaseCondition(c: Cursor): Condition | null {
 }
 type ExtraPhases = Extract<Effect, { effect: "add-phases" }>;
 
+/** The trigger establishes the current upkeep and its active player.
+ * CR 500.2, 500.9: the step cannot end before its trigger resolves. */
+export function parseUpkeepInsertion(c: Cursor): Effect | null {
+  return c.attempt(c => {
+    if (!c.words("that", "player", "gets", "an", "additional", "upkeep", "step", "after", "this", "step") ||
+        !c.punct(".") || !c.done()) return null;
+    return { effect: "add-steps", step: "upkeep", count: { amount: "fixed", value: 1 },
+      who: { player: "that-player" }, after: { step: "current" } };
+  });
+}
+
 function parsePhaseAnchor(c: Cursor): ExtraPhases["after"] | null {
   return c.attempt(c => {
     if (c.word("this") !== null) {

@@ -17,6 +17,7 @@ fn land() -> ObjectId {
 }
 fn mana(amount: i64) -> ProposedEvent {
     ProposedEvent::AddMana {
+        restriction: None,
         player: PlayerId(0),
         source: land(),
         color: Color::U,

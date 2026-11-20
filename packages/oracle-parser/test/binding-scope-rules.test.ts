@@ -533,7 +533,8 @@ describe("announced target counts (CR 115.3, 601.2c, 602.2b, 603.3d)", () => {
 
   it("does not use a target-count binding for a resolution choice", () => {
     const graph = analyze("Discard any number of cards, then draw that many cards.", "Sorcery");
-    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
+    fully(graph);
+    assert.ok(graph.nodes.some(node => node.node === "resolution-count" && node.operation === "discard"));
     assert.ok(!graph.nodes.some(node => node.node === "target-count"));
   });
 });
@@ -576,11 +577,15 @@ describe("state reads and quantity replacements", () => {
     assert.ok(typeof recipient !== "string" && recipient.node === "selection" && recipient.selection === "event-participant-filter");
   });
 
-  it("rejects a replacement that needs an additional captured event role", () => {
+  it("binds the exact proposed damage recipient used in a replacement exclusion", () => {
     const graph = analyze("If another creature would deal combat damage to equipped creature, "
       + "it deals double that damage to equipped creature instead.\nEquip {2}", "Artifact — Equipment");
-    assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope" && d.path.endsWith("/abilities/0")));
-    assert.ok(!graph.nodes.some(node => node.node === "quantity-replacement"));
+    assert.equal(graph.referencesBound, true);
+    const replacement = graph.nodes.find(node => node.node === "quantity-replacement");
+    const recipient = bound(graph, "/replacement/event/source/filter/otherThan");
+    assert.ok(typeof recipient !== "string" && recipient.node === "event-participant");
+    assert.equal(recipient.role, "proposed-damage-recipient");
+    assert.equal(recipient.event, replacement?.id);
   });
 
   it("binds a devotion query's chosen color without claiming layered evaluation", () => {

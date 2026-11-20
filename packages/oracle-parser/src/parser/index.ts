@@ -334,6 +334,7 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       // establish either predicate. Do not backtrack into a resolving `if`.
       if (condition && hasMatchTimeTarget(condition)) return null;
       const triggerScope = uniqueStackTriggerEvent(trigger) === "cast" ? "cast"
+        : trigger.trigger === "phase" && trigger.firstEachTurn && !condition ? "first-upkeep"
         : trigger.trigger === "leaves" && (trigger.what.ref === "self" || trigger.what.ref === "this") ? "leaves-self"
         : trigger.trigger === "dies" && !trigger.grouping && (trigger.what.ref === "self" || trigger.what.ref === "this") ? "dies-self"
         : trigger.trigger === "adds-mana-from-ability" ? "adds-mana-chosen"

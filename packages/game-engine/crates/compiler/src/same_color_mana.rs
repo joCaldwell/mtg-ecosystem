@@ -21,6 +21,7 @@ pub(super) fn lower(
             matches!(
                 step,
                 Step::AddMana {
+                    spend_restriction: None,
                     mana: SourceMana::AnyOneColor { .. },
                     ..
                 }
@@ -41,6 +42,7 @@ pub(super) fn lower(
     };
     let [
         Step::AddMana {
+            spend_restriction: None,
             mana: SourceMana::AnyOneColor { amount },
             ..
         },

@@ -324,7 +324,7 @@ fn first_write(game: &Game, quantum: u64) -> Game {
         );
         assert_eq!(added.iter().filter(|event| matches!(event,
             Event::Committed {
-                proposed: ProposedEvent::AddMana { player: PlayerId(0), source, color: Color::G, amount },
+                proposed: ProposedEvent::AddMana { player: PlayerId(0), source, color: Color::G, amount, restriction: None },
                 actual: EventOutcome::ManaAdded { .. },
             } if *source == object && *amount == Quantity::from(1))).count(), 1);
     }

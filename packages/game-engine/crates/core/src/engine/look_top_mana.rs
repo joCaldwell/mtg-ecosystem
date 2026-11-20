@@ -201,6 +201,7 @@ impl Game {
                     .filter(|(_, amount)| *amount != Quantity::zero())
                     .map(|(color, amount)| EventGroup::Occurrence {
                         proposed: ProposedEvent::AddMana {
+                            restriction: None,
                             player,
                             color,
                             amount,

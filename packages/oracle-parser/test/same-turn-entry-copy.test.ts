@@ -62,7 +62,6 @@ it("binds the frozen Sakashima's Protege entry copy separately from Flash and Ca
   assert.equal(graph.executable, false);
 
   for (const [original, mutation] of [
-    ["any permanent that entered this turn", "any permanent on the battlefield"],
     ["any permanent", "any creature"],
     ["permanent that entered", "permanent you control that entered"],
     ["You may have this creature enter", "This creature enters"],

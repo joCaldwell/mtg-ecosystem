@@ -92,6 +92,8 @@ pub struct VisiblePlayer {
     pub status: PlayerStatus,
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restricted_mana: Vec<RestrictedMana>,
     pub hand_count: u32,
     pub library_count: u32,
 }
@@ -508,6 +510,8 @@ pub enum PlayerRequest {
         player: PlayerId,
         cost: ManaCost,
         available: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        restricted_available: Vec<RestrictedMana>,
         /// The permanent whose mana ability this nested payment or color choice
         /// belongs to (CR 605.3a). Omitted outside nested mana-ability requests.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -775,6 +779,10 @@ pub enum PlayerResponse {
     },
     SpendMana {
         spending: BTreeMap<Color, Quantity>,
+    },
+    SpendManaAllocated {
+        spending: BTreeMap<Color, Quantity>,
+        restricted: Vec<RestrictedMana>,
     },
     CommanderReturn {
         to_command: bool,
@@ -1336,6 +1344,7 @@ impl Game {
             status: p.status,
             life: p.life.clone(),
             mana: p.mana.clone(),
+            restricted_mana: p.restricted_mana.clone(),
             hand_count: checked_count(hand_count)?,
             library_count: checked_count(library_count)?,
         })
@@ -2553,12 +2562,16 @@ impl Game {
                 mana_ability_source,
             },
             Request::SpendMana {
-                cost, available, ..
+                cost,
+                available,
+                restricted_available,
+                ..
             } => PlayerRequest::SpendMana {
                 token,
                 player: viewer,
                 cost,
                 available,
+                restricted_available,
                 mana_ability_source,
             },
             _ => return Err("payment request invariant".into()),
@@ -3119,6 +3132,13 @@ impl Game {
                 amounts: amounts.clone(),
             }),
             PlayerResponse::ManaColor { color } => Ok(Response::ManaColor { color: *color }),
+            PlayerResponse::SpendManaAllocated {
+                spending,
+                restricted,
+            } => Ok(Response::SpendManaAllocated {
+                spending: spending.clone(),
+                restricted: restricted.clone(),
+            }),
             PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
                 spending: spending.clone(),
             }),

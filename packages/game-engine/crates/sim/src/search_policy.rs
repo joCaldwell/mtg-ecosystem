@@ -218,11 +218,12 @@ pub(super) fn choose(
             }
         }
         PlayerRequest::SpendMana {
-            cost, available, ..
-        } => PlayerResponse::SpendMana {
-            spending: search_candidates::spend(cost, available)
-                .ok_or("rollout explicit spending is infeasible")?,
-        },
+            cost,
+            available,
+            restricted_available,
+            ..
+        } => crate::match_games::spend_response(cost, available, restricted_available)
+            .ok_or("rollout explicit spending is infeasible")?,
         PlayerRequest::CommanderReturn { .. } => {
             PlayerResponse::CommanderReturn { to_command: true }
         }

@@ -123,6 +123,8 @@ pub struct PlayerBefore {
     pub player: PlayerId,
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restricted_mana: Vec<RestrictedMana>,
     pub status: PlayerStatus,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -455,7 +457,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
                 .collect(),
             BTreeSet::new(),
         ),
-        ProposedEvent::CreateCreatureTokens { .. } => {
+        ProposedEvent::CreateCreatureTokens { .. }
+        | ProposedEvent::CreatePredefinedTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
         }
@@ -670,13 +673,24 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             (reads, keys)
         }
         ProposedEvent::PayMana { player, .. } | ProposedEvent::PayManaSelected { player, .. } => {
-            let keys = BTreeSet::from([FactKey::Mana(*player)]);
-            (keys.clone(), keys)
+            let writes = BTreeSet::from([FactKey::Mana(*player)]);
+            let mut reads = writes.clone();
+            if matches!(event, ProposedEvent::PayManaSelected { restricted, .. } if !restricted.is_empty())
+                && let Ok(stack) = game.top()
+            {
+                reads.insert(FactKey::Stack(stack.id));
+                reads.insert(FactKey::Object(stack.source.card));
+            }
+            (reads, writes)
         }
-        ProposedEvent::LandPlayed { .. } => (
-            BTreeSet::from([FactKey::Turn, FactKey::Effects]),
-            BTreeSet::from([FactKey::Turn]),
-        ),
+        ProposedEvent::LandPlayed { player } => {
+            let mut reads = BTreeSet::from([FactKey::Turn, FactKey::Effects]);
+            reads.extend(
+                game.persistent_land_allowances(*player)
+                    .map(|id| FactKey::Object(id.card)),
+            );
+            (reads, BTreeSet::from([FactKey::Turn]))
+        }
         ProposedEvent::TurnTransition { next, owner } => {
             let mut keys = BTreeSet::from([FactKey::Turn]);
             if next.step == TurnStep::PrecombatMain {
@@ -700,6 +714,9 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
                 FactKey::Mana(receipt.player),
                 FactKey::Object(receipt.source.object.card),
             ]);
+            if receipt.life_gain.is_some() {
+                keys.insert(FactKey::Life(receipt.player));
+            }
             if let Some(damage) = &receipt.damage {
                 keys.extend(damage.life.iter().map(|entry| FactKey::Life(entry.player)));
                 if !damage.shields.is_empty() {
@@ -813,6 +830,7 @@ fn collect<'a>(
                             | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
+                            | ProposedEvent::CreatePredefinedTokens { .. }
                             | ProposedEvent::FreezeLifeUntilNextTurn { .. }
                             | ProposedEvent::PhaseOutControlled { .. }
                             | ProposedEvent::PhaseOutTarget { .. }
@@ -1049,7 +1067,8 @@ impl Game {
                     players.insert(*player);
                     objects.extend(looked.iter().copied());
                 }
-                ProposedEvent::CreateCreatureTokens { controller, .. } => {
+                ProposedEvent::CreateCreatureTokens { controller, .. }
+                | ProposedEvent::CreatePredefinedTokens { controller, .. } => {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
                     players.insert(*controller);
@@ -1382,6 +1401,9 @@ impl Game {
                     players.insert(*player);
                 }
                 ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
+                    if let ProposedEvent::LandPlayed { player } = event {
+                        objects.extend(self.persistent_land_allowances(*player));
+                    }
                     if let ProposedEvent::TurnTransition { next, owner } = event
                         && next.number != self.state.rules.turn.number
                     {
@@ -1481,6 +1503,7 @@ impl Game {
                     player,
                     life: p.life.clone(),
                     mana: p.mana.clone(),
+                    restricted_mana: p.restricted_mana.clone(),
                     status: p.status,
                 })
             })
@@ -2842,6 +2865,7 @@ impl Game {
                 }
             }
             event @ (ProposedEvent::CreateCreatureTokens { .. }
+            | ProposedEvent::CreatePredefinedTokens { .. }
             | ProposedEvent::CeaseToken { .. }
             | ProposedEvent::CeaseSpellCopy { .. }) => self.apply_token_event(event)?,
             ProposedEvent::Setup { action } => EventOutcome::Setup {
@@ -2950,13 +2974,26 @@ impl Game {
                 player,
                 cost,
                 spending,
+                restricted,
             } => {
-                let pool = self.selected_payment_pool(*player, cost, spending)?;
-                self.state.rules.players[player.0 as usize].mana = pool;
+                let (pool, buckets) = if restricted.is_empty() {
+                    (self.selected_payment_pool(*player, cost, spending)?, None)
+                } else {
+                    let consumer = self.allocated_payment_consumer(*player)?;
+                    let (pool, buckets) =
+                        self.allocated_mana_pools(*player, cost, spending, restricted, consumer)?;
+                    (pool, Some(buckets))
+                };
+                let p = &mut self.state.rules.players[player.0 as usize];
+                p.mana = pool;
+                if let Some(buckets) = buckets {
+                    p.restricted_mana = buckets;
+                }
                 EventOutcome::ManaPaidSelected {
                     player: *player,
                     cost: cost.clone(),
                     spending: spending.clone(),
+                    restricted: restricted.clone(),
                 }
             }
             ProposedEvent::Sacrifice { object, player } => {
@@ -3266,8 +3303,10 @@ impl Game {
                     return Err("invalid mana clearing player".into());
                 }
                 let retain = !self.unspent_mana_converters(*player).is_empty();
-                let pool = &mut self.state.rules.players[player.0 as usize].mana;
+                let p = &mut self.state.rules.players[player.0 as usize];
+                let pool = &mut p.mana;
                 let previous = std::mem::take(pool);
+                let previous_restricted = std::mem::take(&mut p.restricted_mana);
                 let retained_as = if retain {
                     let mut retained = Quantity::zero();
                     for amount in previous.values() {
@@ -3275,16 +3314,24 @@ impl Game {
                     }
                     if retained > Quantity::zero() {
                         pool.insert(Color::B, retained);
-                        Some(Color::B)
-                    } else {
-                        None
                     }
+                    for unit in &previous_restricted {
+                        restricted_mana::credit(
+                            &mut p.restricted_mana,
+                            &RestrictedMana {
+                                color: Color::B,
+                                ..unit.clone()
+                            },
+                        );
+                    }
+                    (!pool.is_empty() || !p.restricted_mana.is_empty()).then_some(Color::B)
                 } else {
                     None
                 };
                 EventOutcome::ManaCleared {
                     player: *player,
                     previous,
+                    previous_restricted,
                     retained_as,
                 }
             }
@@ -3374,6 +3421,7 @@ impl Game {
                 color,
                 amount,
                 source,
+                restriction,
             } => {
                 if self.current(*source).is_err()
                     && !self.retained_look_top_mana_source(*player, *source)
@@ -3389,19 +3437,32 @@ impl Game {
                 if amount.is_negative() || !self.is_live(*player) {
                     return Err("negative mana or departed recipient".into());
                 }
-                self.state
+                let p = self
+                    .state
                     .rules
                     .players
                     .get_mut(player.0 as usize)
-                    .ok_or("missing mana player")?
-                    .mana
-                    .entry(*color)
-                    .or_default()
-                    .add(amount);
+                    .ok_or("missing mana player")?;
+                if let Some(restriction) = restriction {
+                    if *amount == Quantity::zero() {
+                        return Err("empty restricted mana production".into());
+                    }
+                    restricted_mana::credit(
+                        &mut p.restricted_mana,
+                        &RestrictedMana {
+                            restriction: *restriction,
+                            color: *color,
+                            amount: amount.clone(),
+                        },
+                    );
+                } else {
+                    p.mana.entry(*color).or_default().add(amount);
+                }
                 EventOutcome::ManaAdded {
                     player: *player,
                     color: *color,
                     amount: amount.clone(),
+                    restriction: *restriction,
                 }
             }
             ProposedEvent::PayMana { player, cost } => {

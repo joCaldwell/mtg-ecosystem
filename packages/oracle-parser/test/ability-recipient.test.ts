@@ -33,11 +33,11 @@ describe('ability recipient domains', () => {
     ]);
   });
   it('does not invent either an object or player antecedent for the same pronoun', () => {
-    for (const prefix of ['Return all creature cards from your graveyard to the battlefield.', 'Target player draws a card.']) {
+    for (const prefix of ['Untap all creatures. Tap all artifacts.', 'Target player draws a card.']) {
       const result = parse(`${prefix} They gain hexproof until end of turn.`);
       const grant = result.abilities[0];
       assert.ok(grant.kind === 'spell');
-      assert.deepEqual(grant.effects[1], { steps: [{ effect: 'gain-abilities', what: { recipient: 'they' }, abilities: [{ gained: 'keyword', keyword: { keyword: 'hexproof' } }], duration: eot }] });
+      assert.deepEqual(grant.effects.at(-1), { steps: [{ effect: 'gain-abilities', what: { recipient: 'they' }, abilities: [{ gained: 'keyword', keyword: { keyword: 'hexproof' } }], duration: eot }] });
       const binding = analyzeCardBindings({ identity: 'recipient', source: { name: 'Recipient fixture', layout: 'normal' }, faces: [{ sourceFaceIndex: 0, result }] });
       assert.equal(binding.fullyBound, false);
       assert.ok(binding.references.some(ref => 'recipient' in ref.expression && ref.expression.recipient === 'they' && ref.binding === 'unresolved'));

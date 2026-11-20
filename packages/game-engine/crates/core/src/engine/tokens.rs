@@ -2,7 +2,7 @@
 //! 302.6, 603.6a, 613.4c and 704.5d.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::{CounterRecipient, CreatureToken};
+use mtg_contracts::{CounterRecipient, CreatureToken, PredefinedToken};
 
 // Generic live-object cap. Physical token identities are never reused,
 // including after a token ceases; history is retained independently.
@@ -82,6 +82,9 @@ pub(super) struct TokenIdentity {
 #[serde(untagged, deny_unknown_fields)]
 pub(super) enum TokenTemplate {
     Created(CreatureToken),
+    Predefined {
+        kind: PredefinedToken,
+    },
     SpellCopy {
         original: ObjectId,
         stack_id: StackId,
@@ -282,6 +285,26 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         let (event, block) = match instruction {
+            Instruction::CreatePredefinedTokens {
+                count,
+                kind,
+                source_block,
+            } => {
+                if !self.is_live(frame.spell.controller) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                self.check_token_capacity(count)?;
+                (
+                    ProposedEvent::CreatePredefinedTokens {
+                        controller: frame.spell.controller,
+                        source: frame.spell.source,
+                        count,
+                        kind,
+                    },
+                    source_block,
+                )
+            }
             Instruction::CreateCreatureTokens {
                 count,
                 token,
@@ -397,6 +420,42 @@ impl Game {
         event: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
         match event {
+            ProposedEvent::CreatePredefinedTokens {
+                controller,
+                source,
+                count,
+                kind,
+            } => {
+                if !self.is_live(*controller) || *count == 0 {
+                    return Err("invalid predefined token controller or count".into());
+                }
+                self.check_token_capacity(*count)?;
+                let definition = self.copiable_definition(source)?.clone();
+                let mut objects = Vec::new();
+                for _ in 0..*count {
+                    let card = self.next_token_card()?;
+                    let identity = TokenIdentity {
+                        source: *source,
+                        spec: TokenTemplate::Predefined { kind: *kind },
+                        definition: predefined_token_templates::definition(
+                            &definition,
+                            card,
+                            *kind,
+                        ),
+                    };
+                    objects.push(self.insert_token_identity(
+                        card,
+                        *controller,
+                        Zone::Battlefield,
+                        identity,
+                    ));
+                }
+                Ok(EventOutcome::PredefinedTokensCreated {
+                    objects,
+                    controller: *controller,
+                    kind: *kind,
+                })
+            }
             ProposedEvent::CreateCreatureTokens {
                 controller,
                 source,
@@ -475,6 +534,14 @@ impl Game {
                         return Err("snapshot token differs from creating instruction".into());
                     }
                     token_definition(source, *id, spec)
+                }
+                TokenTemplate::Predefined { kind } => {
+                    if !predefined_token_templates::can_create(source, *kind) {
+                        return Err(
+                            "snapshot predefined token differs from creating instruction".into(),
+                        );
+                    }
+                    predefined_token_templates::definition(source, *id, *kind)
                 }
                 TokenTemplate::SpellCopy { original, stack_id } => {
                     let original_definition = self.copiable_definition(original)?;

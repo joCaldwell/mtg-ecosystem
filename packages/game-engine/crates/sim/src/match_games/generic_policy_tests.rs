@@ -60,6 +60,7 @@ mod reactive_tests {
                     status: mtg_core::PlayerStatus::Live,
                     life: Quantity::from(40 - i64::from(i)),
                     mana: BTreeMap::new(),
+                    restricted_mana: vec![],
                     hand_count: 1,
                     library_count: 20,
                 })
@@ -869,13 +870,14 @@ fn mana_planner_preserves_flexible_source_for_the_second_color() {
         wipe_tests::card(&c, "Birds of Paradise", v.viewer.0, Zone::Battlefield),
         wipe_tests::card(&c, "Plains", v.viewer.0, Zone::Battlefield),
     ];
-    let plan = mana_policy::plan(
+    let plan = mana_policy::plan_for(
         &c,
         &v,
         &ManaCost {
             generic: 0.into(),
             colored: vec![Color::W, Color::U],
         },
+        None,
         None,
     )
     .unwrap();

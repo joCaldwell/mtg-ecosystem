@@ -72,7 +72,9 @@ impl Planner<'_> {
             };
             let source = &self.sources[i];
             let color = match source.production {
-                ManaProduction::Fixed { .. } => None,
+                ManaProduction::Fixed { .. }
+                | ManaProduction::FixedWithLifeGain { .. }
+                | ManaProduction::RestrictedFixed { .. } => None,
                 ManaProduction::HybridFilter { .. } => source.filter_input,
                 _ => deficit.or_else(|| source.colors.first().copied()),
             };
@@ -110,7 +112,9 @@ impl Planner<'_> {
                 Some(amounts)
             } else {
                 let symbols = match &source.production {
-                    ManaProduction::Fixed { symbols } => symbols.as_slice(),
+                    ManaProduction::Fixed { symbols }
+                    | ManaProduction::FixedWithLifeGain { symbols, .. }
+                    | ManaProduction::RestrictedFixed { symbols, .. } => symbols.as_slice(),
                     _ => color.as_slice(),
                 };
                 for &c in symbols {
@@ -207,8 +211,11 @@ fn production(
 ) -> (ManaProduction, Vec<Color>, Quantity) {
     let mut amount = Quantity::from(1);
     let colors = match mana {
-        ManaProduction::Fixed { symbols } => symbols.clone(),
+        ManaProduction::Fixed { symbols } | ManaProduction::FixedWithLifeGain { symbols, .. } => {
+            symbols.clone()
+        }
         ManaProduction::Choice { colors } => colors.clone(),
+        ManaProduction::RestrictedFixed { symbols, .. } => symbols.clone(),
         ManaProduction::HybridFilter { colors } => {
             amount = Quantity::from(2);
             colors.to_vec()
@@ -298,14 +305,44 @@ fn production(
     (mana.clone(), colors, amount)
 }
 
-pub(super) fn plan(
+#[derive(Clone, Copy)]
+pub(super) enum ManaPurpose {
+    Activate,
+    CastColorless,
+}
+
+impl ManaPurpose {
+    fn permits(self, spend: mtg_contracts::ManaSpendRestriction) -> bool {
+        matches!(self, Self::Activate)
+            || spend == mtg_contracts::ManaSpendRestriction::ColorlessSpellOrActivatedAbility
+    }
+}
+
+pub(super) fn spendable_pool(
+    view: &PermittedView,
+    purpose: Option<ManaPurpose>,
+) -> Option<BTreeMap<Color, Quantity>> {
+    let player = view.players.iter().find(|p| p.player == view.viewer)?;
+    let mut pool = player.mana.clone();
+    if let Some(purpose) = purpose {
+        for unit in &player.restricted_mana {
+            if purpose.permits(unit.restriction) {
+                pool.entry(unit.color).or_default().add(&unit.amount);
+            }
+        }
+    }
+    Some(pool)
+}
+
+pub(super) fn plan_for(
     catalog: &Catalog,
     view: &PermittedView,
     cost: &ManaCost,
     exclude: Option<&ObjectHandle>,
+    purpose: Option<ManaPurpose>,
 ) -> Option<std::collections::VecDeque<PlannedMana>> {
-    let pool = &view.players.iter().find(|p| p.player == view.viewer)?.mana;
-    if spend(cost, pool).is_some() {
+    let pool = spendable_pool(view, purpose)?;
+    if spend(cost, &pool).is_some() {
         return Some(Default::default());
     }
     let mut sources = vec![];
@@ -318,7 +355,10 @@ pub(super) fn plan(
         };
         let land = d.characteristics.has_type(CardKind::Land);
         for (index, ability) in d.mana_abilities.iter().enumerate() {
-            if !usable_printed(ability, o) {
+            if !usable_printed(ability, o)
+                || matches!(ability.production, ManaProduction::RestrictedFixed { spend, .. }
+                    if purpose.is_none_or(|purpose| !purpose.permits(spend)))
+            {
                 continue;
             }
             let (production, colors, amount) = production(catalog, view, &ability.production);
@@ -381,7 +421,7 @@ pub(super) fn plan(
         filter_retries: sources.len(),
         sources,
         used: vec![false; view.objects.len()],
-        pool: pool.clone(),
+        pool,
         plan: vec![],
     };
     planner.fund(cost).then(|| planner.plan.into())
@@ -389,11 +429,57 @@ pub(super) fn plan(
 
 /// Plan against the complete fixed price as each printed hybrid pip is
 /// selected. A life payment is available only on its printed symbol.
+pub(crate) fn spend_response(
+    cost: &ManaCost,
+    available: &BTreeMap<Color, Quantity>,
+    restricted_available: &[mtg_contracts::RestrictedMana],
+) -> Option<mtg_core::PlayerResponse> {
+    let mut combined = available.clone();
+    for unit in restricted_available {
+        combined.entry(unit.color).or_default().add(&unit.amount);
+    }
+    let mut spending = spend(cost, &combined)?;
+    let mut restricted = vec![];
+    for unit in restricted_available {
+        if let Some(amount) = spending.get_mut(&unit.color) {
+            let used = unit.amount.clone().min(amount.clone());
+            if used > Quantity::zero() {
+                amount.subtract(&used);
+                restricted.push(mtg_contracts::RestrictedMana {
+                    amount: used,
+                    ..unit.clone()
+                });
+            }
+        }
+    }
+    if restricted.is_empty() {
+        return Some(mtg_core::PlayerResponse::SpendMana { spending });
+    }
+    spending.retain(|_, amount| *amount > Quantity::zero());
+    Some(mtg_core::PlayerResponse::SpendManaAllocated {
+        spending,
+        restricted,
+    })
+}
+
 pub(super) fn hybrid_plan(
+    catalog: &Catalog,
+    view: &mtg_core::PermittedView,
+    cost: ManaCost,
+    symbols: &[mtg_contracts::ColorHybridSymbol],
+) -> Option<(
+    Vec<mtg_contracts::HybridPayment>,
+    std::collections::VecDeque<PlannedMana>,
+)> {
+    hybrid_plan_for(catalog, view, cost, symbols, None)
+}
+
+pub(super) fn hybrid_plan_for(
     catalog: &Catalog,
     view: &mtg_core::PermittedView,
     mut cost: ManaCost,
     symbols: &[mtg_contracts::ColorHybridSymbol],
+    purpose: Option<ManaPurpose>,
 ) -> Option<(
     Vec<mtg_contracts::HybridPayment>,
     std::collections::VecDeque<PlannedMana>,
@@ -409,7 +495,7 @@ pub(super) fn hybrid_plan(
             .filter_map(|choice| choice.color())
             .find(|color| {
                 cost.colored.push(*color);
-                let payable = plan(catalog, view, &cost, None).is_some();
+                let payable = plan_for(catalog, view, &cost, None, purpose).is_some();
                 cost.colored.pop();
                 payable
             })
@@ -426,7 +512,7 @@ pub(super) fn hybrid_plan(
             return None;
         }
     }
-    Some((choices, plan(catalog, view, &cost, None)?))
+    Some((choices, plan_for(catalog, view, &cost, None, purpose)?))
 }
 #[cfg(test)]
 mod tests {
@@ -530,6 +616,7 @@ mod tests {
                     status: mtg_core::PlayerStatus::Live,
                     life: 40.into(),
                     mana: BTreeMap::new(),
+                    restricted_mana: vec![],
                     hand_count: 1,
                     library_count: 4,
                 }],

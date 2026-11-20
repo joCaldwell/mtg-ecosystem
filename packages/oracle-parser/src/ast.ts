@@ -540,7 +540,9 @@ export type Trigger = {
   /** into.filter ("transforms into a Phyrexian"): the permanent, as it is
    * after transforming (CR 701.27), matches the description. */
   | { trigger: "transforms"; what: ObjectRef; into?: { face: "source-face" } | { filter: ObjectFilter } }
-  | { trigger: "phase"; phase: PhaseName; whose: TurnOwner | PlayerRef }
+  | { trigger: "phase"; phase: PhaseName; whose: TurnOwner | PlayerRef; firstEachTurn?: never }
+  /** The first upkeep that actually begins in the turn (CR 500.11, 503.1). */
+  | { trigger: "phase"; phase: "upkeep"; whose: { player: "enchanted-player" }; firstEachTurn: true }
   /** CR 731.1a: "day becomes night" / "night becomes day" — the game loses
    * the other designation and gains `to`. Becoming day or night from
    * neither is not this event. */
@@ -818,6 +820,10 @@ export type SkippableTime =
   | { kind: "phase"; phase: "main" | "combat" }
   | { kind: "step"; step: "untap" | "upkeep" | "draw" };
 
+type ChoiceDamage = { source: { ref: "self" }; amount: { amount: "fixed"; value: number } };
+type UnanimousChoiceDamage = ChoiceDamage & { when: "unanimous"; choice: string; recipients: "all-choosers" };
+type MixedChoiceDamage = ChoiceDamage & { when: "otherwise"; recipients: { chose: string } };
+
 export type Effect = EffectBase &
   (
     /** Create a replacement for upcoming occurrences (CR614.10). A skipped
@@ -832,6 +838,8 @@ export type Effect = EffectBase &
     /** CR500.7: insert extra turns one at a time after the anchor; APNAP
      * determines insertion for multiple players, most recently added first. */
     | { effect: "add-turns"; who: PlayerRef; count: Amount; after: { turn: "current" } }
+    /** CR 500.9: insert within the phase containing the current upkeep. */
+    | { effect: "add-steps"; step: "upkeep"; count: Amount; who: { player: "that-player" }; after: { step: "current" } }
     /** CR500.8: the printed groups form an ordered sequence, inserted after
      * the specified phase. A main/combat qualifier is an anchor constraint,
      * not permission to create a phase after an unrelated current phase. */
@@ -1076,6 +1084,10 @@ export type Effect = EffectBase &
     /** CR 701.38a: every player votes, starting with `starting` when stated.
      * `secret`: votes are cast secretly and then revealed. */
     | { effect: "vote"; starting?: PlayerRef; secret?: true; choices: VoteChoices }
+    /** CR 101.1, 101.4, 608.2d–f, 701.38c: each opponent privately picks
+     * one option. Reveal together, then resolve the first matching outcome. */
+    | { effect: "secret-choice-damage"; who: { player: "each-opponent" }; choices: [string, string];
+        outcomes: [UnanimousChoiceDamage, UnanimousChoiceDamage, MixedChoiceDamage] }
     /** CR 111.10j-r: a Role token (Aura) created attached to `attachedTo`
      * (CR 303.7a); the role's abilities are those defined by the CR. */
     | { effect: "create-role"; role: RoleName; count: Amount; attachedTo: ObjectRef; who?: PlayerRef }
