@@ -81,11 +81,15 @@ impl Game {
 
     pub(super) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
         let keywords = self.current_keywords(attacker);
+        let attacker_flies = keywords.contains(&KeywordAbility::Flying);
         self.color_layer(blocker)
             .is_ok_and(|source| !self.protected_from(attacker, &source))
             && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
-            && !self.has_restriction(blocker, CreatureRestriction::CantAttackOrBlock)
-            && (!keywords.contains(&KeywordAbility::Flying)
+            && !self.creature_restrictions(blocker).any(|restriction| {
+                restriction == CreatureRestriction::CantAttackOrBlock
+                    || (!attacker_flies && restriction == CreatureRestriction::CanBlockOnlyFlying)
+            })
+            && (!attacker_flies
                 || self.has_keyword(blocker, KeywordAbility::Flying)
                 || self.has_keyword(blocker, KeywordAbility::Reach))
             && !self.landwalk_prevents_block(attacker, &keywords)

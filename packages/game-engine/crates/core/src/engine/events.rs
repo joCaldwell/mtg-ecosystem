@@ -145,6 +145,12 @@ pub struct PreEventFacts {
         deserialize_with = "multiplayer::player_quantity_map"
     )]
     pub entry_basic_lands: BTreeMap<PlayerId, Quantity>,
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "multiplayer::player_quantity_map"
+    )]
+    pub entry_other_lands: BTreeMap<PlayerId, Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) control: Option<Box<ControlBefore>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -169,6 +175,18 @@ pub struct PreEventFacts {
     pub objects: Vec<ObjectBefore>,
     pub players: Vec<PlayerBefore>,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EntryLandCount {
+    Basic,
+    Other,
+}
+
+#[derive(Default)]
+struct EntryLandCounts {
+    basic: BTreeMap<PlayerId, Quantity>,
+    other: BTreeMap<PlayerId, Quantity>,
+}
+
 /// Consumed layer-2 authority, separate from the leaf's ordinary object facts
 /// (whose narrow shape is part of destruction and damage validation).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -701,7 +719,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             .collect(),
         _ => vec![],
     };
-    if game.conditional_entry(event) {
+    if game.conditional_entry(event).is_some() {
         // Only prior battlefield objects are dependencies. A simultaneously
         // entering sibling is deliberately absent (CR614.12).
         reads.extend(
@@ -882,13 +900,13 @@ impl Game {
     }
 
     fn facts(&self, events: &[&ProposedEvent]) -> Result<PreEventFacts, String> {
-        let counts = self.entry_basic_counts(events)?;
+        let counts = self.entry_land_counts(events)?;
         self.facts_with_entry_counts(events, &counts)
     }
     fn facts_with_entry_counts(
         &self,
         events: &[&ProposedEvent],
-        counts: &BTreeMap<PlayerId, Quantity>,
+        counts: &EntryLandCounts,
     ) -> Result<PreEventFacts, String> {
         let mut damage_sources = vec![];
         let effects_event = events.iter().any(|e| {
@@ -1477,8 +1495,21 @@ impl Game {
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
             face_down_exile,
-            entry_basic_lands: if events.iter().any(|e| self.conditional_entry(e)) {
-                counts.clone()
+            entry_basic_lands: if !counts.basic.is_empty()
+                && events
+                    .iter()
+                    .any(|e| self.conditional_entry(e) == Some(EntryLandCount::Basic))
+            {
+                counts.basic.clone()
+            } else {
+                BTreeMap::new()
+            },
+            entry_other_lands: if !counts.other.is_empty()
+                && events
+                    .iter()
+                    .any(|e| self.conditional_entry(e) == Some(EntryLandCount::Other))
+            {
+                counts.other.clone()
             } else {
                 BTreeMap::new()
             },
@@ -1717,7 +1748,7 @@ impl Game {
                 .map_or(BatchAuthority::Ordinary, BatchAuthority::LandEntry)
         };
         let before = if matches!(&group, EventGroup::Ordered { .. }) {
-            self.facts_with_entry_counts(&events, &BTreeMap::new())?
+            self.facts_with_entry_counts(&events, &EntryLandCounts::default())?
         } else {
             self.facts(&events)?
         };
@@ -1822,8 +1853,11 @@ impl Game {
                 // One prior scan per complete simultaneous occurrence. Only
                 // bounded controller counts are copied into charged leaf facts.
                 let entry_counts = match prepared {
-                    Some(before) => before.entry_basic_lands.clone(),
-                    None => common.entry_basic_counts(&occurrences.iter().collect::<Vec<_>>())?,
+                    Some(before) => EntryLandCounts {
+                        basic: before.entry_basic_lands.clone(),
+                        other: before.entry_other_lands.clone(),
+                    },
+                    None => common.entry_land_counts(&occurrences.iter().collect::<Vec<_>>())?,
                 };
                 for event in occurrences {
                     let before = common.facts_with_entry_counts(&[event], &entry_counts)?;
@@ -1955,7 +1989,7 @@ impl Game {
 }
 
 impl Game {
-    fn conditional_entry(&self, event: &ProposedEvent) -> bool {
+    fn conditional_entry(&self, event: &ProposedEvent) -> Option<EntryLandCount> {
         let object = match event {
             ProposedEvent::CascadeLandEntry { object, .. }
             | ProposedEvent::SearchLandEntry { object, .. }
@@ -1963,44 +1997,67 @@ impl Game {
                 object,
                 destination: Zone::Battlefield,
             } => object,
-            _ => return false,
+            _ => return None,
         };
         let model = self.entry_copy_model(*object).unwrap_or(*object);
-        self.copiable_definition(model).is_ok_and(|d| {
-            d.static_abilities.iter().any(|a| {
-                matches!(
-                    a.effect,
-                    StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
-                )
+        self.copiable_definition(model)
+            .ok()?
+            .static_abilities
+            .iter()
+            .find_map(|a| match a.effect {
+                StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
+                    Some(EntryLandCount::Basic)
+                }
+                StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
+                    Some(EntryLandCount::Other)
+                }
+                _ => None,
             })
-        })
     }
-    fn entry_basic_counts(
-        &self,
-        events: &[&ProposedEvent],
-    ) -> Result<BTreeMap<PlayerId, Quantity>, String> {
-        if !events.iter().any(|e| self.conditional_entry(e)) {
-            return Ok(BTreeMap::new());
+
+    fn entry_land_counts(&self, events: &[&ProposedEvent]) -> Result<EntryLandCounts, String> {
+        let mut basic = false;
+        let mut other = false;
+        for event in events {
+            match self.conditional_entry(event) {
+                Some(EntryLandCount::Basic) => basic = true,
+                Some(EntryLandCount::Other) => other = true,
+                None => {}
+            }
         }
-        let mut counts: BTreeMap<_, _> = self
-            .live_players()
-            .into_iter()
-            .map(|p| (p, Quantity::zero()))
-            .collect();
-        for o in self
+        let mut counts = EntryLandCounts::default();
+        if !basic && !other {
+            return Ok(counts);
+        }
+        for player in self.live_players() {
+            if basic {
+                counts.basic.insert(player, Quantity::zero());
+            }
+            if other {
+                counts.other.insert(player, Quantity::zero());
+            }
+        }
+        let one = Quantity::from(1);
+        for object in self
             .state
             .rules
             .objects
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let c = self.characteristics(o.id)?;
-            if c.basic && c.has_type(CardKind::Land) {
-                counts.entry(o.controller).or_default().add(&1.into());
+            let characteristics = self.characteristics(object.id)?;
+            if characteristics.has_type(CardKind::Land) {
+                if basic && characteristics.basic {
+                    counts.basic.entry(object.controller).or_default().add(&one);
+                }
+                if other {
+                    counts.other.entry(object.controller).or_default().add(&one);
+                }
             }
         }
         Ok(counts)
     }
+
     fn entry_tapped(
         &self,
         object: ObjectId,
@@ -2008,29 +2065,51 @@ impl Game {
         before: Option<&PreEventFacts>,
     ) -> Result<bool, String> {
         let model = self.entry_copy_model(object).unwrap_or(object);
-        for a in &self.copiable_definition(model)?.static_abilities {
-            match &a.effect {
+        for ability in &self.copiable_definition(model)?.static_abilities {
+            let (kind, comparison, threshold) = match &ability.effect {
                 StaticEffect::EntersTapped => return Ok(true),
                 StaticEffect::EntersTappedUnlessControllerBasicLands { minimum } => {
-                    let current;
-                    let counts = if let Some(before) = before {
-                        &before.entry_basic_lands
-                    } else {
-                        current = self.entry_basic_counts(&[&ProposedEvent::Move {
-                            object,
-                            destination: Zone::Battlefield,
-                        }])?;
-                        &current
-                    };
-                    if counts
-                        .get(&controller)
-                        .ok_or("missing common-prior entry controller count")?
-                        < minimum
-                    {
-                        return Ok(true);
+                    (EntryLandCount::Basic, LandCountComparison::AtLeast, minimum)
+                }
+                StaticEffect::EntersTappedUnlessControllerOtherLands {
+                    comparison,
+                    threshold,
+                } => {
+                    // Every actual entrant starts outside the common-prior
+                    // battlefield. A same-zone movement cannot supply that entry.
+                    if self.current(object)?.zone == Zone::Battlefield {
+                        return Err(
+                            "other-land count requires an entrant from outside the battlefield"
+                                .into(),
+                        );
+                    }
+                    (EntryLandCount::Other, *comparison, threshold)
+                }
+                _ => continue,
+            };
+            let current;
+            let counts = match (before, kind) {
+                (Some(before), EntryLandCount::Basic) => &before.entry_basic_lands,
+                (Some(before), EntryLandCount::Other) => &before.entry_other_lands,
+                (None, kind) => {
+                    current = self.entry_land_counts(&[&ProposedEvent::Move {
+                        object,
+                        destination: Zone::Battlefield,
+                    }])?;
+                    match kind {
+                        EntryLandCount::Basic => &current.basic,
+                        EntryLandCount::Other => &current.other,
                     }
                 }
-                _ => {}
+            };
+            let count = counts
+                .get(&controller)
+                .ok_or("missing common-prior entry controller count")?;
+            if match comparison {
+                LandCountComparison::AtLeast => count < threshold,
+                LandCountComparison::AtMost => count > threshold,
+            } {
+                return Ok(true);
             }
         }
         Ok(false)

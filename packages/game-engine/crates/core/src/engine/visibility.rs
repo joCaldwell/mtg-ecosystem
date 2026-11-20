@@ -1307,14 +1307,18 @@ impl Game {
             } else {
                 vec![]
             },
-            restrictions: [
-                CreatureRestriction::CantBeBlocked,
-                CreatureRestriction::CantAttackOrBlock,
-                CreatureRestriction::CantBlock,
-            ]
-            .into_iter()
-            .filter(|r| self.has_restriction(object.id, *r))
-            .collect(),
+            restrictions: {
+                let current: Vec<_> = self.creature_restrictions(object.id).collect();
+                [
+                    CreatureRestriction::CantBeBlocked,
+                    CreatureRestriction::CantAttackOrBlock,
+                    CreatureRestriction::CantBlock,
+                    CreatureRestriction::CanBlockOnlyFlying,
+                ]
+                .into_iter()
+                .filter(|r| current.contains(r))
+                .collect()
+            },
             token: self
                 .state
                 .rules

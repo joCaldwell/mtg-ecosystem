@@ -429,6 +429,148 @@ fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
 }
 
 #[test]
+fn source_combat_restrictions_use_current_flying_at_declaration() {
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Giant Spider", 0, false),
+            ("Serra Angel", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 1, false),
+            ("Giant Spider", 1, false),
+            ("Giant Growth", 0, true),
+            ("Island", 0, false),
+        ],
+        false,
+    );
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    for (index, row, restriction) in [
+        (
+            3,
+            include_str!("../../../../tests/fixtures/source-combat-restriction-tidal-kraken.json"),
+            Some(CreatureRestriction::CantBeBlocked),
+        ),
+        (
+            4,
+            include_str!("../../../../tests/fixtures/source-combat-restriction-welkin-tern.json"),
+            Some(CreatureRestriction::CanBlockOnlyFlying),
+        ),
+        (
+            6,
+            include_str!("../../../../tests/fixtures/f7518456-45ed-41d4-bd3c-5aacea28eb35.json"),
+            None,
+        ),
+    ] {
+        let compiled = mtg_compiler::compile(manifest, row);
+        let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+            panic!("complete combat witness at card {index}: {compiled:?}");
+        };
+        if let Some(restriction) = restriction {
+            assert_eq!(
+                definition.static_abilities,
+                [mtg_contracts::source_combat_restrictions::static_ability(
+                    restriction
+                )]
+            );
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::SourceCombatRestrictionsV1)
+            );
+            let mut omitted = (*definition).clone();
+            omitted.static_abilities.clear();
+            omitted.source_labels = None;
+            omitted.capabilities = omitted.requirements();
+            assert!(omitted.validate().is_err());
+        }
+        p.config.cards[index].oracle_id = definition.oracle_id.clone();
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    traces(p, |g| {
+        let bear = object(g, 0);
+        let attacking_reach = object(g, 1);
+        let flying = object(g, 2);
+        let kraken = object(g, 3);
+        let tern = object(g, 4);
+        let defending_reach = object(g, 5);
+        let attacking = attackers(g);
+        assert_eq!(attacking, [bear, attacking_reach, flying, kraken]);
+        answer(
+            g,
+            Response::Attackers {
+                attacks: attacking.into_iter().map(|id| (id, PlayerId(1))).collect(),
+            },
+        );
+        assert!(!g.can_block(tern, bear));
+        assert!(!g.can_block(tern, attacking_reach));
+        assert!(!g.can_block(defending_reach, kraken));
+        cast(g, 6, vec![TargetEntity::Object { object: bear }]);
+        loop {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                break;
+            }
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+        }
+
+        let seat = PlayerId(1);
+        let QueryResult::Complete(QueryValue::Observation(obs)) =
+            g.observe(seat, Budget::unlimited())
+        else {
+            panic!("blocker observation");
+        };
+        let Some(PlayerRequest::Blockers {
+            legal_attackers, ..
+        }) = obs.decision
+        else {
+            panic!("block hints");
+        };
+        let tern_handle = g.handle_for(seat, tern).unwrap();
+        let legal = legal_attackers
+            .iter()
+            .find(|row| row.blocker == tern_handle)
+            .unwrap();
+        assert_eq!(
+            legal.attackers,
+            [
+                g.handle_for(seat, bear).unwrap(),
+                g.handle_for(seat, flying).unwrap(),
+            ]
+        );
+
+        let r = request(g);
+        for prohibited in [(tern, attacking_reach), (defending_reach, kraken)] {
+            assert!(
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::Blockers {
+                        blocks: vec![prohibited]
+                    },
+                )
+                .is_err()
+            );
+        }
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(tern, bear), (defending_reach, flying)],
+            },
+        );
+        reach(g, TurnStep::CombatDamage);
+        assert_eq!(g.state.rules.players[1].life, 32.into());
+    });
+}
+
+#[test]
 fn freshly_cast_haste_attacks_but_other_creature_waits() {
     // CR302.6/702.10b: only haste bypasses continuous control.
     traces(

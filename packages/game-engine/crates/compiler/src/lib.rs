@@ -28,6 +28,7 @@ mod controlled_creature_spell_copy;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
+mod controller_creature_pump;
 mod controller_library;
 #[cfg(test)]
 mod controller_scry_tests;
@@ -81,6 +82,7 @@ mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_costs;
+mod other_land_entry;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
@@ -92,6 +94,7 @@ mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
+mod source_combat_restrictions;
 mod source_dies_nonland_destroy;
 mod source_tap_damage;
 mod spell_cascade_grants;
@@ -1217,6 +1220,10 @@ enum SourceStaticEffect {
         what: serde_json::Value,
         action: String,
     },
+    CombatRule {
+        what: serde_json::Value,
+        rule: serde_json::Value,
+    },
     Modify {
         what: serde_json::Value,
         modifiers: Vec<serde_json::Value>,
@@ -1590,6 +1597,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     // still decode and lower, including conditions, costs and player relations.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     for ability in &abilities {
+        if let Ability::Static {
+            effect: effect @ SourceStaticEffect::CombatRule { .. },
+            ..
+        } = ability
+            && source_combat_restrictions::restriction_from_ast(effect).is_none()
+        {
+            return Err(unsupported("abilities.static", "static:combat-rule"));
+        }
         let (Ability::AdditionalCost { ability_word, .. }
         | Ability::Keywords { ability_word, .. }
         | Ability::Static { ability_word, .. }
@@ -2011,9 +2026,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
-                        definition
-                            .static_abilities
-                            .push(lower_static(effect, source_block(block)?)?)
+                        let ability = match source_combat_restrictions::lower(
+                            effect, block, &result, &shape, &binding, kind,
+                        )? {
+                            Some(ability) => ability,
+                            None => lower_static(effect, source_block(block)?)?,
+                        };
+                        definition.static_abilities.push(ability);
                     }
                     Ability::Keywords { keywords, .. } => {
                         if keywords.is_empty() {
@@ -2854,6 +2873,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             result.abilities.get(),
         )?;
     }
+    controller_creature_pump::bind(&definition, &shape, &binding, &result)?;
     definition.capabilities = definition.requirements();
     // The commander choice requires all three source labels at admission.
     // Its shape and binding graph were checked before lowering.
@@ -2885,6 +2905,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
+    other_land_entry::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
@@ -4884,6 +4905,12 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if matches!(effect, SourceStaticEffect::CombatRule { .. }) {
+        return Err(unsupported(
+            "static.combat_rule",
+            "unsupported complete combat rule",
+        ));
+    }
     if matches!(effect, SourceStaticEffect::EntryCopy { .. }) {
         // The complete graph is checked before lowering and the complete
         // printed source and raw AST before returning a definition.

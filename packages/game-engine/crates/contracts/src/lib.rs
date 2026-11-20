@@ -81,6 +81,7 @@ mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
 mod land_entry_gain_life;
+mod other_land_entry;
 mod set_exile;
 pub use set_exile::{SetExileClause, set_exile_modes};
 mod hand_cast;
@@ -92,6 +93,7 @@ mod targeted_game_loss;
 pub use artifact_modal::BoundArtifactMode;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
+mod controller_creature_pump;
 mod controller_library;
 mod counter_spell_controller_mill;
 pub mod creature_planeswalker_return;
@@ -116,6 +118,7 @@ mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
+pub mod source_combat_restrictions;
 pub use controller_library::{
     FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
     matches_fixed_amount, printed_cast_scry,
@@ -353,6 +356,7 @@ pub enum Capability {
     ProtectionFromEverythingV1,
     SelfGraveyardRevealShuffleV1,
     BasicLandwalkV1,
+    SourceCombatRestrictionsV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
     HandCastCascadeGrantV1,
@@ -394,6 +398,7 @@ pub enum Capability {
     StepBeginningTriggerV1,
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
+    ConditionalOtherLandEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
     UnspentManaConversionV1,
@@ -1615,6 +1620,12 @@ pub enum StaticEffect {
     EntersTappedUnlessControllerBasicLands {
         minimum: Quantity,
     },
+    /// CR 614.12: compare the entering controller's other lands in the common prior state.
+    EntersTappedUnlessControllerOtherLands {
+        comparison: LandCountComparison,
+        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
+        threshold: Quantity,
+    },
     /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
     EntersTappedUnlessPayLife {
         amount: Quantity,
@@ -1658,6 +1669,14 @@ pub enum StaticEffect {
     /// Double damage from creatures controlled by this battlefield source's controller.
     DoubleControllerCreatureDamageToPermanentOrPlayer,
 }
+/// Inclusive comparison for a common-prior land count (CR 614.12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LandCountComparison {
+    AtLeast,
+    AtMost,
+}
+
 /// Count current battlefield types and control, never ownership (CR 702.41).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1719,6 +1738,7 @@ pub enum CreatureRestriction {
     CantBlock,
     CantBeBlocked,
     CantAttackOrBlock,
+    CanBlockOnlyFlying,
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2413,7 +2433,10 @@ fn static_creature_modification_valid(
                 || *power != Quantity::zero()
                 || *toughness != Quantity::zero()
                 || !keywords.is_empty()
-                || restrictions != &[CreatureRestriction::CantBlock]))
+                || (restrictions != &[CreatureRestriction::CantBlock]
+                    && source_combat_restrictions::restriction(effect).is_none())))
+        || (*scope != CreatureScope::Source
+            && restrictions.contains(&CreatureRestriction::CanBlockOnlyFlying))
         || (*scope == CreatureScope::AttackingController
             && (!matches!(
                 kind,
@@ -2920,6 +2943,9 @@ impl Definition {
                 StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
                     Capability::ConditionalBasicLandEntryV1
                 }
+                StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
+                    Capability::ConditionalOtherLandEntryV1
+                }
                 StaticEffect::ReduceSelfGenericCost { .. } => {
                     Capability::CountedSelfGenericCostReductionV1
                 }
@@ -2946,6 +2972,12 @@ impl Definition {
                     scope: CreatureScope::AttackingController,
                     ..
                 } => Capability::AttackingCreatureKeywordsV1,
+                StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::Source,
+                    ..
+                } if source_combat_restrictions::restriction(&a.effect).is_some() => {
+                    Capability::SourceCombatRestrictionsV1
+                }
                 StaticEffect::ModifyCreatures {
                     scope: CreatureScope::Source,
                     ..
@@ -2998,6 +3030,7 @@ impl Definition {
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
+        other_land_entry::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
@@ -3391,8 +3424,10 @@ impl Definition {
             return Err("invalid source/AST provenance".into());
         }
         basic_landwalk::validate_definition(self)?;
+        source_combat_restrictions::validate_definition(self)?;
         creature_planeswalker_return::validate(self)?;
         fixed_creature_damage::validate(self, fixed_activations)?;
+        controller_creature_pump::validate(self)?;
         cycling::validate_spell_source(self)?;
         modal_targets::validate_definition(self)?;
         graveyard_shuffle::validate_definition(self)?;
@@ -4032,6 +4067,7 @@ impl Definition {
                     | StaticEffect::SelfGraveyardRevealShuffle
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
             ) && a.effect != StaticEffect::EntersTapped
@@ -4044,6 +4080,7 @@ impl Definition {
                         | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                 )
                 && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+                && source_combat_restrictions::restriction(&a.effect).is_none()
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
@@ -4167,6 +4204,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::EntersTapped
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
@@ -4762,8 +4800,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if fixed_mill::has_mill(p) && !fixed_mill_program(p) {
         return Err("unsupported complete fixed mill program".into());
     }
-    // Controller selectors are reserved for complete ordinary keyword families.
-    // Shared set decoding must not widen movement, damage, pump or nested routes.
+    // Controller selectors require complete ordinary temporary-effect families.
     fn controller_set(p: &SpellProgram) -> bool {
         p.instructions.iter().any(|i| match i {
             Instruction::MoveSet { set, .. }
@@ -4790,7 +4827,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             "controlled permanent targets require complete temporary keyword program".into(),
         );
     }
-    if controller_set(p) && temporary_set_keyword_program(p).is_none() {
+    if controller_set(p)
+        && temporary_set_keyword_program(p).is_none()
+        && !controller_creature_pump::program(p)
+    {
         return Err("controller set requires complete temporary keyword family".into());
     }
 
@@ -6412,6 +6452,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ]);
 
     basic_landwalk::extend_schema(&mut schema);
+    source_combat_restrictions::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -7182,9 +7223,10 @@ pub fn catalog_schema() -> serde_json::Value {
         {"required":["set"],"properties":{"set":{"enum":[ObjectSet::ControllerCreatures,ObjectSet::ControllerPermanents]}}},
         {"required":["sets"],"properties":{"sets":{"contains":{"enum":[ObjectSet::ControllerCreatures,ObjectSet::ControllerPermanents]}}}}
     ]});
+    let controller_pump_program = controller_creature_pump::extend_schema(&mut schema);
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"anyOf":[set_grant_program,{"required":["instructions"],"properties":{"instructions":{"contains":controller_set}}}]},
-        "then":{"anyOf":[set_family_program,{"$ref":"#/$defs/CommanderModalKeywordChild"}]}
+        "then":{"anyOf":[set_family_program,{"$ref":"#/$defs/CommanderModalKeywordChild"},controller_pump_program]}
     }));
     // Recursion fences every mode, trigger and activation as well as top-level spells.
     schema["$defs"]["KeywordGrantFreeProgram"]["properties"]["instructions"]["items"]["not"]["properties"]
@@ -7388,6 +7430,7 @@ pub fn catalog_schema() -> serde_json::Value {
     listed_mana_choice::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
+    other_land_entry::extend_schema(&mut schema);
     cascade_land_entry::extend_schema(&mut schema);
     entry_copy::extend_schema(&mut schema);
     counter_spell_controller_mill::extend_schema(&mut schema);
@@ -7640,6 +7683,7 @@ mod tests {
             SelfGraveyardRevealShuffleV1,
             BasicLandwalkV1,
             EnterAsCopyOfPermanentEnteredThisTurnV1,
+            SourceCombatRestrictionsV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             HandCastCascadeGrantV1,
@@ -7791,6 +7835,7 @@ mod tests {
             FlashV1,
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
+            ConditionalOtherLandEntryV1,
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
@@ -8298,6 +8343,7 @@ mod tests {
         definitions.push(basic_land_split_tests::split_search());
         definitions.push(typed_land_search_tests::typed_search());
         definitions.push(conditional_lands::tests::land());
+        definitions.push(other_land_entry::witness());
         definitions.push(conditional_lands::tests::optional_land());
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());
@@ -8702,6 +8748,42 @@ mod tests {
         landwalk.keywords = vec![KeywordAbility::Forestwalk];
         landwalk.capabilities = landwalk.requirements();
         definitions.push(landwalk);
+
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/source-combat-restriction-tidal-kraken.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        let mut kraken = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        kraken.name = source["name"].as_str().unwrap().into();
+        kraken.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        kraken.provenance.printing_id = source["id"].as_str().unwrap().into();
+        kraken.provenance.source_json = canonical(source).unwrap();
+        kraken.provenance.source_sha256 = sha256(kraken.provenance.source_json.as_bytes());
+        kraken.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        kraken.provenance.ast_sha256 =
+            sha256(format!("[{}]", kraken.provenance.abilities_json).as_bytes());
+        kraken.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        kraken.characteristics.subtypes = vec!["Kraken".into()];
+        kraken.characteristics.power = Some(6.into());
+        kraken.characteristics.toughness = Some(6.into());
+        kraken.characteristics.mana_cost = ManaCost {
+            generic: 5.into(),
+            colored: vec![Color::U; 3],
+        };
+        kraken.characteristics.colors = vec![Color::U];
+        kraken.characteristics.color_identity = vec![Color::U];
+        kraken.source_labels = None;
+        kraken.static_abilities = vec![source_combat_restrictions::static_ability(
+            CreatureRestriction::CantBeBlocked,
+        )];
+        kraken.capabilities = kraken.requirements();
+        definitions.push(kraken);
 
         definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {

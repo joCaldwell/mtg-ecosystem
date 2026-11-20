@@ -13,7 +13,7 @@ fn old_json(game: &Game) -> String {
     let state_sha256 = sha256(canonical(&game.state).unwrap().as_bytes());
     // Full original generic SnapshotRef; independent of codec/write_state.
     canonical(&SnapshotRef {
-        snapshot_version: 75,
+        snapshot_version: 76,
         build_id: BUILD_ID,
         catalog_digest: &game.prepared.catalog_digest,
         profile_digest: &game.prepared.profile_digest,

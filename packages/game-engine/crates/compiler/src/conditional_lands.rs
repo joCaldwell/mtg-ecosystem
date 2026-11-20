@@ -56,6 +56,9 @@ pub(super) fn lower(effect: &SourceStaticEffect) -> Result<Option<StaticAbility>
     if condition_kind.is_none() && condition.is_none() {
         return Ok(None);
     }
+    if let Some(entry) = other_land_entry::lower(effect)? {
+        return Ok(Some(entry));
+    }
     let bad = || {
         unsupported(
             "static.entry",
@@ -92,7 +95,7 @@ pub(super) fn bind(
     block: u32,
     card: &Source,
 ) -> Result<(), Failure> {
-    if lower(effect)?.is_none() {
+    if !legacy_binding(effect)? {
         return Ok(());
     }
     let bad = || {
@@ -164,6 +167,15 @@ pub(super) fn bind(
     Ok(())
 }
 
+fn legacy_binding(effect: &SourceStaticEffect) -> Result<bool, Failure> {
+    Ok(lower(effect)?.is_some_and(|entry| {
+        !matches!(
+            entry.effect,
+            StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
+        )
+    }))
+}
+
 // Whole-source reference authority: no unconsumed or contradictory obligations.
 pub(super) fn validate_binding_closure(
     abilities: &[Ability],
@@ -174,7 +186,7 @@ pub(super) fn validate_binding_closure(
     let mut optional = false;
     for a in abilities {
         if let Ability::Static { effect, .. } = a {
-            conditional |= lower(effect)?.is_some();
+            conditional |= legacy_binding(effect)?;
             optional |= matches!(effect, SourceStaticEffect::EntryChoice { .. });
         }
     }
@@ -204,7 +216,7 @@ pub(super) fn validate_binding_closure(
         };
         let path = format!("/faces/0/abilities/{block}/effect");
         expected.push(json!({"path":format!("{path}/what"),"expression":what,"binding":"bound","target":format!("card:{identity}/source#object")}));
-        if lower(effect)?.is_some() {
+        if legacy_binding(effect)? {
             let who = if optional { "who" } else { "condition/who" };
             expected.push(json!({"path":format!("{path}/{who}"),"expression":{"player":"you"},"binding":"bound","target":format!("card:{identity}{path}#entering-controller")}));
             if optional {

@@ -1293,3 +1293,33 @@ fn land_entry_life_gain_and_fixed_creature_damage_use_existing_resolution() {
     );
     recover(&g);
 }
+
+#[test]
+fn controller_creature_pump_affects_only_the_resolving_controllers_creatures() {
+    let p = prepared_with_sources(
+        &[
+            ("Ethereal Guidance", 0, 0, true),
+            ("Grizzly Bears", 1, 0, false),
+            ("Grizzly Bears", 0, 1, false),
+            ("Plains", 0, 0, false),
+            ("Plains", 0, 0, false),
+            ("Plains", 0, 0, false),
+        ],
+        &[include_str!(
+            "../../../../tests/fixtures/ethereal-guidance.json"
+        )],
+    );
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    cast(&mut g, 1, 0, vec![]);
+    let controlled = g.characteristics(object(&g, 1)).unwrap();
+    let other = g.characteristics(object(&g, 2)).unwrap();
+    assert_eq!(
+        (controlled.power, controlled.toughness),
+        (Some(4.into()), Some(3.into()))
+    );
+    assert_eq!(
+        (other.power, other.toughness),
+        (Some(2.into()), Some(2.into()))
+    );
+    recover(&g);
+}

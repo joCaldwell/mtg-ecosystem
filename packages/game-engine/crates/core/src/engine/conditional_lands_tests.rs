@@ -829,6 +829,59 @@ fn conditional_lands_synthetic_dependency_and_wrapper_accounting_probes() {
     ));
 }
 
+#[test]
+fn other_land_entry_uses_common_prior_and_entering_controller() {
+    // A synthetic simultaneous producer, using the exact frozen land source.
+    let mut catalog = land_catalog();
+    catalog.definitions.push(lower(include_str!(
+        "../../../../tests/fixtures/eb0d8093-5f93-4b25-9384-08f9731bfb28.json"
+    )));
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    let mut game = Game::new(midgame_with_catalog(
+        &[
+            ("Spirebluff Canal", 0, 0, true),
+            ("Plains", 0, 0, true),
+            ("Forest", 0, 0, false),
+            ("Command Tower", 1, 0, false),
+            ("Mountain", 1, 1, false),
+        ],
+        catalog,
+    ));
+    let land = named(&game, "Spirebluff Canal");
+    let plains = named(&game, "Plains");
+    let batch = game
+        .commit_batch(
+            BatchCause::Fixture,
+            EventGroup::Simultaneous {
+                occurrences: vec![
+                    ProposedEvent::Move {
+                        object: plains,
+                        destination: Zone::Battlefield,
+                    },
+                    ProposedEvent::Move {
+                        object: land,
+                        destination: Zone::Battlefield,
+                    },
+                ],
+            },
+        )
+        .unwrap();
+    assert!(batch.occurrences[0].before.entry_other_lands.is_empty());
+    let entry = &batch.occurrences[1].before;
+    assert_eq!(entry.entry_other_lands[&PlayerId(0)], 2.into());
+    assert_eq!(entry.entry_other_lands[&PlayerId(1)], 1.into());
+    assert!(entry.entry_basic_lands.is_empty());
+    assert!(
+        !game
+            .current(named(&game, "Spirebluff Canal"))
+            .unwrap()
+            .tapped
+    );
+}
+
 #[path = "optional_life_lands_tests.rs"]
 mod optional_life_guard_tests;
 
