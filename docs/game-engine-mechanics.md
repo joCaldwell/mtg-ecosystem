@@ -587,9 +587,9 @@ Intrinsic indexes and grant-source incarnation/static indexes are distinct ident
 The cast spell remains rules source; caster and grant provenance freeze at collection,
 surviving later grantor departure/control changes. Whole batches preflight IDs,
 fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
-firstness; failed proposals/payments never consume it. Nexus and Wild-Magic
-Sorcerer reuse cascade. Averna may put an exiled land in tapped before the cast
-offer.
+firstness; failed payments never consume it. Averna may put an exiled land in
+tapped before the cast offer. Yidris grants independent cascade triggers to
+later hand casts until cleanup.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,

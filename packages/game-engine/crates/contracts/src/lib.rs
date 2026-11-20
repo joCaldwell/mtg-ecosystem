@@ -3676,6 +3676,7 @@ impl Definition {
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
+                            | Instruction::GrantHandCastCascade { .. }
                             | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
