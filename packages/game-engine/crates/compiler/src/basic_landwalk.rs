@@ -83,8 +83,9 @@ fn keyword_metadata(keyword: KeywordAbility) -> Option<(&'static str, &'static s
 fn basic_landwalk_lowers_exact_frozen_source_and_rejects_changed_graph() {
     const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
     const ROW: &str = include_str!("../../../tests/fixtures/basic-landwalk-zendikar-farguide.json");
-    let CompileResult::Lowered { definition } = compile(MANIFEST, ROW) else {
-        panic!("complete frozen Forestwalk source did not lower");
+    let compiled = compile(MANIFEST, ROW);
+    let CompileResult::Lowered { definition } = compiled else {
+        panic!("complete frozen Forestwalk source did not lower: {compiled:?}");
     };
     assert_eq!(definition.keywords, [KeywordAbility::Forestwalk]);
     assert!(
