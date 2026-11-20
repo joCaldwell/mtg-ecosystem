@@ -797,6 +797,13 @@ impl Game {
                             | PlayerResponse::SpendMana { .. }
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
+                        (
+                            Frame::CounterUnless { .. },
+                            PlayerResponse::OptionalEffect { .. }
+                            | PlayerResponse::ActivateMana { .. }
+                            | PlayerResponse::FinishMana { .. }
+                            | PlayerResponse::SpendMana { .. },
+                        ) => true,
                         (Frame::ManaSourceChoice { .. }, PlayerResponse::ManaColor { .. }) => true,
                         (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,

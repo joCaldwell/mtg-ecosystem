@@ -1234,6 +1234,11 @@ impl Game {
                 target_slot,
                 source_block,
             } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
+            Instruction::CounterSpellUnlessPays {
+                target_slot,
+                generic,
+                ..
+            } => self.begin_counter_payment(frame, target_slot, generic),
             Instruction::CounterSpellAndMillController {
                 target_slot,
                 count,

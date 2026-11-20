@@ -1186,3 +1186,7 @@ mod each_player_draw_tests;
 
 #[path = "graveyard_battlefield_return_tests.rs"]
 mod graveyard_battlefield_return_tests;
+
+#[cfg(test)]
+#[path = "counter_unless_generic_tests.rs"]
+mod counter_unless_generic_tests;
