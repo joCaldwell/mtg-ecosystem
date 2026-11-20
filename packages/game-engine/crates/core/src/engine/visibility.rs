@@ -103,7 +103,7 @@ pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copied_values: Option<VisiblePermanentCopy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub modal_face: Option<String>,
+    pub display_face: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1427,7 +1427,7 @@ impl Game {
         if let Some(link) = &object.hideaway {
             return Ok(VisibleObject {
                 copied_values: None,
-                modal_face: None,
+                display_face: None,
                 entered_this_turn: false,
                 face_down: true,
                 lore_counters: Quantity::zero(),
@@ -1508,20 +1508,19 @@ impl Game {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
-            modal_face: self
-                .definition(object.id.card)?
-                .modal_land
-                .as_ref()
-                .map(|_| {
-                    if copied_values.is_none() {
-                        self.copiable_definition(object.id)
-                            .map(|d| d.source_face_name().to_owned())
+            display_face: {
+                let printed = self.definition(object.id.card)?;
+                if printed.modal_land.is_some() || printed.transform_faces.is_some() {
+                    let face = if copied_values.is_none() {
+                        self.copiable_definition(object.id)?
                     } else {
-                        self.definition(object.id.card)
-                            .map(|d| d.source_face_name().to_owned())
-                    }
-                })
-                .transpose()?,
+                        printed
+                    };
+                    Some(face.source_face_name().to_owned())
+                } else {
+                    None
+                }
+            },
             copied_values,
             face_down: false,
             exiled_by: None,

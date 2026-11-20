@@ -1236,6 +1236,21 @@ impl Game {
                 source_block,
             } => self.begin_linked_play(frame, hideaway_block, minimum_total_power, source_block),
             Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
+            Instruction::TransformSource { source_block } => {
+                let source = frame.spell.source;
+                // CR 701.27f: this supported printed ability can transform
+                // its original incarnation once. A queued duplicate observes
+                // the new face and does nothing.
+                let actual = if self.may_transform_source(source) {
+                    Some(self.commit(
+                        ProposedEvent::Transform { object: source },
+                        Self::staple_cause(&frame, source_block),
+                    )?)
+                } else {
+                    None
+                };
+                self.finish_instruction(frame, InstructionOutcome::Effect { actual })
+            }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. }
             | Instruction::RegisterControllerSpellCastThisTurn { .. } => {
                 self.register_delayed_chapter(frame)

@@ -651,7 +651,9 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             }
             (reads, keys)
         }
-        ProposedEvent::Untap { object } | ProposedEvent::Tap { object } => {
+        ProposedEvent::Untap { object }
+        | ProposedEvent::Tap { object }
+        | ProposedEvent::Transform { object } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
@@ -1377,6 +1379,7 @@ impl Game {
                     objects.insert(*object);
                 }
                 ProposedEvent::Untap { object }
+                | ProposedEvent::Transform { object }
                 | ProposedEvent::Tap { object }
                 | ProposedEvent::Move { object, .. } => {
                     objects.insert(*object);
@@ -2442,7 +2445,7 @@ impl Game {
         let enters_tapped = if *destination == Zone::Battlefield
             && entry.is_some_and(|entry| entry.back_face(*object))
         {
-            self.record_modal_back(successor)?;
+            self.record_back_face(successor)?;
             self.copiable_definition(successor)?
                 .static_abilities
                 .iter()
@@ -3425,6 +3428,25 @@ impl Game {
                     previous_owner,
                     owner: *owner,
                 }
+            }
+            ProposedEvent::Transform { object } => {
+                let Frame::Resolve { frame } = &self.state.rules.frame else {
+                    return Err("transform requires its resolving activation".into());
+                };
+                if frame.spell.source != *object
+                    || !matches!(frame.spell.kind, StackKind::Activated { .. })
+                    || !matches!(
+                        self.program_for(&frame.spell)?
+                            .instructions
+                            .get(frame.cursor as usize),
+                        Some(Instruction::TransformSource { .. })
+                    )
+                    || !self.may_transform_source(*object)
+                {
+                    return Err("invalid transform invocation".into());
+                }
+                self.record_back_face(*object)?;
+                EventOutcome::Transformed { object: *object }
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;

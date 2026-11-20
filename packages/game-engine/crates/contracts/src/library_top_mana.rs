@@ -121,6 +121,7 @@ fn definition(provenance: SourceProvenance) -> Result<Definition, String> {
         oracle_id: field("oracle_id")?.into(),
         name: field("name")?.into(),
         modal_land: None,
+        transform_faces: None,
         source_labels: Some(SourceLabels {
             text: field("oracle_text")?.into(),
             blocks: field("oracle_text")?.lines().map(str::to_owned).collect(),

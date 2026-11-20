@@ -53,6 +53,7 @@ mod composition_fixtures;
 mod entry_copy;
 pub mod modal_land;
 mod saga;
+pub mod transform_face;
 pub use saga::{
     ChapterEffect, FixedChapter, LifeChapter, OrdinaryChapter, chapter_lines, life_chapters,
     saga_damage_target,
@@ -496,6 +497,7 @@ pub enum Capability {
     ControlledCreatureDamageReplacementV1,
     SagaChaptersV1,
     ModalLandFacesV1,
+    TransformV1,
     DelayedControllerCreatureEntryV1,
     DelayedControllerSpellCastV1,
     NormalLayoutV1,
@@ -949,6 +951,9 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    TransformSource {
+        source_block: u32,
+    },
     LookTopMayRevealForMana {
         minimum_symbols: Quantity,
         mana: Quantity,
@@ -1490,6 +1495,7 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
+            Self::TransformSource { source_block } => *source_block,
             Self::ExileLibraryForPlay { source_block, .. }
             | Self::LookTopMayRevealForMana { source_block, .. }
             | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
@@ -2600,6 +2606,8 @@ impl<'de> Deserialize<'de> for KeywordAbility {
 pub struct Definition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modal_land: Option<Box<modal_land::ModalLand>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform_faces: Option<Box<transform_face::TransformFaces>>,
     /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_labels: Option<SourceLabels>,
@@ -3297,10 +3305,14 @@ impl Definition {
             set.insert(Capability::ModalLandFacesV1);
             set.extend(back.capabilities.iter().copied());
         }
+        if let Some(back) = self.transform_back() {
+            set.insert(Capability::TransformV1);
+            set.extend(back.capabilities.iter().copied());
+        }
         set
     }
     pub fn validate(&self) -> Result<(), String> {
-        if modal_land::validate(self)? {
+        if modal_land::validate(self)? || transform_face::validate(self)? {
             return Ok(());
         }
         saga::validate(self)?;
@@ -5470,7 +5482,8 @@ fn validate_instruction_program_with_chapter(
     }
     for instruction in &p.instructions {
         let binding = match instruction {
-            Instruction::ExileResolvingSpell { .. }
+            Instruction::TransformSource { .. }
+            | Instruction::ExileResolvingSpell { .. }
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
@@ -6385,6 +6398,7 @@ fn add_program_requirements_for_source_pump(
             ]);
         }
         set.insert(match instruction {
+            Instruction::TransformSource { .. } => Capability::TransformV1,
             Instruction::ExileResolvingSpell { .. } => Capability::ExileResolvingSpellV1,
             Instruction::ProtectControllerUntilNextTurn { .. } => {
                 Capability::ControllerProtectionUntilNextTurnV1
@@ -8095,6 +8109,7 @@ pub fn catalog_schema() -> serde_json::Value {
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
     modal_land::extend_schema(&mut schema);
+    transform_face::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     hand_cast_cascade::extend_schema(&mut schema);
@@ -8304,6 +8319,7 @@ mod tests {
             RandomBottomV1,
             SagaChaptersV1,
             ModalLandFacesV1,
+            TransformV1,
             DelayedControllerCreatureEntryV1,
             DelayedControllerSpellCastV1,
             NormalLayoutV1,
@@ -8913,6 +8929,7 @@ mod tests {
         definitions.push(saga::witness());
         definitions.push(saga::spell_cast_witness());
         definitions.push(modal_land::witness());
+        definitions.push(transform_face::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));

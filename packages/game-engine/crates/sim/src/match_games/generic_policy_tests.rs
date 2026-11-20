@@ -10,7 +10,7 @@ mod reactive_tests {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             VisibleObject {
                 copied_values: None,
-                modal_face: None,
+                display_face: None,
                 face_down: false,
                 exiled_by: None,
                 phased_out: false,
@@ -221,7 +221,7 @@ mod wipe_tests {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
             copied_values: None,
-            modal_face: None,
+            display_face: None,
             face_down: false,
             exiled_by: None,
             phased_out: false,

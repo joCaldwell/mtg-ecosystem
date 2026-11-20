@@ -40,13 +40,13 @@ fn modal_land_picks_the_face_before_entry_and_keeps_it_through_replay() {
             .iter()
             .find(|row| row.handle == g.handle_for(player, id).unwrap())
             .unwrap();
-        assert_eq!(row.modal_face.as_deref(), Some("Branchloft Pathway"));
+        assert_eq!(row.display_face.as_deref(), Some("Branchloft Pathway"));
         assert!(
             observe(g, other)
                 .view
                 .objects
                 .iter()
-                .all(|row| row.modal_face.is_none())
+                .all(|row| row.display_face.is_none())
         );
         let beginnings = g.player_session(player).action_beginnings(
             own.decision.as_ref().unwrap().token().clone(),
@@ -98,7 +98,7 @@ fn modal_land_picks_the_face_before_entry_and_keeps_it_through_replay() {
                 .view
                 .objects
                 .iter()
-                .any(|row| row.modal_face.as_deref() == Some("Boulderloft Pathway"))
+                .any(|row| row.display_face.as_deref() == Some("Boulderloft Pathway"))
         );
         answer(g, budget, Response::ActivateMana { object: back });
         request(g, budget);
@@ -198,5 +198,86 @@ fn modal_land_spell_front_cancels_then_plays_the_tapped_land_back() {
             g.copiable_definition(entered.id).unwrap().name,
             "Bala Ged Sanctuary"
         );
+    });
+}
+
+#[test]
+fn transform_paid_original_incarnation_only_transforms_once() {
+    const HEADER: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    const ROW: &str = include_str!("../../../../tests/fixtures/phase1-r3/thraben-gargoyle.json");
+    let compiled = mtg_compiler::compile(HEADER, ROW);
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("{compiled:?}");
+    };
+    let mut p = prepared(&[("Forest", false); 13], false);
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    both(p, |g, budget| {
+        let source = object(g, 0);
+        let original = g.current(source).unwrap().clone();
+        for first in [1, 7] {
+            answer(
+                g,
+                budget,
+                Response::ActivateAbility {
+                    object: source,
+                    ability: 0,
+                },
+            );
+            for i in first..first + 6 {
+                let land = object(g, i);
+                answer(g, budget, Response::ActivateMana { object: land });
+            }
+            answer(g, budget, Response::FinishMana { undo_mana: false });
+            if matches!(request(g, budget), Request::SpendMana { .. }) {
+                answer(
+                    g,
+                    budget,
+                    Response::SpendMana {
+                        spending: BTreeMap::from([(Color::G, 6.into())]),
+                    },
+                );
+            }
+            request(g, budget);
+        }
+        assert_eq!(g.state.rules.stack.len(), 2);
+        assert!(g.has_keyword(source, KeywordAbility::Defender));
+        recover(g);
+
+        while g.state.rules.stack.len() == 2 {
+            answer(g, budget, Response::Pass);
+            request(g, budget);
+        }
+        assert_eq!(g.state.rules.stack.len(), 1);
+        assert_eq!(g.current(source).unwrap(), &original);
+        assert!(g.has_keyword(source, KeywordAbility::Flying));
+        assert!(!g.has_keyword(source, KeywordAbility::Defender));
+        assert_eq!(
+            g.copiable_definition(source).unwrap().name,
+            "Stonewing Antagonizer"
+        );
+        assert_eq!(
+            g.derived_characteristics(source).unwrap().power,
+            Some(4.into())
+        );
+        assert_eq!(g.physical_transform_mana_value(source), Some(1.into()));
+        recover(g);
+
+        while !g.state.rules.stack.is_empty() {
+            answer(g, budget, Response::Pass);
+            request(g, budget);
+        }
+        assert_eq!(g.current(source).unwrap(), &original);
+        assert!(g.has_keyword(source, KeywordAbility::Flying));
+        assert!(g.back_face_sequence(source).is_some());
+        assert_eq!(g.state.rules.back_face_objects.len(), 1);
     });
 }

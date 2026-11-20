@@ -141,7 +141,7 @@ impl LandFace {
     }
 }
 
-fn plain_face(
+pub(super) fn plain_face(
     name: String,
     oracle_id: String,
     color_identity: Vec<Color>,
@@ -149,6 +149,7 @@ fn plain_face(
 ) -> Definition {
     Definition {
         modal_land: None,
+        transform_faces: None,
         source_labels: None,
         x_mana_cost: false,
         oracle_id,
@@ -274,7 +275,9 @@ impl Definition {
     pub fn source_face_name(&self) -> &str {
         self.modal_land
             .as_ref()
-            .map_or(self.name.as_str(), |face| &face.front_name)
+            .map(|face| face.front_name.as_str())
+            .or_else(|| self.transform_faces.as_ref().map(|face| face.front_name()))
+            .unwrap_or(self.name.as_str())
     }
 }
 
@@ -425,11 +428,18 @@ pub(super) fn extend_schema(schema: &mut Value) {
 
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
+    from_archive(witness_provenance(include_str!(
+        "../../../tests/fixtures/phase1-r3/branchloft-pathway.json"
+    )))
+    .unwrap()
+}
+
+#[cfg(test)]
+pub(super) fn witness_provenance(raw: &str) -> SourceProvenance {
     use serde_json::value::RawValue;
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Record {
-        oracle_identity: String,
         source_index: u32,
         source_sha256: String,
         ast_sha256: String,
@@ -445,16 +455,13 @@ pub(super) fn witness() -> Definition {
     struct Parsed {
         abilities: Box<RawValue>,
     }
-    let row: Record = strict_read(include_str!(
-        "../../../tests/fixtures/phase1-r3/branchloft-pathway.json"
-    ))
-    .unwrap();
+    let row: Record = strict_read(raw).unwrap();
     let source: Value = strict_read(row.source.get()).unwrap();
     let pin = accepted_manifest(include_str!(
         "../../../tests/fixtures/archive-manifest-phase1-r3.json"
     ))
     .unwrap();
-    let definition = from_archive(SourceProvenance {
+    SourceProvenance {
         printing_id: source["id"].as_str().unwrap().into(),
         source_index: row.source_index,
         source_sha256: row.source_sha256,
@@ -468,8 +475,5 @@ pub(super) fn witness() -> Definition {
             row.faces[0].result.abilities.get(),
             row.faces[1].result.abilities.get()
         ),
-    })
-    .unwrap();
-    assert_eq!(definition.oracle_id, row.oracle_identity);
-    definition
+    }
 }

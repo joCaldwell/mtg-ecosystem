@@ -78,8 +78,8 @@ state_layout! {
         tokens: Arc<BTreeMap<CardId, tokens::TokenIdentity>>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         entry_copies: BTreeMap<CardId, BTreeMap<u32, copiable_identity::EntryCopy>>,
-        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-        modal_back_entries: BTreeSet<ObjectId>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        back_face_objects: BTreeMap<CardId, BTreeMap<u32, u64>>,
         // Deterministic conservative charge for inputs and potential detailed
         // evidence, even in Off/Compact modes. Replay proves the counter.
         #[serde(default, skip_serializing_if = "stored_history::is_zero_charge")]

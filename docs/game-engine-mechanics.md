@@ -234,7 +234,14 @@ chosen face. Owner-visible hand and priority views keep the front
 characteristics, and concealed objects keep their normal visibility rules
 ([CR 712.8d/f, 712.11–14](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
 Casting a front-face sorcery uses the existing payment and reversal path.
-Back-face spells and transforming layouts remain open.
+The transforming subset supports complete artifact-creature faces with
+Defender and a fixed self-transform activation on the front and Flying on the
+back. Resolution preserves incarnation, counters, marked damage and
+attachments. An already stacked second activation retains its front program
+and does nothing after the first transform (CR 701.27f). The physical
+permanent retains front-face mana value, and a single-face copy of its back
+uses the copied face's values (CR 202.3b and 707.2).
+Back-face spells and other transforming programs remain open.
 
 Indestructible takes precedence over destruction. A paid regeneration shield
 replaces destruction when permitted, tapping its source, clearing damage and

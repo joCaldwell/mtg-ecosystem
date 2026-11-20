@@ -3119,6 +3119,27 @@ impl Game {
         zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
+        // A frozen battlefield appearance can precede this incarnation's
+        // transform. Replay proves whether it was captured on the old face.
+        if zone == Zone::Battlefield
+            && self.back_face_sequence(source).is_some()
+            && let Some(front_value) = self.physical_transform_mana_value(source)
+            && front_value == c.printed_mana_value()
+        {
+            let mut front = self.definition(source.card)?.characteristics.clone();
+            if front.power.is_some() == c.power.is_some()
+                && front.toughness.is_some() == c.toughness.is_some()
+            {
+                front.power = c.power.clone();
+                front.toughness = c.toughness.clone();
+                if self.catalog_has_nonland_color_grant && front.colors != c.colors {
+                    front.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
+                }
+                if front == *c {
+                    return Ok(());
+                }
+            }
+        }
         // Historical appearances may precede detachment of this same incarnation.
         let mut base = if matches!(zone, Zone::Stack | Zone::Battlefield)
             && c.subtypes == ["Aura"]

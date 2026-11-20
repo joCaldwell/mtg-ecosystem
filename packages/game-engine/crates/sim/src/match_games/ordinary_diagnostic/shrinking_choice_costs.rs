@@ -1312,7 +1312,7 @@ fn choice_defender_probe_requires_other_attack_eligibility_without_changing_root
     // Pure public-row selection domain, not a newly admitted/root position.
     let row = mtg_core::VisibleObject {
         copied_values: None,
-        modal_face: None,
+        display_face: None,
         face_down: false,
         exiled_by: None,
         phased_out: false,

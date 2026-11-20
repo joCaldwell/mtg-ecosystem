@@ -1552,7 +1552,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     // above still bind every source byte; no default fills missing fields.
     let shape: serde_json::Value = decode(r.source.get(), "source")?;
     if shape.get("card_faces").is_some_and(|v| !v.is_null()) {
-        if shape["layout"] == "modal_dfc" {
+        if matches!(shape["layout"].as_str(), Some("modal_dfc" | "transform")) {
             return modal_land::lower(&r, &shape, archive);
         }
         let layout = shape["layout"]
@@ -2154,6 +2154,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         };
     let mut definition = Definition {
         modal_land: None,
+        transform_faces: None,
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
         oracle_id: r.oracle_identity,

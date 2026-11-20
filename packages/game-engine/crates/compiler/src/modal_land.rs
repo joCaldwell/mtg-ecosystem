@@ -7,7 +7,10 @@ pub(super) fn lower(
     source: &Value,
     archive: &AcceptedArchive,
 ) -> Result<Definition, Failure> {
-    let fail = || unsupported("source.layout", "multi_face_layout:modal_dfc");
+    let layout = source["layout"]
+        .as_str()
+        .ok_or_else(|| invalid("source.layout", "missing layout"))?;
+    let fail = || unsupported("source.layout", format!("multi_face_layout:{layout}"));
     let [first, second] = rows.faces.as_slice() else {
         return Err(fail());
     };
@@ -35,7 +38,7 @@ pub(super) fn lower(
         }
         results.push(decoded);
     }
-    let definition = mtg_contracts::modal_land::from_archive(SourceProvenance {
+    let provenance = SourceProvenance {
         printing_id: source["id"].as_str().ok_or_else(fail)?.into(),
         source_index: rows.source_index,
         archive_manifest_sha256: archive.manifest_sha256.clone(),
@@ -49,7 +52,13 @@ pub(super) fn lower(
             results[0].abilities.get(),
             results[1].abilities.get()
         ),
-    })
+    };
+    let transforming = layout == "transform";
+    let definition = if transforming {
+        mtg_contracts::transform_face::from_archive(provenance)
+    } else {
+        mtg_contracts::modal_land::from_archive(provenance)
+    }
     .map_err(|_| fail())?;
     if definition.oracle_id != rows.oracle_identity {
         return Err(fail());
@@ -58,7 +67,9 @@ pub(super) fn lower(
     let mut face_zero = front.clone();
     face_zero["layout"] = source["layout"].clone();
     let mut graph = bindings::Bindings::new(&rows.oracle_identity, &face_zero);
-    if definition.characteristics.kind == CardKind::Land {
+    if transforming {
+        bind_transform(&mut graph);
+    } else if definition.characteristics.kind == CardKind::Land {
         bind_face(&mut graph, "/faces/0", &definition);
     } else {
         let ast: Value = decode(results[0].abilities.get(), "faces[0].abilities")?;
@@ -91,17 +102,78 @@ pub(super) fn lower(
             "typeLine":back["type_line"],"manaCost":back["mana_cost"],"rules":["712"]
         }),
     );
-    bind_face(
-        &mut graph,
-        "/faces/1",
-        definition.modal_land_back().ok_or_else(fail)?,
-    );
+    if transforming {
+        bind_keyword(&mut graph, "/faces/1", "flying", "702.9");
+    } else {
+        bind_face(
+            &mut graph,
+            "/faces/1",
+            definition.modal_land_back().ok_or_else(fail)?,
+        );
+    }
     let actual: Value = decode(rows.binding.get(), "binding")?;
     graph.validate_ordered(
         &actual,
-        "both modal land faces require complete own mana bindings",
+        "both faces require complete ordered semantic bindings",
     )?;
     Ok(definition)
+}
+
+fn bind_transform(graph: &mut bindings::Bindings<'_>) {
+    bind_keyword(graph, "/faces/0", "defender", "702.3");
+    let root = "/faces/0/abilities/1";
+    let step = format!("{root}/effects/0/steps/0");
+    graph.ability(root, "activated", "activator");
+    let you = graph.id(root, "you");
+    let player = json!({"player":"you"});
+    graph.reference(&format!("{root}/costs/0/payer"), &player, &you, "109.5");
+    graph.reference(&format!("{step}/who"), &player, &you, "109.5");
+    let source = graph.id("/source", "object");
+    graph.reference(
+        &format!("{step}/what"),
+        &json!({"ref":"this","noun":"creature"}),
+        &source,
+        "201.5",
+    );
+    graph.event(root, &step, "transform", &source, false);
+}
+
+fn bind_keyword(graph: &mut bindings::Bindings<'_>, face: &str, word: &str, rule: &str) {
+    let root = format!("{face}/abilities/0");
+    let scope = graph.id(&root, "ability");
+    let you = graph.id(&root, "you");
+    graph.node(
+        &root,
+        "ability",
+        "ability",
+        json!({
+            "source":graph.id("/source","object"),"face":graph.id(face,"face"),
+            "abilityKind":"keywords","you":you,"rules":["113","109.5"]
+        }),
+    );
+    graph.node(
+        &root,
+        "you",
+        "runtime-player",
+        json!({"scope":scope,
+        "role":"static-source-controller","rules":["109.5"]}),
+    );
+    let path = format!("{root}/keywords/0");
+    let you = graph.node(
+        &path,
+        "you",
+        "runtime-player",
+        json!({"scope":scope,
+        "role":"static-source-controller","rules":["109.5",rule]}),
+    );
+    graph.node(
+        &path,
+        "keyword",
+        "keyword-ability",
+        json!({
+            "scope":scope,"keyword":word,"abilities":["static"],"you":you,"rules":[rule]
+        }),
+    );
 }
 
 fn bind_face(graph: &mut bindings::Bindings<'_>, face: &str, definition: &Definition) {

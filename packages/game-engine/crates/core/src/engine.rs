@@ -1902,6 +1902,9 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    Transform {
+        object: ObjectId,
+    },
     RevealLibraryCard {
         player: PlayerId,
         object: ObjectId,
@@ -2170,6 +2173,9 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    Transformed {
+        object: ObjectId,
+    },
     LifeFrozenUntilNextTurn {
         player: PlayerId,
     },
@@ -2775,7 +2781,7 @@ impl Game {
                 mana_ability_uses: BTreeSet::new(),
                 tokens: Arc::default(),
                 entry_copies: BTreeMap::new(),
-                modal_back_entries: BTreeSet::new(),
+                back_face_objects: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(|config| {
@@ -3117,7 +3123,8 @@ impl Game {
                     .ok_or_else(|| "missing triggered program".to_string()),
                 grant => self.effective_cascade_program(grant),
             },
-            StackKind::Activated { ability, .. } => definition
+            StackKind::Activated { ability, .. } => self
+                .activation_definition(stack.source)?
                 .activated
                 .get(*ability as usize)
                 .map(|ability| &ability.program)
@@ -4305,7 +4312,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
-        self.validate_modal_entries()?;
+        self.validate_back_face_objects()?;
         self.validate_entry_copy_identities()?;
         self.validate_attachment_state()?;
         self.validate_control_state()?;
