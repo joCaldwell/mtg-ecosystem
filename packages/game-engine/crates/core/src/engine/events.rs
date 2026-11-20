@@ -1445,6 +1445,22 @@ impl Game {
             }
         }
         collect(&group, self, 0, self.event_group_limit(), &mut events)?;
+        if events.iter().any(|event| {
+            matches!(
+                event,
+                ProposedEvent::Lose {
+                    reason: PlayerLossReason::TargetedEffect,
+                    ..
+                }
+            )
+        }) {
+            let (expected_cause, target) = self.targeted_loss_authority()?;
+            if cause != expected_cause
+                || !matches!(&group, EventGroup::Occurrence { proposed: ProposedEvent::Lose { player, reason: PlayerLossReason::TargetedEffect } } if *player == target)
+            {
+                return Err("invalid targeted loss batch".into());
+            }
+        }
         let before = if matches!(&group, EventGroup::Ordered { .. }) {
             self.facts_with_entry_counts(&events, &BTreeMap::new())?
         } else {
@@ -1484,7 +1500,7 @@ impl Game {
         let mut occurrences = vec![];
         self.apply_group(
             &group,
-            batch_id,
+            (batch_id, &cause),
             &mut vec![],
             &mut occurrences,
             Some(&before),
@@ -1507,7 +1523,7 @@ impl Game {
     fn apply_group(
         &mut self,
         group: &EventGroup,
-        batch: u64,
+        (batch, cause): (u64, &BatchCause),
         path: &mut Vec<u32>,
         out: &mut Vec<OccurrenceResult>,
         prepared: Option<&PreEventFacts>,
@@ -1526,13 +1542,13 @@ impl Game {
                     self.reconcile_controllers()?;
                 }
                 if let Some(before) = trigger_before {
-                    self.collect_triggers(&before, &out[offset..])?;
+                    self.collect_triggers(cause, &before, &out[offset..])?;
                 }
             }
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_group(child, batch, path, out, None, entry)?;
+                    self.apply_group(child, (batch, cause), path, out, None, entry)?;
                     path.pop();
                 }
             }
@@ -1587,7 +1603,7 @@ impl Game {
                 if occurrences.iter().any(changes_control_inputs) {
                     self.reconcile_controllers()?;
                 }
-                self.collect_triggers(&common, &out[offset..])?;
+                self.collect_triggers(cause, &common, &out[offset..])?;
             }
         }
         Ok(())
@@ -1939,6 +1955,15 @@ impl Game {
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
+        if matches!(
+            proposed,
+            ProposedEvent::Lose {
+                reason: PlayerLossReason::TargetedEffect,
+                ..
+            }
+        ) {
+            return Err("targeted loss requires an authorized instruction batch".into());
+        }
         self.apply_prepared_occurrence(proposed, before, None)
     }
     fn apply_prepared_occurrence(
@@ -2354,6 +2379,9 @@ impl Game {
             ProposedEvent::Lose { player, reason } => {
                 if !self.is_live(*player)
                     || match reason {
+                        // The singleton instruction and target were checked at the
+                        // batch boundary before any occurrence could change state.
+                        PlayerLossReason::TargetedEffect => false,
                         PlayerLossReason::Life => {
                             self.state.rules.players[player.0 as usize].life > Quantity::zero()
                         }

@@ -337,6 +337,28 @@ impl Game {
         i: Instruction,
     ) -> Result<(), String> {
         match i {
+            Instruction::UntapControllerLands { source_block } => {
+                let mut occurrences = Vec::new();
+                for object in self.state.rules.objects.values() {
+                    if object.zone == Zone::Battlefield
+                        && object.tapped
+                        && object.controller == frame.spell.controller
+                        && self
+                            .definition(object.id.card)?
+                            .characteristics
+                            .has_type(CardKind::Land)
+                    {
+                        occurrences.push(ProposedEvent::Untap { object: object.id });
+                    }
+                }
+                if !occurrences.is_empty() {
+                    self.commit_batch(
+                        Self::wipe_cause(&frame, source_block),
+                        EventGroup::Simultaneous { occurrences },
+                    )?;
+                }
+                self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+            }
             Instruction::MoveSet {
                 set,
                 action,

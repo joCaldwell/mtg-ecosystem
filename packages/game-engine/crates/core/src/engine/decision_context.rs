@@ -223,7 +223,7 @@ impl Game {
                     });
             }
             (
-                Frame::CounterUnless { frame, .. }
+                Frame::ResolutionPayment { frame, .. }
                 | Frame::ResolutionChoice { frame, .. }
                 | Frame::OptionalDamage { frame }
                 | Frame::ForcedSacrifice { frame, .. },
@@ -264,7 +264,7 @@ impl Game {
                 .collect();
         }
         let block = match &self.state.rules.frame {
-            Frame::CounterUnless { frame, .. }
+            Frame::ResolutionPayment { frame, .. }
             | Frame::ResolutionChoice { frame, .. }
             | Frame::OptionalDamage { frame } => {
                 // source_block is a typed instruction provenance index, not text parsing.

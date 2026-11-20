@@ -206,6 +206,7 @@ impl Game {
                     .targets[0]
                     .domain
                 {
+                    TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
                     TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
                         Frame::StackTargets { cast }
                     }
@@ -334,6 +335,7 @@ impl Game {
         let announcing = match self.underlying_mana_frame(&self.state.rules.frame) {
             Frame::Modes { cast }
             | Frame::Targets { cast }
+            | Frame::PlayerTargets { cast }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }
             | Frame::Mana { cast }
@@ -356,7 +358,9 @@ impl Game {
                             | TargetDomain::BattlefieldPermanent
                     )
                 }))
-            || !entry.player_targets.is_empty()
+            || (!entry.player_targets.is_empty()
+                && (!artifact_loss_activation(activated)
+                    || !matches!(entry.player_targets.as_slice(), [p] if p.0 < 4)))
             || (!entry.stack_targets.is_empty()
                 && program.targets.first().is_none_or(|t| {
                     !matches!(
@@ -391,6 +395,18 @@ impl Game {
             }
         {
             return Err("snapshot activated invocation invariant".into());
+        }
+        if artifact_loss_activation(activated) && entry.paid.is_some() {
+            let paid_source = entry.source_facts.as_ref().is_some_and(|source| {
+                source.object == entry.source
+                    && source.controller == entry.controller
+                    && source.zone == Zone::Battlefield
+                    && source.tapped
+            });
+            if !paid_source || self.current(entry.source).is_ok() || entry.player_targets.len() != 1
+            {
+                return Err("snapshot artifact loss payment/source/target invariant".into());
+            }
         }
         if activated.functioning_zone == FunctioningZone::Hand {
             let fact = entry

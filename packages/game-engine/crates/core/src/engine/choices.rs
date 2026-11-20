@@ -36,11 +36,26 @@ pub struct QualifyingCreature {
     pub object: ObjectId,
     pub power: Quantity,
 }
+/// CR 400.7c, 603.4 and 608.3a. The successful permanent spell and its
+/// actual battlefield successor identify the entry through source departure.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntryCast {
+    pub stack_id: StackId,
+    pub spell: ObjectId,
+    pub caster: PlayerId,
+}
 /// Evidence of the information actually read, never a fabricated hand count.
 /// The hand-empty variant retains its existing serialized field shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "condition", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InterveningCheck {
+    SourceCastByController {
+        entrant: ObjectId,
+        controller: PlayerId,
+        cast: Option<EntryCast>,
+    },
     ControllerHandEmpty {
         controller: PlayerId,
         hand_count: u32,
@@ -65,6 +80,9 @@ impl InterveningCheck {
         match self {
             Self::ControllerHandEmpty { passed, .. } | Self::SourceStatus { passed, .. } => *passed,
             Self::ControllerHasCreatureWithPower { qualifying, .. } => qualifying.is_some(),
+            Self::SourceCastByController {
+                controller, cast, ..
+            } => cast.is_some_and(|c| c.caster == *controller),
         }
     }
     fn validates(
@@ -75,6 +93,22 @@ impl InterveningCheck {
         hand_limit: u32,
     ) -> bool {
         match (condition, self) {
+            (
+                InterveningCondition::SourceCastByController,
+                Self::SourceCastByController {
+                    entrant,
+                    controller: checked,
+                    cast,
+                },
+            ) => {
+                *checked == controller
+                    && *entrant == source
+                    && cast.is_none_or(|c| {
+                        c.caster.0 < 4
+                            && c.spell.card == entrant.card
+                            && c.spell.incarnation.checked_add(1) == Some(entrant.incarnation)
+                    })
+            }
             (
                 InterveningCondition::ControllerHandEmpty,
                 Self::ControllerHandEmpty {
@@ -327,6 +361,40 @@ impl Game {
         }
         Ok(())
     }
+    pub(super) fn completed_entry_cast(
+        &self,
+        cause: &BatchCause,
+        witness: &TriggerEventWitness,
+    ) -> Option<EntryCast> {
+        let BatchCause::SpellCompletion {
+            stack_id,
+            player,
+            source,
+        } = cause
+        else {
+            return None;
+        };
+        let TriggerEventWitness::Moved { movement } = witness else {
+            return None;
+        };
+        let spell = self.state.rules.stack.last()?;
+        (movement.from == Zone::Stack
+            && movement.destination == Zone::Battlefield
+            && movement.previous == *source
+            && movement.successor.card == source.card
+            && source.incarnation.checked_add(1) == Some(movement.successor.incarnation)
+            && matches!(&self.state.rules.frame, Frame::Resolve { frame } if frame.stack_id == *stack_id && frame.spell.source == *source)
+            && spell.source == *source
+            && spell.id == *stack_id
+            && spell.controller == *player
+            && spell.kind.is_spell()
+            && spell.paid.as_ref() == Some(&spell.total_cost))
+        .then_some(EntryCast {
+            stack_id: *stack_id,
+            spell: *source,
+            caster: *player,
+        })
+    }
     // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone
     // information or the last battlefield incarnation (CR400.7,110.5d).
     // The existing per-invocation ObjectBefore is refreshed at departure by
@@ -339,11 +407,19 @@ impl Game {
         controller: PlayerId,
         source: ObjectId,
         last_known: &ObjectBefore,
+        cast: Option<EntryCast>,
     ) -> Result<InterveningCheck, String> {
         if !self.is_live(controller) {
             return Err("intervening condition requested after controller departure".into());
         }
         Ok(match condition {
+            InterveningCondition::SourceCastByController => {
+                InterveningCheck::SourceCastByController {
+                    entrant: source,
+                    controller,
+                    cast,
+                }
+            }
             InterveningCondition::ControllerHandEmpty => {
                 let hand_count = u32::try_from(
                     self.state
@@ -412,7 +488,12 @@ impl Game {
         &mut self,
         stack: &StackInstance,
     ) -> Result<Option<InterveningCheck>, String> {
-        let StackKind::Triggered { ability, .. } = &stack.kind else {
+        let StackKind::Triggered {
+            ability,
+            match_condition,
+            ..
+        } = &stack.kind
+        else {
             return Ok(None);
         };
         let definition = self.effective_trigger(stack.source, *ability)?;
@@ -427,6 +508,10 @@ impl Game {
                 .source_facts
                 .as_ref()
                 .ok_or("missing trigger source facts")?,
+            match match_condition {
+                Some(InterveningCheck::SourceCastByController { cast, .. }) => *cast,
+                _ => None,
+            },
         )?;
         self.record_event(Event::TriggerConditionChecked {
             source: stack.source,
@@ -500,6 +585,12 @@ impl Game {
             Some(definition) => definition.intervening_if.as_ref(),
             _ => None,
         };
+        if expected == Some(&InterveningCondition::SourceCastByController)
+            && !matches!(&frame.spell.kind, StackKind::Triggered { match_condition, .. }
+                if match_condition == &frame.condition_check)
+        {
+            return Err("cast-entry resolution lost its match evidence".into());
+        }
         match (expected, &frame.condition_check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))
@@ -523,7 +614,20 @@ impl Game {
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         check: Option<&InterveningCheck>,
+        witness: &TriggerEventWitness,
     ) -> Result<(), String> {
+        if let Some(InterveningCheck::SourceCastByController {
+            entrant,
+            cast: Some(cast),
+            ..
+        }) = check
+            && (cast.stack_id.0 >= self.state.rules.next_stack_id
+                || !matches!(witness, TriggerEventWitness::Moved { movement } if movement.from == Zone::Stack
+                    && movement.destination == Zone::Battlefield && movement.previous == cast.spell
+                    && movement.successor == *entrant))
+        {
+            return Err("cast-entry condition does not identify its completed movement".into());
+        }
         let definition = self.effective_trigger(source, ability)?;
         let expected = definition.intervening_if.as_ref();
         match (expected, check) {

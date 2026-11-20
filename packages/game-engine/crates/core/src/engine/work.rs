@@ -798,7 +798,7 @@ impl Game {
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
                         (
-                            Frame::CounterUnless { .. },
+                            Frame::ResolutionPayment { .. },
                             PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::ActivateMana { .. }
                             | PlayerResponse::FinishMana { .. }

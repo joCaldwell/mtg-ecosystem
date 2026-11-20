@@ -322,7 +322,8 @@ fn opponent_damage_private_collection_uses_observer_controller_and_frozen_restor
         if let EventOutcome::NoncombatDamageDealt { damage, .. } = &mut occurrence.actual {
             damage.controller = PlayerId(1);
         }
-        g.collect_triggers(&before, &[occurrence]).unwrap();
+        g.collect_triggers(&BatchCause::Fixture, &before, &[occurrence])
+            .unwrap();
         assert_eq!(
             g.state.rules.pending_triggers.len(),
             usize::from(player != 2)
@@ -470,7 +471,8 @@ fn opponent_damage_private_transaction_collection_checks_actual_member_proof() {
         panic!("missing transaction")
     }
     g.state.rules.pending_triggers.clear();
-    g.collect_triggers(&before, &batch.occurrences).unwrap();
+    g.collect_triggers(&batch.cause, &before, &batch.occurrences)
+        .unwrap();
     assert!(matches!(witness(&g), TriggerEventWitness::DamageDealt {
         kind: DamageKind::Noncombat, transaction: Some(tx), .. } if tx == id));
     g.validate_trigger_state().unwrap();
@@ -508,7 +510,11 @@ fn opponent_damage_private_transaction_collection_checks_actual_member_proof() {
         }
         let mut fork = g.fork();
         let state = fork.state.clone();
-        assert!(fork.collect_triggers(&before, &changed).is_err(), "{field}");
+        assert!(
+            fork.collect_triggers(&batch.cause, &before, &changed)
+                .is_err(),
+            "{field}"
+        );
         assert_eq!(fork.state, state, "{field}");
     }
     let mut prevented = batch.occurrences;
@@ -517,6 +523,7 @@ fn opponent_damage_private_transaction_collection_checks_actual_member_proof() {
     };
     actual.clear();
     g.state.rules.pending_triggers.clear();
-    g.collect_triggers(&before, &prevented).unwrap();
+    g.collect_triggers(&batch.cause, &before, &prevented)
+        .unwrap();
     assert!(g.state.rules.pending_triggers.is_empty());
 }

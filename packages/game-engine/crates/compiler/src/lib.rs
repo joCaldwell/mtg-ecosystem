@@ -13,7 +13,9 @@ mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
 mod bindings;
+mod cast_entry;
 mod cast_origin;
+mod cast_payer_draw;
 pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -69,6 +71,7 @@ mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
 use optional_costs::KickedCondition;
+mod artifact_loss;
 mod conditional_lands;
 mod cycling;
 #[cfg(test)]
@@ -179,6 +182,9 @@ enum Ability {
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
+    // Only the whole-source adapter can introduce this bound trigger.
+    #[serde(skip)]
+    CastPayerDraw { generic: Quantity },
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -285,6 +291,10 @@ struct ModeOption {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "condition", rename_all = "kebab-case")]
 enum SourceCondition {
+    WasCast {
+        what: serde_json::Value,
+        by: PlayerSelector,
+    },
     Control {
         who: SourceControlPlayer,
         what: TriggerObject,
@@ -689,6 +699,9 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    LoseGame {
+        who: PlayerSelector,
+    },
     AdditionalLandPlays {
         allowance: serde_json::Value,
         duration: SourceDuration,
@@ -1412,9 +1425,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = match counter_unless_generic::lower(&shape, &result, &binding)? {
-        Some(ability) => vec![ability],
-        None => read_abilities(&canonical_abilities)?,
+    let abilities = if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)?
+    {
+        vec![ability]
+    } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
+        vec![ability]
+    } else {
+        read_abilities(&canonical_abilities)?
     };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -1490,6 +1507,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let (color_stats, color_mana) =
@@ -1505,6 +1523,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         typed_fetchland::validate_raw(ability, raw.get())?;
     }
+    controller_library::validate_fixed_cast_effects(
+        &abilities,
+        &result,
+        &binding,
+        &r.oracle_identity,
+        &shape,
+    )?;
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
     let mut power_removal = power_filtered_removal::lower(&shape, &result, &binding)?;
@@ -1717,6 +1742,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::CastPayerDraw { generic } => {
+                        labels.triggered.push(source_block(block)?);
+                        definition
+                            .triggered
+                            .push(cast_payer_draw_trigger(generic.clone()));
+                    }
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
                         definition
@@ -1975,7 +2006,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             labels.activated.push(source_block(block)?);
                             definition
                                 .activated
-                                .push(lower_activation(costs, effects, block, kind)?);
+                                .push(if let Some(loss) = artifact_loss.take() {
+                                    loss
+                                } else {
+                                    lower_activation(costs, effects, block, kind)?
+                                });
                         }
                     }
                     Ability::Triggered {
@@ -2443,6 +2478,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .validate()
         .map_err(|e| unsupported("definition", e))?;
     self_spell_protection::validate_binding(&definition, &binding)?;
+    cast_entry::validate_binding(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
@@ -5365,6 +5401,32 @@ fn lower_trigger(
         source_block(block)?,
     ) {
         program.instructions.push(instruction);
+    } else if condition == TriggerCondition::SelfEntersBattlefield
+        && matches!(intervening, Some(SourceCondition::WasCast { .. }))
+        && let [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ] = effects
+        && bindings.is_empty()
+        && let [Step::Untap { what }] = steps.as_slice()
+        && *what == serde_json::json!({"ref":"all","filter":{"types":["land"],"control":"you"}})
+    {
+        program
+            .instructions
+            .push(Instruction::UntapControllerLands {
+                source_block: source_block(block)?,
+            });
+    } else if let Some(instruction) = controller_library::lower_cast_opponent_damage(
+        &condition,
+        effects,
+        source_block(block)?,
+        &mut program,
+    )? {
+        program.instructions.push(instruction);
     } else if let (
         SourceTrigger::Enters { what: subject },
         [
@@ -5412,6 +5474,15 @@ fn lower_trigger(
     }
     let intervening_if = match intervening {
         None => None,
+        Some(SourceCondition::WasCast { what, by })
+            if condition == TriggerCondition::SelfEntersBattlefield
+                && *what == serde_json::json!({"ref":"it"})
+                && by.player == "you"
+                && by.of.is_none()
+                && by.selection_id.is_none() =>
+        {
+            Some(InterveningCondition::SourceCastByController)
+        }
         Some(SourceCondition::Control {
             who,
             what: TriggerObject::Filter { filter, count },
