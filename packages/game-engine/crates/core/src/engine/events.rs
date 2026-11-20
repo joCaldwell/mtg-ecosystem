@@ -599,8 +599,24 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             BTreeSet::from([FactKey::Turn, FactKey::Effects]),
             BTreeSet::from([FactKey::Turn]),
         ),
-        ProposedEvent::TurnTransition { .. } => {
-            let keys = BTreeSet::from([FactKey::Turn]);
+        ProposedEvent::TurnTransition { next, owner } => {
+            let mut keys = BTreeSet::from([FactKey::Turn]);
+            if next.step == TurnStep::PrecombatMain {
+                keys.extend(
+                    game.state
+                        .rules
+                        .objects
+                        .values()
+                        .filter(|o| {
+                            o.zone == Zone::Battlefield
+                                && o.controller == *owner
+                                && game
+                                    .saga_final_chapter(o.id.card)
+                                    .is_ok_and(|n| n.is_some())
+                        })
+                        .map(|o| FactKey::Object(o.id.card)),
+                );
+            }
             (keys.clone(), keys)
         }
         ProposedEvent::ReversePermanentMana { receipt } => {

@@ -35,6 +35,9 @@ pub struct TriggerHandle(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VisibleTriggerAbility {
+    DelayedChapter {
+        chapter: u32,
+    },
     Intrinsic {
         index: u32,
     },
@@ -867,6 +870,9 @@ impl Game {
         grant: Option<&CascadeGrantProvenance>,
     ) -> Result<VisibleTriggerAbility, String> {
         match ability {
+            EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                Ok(VisibleTriggerAbility::DelayedChapter { chapter })
+            }
             EffectiveTriggerAbility::Intrinsic { index } => {
                 Ok(VisibleTriggerAbility::Intrinsic { index })
             }

@@ -389,7 +389,7 @@ mod targeted_loss;
 pub use combat::*;
 mod saga;
 mod turns;
-pub use saga::LoreChange;
+pub use saga::{DelayedChapterRegistration, LoreChange};
 pub use turns::*;
 mod events;
 mod trace;
@@ -2071,6 +2071,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    DelayedChapterRegistered {
+        issuer: StackId,
+    },
     CounterPlacements {
         actual: Vec<EventOutcome>,
     },
@@ -2364,6 +2367,7 @@ impl Game {
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(MatchState::new),
                 effects: vec![],
+                delayed_chapters: vec![],
                 next_effect_id: 0,
                 next_damage_transaction_id: 0,
                 pending_triggers: vec![],
@@ -2590,6 +2594,9 @@ impl Game {
                 .as_ref()
                 .ok_or_else(|| "missing spell program".to_string()),
             StackKind::Triggered { ability, .. } => match *ability {
+                EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                    self.delayed_chapter_program(stack.source, chapter)
+                }
                 EffectiveTriggerAbility::Intrinsic { index } => definition
                     .triggered
                     .get(index as usize)

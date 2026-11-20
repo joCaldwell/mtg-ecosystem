@@ -480,14 +480,6 @@ fn paid_saga_tracks_each_chapter_and_waits_for_the_final_stack_exit() {
     ) else {
         panic!("original complete life Saga must lower")
     };
-    let unsupported = mtg_compiler::compile(
-        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
-        include_str!("../../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"),
-    );
-    assert!(matches!(
-        unsupported,
-        mtg_compiler::CompileResult::Unsupported { .. }
-    ));
     let player = PlayerId(0);
     p.config.cards[0].oracle_id = SWAMP.into();
     p.config.cards[1].oracle_id = definition.oracle_id.clone();
@@ -551,4 +543,113 @@ fn paid_saga_tracks_each_chapter_and_waits_for_the_final_stack_exit() {
         passive(&mut g);
     }
     panic!("final chapter did not release its Saga");
+}
+
+#[test]
+fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
+    let mut p = prepared(false, false);
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("complete frozen chapter program failed: {compiled:?}")
+    };
+    let owner = PlayerId(0);
+    let saga = CardId(1);
+    p.config.cards[0].oracle_id = SWAMP.into();
+    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let mut add = |id: &str, zone: Zone| {
+        let card = CardId(p.config.cards.len() as u32);
+        p.config.cards.push(CardSetup {
+            id: card,
+            owner,
+            controller: owner,
+            zone,
+            oracle_id: id.into(),
+        });
+        card
+    };
+    let red = add("a3fb7228-e76b-4e96-a40e-20b5fed75685", Zone::Battlefield);
+    let white = add("bc71ebf6-2056-41f7-be35-b2e5c34afa99", Zone::Battlefield);
+    let entrant = add(ISAMARU, Zone::Hand { owner });
+    for _ in 0..4 {
+        add(SWAMP, Zone::Library { owner });
+    }
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    let pay = |g: &mut Game, card: CardId, lands: &[CardId]| {
+        answer(g, Response::Cast { card });
+        for &land in lands {
+            let object = g.object_id(land).unwrap();
+            answer(g, Response::ActivateMana { object });
+        }
+        answer(g, Response::FinishMana { undo_mana: false });
+        if let Request::SpendMana { cost, .. } = settle(g) {
+            assert_eq!(cost.generic, 0.into());
+            let mut spending = BTreeMap::<Color, Quantity>::new();
+            for color in cost.colored {
+                spending.entry(color).or_default().add(&1.into());
+            }
+            answer(g, Response::SpendMana { spending });
+        }
+    };
+    pay(&mut g, saga, &[CardId(0), red, white]);
+    let mut saw_second = false;
+    let mut saw_cleanup = false;
+    for _ in 0..2000 {
+        settle(&mut g);
+        let registrations = &g.state.rules.delayed_chapters;
+        if registrations.first().is_some_and(|r| r.chapter() == Ok(1)) {
+            saw_second = true;
+        }
+        if saw_second && registrations.is_empty() {
+            saw_cleanup = true;
+        }
+        if matches!(
+            g.current(g.object_id(saga).unwrap()).unwrap().zone,
+            Zone::Graveyard { .. }
+        ) {
+            assert!(saw_second && saw_cleanup);
+            assert_eq!(registrations.len(), 1);
+            assert_eq!(registrations[0].chapter(), Ok(2));
+            assert_eq!(g.state.rules.players[0].life, 38.into());
+            recover(&g);
+            pay(&mut g, entrant, &[white]);
+            let mut saw_ability = false;
+            for _ in 0..200 {
+                settle(&mut g);
+                if g.state.rules.stack.last().is_some_and(|e| {
+                    matches!(
+                        e.kind,
+                        StackKind::Triggered {
+                            ability: EffectiveTriggerAbility::DelayedChapter { chapter: 2, .. },
+                            ..
+                        }
+                    )
+                }) {
+                    saw_ability = true;
+                }
+                if g.state.rules.delayed_chapters.is_empty() {
+                    assert!(saw_ability);
+                    for (index, seat) in g.state.rules.players.iter().enumerate() {
+                        assert_eq!(seat.life, 39.into(), "seat {index}");
+                    }
+                    recover(&g);
+                    return;
+                }
+                passive(&mut g);
+            }
+            panic!("delayed entry did not resolve before cleanup");
+        }
+        passive(&mut g);
+    }
+    panic!("final Saga chapter did not leave its granted entry trigger");
 }

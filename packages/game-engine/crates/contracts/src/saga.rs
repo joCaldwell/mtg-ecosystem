@@ -5,51 +5,154 @@ use std::num::NonZeroU32;
 
 pub struct LifeChapter {
     pub numbers: Vec<NonZeroU32>,
-    pub amount: u32,
+    pub effect: ChapterEffect,
     pub source_block: u32,
+}
+pub enum ChapterEffect {
+    Gain { amount: u32 },
+    DrawLose { draw: u32, loss: u32 },
+    DelayedEntry { loss: u32, gain: u32 },
+}
+fn program(instructions: Vec<Instruction>) -> SpellProgram {
+    SpellProgram {
+        additional_sacrifice: None,
+        optional_additional_costs: vec![],
+        timing: SpellTiming::Instant,
+        resolution: SpellResolution::Instructions,
+        functioning_zone: FunctioningZone::Stack,
+        targets: vec![],
+        modes: vec![],
+        instructions,
+    }
 }
 impl LifeChapter {
     pub fn abilities(&self) -> impl Iterator<Item = TriggeredAbility> + '_ {
-        self.numbers.iter().map(|&number| TriggeredAbility {
-            condition: TriggerCondition::SagaChapter { number },
-            functioning_zone: FunctioningZone::Battlefield,
-            intervening_if: None,
-            death_filter: None,
-            program: SpellProgram {
-                additional_sacrifice: None,
-                optional_additional_costs: vec![],
-                timing: SpellTiming::Instant,
-                resolution: SpellResolution::Instructions,
-                functioning_zone: FunctioningZone::Stack,
-                instructions: vec![Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: Quantity::from(i64::from(self.amount)),
-                    source_block: self.source_block,
-                }],
-                targets: vec![],
-                modes: vec![],
-            },
+        self.numbers.iter().map(|&number| {
+            let block = self.source_block;
+            let gain = |amount| Instruction::GainLife {
+                recipient: LifeRecipient::Controller,
+                amount: Quantity::from(i64::from(amount)),
+                source_block: block,
+            };
+            let lose = |recipient, amount| Instruction::LoseLife {
+                recipient,
+                amount: Quantity::from(i64::from(amount)),
+                source_block: block,
+            };
+            let ops = match self.effect {
+                ChapterEffect::Gain { amount } => vec![gain(amount)],
+                ChapterEffect::DrawLose { draw, loss } => {
+                    let mut steps = vec![
+                        Instruction::DrawCards {
+                            recipient: Some(LifeRecipient::Controller),
+                            count: 1.into(),
+                            source_block: block
+                        };
+                        draw as usize
+                    ];
+                    steps.push(lose(LifeRecipient::Controller, loss));
+                    steps
+                }
+                ChapterEffect::DelayedEntry { loss, gain: life } => {
+                    vec![Instruction::RegisterControllerCreatureEntryThisTurn {
+                        source_block: block,
+                        program: Box::new(program(vec![
+                            lose(LifeRecipient::EachOpponent, loss),
+                            gain(life),
+                        ])),
+                    }]
+                }
+            };
+            TriggeredAbility {
+                condition: TriggerCondition::SagaChapter { number },
+                functioning_zone: FunctioningZone::Battlefield,
+                intervening_if: None,
+                death_filter: None,
+                program: program(ops),
+            }
         })
     }
     pub fn ast(&self) -> Value {
-        json!({"kind":"chapter","chapters":self.numbers,"effects":[{"steps":[{"effect":"gain-life",
-            "who":{"player":"you"},"amount":{"amount":"fixed","value":self.amount}}]}]})
+        let step = |effect: &str, player: &str, n: u32| json!({"effect":effect,"who":{"player":player},"amount":{"amount":"fixed","value":n}});
+        let steps = match self.effect {
+            ChapterEffect::Gain { amount } => vec![step("gain-life", "you", amount)],
+            ChapterEffect::DrawLose { draw, loss } => {
+                vec![step("draw", "you", draw), step("lose-life", "you", loss)]
+            }
+            ChapterEffect::DelayedEntry { gain, loss } => vec![
+                json!({"effect":"create-delayed-trigger","trigger":{"trigger":"enters","what":{"ref":"filter","filter":{"types":["creature"],"control":"you"},"count":{"amount":"fixed","value":1}}},"occurrence":"each","duration":{"duration":"this-turn"},"effects":[{"steps":[step("lose-life","each-opponent",loss),step("gain-life","you",gain)]}],"targets":"delayed-ability"}),
+            ],
+        };
+        json!({"kind":"chapter","chapters":self.numbers,"effects":[{"steps":steps}]})
+    }
+}
+
+fn number(digits: &str) -> Result<u32, String> {
+    digits
+        .parse::<u32>()
+        .ok()
+        .filter(|n| *n > 0 && n.to_string() == digits)
+        .ok_or_else(|| "invalid fixed chapter amount".into())
+}
+fn effect(line: &str) -> Result<ChapterEffect, String> {
+    let invalid = || "unsupported complete chapter instruction".to_owned();
+    if let Some(digits) = line
+        .strip_prefix("You gain ")
+        .and_then(|s| s.strip_suffix(" life."))
+    {
+        return Ok(ChapterEffect::Gain {
+            amount: number(digits)?,
+        });
+    }
+    if let Some(rest) = line.strip_prefix("You draw ") {
+        let (draw, loss) = rest
+            .strip_suffix(" life.")
+            .and_then(|s| s.split_once(" and you lose "))
+            .ok_or_else(invalid)?;
+        let draw = match draw {
+            "a card" => 1,
+            "two cards" => 2,
+            "three cards" => 3,
+            _ => return Err(invalid()),
+        };
+        return Ok(ChapterEffect::DrawLose {
+            draw,
+            loss: number(loss)?,
+        });
+    }
+    let (event, consequence) = line.split_once(", ").ok_or_else(invalid)?;
+    let (subject, duration) = event.split_once(" enters ").ok_or_else(invalid)?;
+    if subject != "Whenever a creature you control" || duration != "this turn" {
+        return Err(invalid());
+    }
+    let (loss, gain) = consequence
+        .strip_prefix("each opponent loses ")
+        .and_then(|s| s.strip_suffix(" life."))
+        .and_then(|s| s.split_once(" life and you gain "))
+        .ok_or_else(invalid)?;
+    Ok(ChapterEffect::DelayedEntry {
+        loss: number(loss)?,
+        gain: number(gain)?,
+    })
+}
+pub fn chapter_lines(text: &str) -> &str {
+    let Some((reminder, rest)) = text.split_once('\n') else {
+        return text;
+    };
+    let prefix = "(As this Saga enters and after your draw step, ";
+    let suffix = "add a lore counter. Sacrifice after III.)";
+    if reminder.strip_prefix(prefix) == Some(suffix) {
+        rest
+    } else {
+        text
     }
 }
 pub fn life_chapters(text: &str) -> Result<Vec<LifeChapter>, String> {
+    let lines = chapter_lines(text);
     let mut chapters = vec![];
     let mut next = 1;
-    for (block, line) in text.split('\n').enumerate() {
-        let (symbols, effect) = line.split_once(" — ").ok_or("invalid chapter line")?;
-        let digits = effect
-            .strip_prefix("You gain ")
-            .and_then(|s| s.strip_suffix(" life."))
-            .ok_or("unsupported chapter effect")?;
-        let amount = digits
-            .parse::<u32>()
-            .ok()
-            .filter(|n| *n > 0 && n.to_string() == digits)
-            .ok_or("invalid chapter life amount")?;
+    for (block, line) in lines.split('\n').enumerate() {
+        let (symbols, clause) = line.split_once(" — ").ok_or("invalid chapter line")?;
         let mut numbers = vec![];
         for symbol in symbols.split(", ") {
             let n = match symbol {
@@ -66,15 +169,21 @@ pub fn life_chapters(text: &str) -> Result<Vec<LifeChapter>, String> {
         }
         chapters.push(LifeChapter {
             numbers,
-            amount,
+            effect: effect(clause)?,
             source_block: u32::try_from(block).map_err(|_| "chapter block overflow")?,
         });
+    }
+    if lines != text && next != 4 {
+        return Err("reminder and final chapter disagree".into());
     }
     Ok(chapters)
 }
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let raw = &d.provenance.source_json;
-    let typed = d.characteristics.subtypes.iter().any(|s| s == "Saga")
+    let typed = d
+        .capabilities
+        .contains(&Capability::DelayedControllerCreatureEntryV1)
+        || d.characteristics.subtypes.iter().any(|s| s == "Saga")
         || d.capabilities.contains(&Capability::SagaChaptersV1)
         || d.triggered
             .iter()
@@ -91,13 +200,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         .ok_or("Saga source missing text")?;
     let chapters = life_chapters(text)?;
     let c = &d.characteristics;
-    let mut mana = String::new();
-    if c.mana_cost.generic != Quantity::zero() || c.mana_cost.colored.is_empty() {
-        mana.push_str(&format!("{{{}}}", c.mana_cost.generic));
-    }
-    for color in &c.mana_cost.colored {
-        mana.push_str(&format!("{{{color:?}}}"));
-    }
+    let mana = c.mana_cost.printed_fixed_cost();
     if src["layout"] != "saga"
         || src["type_line"] != "Enchantment — Saga"
         || src["id"] != d.provenance.printing_id
@@ -141,7 +244,11 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
             != Value::Array(chapters.iter().map(|c| c.ast()).collect())
         || d.source_labels.as_ref().is_some_and(|l| {
             l.text != text
-                || !l.blocks.iter().map(String::as_str).eq(text.lines())
+                || !l
+                    .blocks
+                    .iter()
+                    .map(String::as_str)
+                    .eq(chapter_lines(text).lines())
                 || !l.triggered.iter().copied().eq(chapters
                     .iter()
                     .flat_map(|c| c.numbers.iter().map(|_| c.source_block)))
@@ -159,7 +266,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     let record: Value = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/synthetic-saga-life.json"
+        "../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"
     ))
     .unwrap();
     let source = &record["source"];
@@ -176,11 +283,12 @@ pub(super) fn witness() -> Definition {
     d.characteristics.subtypes = vec!["Saga".into()];
     d.characteristics.power = None;
     d.characteristics.toughness = None;
-    d.characteristics.colors.clear();
-    d.characteristics.color_identity.clear();
+    d.characteristics.colors = serde_json::from_value(source["colors"].clone()).unwrap();
+    d.characteristics.color_identity =
+        serde_json::from_value(source["color_identity"].clone()).unwrap();
     d.characteristics.mana_cost = ManaCost {
-        generic: 1.into(),
-        colored: vec![],
+        generic: 0.into(),
+        colored: vec![Color::R, Color::W, Color::B],
     };
     d.keywords.clear();
     let text = source["oracle_text"].as_str().unwrap();
@@ -188,7 +296,7 @@ pub(super) fn witness() -> Definition {
     d.triggered = chapters.iter().flat_map(|c| c.abilities()).collect();
     d.source_labels = Some(SourceLabels {
         text: text.into(),
-        blocks: text.lines().map(str::to_string).collect(),
+        blocks: chapter_lines(text).lines().map(str::to_string).collect(),
         triggered: vec![0, 1, 1],
         ..Default::default()
     });
@@ -204,14 +312,35 @@ pub(super) fn extend_schema(schema: &mut Value) {
         CastEnchantmentV1,
         TriggeredAbilityV1,
         LifeGainV1,
+        LifeLossV1,
+        ControllerDrawV1,
+        DelayedControllerCreatureEntryV1,
     ];
+    let fixed = |op: &str, recipient: &str, field: &str| json!({"type":"object","required":["op","recipient",field],"properties":{"op":{"const":op},"recipient":{"const":recipient},(field):{"pattern":"^[1-9][0-9]*$"}}});
+    let gain = fixed("gain_life", "controller", "amount");
+    let sequence =
+        |ops: Vec<Value>| json!({"minItems":ops.len(),"maxItems":ops.len(),"prefixItems":ops});
+    let child = sequence(vec![
+        fixed("lose_life", "each_opponent", "amount"),
+        gain.clone(),
+    ]);
+    let registration = json!({"required":["op","program"],"properties":{"op":{"const":"register_controller_creature_entry_this_turn"},"program":{"properties":{"resolution":{"const":"instructions"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"instructions":child,"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
+    let mut variants = vec![sequence(vec![gain]), sequence(vec![registration])];
+    let mut draw = fixed("draw_cards", "controller", "count");
+    draw["properties"]["count"] = json!({"const":"1"});
+    for n in 1..=3 {
+        let mut steps = vec![draw.clone(); n];
+        steps.push(fixed("lose_life", "controller", "amount"));
+        variants.push(sequence(steps));
+    }
+    let programs = json!({"oneOf":variants});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":SagaChaptersV1}}}},
             {"required":["triggered"],"properties":{"triggered":{"contains":chapter}}},
             {"properties":{"characteristics":{"properties":{"subtypes":{"contains":{"const":"Saga"}}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""layout"\s*:\s*"saga""#}}}}}]},
         "then":{"required":["triggered","spell"],"properties":{
-            "capabilities":{"minItems":allowed.len(),"maxItems":allowed.len(),"uniqueItems":true,"items":{"enum":allowed}},
+            "capabilities":{"minItems":4,"maxItems":allowed.len(),"allOf":[{"contains":{"const":SagaChaptersV1}},{"contains":{"const":TriggeredAbilityV1}},{"contains":{"const":CastEnchantmentV1}}],"uniqueItems":true,"items":{"enum":allowed}},
             "characteristics":{"properties":{"kind":{"const":"enchantment"},"subtypes":{"const":["Saga"]},"basic":{"const":false},
                 "legendary":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0}}},
             "x_mana_cost":{"const":false},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"keywords":{"maxItems":0},
@@ -220,8 +349,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "triggered":{"minItems":1,"maxItems":3,"items":{"allOf":[chapter],"properties":{"functioning_zone":{"const":"battlefield"},
                 "intervening_if":{"type":"null"},"death_filter":{"type":"null"},"program":{"properties":{"functioning_zone":{"const":"stack"},
                 "timing":{"const":"instant"},"resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},
-                "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,
-                "items":{"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},"amount":{"pattern":"^[1-9][0-9]*$"}}}}}}}}},
+                "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"instructions":programs}}}}},
             "provenance":{"properties":{"source_json":{"pattern":r#""layout"\s*:\s*"saga""#}}}
         }}
     }));

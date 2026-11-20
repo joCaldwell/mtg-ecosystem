@@ -969,6 +969,9 @@ impl Game {
         let player = frame.spell.controller;
         match instruction {
             Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
+            Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
+                self.register_delayed_chapter(frame)
+            }
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,

@@ -51,7 +51,8 @@ impl Game {
         ability: EffectiveTriggerAbility,
     ) -> Option<&str> {
         let (source, index, is_static) = match ability {
-            EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
+            EffectiveTriggerAbility::DelayedChapter { chapter: index, .. }
+            | EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
             EffectiveTriggerAbility::Granted {
                 grant_source,
                 static_ability_index,
@@ -127,7 +128,9 @@ impl Game {
             StackKind::Spell => (DecisionSourceKind::Spell, None),
             StackKind::Activated { ability, .. } => (DecisionSourceKind::Activated, Some(ability)),
             StackKind::Triggered {
-                ability: EffectiveTriggerAbility::Intrinsic { index },
+                ability:
+                    EffectiveTriggerAbility::Intrinsic { index }
+                    | EffectiveTriggerAbility::DelayedChapter { chapter: index, .. },
                 ..
             } => (DecisionSourceKind::Triggered, Some(index)),
             StackKind::Triggered {

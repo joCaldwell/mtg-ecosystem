@@ -190,7 +190,7 @@ struct Source {
 enum Ability {
     Chapter {
         chapters: Vec<u32>,
-        effects: Vec<Sentence>,
+        effects: Vec<serde_json::Value>,
     },
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]

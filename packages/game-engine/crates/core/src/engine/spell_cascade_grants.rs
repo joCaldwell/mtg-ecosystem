@@ -7,6 +7,10 @@ use std::borrow::Cow;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EffectiveTriggerAbility {
+    DelayedChapter {
+        chapter: u32,
+        issuer: StackId,
+    },
     Intrinsic {
         index: u32,
     },
@@ -23,6 +27,9 @@ pub struct CascadeGrantProvenance {
 }
 fn witness_history_charge(witness: &TriggerEventWitness) -> usize {
     match witness {
+        TriggerEventWitness::DelayedCreatureEntered { .. } => {
+            stored_history::payload_charge(witness)
+        }
         TriggerEventWitness::SpellCast { cast } => stored_history::payload_charge(&cast.history),
         _ => 0,
     }
@@ -49,6 +56,9 @@ impl Game {
         let mut charge = pending.chain(placed).fold(0usize, |n, g| {
             n.saturating_add(stored_history::payload_charge(g))
         });
+        for registration in &self.state.rules.delayed_chapters {
+            charge = charge.saturating_add(stored_history::payload_charge(registration));
+        }
         // Cascade/owned-child frames already charge their complete payload.
         for t in &self.state.rules.pending_triggers {
             charge = charge.saturating_add(witness_history_charge(&t.witness));
@@ -90,6 +100,15 @@ impl Game {
         ability: EffectiveTriggerAbility,
     ) -> Result<Cow<'_, mtg_contracts::TriggeredAbility>, String> {
         match ability {
+            EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                Ok(Cow::Owned(mtg_contracts::TriggeredAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    condition: TriggerCondition::DelayedControllerCreatureEntry,
+                    intervening_if: None,
+                    death_filter: None,
+                    program: self.delayed_chapter_program(source, chapter)?.clone(),
+                }))
+            }
             EffectiveTriggerAbility::Intrinsic { index } => self
                 .definition(source.card)?
                 .triggered

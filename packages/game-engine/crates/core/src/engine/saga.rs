@@ -113,3 +113,117 @@ impl Game {
         Ok(events)
     }
 }
+
+// CR 603.7e: the resolving chapter fixes the controller and the source of the
+// delayed ability. Subsequent entries use their actual battlefield appearance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DelayedChapterRegistration {
+    pub(super) issuer: Box<StackInstance>,
+    pub(super) turn: u64,
+}
+
+impl DelayedChapterRegistration {
+    pub(super) fn chapter(&self) -> Result<u32, String> {
+        match &self.issuer.kind {
+            StackKind::Triggered {
+                ability: EffectiveTriggerAbility::Intrinsic { index },
+                witness: TriggerEventWitness::LoreAdded { .. },
+                ..
+            } => Ok(*index),
+            _ => Err("delayed entry requires its original lore trigger".into()),
+        }
+    }
+    pub(super) fn source_handles(&self) -> Result<&[ObjectHandle], String> {
+        match &self.issuer.kind {
+            StackKind::Triggered { source_handles, .. } => Ok(source_handles),
+            _ => Err("missing delayed chapter source handles".into()),
+        }
+    }
+}
+
+impl Game {
+    pub(super) fn delayed_chapter_program(
+        &self,
+        source: ObjectId,
+        chapter: u32,
+    ) -> Result<&SpellProgram, String> {
+        let ability = self
+            .definition(source.card)?
+            .triggered
+            .get(chapter as usize)
+            .ok_or("missing delayed chapter")?;
+        if !matches!(ability.condition, TriggerCondition::SagaChapter { .. }) {
+            return Err("delayed issuer is not a chapter".into());
+        }
+        let [Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }] =
+            ability.program.instructions.as_slice()
+        else {
+            return Err("missing printed delayed entry instruction".into());
+        };
+        Ok(program)
+    }
+    pub(super) fn validate_delayed_registration(
+        &self,
+        registration: &DelayedChapterRegistration,
+    ) -> Result<(), String> {
+        let issuer = &registration.issuer;
+        let chapter = registration.chapter()?;
+        self.delayed_chapter_program(issuer.source, chapter)?;
+        self.validate_trigger_entry(issuer)?;
+        if issuer.id.0 >= self.state.rules.next_stack_id
+            || issuer.paid.as_ref() != Some(&issuer.total_cost)
+            || registration.turn == 0
+            || registration.turn > self.state.rules.turn.number
+        {
+            return Err("invalid retained delayed chapter issuer".into());
+        }
+        Ok(())
+    }
+    pub(super) fn validate_delayed_chapters(&self) -> Result<(), String> {
+        let rows = &self.state.rules.delayed_chapters;
+        if rows.len().saturating_add(self.state.rules.effects.len()) > self.effect_limit() {
+            return Err("delayed chapter capacity".into());
+        }
+        let mut ids = BTreeSet::new();
+        for row in rows {
+            self.validate_delayed_registration(row)?;
+            if row.turn != self.state.rules.turn.number
+                || !self.is_live(row.issuer.controller)
+                || !ids.insert(row.issuer.id)
+            {
+                return Err("duplicate or expired delayed chapter registration".into());
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn register_delayed_chapter(&mut self, frame: Resolving) -> Result<(), String> {
+        self.validate_resolving(&frame)?;
+        if frame.cursor != 0 {
+            return Err("wrong delayed chapter cursor".into());
+        }
+        let issuer = frame.stack_id;
+        let row = DelayedChapterRegistration {
+            issuer: Box::new(frame.spell.clone()),
+            turn: self.state.rules.turn.number,
+        };
+        self.validate_delayed_registration(&row)?;
+        if self.is_live(row.issuer.controller) {
+            if self
+                .state
+                .rules
+                .delayed_chapters
+                .len()
+                .saturating_add(self.state.rules.effects.len())
+                >= self.effect_limit()
+            {
+                return Err("delayed chapter capacity".into());
+            }
+            self.state.rules.delayed_chapters.push(row);
+        }
+        self.finish_instruction(
+            frame,
+            InstructionOutcome::DelayedChapterRegistered { issuer },
+        )
+    }
+}

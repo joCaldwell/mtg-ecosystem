@@ -14,7 +14,7 @@ mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_entry;
 mod saga;
-pub use saga::{LifeChapter, life_chapters};
+pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
 mod fixed_creature_activation;
 pub use fixed_creature_activation::{
     FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
@@ -332,6 +332,7 @@ pub enum Capability {
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
     SagaChaptersV1,
+    DelayedControllerCreatureEntryV1,
     NormalLayoutV1,
     BasicLandManaV1,
     LandPlayV1,
@@ -750,6 +751,10 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    RegisterControllerCreatureEntryThisTurn {
+        program: Box<SpellProgram>,
+        source_block: u32,
+    },
     /// CR 702.85a: threshold comes from the originating spell, never paid cost.
     Cascade {
         threshold: CascadeThreshold,
@@ -1183,7 +1188,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::Cascade { source_block, .. }
+            Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
+            | Self::Cascade { source_block, .. }
             | Self::SearchBasicLandsSplit { source_block, .. }
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
@@ -1720,6 +1726,7 @@ pub enum CascadeThreshold {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
     /// CR 702.85a: functions on the casting spell itself, on the stack.
+    DelayedControllerCreatureEntry,
     SagaChapter {
         number: std::num::NonZeroU32,
     },
@@ -1966,6 +1973,7 @@ impl TriggerCondition {
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
+            Self::DelayedControllerCreatureEntry => "delayed_controller_creature_entry",
             Self::SagaChapter { .. } => "saga_chapter",
             Self::SelfSpellCast => "self_spell_cast",
             Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
@@ -2523,6 +2531,9 @@ impl Definition {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
+                TriggerCondition::DelayedControllerCreatureEntry => {
+                    Capability::DelayedControllerCreatureEntryV1
+                }
                 TriggerCondition::SagaChapter { .. } => Capability::SagaChaptersV1,
                 TriggerCondition::SelfSpellCast => Capability::CascadeV1,
                 TriggerCondition::SpellCast {
@@ -3492,6 +3503,10 @@ impl Definition {
                 return Err(
                     "cast-entry condition requires the entering creature's own trigger".into(),
                 );
+            }
+            if matches!(ability.condition, TriggerCondition::SagaChapter { .. }) {
+                validate_instruction_program(p)?;
+                continue;
             }
             if ability.condition == TriggerCondition::SelfBecomesTapped {
                 // The complete source and trigger shape was checked above.
@@ -4797,7 +4812,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::Cascade { .. }
+            Instruction::RegisterControllerCreatureEntryThisTurn { .. }
+            | Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
@@ -5323,6 +5339,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         ) {
             set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
+        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. } = instruction {
+            add_program_requirements(set, program);
+        }
         if matches!(instruction, Instruction::Cascade { .. }) {
             set.insert(Capability::ResolutionCastV1);
             set.insert(Capability::RandomBottomV1);
@@ -5349,6 +5368,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         set.insert(match instruction {
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
+            }
+            Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
+                Capability::DelayedControllerCreatureEntryV1
             }
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
@@ -7089,6 +7111,7 @@ mod tests {
             CastManaValueSweepV1,
             RandomBottomV1,
             SagaChaptersV1,
+            DelayedControllerCreatureEntryV1,
             NormalLayoutV1,
             BasicLandManaV1,
             LandPlayV1,
