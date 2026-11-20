@@ -879,6 +879,10 @@ impl Game {
                         (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
                             matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
                         }
+                        (
+                            Frame::RevealAndCast { progress },
+                            PlayerResponse::OptionalEffect { .. },
+                        ) => progress.permission().is_ok(),
                         (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
                             progress.stage == cascade::CascadeStage::Offer
                         }
@@ -915,7 +919,14 @@ impl Game {
                             Frame::TriggerTargets { .. },
                             PlayerResponse::PlayerTargets { players },
                         ) => players.len() == self.program().map_err(invalid)?.targets.len(),
-                        (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
+                        (
+                            Frame::ResolutionChoice {
+                                choice: ResolutionChoice::Demonstrate { first: Some(_), .. },
+                                ..
+                            },
+                            PlayerResponse::ChooseOpponent { .. },
+                        )
+                        | (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
                             Frame::ResolutionChoice { .. },
@@ -1172,7 +1183,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 38,
+                    context_version: 40,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),

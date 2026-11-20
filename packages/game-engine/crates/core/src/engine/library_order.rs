@@ -206,12 +206,12 @@ impl Game {
         if !perform {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        self.begin_library_shuffle(frame, player, source_block)
+        self.begin_player_library_shuffle(frame, player, source_block)
     }
 
     /// After any preceding zone movement, derive the shuffle range from the
     /// actual library. The current instruction owns the player and source block.
-    pub(super) fn begin_library_shuffle(
+    pub(super) fn begin_player_library_shuffle(
         &mut self,
         frame: Resolving,
         player: PlayerId,

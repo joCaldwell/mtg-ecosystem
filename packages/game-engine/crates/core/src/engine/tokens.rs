@@ -477,19 +477,34 @@ impl Game {
                     if (self.state.rules.tokens.contains_key(&original.card)
                         && original.card >= *id)
                         || stack_id.0 >= self.state.rules.next_stack_id
-                        || !original_definition
-                            .characteristics
-                            .has_type(CardKind::Creature)
-                        || !source.spell.as_ref().is_some_and(|p| {
+                    {
+                        return Err("snapshot spell copy identity order".into());
+                    }
+                    if t.source == *original
+                        && !self.state.rules.tokens.contains_key(&original.card)
+                        && source.triggered.iter().any(|trigger| {
+                            trigger.condition == TriggerCondition::SelfSpellCast
+                                && matches!(
+                                    trigger.program.instructions.as_slice(),
+                                    [Instruction::Demonstrate { .. }]
+                                )
+                        })
+                    {
+                        original_definition.clone()
+                    } else if original_definition
+                        .characteristics
+                        .has_type(CardKind::Creature)
+                        && source.spell.as_ref().is_some_and(|p| {
                             matches!(
                                 p.instructions.as_slice(),
                                 [Instruction::CopyControlledCreatureSpell { .. }]
                             )
                         })
                     {
+                        copied_creature_definition(original_definition)
+                    } else {
                         return Err("snapshot spell copy source invariant".into());
                     }
-                    copied_creature_definition(original_definition)
                 }
             };
             if t.definition != expected

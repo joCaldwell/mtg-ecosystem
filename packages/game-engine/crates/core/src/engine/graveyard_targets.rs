@@ -278,6 +278,6 @@ impl Game {
                 EventGroup::Simultaneous { occurrences },
             )?;
         }
-        self.begin_library_shuffle(frame, player, block)
+        self.begin_player_library_shuffle(frame, player, block)
     }
 }

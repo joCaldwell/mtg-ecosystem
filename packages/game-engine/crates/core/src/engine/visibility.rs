@@ -43,6 +43,13 @@ pub enum VisibleTriggerAbility {
         oracle_id: String,
         static_ability_index: u32,
     },
+    TemporaryGrant {
+        source: VisibleTarget,
+        oracle_id: String,
+        triggered_ability_index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effect: Option<EffectHandle>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -324,6 +331,11 @@ pub enum PlayerRequest {
         maximum: u32,
         candidates: Vec<VisibleSearchLand>,
     },
+    ChooseOpponent {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<PlayerId>,
+    },
     OptionalEffect {
         token: DecisionToken,
         player: PlayerId,
@@ -499,6 +511,7 @@ impl PlayerRequest {
             | Self::SearchLands { token, .. }
             | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
+            | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
@@ -591,6 +604,9 @@ pub enum PlayerResponse {
     },
     SearchLandBattlefield {
         object: ObjectHandle,
+    },
+    ChooseOpponent {
+        opponent: PlayerId,
     },
     OptionalEffect {
         perform: bool,
@@ -902,36 +918,53 @@ impl Game {
         ability: EffectiveTriggerAbility,
         grant: Option<&CascadeGrantProvenance>,
     ) -> Result<VisibleTriggerAbility, String> {
-        match ability {
+        let grant_source = match ability {
             EffectiveTriggerAbility::Intrinsic { index } => {
-                Ok(VisibleTriggerAbility::Intrinsic { index })
+                return Ok(VisibleTriggerAbility::Intrinsic { index });
             }
+            EffectiveTriggerAbility::Granted { grant_source, .. }
+            | EffectiveTriggerAbility::TemporaryGrant { grant_source, .. } => grant_source,
+        };
+        let grant = grant.ok_or("missing public grant provenance")?;
+        let source = VisibleTarget {
+            announced: grant
+                .source_handles
+                .get(viewer.0 as usize)
+                .ok_or("missing grant source handle")?
+                .clone(),
+            current: self.handle_for(viewer, grant_source).ok(),
+        };
+        let oracle_id = self
+            .state
+            .rules
+            .cards
+            .get(&grant_source.card)
+            .ok_or("missing grant physical source")?
+            .oracle_id
+            .clone();
+        Ok(match ability {
             EffectiveTriggerAbility::Granted {
-                grant_source,
                 static_ability_index,
-            } => {
-                let grant = grant.ok_or("missing public grant provenance")?;
-                Ok(VisibleTriggerAbility::Granted {
-                    source: VisibleTarget {
-                        announced: grant
-                            .source_handles
-                            .get(viewer.0 as usize)
-                            .ok_or("missing grant source handle")?
-                            .clone(),
-                        current: self.handle_for(viewer, grant_source).ok(),
-                    },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&grant_source.card)
-                        .ok_or("missing grant physical source")?
-                        .oracle_id
-                        .clone(),
-                    static_ability_index,
-                })
-            }
-        }
+                ..
+            } => VisibleTriggerAbility::Granted {
+                source,
+                oracle_id,
+                static_ability_index,
+            },
+            EffectiveTriggerAbility::TemporaryGrant {
+                effect,
+                triggered_ability_index,
+                ..
+            } => VisibleTriggerAbility::TemporaryGrant {
+                source,
+                oracle_id,
+                triggered_ability_index,
+                effect: self
+                    .effect_handle(viewer, &EffectKey::Resolved { id: effect })
+                    .ok(),
+            },
+            EffectiveTriggerAbility::Intrinsic { .. } => unreachable!(),
+        })
     }
     pub(super) fn player_entity(
         &self,
@@ -1544,7 +1577,7 @@ impl Game {
                 }),
             );
         }
-        if let Some(request) = self.cascade_request()? {
+        if let Some(request) = self.resolution_cast_request()? {
             if request.player() != viewer {
                 return Ok(None);
             }
@@ -1739,6 +1772,11 @@ impl Game {
                 Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
                     token,
                     player: viewer,
+                },
+                Request::ChooseOpponent { candidates, .. } => PlayerRequest::ChooseOpponent {
+                    token,
+                    player: viewer,
+                    candidates,
                 },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
@@ -2173,7 +2211,7 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 45))
-            } else if let Some(request) = self.cascade_request()?
+            } else if let Some(request) = self.resolution_cast_request()?
                 && request.player() == viewer
             {
                 let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
@@ -2509,6 +2547,9 @@ impl Game {
             PlayerResponse::OptionalEffect { perform } => {
                 Ok(Response::OptionalEffect { perform: *perform })
             }
+            PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
+                opponent: *opponent,
+            }),
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })
             }

@@ -156,7 +156,7 @@ impl Game {
         let LibraryPosition::NthFromTop(depth) = position;
         let index = ((depth.get() - 1) as usize).min(library.len());
         library.insert(index, object.card);
-        self.remember_public_tuck(movement.successor);
+        self.remember_public_library_position(movement.successor);
         Ok(EventOutcome::Moved { movement })
     }
 }

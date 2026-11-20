@@ -1093,7 +1093,7 @@ impl Reference {
             .as_deref()
             .ok_or("reference result observation")?;
         Ok(
-            serde_json::json!({"context":OldContext {context_version:38,observation,permitted_history:&[],open_decklists:&self.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}}),
+            serde_json::json!({"context":OldContext {context_version:40,observation,permitted_history:&[],open_decklists:&self.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}}),
         )
     }
 }

@@ -413,7 +413,7 @@ fn search_spool_every_prefix_and_result_matches_full_old_vec_and_generic_actual_
                 let Query::Search { sampling_seed, .. } = &query else {
                     unreachable!()
                 };
-                let full = serde_json::json!({"context":OldContext {context_version:38,observation:reference.observation.as_deref().unwrap(),permitted_history:&old,open_decklists:&reference.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}});
+                let full = serde_json::json!({"context":OldContext {context_version:40,observation:reference.observation.as_deref().unwrap(),permitted_history:&old,open_decklists:&reference.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}});
                 let old_meta = reference.result(&game).unwrap();
                 let new_meta = actual_result(&context).unwrap();
                 let expected = canonical(&full).unwrap();
