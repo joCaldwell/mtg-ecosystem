@@ -254,7 +254,8 @@ impl Game {
             ) => &frame.spell,
             (
                 _,
-                PlayerRequest::AnnounceX { .. }
+                PlayerRequest::HybridCost { .. }
+                | PlayerRequest::AnnounceX { .. }
                 | PlayerRequest::Modes { .. }
                 | PlayerRequest::Targets { .. }
                 | PlayerRequest::EntityTargets { .. }

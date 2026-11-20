@@ -164,6 +164,8 @@ pub struct VisibleStackEntry {
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_colors: Vec<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,6 +242,11 @@ pub struct AdditionalCostChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    OpeningPlacement {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     HandCast {
         token: DecisionToken,
         player: PlayerId,
@@ -293,6 +300,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
         previous_choices: Vec<ObjectHandle>,
+    },
+    HybridCost {
+        token: DecisionToken,
+        player: PlayerId,
+        symbols: Vec<ColorHybridSymbol>,
     },
     AnnounceX {
         token: DecisionToken,
@@ -529,9 +541,11 @@ impl PlayerRequest {
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
+            | Self::OpeningPlacement { token, .. }
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
             | Self::AdditionalCosts { token, .. }
+            | Self::HybridCost { token, .. }
             | Self::AnnounceX { token, .. }
             | Self::Modes { token, .. }
             | Self::CounterPlacementEffect { token, .. }
@@ -568,6 +582,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    OpeningPlacement {
+        object: Option<ObjectHandle>,
+    },
     AdditionalCosts {
         selected: Vec<String>,
     },
@@ -597,6 +614,9 @@ pub enum PlayerResponse {
     },
     LegendRule {
         keep: ObjectHandle,
+    },
+    HybridCost {
+        colors: Vec<Color>,
     },
     AnnounceX {
         value: Quantity,
@@ -1379,6 +1399,7 @@ impl Game {
         Ok(VisibleStackEntry {
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
+            hybrid_colors: instance.hybrid_colors.clone(),
             mana_value: instance
                 .x
                 .as_ref()
@@ -1560,6 +1581,16 @@ impl Game {
                     bottom_if_mulligan,
                     can_mulligan,
                 }),
+                Some(Request::OpeningPlacement {
+                    player, candidates, ..
+                }) if player == viewer => Some(PlayerRequest::OpeningPlacement {
+                    token,
+                    player,
+                    candidates: candidates
+                        .into_iter()
+                        .map(|id| self.handle_for(viewer, id))
+                        .collect::<Result<_, _>>()?,
+                }),
                 Some(Request::BottomOpening { player, count, .. }) if player == viewer => {
                     Some(PlayerRequest::BottomOpening {
                         token,
@@ -1603,6 +1634,21 @@ impl Game {
             } else {
                 Ok(None)
             };
+        }
+        if let Frame::HybridCost { .. } = self.state.rules.frame {
+            let top = self.top()?;
+            if top.controller != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(PlayerRequest::HybridCost {
+                token,
+                player: viewer,
+                symbols: self
+                    .definition(top.source.card)?
+                    .characteristics
+                    .hybrid_mana
+                    .clone(),
+            }));
         }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return Ok(
@@ -2381,6 +2427,9 @@ impl Game {
                     Frame::AdditionalCosts { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 20))
                     }
+                    Frame::HybridCost { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.rules.revision, 51))
+                    }
                     Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 18))
                     }
@@ -2559,6 +2608,9 @@ impl Game {
                     .collect::<Result<Vec<_>, String>>()?;
                 Ok(Response::AdditionalCosts { selected })
             }
+            PlayerResponse::HybridCost { colors } => Ok(Response::HybridCost {
+                colors: colors.clone(),
+            }),
             PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
                 value: value.clone(),
             }),
@@ -2699,6 +2751,12 @@ impl Game {
                     .collect::<Result<_, String>>()?,
             }),
             PlayerResponse::Mulligan { take } => Ok(Response::Mulligan { take: *take }),
+            PlayerResponse::OpeningPlacement { object } => Ok(Response::OpeningPlacement {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
+            }),
             PlayerResponse::BottomOpening { objects } => Ok(Response::BottomOpening {
                 objects: objects
                     .iter()

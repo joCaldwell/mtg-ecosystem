@@ -91,7 +91,7 @@ pub(super) fn choose(
         PlayerRequest::AdditionalCosts { .. } => {
             return Err("optional casting costs outside this completion policy".into());
         }
-        PlayerRequest::AnnounceX { .. } => {
+        PlayerRequest::HybridCost { .. } | PlayerRequest::AnnounceX { .. } => {
             return Err("X request unsupported by this completion policy".into());
         }
         PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
@@ -308,7 +308,9 @@ pub(super) fn choose(
             }
             PlayerResponse::DamageAllocation { allocations }
         }
-        PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+        PlayerRequest::OpeningPlacement { .. }
+        | PlayerRequest::Mulligan { .. }
+        | PlayerRequest::BottomOpening { .. } => {
             return Err("sample rollout unexpectedly entered opening setup".into());
         }
     })

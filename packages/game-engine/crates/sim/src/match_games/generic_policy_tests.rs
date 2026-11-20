@@ -78,6 +78,7 @@ mod reactive_tests {
             ("Goliath Sphinx", 2),
         ] {
             v.stack.push(mtg_core::VisibleStackEntry {
+                hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x: None,
                 mana_value: None,
@@ -249,6 +250,7 @@ mod wipe_tests {
         ] {
             v.objects.push(card(&c, name, 1, Zone::Stack));
             v.stack.push(mtg_core::VisibleStackEntry {
+                hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x,
                 mana_value: mv,
@@ -491,6 +493,7 @@ fn observation(view: PermittedView) -> Observation {
 fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = wipe_tests::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
+        hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,
         mana_value: None,
@@ -2313,6 +2316,7 @@ mod activated_permanent_tap_policy_tests {
         );
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
+            hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
             mana_value: None,
@@ -2490,6 +2494,7 @@ mod activated_headless_policy_tests {
     }
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
+            hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
             mana_value: None,
@@ -2855,6 +2860,7 @@ mod temporal_adept_policy_tests {
             );
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
+                hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x: None,
                 mana_value: None,

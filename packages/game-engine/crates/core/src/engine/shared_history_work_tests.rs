@@ -84,7 +84,7 @@ impl OwnedTask {
             return None;
         }
         Some(OwnedContext {
-            context_version: 41,
+            context_version: 42,
             observation: *observation.clone().unwrap(),
             permitted_history: history.clone(),
             open_decklists: decks.clone(),
@@ -184,7 +184,7 @@ fn shared_search_prefix_matches_old_owned_every_unit_and_all_budget_partitions()
                         assert_eq!(
                             saved,
                             canonical(&OldSaved {
-                                work_version: 41,
+                                work_version: 42,
                                 build_id: BUILD_ID,
                                 catalog_digest: &game.prepared.catalog_digest,
                                 state_sha256: &state_sha,
