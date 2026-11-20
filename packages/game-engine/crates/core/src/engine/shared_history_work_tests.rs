@@ -184,7 +184,7 @@ fn shared_search_prefix_matches_old_owned_every_unit_and_all_budget_partitions()
                         assert_eq!(
                             saved,
                             canonical(&OldSaved {
-                                work_version: 39,
+                                work_version: 42,
                                 build_id: BUILD_ID,
                                 catalog_digest: &game.prepared.catalog_digest,
                                 state_sha256: &state_sha,

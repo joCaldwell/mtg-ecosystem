@@ -153,7 +153,7 @@ impl Game {
         {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 43,
+                observation_version: 46,
                 decision_context: self.permitted_decision_context(viewer, b.decision.as_ref()),
                 view: b.view.clone(),
                 decision: b.decision.clone(),
@@ -633,7 +633,7 @@ fn compare_with_profile(game: &Game, query: Query, profile: Option<&mut LegalPro
                         assert_eq!(
                             saved,
                             canonical(&SavedWork {
-                                work_version: 39,
+                                work_version: 42,
                                 build_id: BUILD_ID.into(),
                                 catalog_digest: game.prepared.catalog_digest.clone(),
                                 state_sha256: state_sha256.clone(),
