@@ -48,6 +48,7 @@ mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
 mod graveyard_battlefield_return;
+mod graveyard_shuffle;
 mod group_discard;
 mod hand_return;
 #[cfg(test)]
