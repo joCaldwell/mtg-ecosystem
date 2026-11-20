@@ -78,6 +78,7 @@ mod counter_placement;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
+mod entry_copy;
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
@@ -85,6 +86,7 @@ pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
 mod staples;
 pub use counter_placement::*;
 use land_entry::{EntryOrigin, PreparedEntryAuthority};
+mod copiable_identity;
 mod spell_copy;
 mod tokens;
 pub use staples::VisibleSearchLand;
@@ -943,6 +945,8 @@ struct Object {
     attachment_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     keyword_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    battlefield_entry_turn: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
@@ -1236,6 +1240,12 @@ pub enum Response {
     PlayHideawayLinked {
         object: Option<ObjectId>,
     },
+    EntryCopy {
+        object: Option<ObjectId>,
+    },
+    EntryAttachment {
+        object: ObjectId,
+    },
     OpeningPlacement {
         object: Option<ObjectId>,
     },
@@ -1405,6 +1415,18 @@ pub enum Request {
     PlayHideawayLinked {
         decision_id: u64,
         player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
+    EntryCopy {
+        decision_id: u64,
+        player: PlayerId,
+        source: ObjectId,
+        candidates: Vec<ObjectId>,
+    },
+    EntryAttachment {
+        decision_id: u64,
+        player: PlayerId,
+        source: ObjectId,
         candidates: Vec<ObjectId>,
     },
     OpeningPlacement {
@@ -1681,6 +1703,8 @@ impl Request {
             | Self::ManaColor { decision_id, .. }
             | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::EntryCopy { decision_id, .. }
+            | Self::EntryAttachment { decision_id, .. }
             | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::ChooseOpponent { decision_id, .. }
@@ -1730,6 +1754,8 @@ impl Request {
             | Self::ManaColor { player, .. }
             | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::EntryCopy { player, .. }
+            | Self::EntryAttachment { player, .. }
             | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
             | Self::ChooseOpponent { player, .. }
@@ -2565,6 +2591,7 @@ impl Game {
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
+                        battlefield_entry_turn: None,
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         lore_counters: Quantity::zero(),
@@ -2587,6 +2614,7 @@ impl Game {
             rules: RulesState {
                 mana_ability_uses: BTreeSet::new(),
                 tokens: BTreeMap::new(),
+                entry_copies: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(MatchState::new),
@@ -2762,7 +2790,7 @@ impl Game {
         let mut colors = self.intrinsic_mana_colors(object)?;
         let mixed = !colors.is_empty();
         if o.zone == Zone::Battlefield {
-            for ability in &self.definition(object.card)?.mana_abilities {
+            for ability in &self.copiable_definition(object)?.mana_abilities {
                 for color in self.mana_colors(o.controller, &ability.production)? {
                     if !mixed || !colors.contains(&color) {
                         colors.push(color);
@@ -2779,6 +2807,7 @@ impl Game {
         }
         Ok(colors)
     }
+    /// Immutable physical card or generated token definition, independent of zone copies.
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
         if let Some(token) = self.state.rules.tokens.get(&card) {
             return Ok(&token.definition);
@@ -2826,7 +2855,7 @@ impl Game {
         self.selected_program(self.root_program_for(stack)?, stack.mode)
     }
     fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
-        let definition = self.definition(stack.source.card)?;
+        let definition = self.copiable_definition(stack.source)?;
         match &stack.kind {
             StackKind::Spell
                 if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow) =>
@@ -3019,7 +3048,7 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 symbols: self
-                    .definition(self.top()?.source.card)?
+                    .copiable_definition(self.top()?.source)?
                     .characteristics
                     .hybrid_mana
                     .clone(),
@@ -3485,7 +3514,8 @@ impl Game {
                 let immediate_cost = match &entry.kind {
                     StackKind::Activated { ability, .. } => {
                         matches!(
-                            self.definition(entry.source.card)?.activated[*ability as usize].cost,
+                            self.copiable_definition(entry.source)?.activated[*ability as usize]
+                                .cost,
                             ActivationCost::TapSource | ActivationCost::SacrificePermanent { .. }
                         )
                     }
@@ -3635,6 +3665,13 @@ impl Game {
                         .ok_or("instruction cursor resource limit")?;
                     self.state.rules.frame = Frame::Resolve { frame };
                 } else {
+                    if stack.kind.is_spell()
+                        && program.resolution == SpellResolution::Permanent
+                        && self.current(stack.source).is_ok()
+                        && self.begin_copy_entry(&frame, stack.source)?
+                    {
+                        return Ok(());
+                    }
                     self.finish_spell(&stack, true)?;
                 }
             }
@@ -3694,7 +3731,11 @@ impl Game {
             if destination == Zone::Battlefield
                 && !bestow_fallback
                 && (stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
-                    || self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"])
+                    || self
+                        .copiable_definition(stack.source)?
+                        .characteristics
+                        .subtypes
+                        == ["Aura"])
             {
                 self.finish_spell_aura_entry(
                     stack.source,
@@ -3723,6 +3764,13 @@ impl Game {
         {
             return Err("unsupported resolving-source movement".into());
         }
+        self.complete_spell_resolution(stack, resolved)
+    }
+    fn complete_spell_resolution(
+        &mut self,
+        stack: &StackInstance,
+        resolved: bool,
+    ) -> Result<(), String> {
         self.record_event(Event::SpellCompleted {
             stack_id: stack.id,
             resolved,
@@ -3786,7 +3834,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 70,
+            snapshot_version: 71,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3828,7 +3876,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 70
+        if s.snapshot_version != 71
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3881,6 +3929,13 @@ impl Game {
             return Err("life freeze requires a live player and a supporting catalog".into());
         }
         let s = &self.state;
+        if s.rules.objects.values().any(|object| {
+            object.battlefield_entry_turn.is_some_and(|turn| {
+                object.zone != Zone::Battlefield || turn == 0 || turn > s.rules.turn.number
+            })
+        }) {
+            return Err("invalid battlefield entry turn".into());
+        }
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.
         if s.rules.players.len() != 4
@@ -3937,6 +3992,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
+        self.validate_entry_copy_identities()?;
         self.validate_attachment_state()?;
         self.validate_control_state()?;
         self.validate_hideaway_links()?;

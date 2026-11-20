@@ -169,6 +169,9 @@ impl Strategy<'_> {
             PlayerRequest::CascadeLandEntry { .. } => {
                 return Err("cascade land entry outside this policy admission".into());
             }
+            PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. } => {
+                return Err("copied entry outside this policy admission".into());
+            }
             PlayerRequest::Hideaway { .. } | PlayerRequest::PlayHideawayLinked { .. } => {
                 return Err("hideaway choices outside this policy admission".into());
             }
