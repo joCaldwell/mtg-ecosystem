@@ -579,6 +579,8 @@ successful payment; declared attacks use the real declaration batch. Ordinary
 step, death, ETB, draw/discard and combat/noncombat-damage families each retain
 strict source/program validation.
 
+Combat-damage triggers can offer one private hand cast, retaining additional costs.
+
 Live battlefield static grants add independent cascade instances to completed spells
 of the source's current controller using disjoint mana-value, first-cast or
 first-from-exile predicates. A constant four-seat ledger counts every successful

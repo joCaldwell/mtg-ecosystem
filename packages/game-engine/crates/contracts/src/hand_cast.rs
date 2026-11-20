@@ -122,6 +122,21 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let op = json!({"required":["op"],"properties":{"op":{"const":"offer_hand_cast_without_mana_cost"}}});
     let uses = json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":op}}});
     let ability = json!({"required":["program"],"properties":{"program":uses}});
+    use Capability::{
+        BaseCreatureV1, CastCreatureV1, CombatHandCastV1, DamageTriggerV1, FlyingV1,
+        NormalLayoutV1, ResolutionCastV1, TriggeredAbilityV1,
+    };
+    let allowed = [
+        NormalLayoutV1,
+        BaseCreatureV1,
+        CastCreatureV1,
+        FlyingV1,
+        TriggeredAbilityV1,
+        DamageTriggerV1,
+        ResolutionCastV1,
+        CombatHandCastV1,
+    ];
+    let exact_caps = json!({"minItems":allowed.len(),"maxItems":allowed.len(),"uniqueItems":true,"items":{"enum":allowed}});
     let cap = json!({"contains":{"const":Capability::CombatHandCastV1}});
     let trigger = combat_hand_cast_trigger();
     let program = json!({"required":["instructions"],"properties":{
@@ -141,7 +156,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "if":{"anyOf":[{"properties":{"capabilities":cap}},{"required":["triggered"],"properties":{"triggered":{"contains":ability}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":"combat damage to a player, you may cast a spell from your hand"}}}}}]},
         "then":{"required":["triggered","spell","keywords"],"properties":{
-            "capabilities":cap,"keywords":{"const":["flying"]},"x_mana_cost":{"const":false},
+            "capabilities":exact_caps,"keywords":{"const":["flying"]},"x_mana_cost":{"const":false},
             "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0},
                 "legendary":{"const":false},"basic":{"const":false},"snow":{"const":false}}},
             "activated":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},

@@ -2049,7 +2049,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if matches!(effects.as_slice(), [sentence] if matches!(sentence.steps.as_slice(), [Step::PlayCard {..}]))
+                        let ability = if block == 1
+                            && condition.is_none()
+                            && combat_hand_cast::is_offer(effects)
                         {
                             mtg_contracts::combat_hand_cast_trigger()
                         } else if let Some(ability) = source_tap_trigger.take() {

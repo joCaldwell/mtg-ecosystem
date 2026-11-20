@@ -3,6 +3,32 @@ use super::*;
 use crate::bindings::Bindings;
 use serde_json::{Value, json};
 
+pub(super) fn is_offer(effects: &[Sentence]) -> bool {
+    let [
+        Sentence {
+            condition: None,
+            condition_kind: None,
+            bindings,
+            steps,
+        },
+    ] = effects
+    else {
+        return false;
+    };
+    let [
+        Step::PlayCard {
+            instruction,
+            optional: true,
+        },
+    ] = steps.as_slice()
+    else {
+        return false;
+    };
+    bindings.is_empty()
+        && *instruction
+            == mtg_contracts::combat_hand_cast_ast()[1]["effects"][0]["steps"][0]["instruction"]
+}
+
 pub(super) fn bind(
     definition: &Definition,
     source: &Value,
