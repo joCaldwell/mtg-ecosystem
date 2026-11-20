@@ -2559,7 +2559,7 @@ impl Game {
                         announced,
                         current: self.handle_for(viewer, source).ok(),
                     },
-                    oracle_id: self.definition(source.card)?.oracle_id.clone(),
+                    oracle_id: self.visible_ability_oracle_id(source)?.into(),
                     controller: row.issuer.controller,
                 },
                 chapter: row.chapter()?,
