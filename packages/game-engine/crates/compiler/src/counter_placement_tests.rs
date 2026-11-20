@@ -122,14 +122,3 @@ fn counter_placement_parameterized_lowering_and_isolated_boundary_negatives() {
         }
     }
 }
-
-#[test]
-fn counter_placement_complete_distributed_producer_stays_unsupported() {
-    // Abzan Charm's complete modal/distribution source is a later M6 family;
-    // it must not be serialized as a series of singleton replacement events.
-    let result = compile(
-        MANIFEST,
-        include_str!("../../../tests/fixtures/ramos/4137a22c-f793-4e27-a9b2-72740a6e2121.json"),
-    );
-    assert!(!matches!(result, CompileResult::Lowered { .. }));
-}

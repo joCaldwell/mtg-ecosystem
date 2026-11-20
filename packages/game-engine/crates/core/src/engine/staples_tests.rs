@@ -1686,6 +1686,36 @@ fn paid_target_graveyard_shuffle_moves_distinct_opposing_cards_and_replays_owner
         g.respond(r.player(), r.decision_id(), Response::Pass)
             .unwrap();
     }
+    let destination = Zone::Library { owner };
+    let batch = EventGroup::Simultaneous {
+        occurrences: selected
+            .iter()
+            .map(|object| ProposedEvent::Move {
+                object: *object,
+                destination,
+            })
+            .collect(),
+    };
+    let committed = g
+        .trace()
+        .records
+        .iter()
+        .find_map(|record| match &record.record {
+            EvidenceRecord::Batch { batch: committed } if committed.group == batch => {
+                Some(committed)
+            }
+            _ => None,
+        })
+        .expect("both graveyard cards must move in one simultaneous batch");
+    assert_eq!(committed.occurrences.len(), selected.len());
+    for (occurrence, old) in committed.occurrences.iter().zip(&selected) {
+        assert!(
+            matches!(&occurrence.actual, EventOutcome::Moved { movement }
+            if movement.previous == *old
+                && movement.from == Zone::Graveyard { owner }
+                && movement.destination == destination)
+        );
+    }
     for old in selected {
         let current = g.object_id(old.card).unwrap();
         assert_ne!(old, current);

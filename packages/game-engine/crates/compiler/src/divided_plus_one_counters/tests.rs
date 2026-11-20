@@ -3,6 +3,8 @@ use crate::tests::changed_source;
 use std::io::{BufRead, BufReader};
 
 const HEADER: &str = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+const ABZAN_CHARM: &str =
+    include_str!("../../../../tests/fixtures/ramos/4137a22c-f793-4e27-a9b2-72740a6e2121.json");
 const DIGEST: &str = "8ab640fe165d73efaae0ad2bacb625a5bbadae97df2e4e2d4544fe0332590f8e";
 
 fn synthetic() -> String {
@@ -196,6 +198,19 @@ fn divided_plus_one_counters_complete_source_and_diagnostics() {
     }
 }
 
+fn check_frozen(raw: &str) {
+    assert_eq!(sha256(raw.as_bytes()), DIGEST);
+    let d = check(raw);
+    assert_eq!(d.name, "Abzan Charm");
+    assert_eq!(d.oracle_id, "4137a22c-f793-4e27-a9b2-72740a6e2121");
+    assert_eq!(d.provenance.source_index, 9808);
+}
+
+#[test]
+fn divided_plus_one_counters_complete_frozen_abzan_charm() {
+    check_frozen(ABZAN_CHARM.trim_end_matches('\n'));
+}
+
 #[test]
 fn divided_plus_one_counters_frozen_archive_probe() {
     let Some(path) = std::env::var_os("MTG_DIVIDED_PLUS_ONE_COUNTERS_ARCHIVE_PROBE") else {
@@ -213,9 +228,5 @@ fn divided_plus_one_counters_frozen_archive_probe() {
         assert!(rows.next().is_none());
         first
     };
-    assert_eq!(sha256(raw.as_bytes()), DIGEST);
-    let d = check(&raw);
-    assert_eq!(d.name, "Abzan Charm");
-    assert_eq!(d.oracle_id, "4137a22c-f793-4e27-a9b2-72740a6e2121");
-    assert_eq!(d.provenance.source_index, 9808);
+    check_frozen(&raw);
 }
