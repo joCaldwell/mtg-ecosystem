@@ -20,7 +20,7 @@ export interface CardBindingInput {
 
 export type BindingPhase = "payment" | "resolution" | "continuous" | "trigger-match" | "replacement-match";
 export type BindingCardinality = "one" | "many" | "unknown";
-export type SymbolicAmount = Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" }>;
+export type SymbolicAmount = Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" | "prevention-event-quantity" }>;
 /** `implicit` is a player relation printed inside a filter ("an opponent
  * controls", "you don't control"). */
 export type ReferenceExpression = ObjectRef | CascadeExiledCards | { ref: "affected-object" } | { ref: "those-counters" } | { recipient: "they" } | PlayerRef | SymbolicAmount
@@ -128,6 +128,14 @@ export type BindingNode = NodeBase & (
   | { node: "recipient-member"; scope: string; group: string; use: "damage-amount" }
   | { node: "devotion"; scope: string; who: string; colors: Extract<Amount, { amount: "devotion" }>["colors"] }
   /** The proposed event and the scalar change made when this replacement applies. */
+  | { node: "event-participant"; scope: string; event: string; cardinality: "one";
+      role: "proposed-damage-recipient" | "prevented-damage-recipient" | "proposed-move-object" }
+  | { node: "exile-replacement"; scope: string; object: string; filter?: string;
+      from: "battlefield"; originalDestination: "graveyard"; exileEvent: string; reflexiveTrigger?: string }
+  | { node: "performed-action-trigger"; scope: string; event: string; outcome: "actually-exiled" }
+  /** CR 615.5: apply the follow-up to the same recipient using the amount actually prevented. */
+  | { node: "prevention-outcome"; scope: string; targetFilter: string; kind: "all" | "combat" | "noncombat";
+      prevented: string; recipient: string; followup: string }
   | { node: "quantity-replacement"; scope: string; source: string; match: ReplacementInstruction["event"];
       change: Extract<ReplacementInstruction["replace"], { replacement: "modify-quantity" }>["change"];
       unit: "token-specification" | "mana-specification" | "damage-source-and-recipient" | "life-source-and-recipient" | "counter-kind-and-recipient";
@@ -233,7 +241,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

@@ -156,11 +156,12 @@ function replacementPlayer(player: PlayerRef | undefined): boolean {
   return player !== undefined && ["you", "a-player", "an-opponent"].includes(player.player);
 }
 
-function replacementObject(object: ObjectRef | PlayerRef | undefined): boolean {
+function replacementObject(object: ObjectRef | PlayerRef | undefined, excludeRecipient = false): boolean {
   if (!object || !("ref" in object)) return false;
   if (object.ref === "equipped") return object.noun === "creature";
   return object.ref === "filter" && object.count.amount === "fixed" && object.count.value === 1 &&
-    Object.keys(object).length === 3 && Object.keys(object.filter).every(key => ["cls", "types", "supertypes", "control"].includes(key));
+    Object.keys(object).length === 3 && Object.keys(object.filter).every(key => ["cls", "types", "supertypes", "control"].includes(key) ||
+      (excludeRecipient && key === "otherThan" && isDeepStrictEqual(object.filter.otherThan, { ref: "replacement-event-object", role: "recipient" })));
 }
 
 function quantityUnit(event: ReplacementInstruction["event"]): QuantityUnit | undefined {
@@ -175,12 +176,14 @@ function quantityUnit(event: ReplacementInstruction["event"]): QuantityUnit | un
           (!event.quantity || event.quantity.value.amount === "fixed")) return "mana-specification";
       return;
     case "damage":
-      if (replacementObject(event.source) && event.to?.every(ref => "player" in ref ? replacementPlayer(ref) : replacementObject(ref)) !== false &&
+      if (replacementObject(event.source, event.kind === "combat" && event.to?.length === 1 &&
+          !("player" in event.to[0]) && replacementObject(event.to[0])) &&
+          event.to?.every(ref => "player" in ref ? replacementPlayer(ref) : replacementObject(ref)) !== false &&
           (!event.quantity || event.quantity.value.amount === "fixed")) return "damage-source-and-recipient";
       return;
     case "gain-life": return replacementPlayer(event.who) ? "life-source-and-recipient" : undefined;
     case "put-counters":
-      if (event.on.length > 0 && event.on.every(replacementObject) && (!event.by || replacementPlayer(event.by)) &&
+      if (event.on.length > 0 && event.on.every(ref => replacementObject(ref)) && (!event.by || replacementPlayer(event.by)) &&
           event.quantity.value.amount === "fixed") return "counter-kind-and-recipient";
       return;
   }
@@ -234,7 +237,7 @@ function resolutionCount(effect: Effect, path: string): Context["resolutionCount
 type StaticRule = Extract<StaticEffect, { static: "prohibit" | "untap-during-step" | "untap-step-limit" }>;
 
 type OptionalEntryCopy = EntryCopy & { model: Extract<EntryCopy["model"], { model: "choose" }>; optional: { who: PlayerRef } };
-type LinkedExileOrigin = { ability: string; path: string; imprint: boolean };
+type LinkedExileOrigin = { ability: string; path: string; imprint: boolean; rule: "607.2a" | "607.2b" };
 
 function ordinaryEntryCopy(effect: EntryCopy): effect is OptionalEntryCopy {
   const { what, model, optional, duration, changes, entryExceptions } = effect;
@@ -256,11 +259,41 @@ function seeksLinkedExile(value: unknown, imprint: boolean): boolean {
     Object.values(value).some(entry => seeksLinkedExile(entry, imprint));
 }
 
+/** A per-object move altered to exile, with only the supported follow-up shape. */
+function exileReplacementParts(replacement: ReplacementInstruction) {
+  const { event, replace } = replacement;
+  if (replacement.occurrence !== "each" || replacement.optional || replacement.condition ||
+      event.event !== "move-zone" || !isDeepStrictEqual(event.from, { zone: "battlefield" }) ||
+      !isDeepStrictEqual(event.to, { zone: "graveyard" }) || event.notControlledByBefore || event.resolving ||
+      event.what.ref !== "filter" || event.what.count.amount !== "fixed" || event.what.count.value !== 1 ||
+      !isDeepStrictEqual(event.what.filter.types, ["creature"]) ||
+      Object.keys(event.what.filter).some(key => !["nonToken", "types", "control"].includes(key)) ||
+      replace.replacement !== "effects" || replace.effects.length < 1 || replace.effects.length > 2 ||
+      replace.effects.some(sentence => Object.keys(sentence).length !== 1)) return;
+  const [exile, life] = replace.effects[0].steps;
+  if (exile?.effect !== "exile" || Object.keys(exile).length !== 2 ||
+      !isDeepStrictEqual(exile.what, { ref: "replacement-event-object", role: "affected" }) ||
+      replace.effects[0].steps.length > 2) return;
+  if (life && (life.effect !== "gain-life" || life.who.player !== "you" || life.amount.amount !== "fixed" ||
+      Object.keys(life).length !== 3 || replace.effects.length !== 1)) return;
+
+  const followup = replace.effects[1]?.steps[0];
+  if (replace.effects.length === 2 && (replace.effects[1].steps.length !== 1 ||
+      followup?.effect !== "create-reflexive-trigger" || Object.keys(followup).length !== 3 ||
+      !isDeepStrictEqual(followup.event, { event: "preceding-action", who: { player: "you" }, performed: true }))) return;
+  return { event, exile, life, followup };
+}
+
 function linkedExileOrigin(abilities: Ability[], siblings: string): LinkedExileOrigin | undefined {
   const possible = abilities.flatMap((ability, index) => containsEffect(ability, "exile") ||
     containsEffect(ability, "scan-library") || containsEffect(ability, "exile-until") ? [{ ability, index }] : []);
   if (possible.length !== 1) return;
   const [{ ability, index }] = possible;
+  if (ability.kind === "static" && ability.effect.static === "replacement" &&
+      exileReplacementParts(ability.effect.replacement) && abilities.some(other => other !== ability && seeksLinkedExile(other, false))) {
+    return { ability: `${siblings}/${index}`, path: `${siblings}/${index}/effect/replacement/replace/effects/0/steps/0`,
+      imprint: false, rule: "607.2b" };
+  }
   if ((ability.kind !== "activated" && ability.kind !== "triggered") || ability.effects.length !== 1) return;
   const [sentence] = ability.effects;
   if (sentence.steps.length !== 1 || sentence.condition || sentence.otherwise || sentence.afterConditional) return;
@@ -269,7 +302,7 @@ function linkedExileOrigin(abilities: Ability[], siblings: string): LinkedExileO
       (exile.what.ref !== "target" && exile.what.ref !== "filter") || objectCardinality(exile.what) !== "one") return;
   const imprint = ability.abilityWord === "Imprint";
   if (!abilities.some(entry => entry !== ability && seeksLinkedExile(entry, imprint))) return;
-  return { ability: `${siblings}/${index}`, path: `${siblings}/${index}/effects/0/steps/0`, imprint };
+  return { ability: `${siblings}/${index}`, path: `${siblings}/${index}/effects/0/steps/0`, imprint, rule: "607.2a" };
 }
 
 interface Context {
@@ -287,6 +320,8 @@ interface Context {
   /** A scope whose capture/antecedent rules are not implemented. */
   barrier?: string;
   replacementSubjectPath?: string;
+  exactEventObject?: { path: string; id: string; rules: string[] };
+  exactEventQuantity?: { path: string; id: string };
   eventPredicate?: true;
   sourceExclusionPath?: string;
   sacrificedCost?: Candidate;
@@ -827,6 +862,14 @@ class Analyzer {
     if (value.static === "prevent-damage" || value.effect === "prevent-damage" || value.choice === "damage-source"
       || value.amount === "prevention-event-quantity" || value.condition === "damage-prevented")
       this.engineFeature("damage-prevention", path, "Prevention needs the engine's future damage events, source-choice eligibility, shield consumption, and prevented quantities.", ["609.7", "615.5", "615.7", "615.8", "615.10", "615.12"]);
+    if (value.amount === "prevention-event-quantity" && value.quantity === "prevented" && !context.barrier &&
+        context.exactEventQuantity?.path === path) {
+      this.bound({ amount: "prevention-event-quantity", quantity: "prevented" }, path, context.exactEventQuantity.id, ["615.5", "615.12"]);
+      return;
+    }
+    if (value.static === "prevent-damage" &&
+        this.preventionOutcome((value as Extract<StaticEffect, { static: "prevent-damage" }>).prevention, child(path, "prevention"), context))
+      return;
     if ((value.static === "prohibit" || value.static === "untap-during-step" || value.static === "untap-step-limit") &&
         this.staticRule(value as unknown as StaticRule, path, context)) return;
     if (value.static === "look-permission" && this.privateLibraryLook(value.permission as LookPermission, path, context)) return;
@@ -1131,7 +1174,8 @@ class Analyzer {
       } else if (context.permanentSource && !context.barrier && !context.sourceMoved &&
           (path === context.sourceExclusionPath || (!context.mentionedObject && this.onlySource(context))))
         this.bound({ ref: "self" }, child(path, "other"), context.source,
-          path === context.sourceExclusionPath ? ["201.5", "602.2b", "701.21a"] : ["201.5"]);
+          path !== context.sourceExclusionPath ? ["201.5"]
+            : context.phase === "replacement-match" ? ["201.5", "615.1a"] : ["201.5", "602.2b", "701.21a"]);
       else this.diagnostic("unsupported-reference", child(path, "other"), "The excluded antecedent of other/another is unresolved.", ["201.5"]);
     }
     // CR 702.33e: "kicked" refers to the kicker ability printed on the object;
@@ -1416,7 +1460,7 @@ class Analyzer {
     if (context.barrier || context.sourceMoved || !origin || context.lexicalAbilityPath === origin.ability ||
         !isRecord(filter.source) || (filter.source.ref !== "self" && filter.source.ref !== "this")) return false;
     this.walkChildren(filter, path, context);
-    const rules = ["400.7", "607.2a", "607.3", "607.5"];
+    const rules = ["400.7", origin.rule, "607.3", "607.5"];
     this.node({ id: this.id(path, "linked-exile-filter"), path, node: "linked-exile-filter", scope: context.ability,
       pool: this.id(origin.path, "linked-exile-pool"), rules });
     return true;
@@ -1587,6 +1631,72 @@ class Analyzer {
       "Allow only the bound viewer to inspect the current top card, after any in-progress casting, activation, or special action finishes.", rules);
     return true;
   }
+  private exileReplacement(replacement: ReplacementInstruction, path: string, context: Context): boolean {
+    const parts = !context.barrier && context.permanentSource ? exileReplacementParts(replacement) : undefined;
+    if (!parts) return false;
+
+    const rules = ["400.6", "400.7", "614.1a", "614.5", "614.6", "616.1"];
+    const proposal = this.id(path, "exile-replacement");
+    const at = `${path}/event/what`;
+    const match = this.object(parts.event.what, at, { ...context, phase: "replacement-match" });
+    const exilePath = `${path}/replace/effects/0/steps/0`;
+    const exileEvent = this.id(exilePath, "event");
+    const object = this.node({ id: this.id(at, "affected"), path: at, node: "event-participant",
+      scope: context.ability, event: proposal, role: "proposed-move-object", cardinality: "one", rules });
+    const followup = parts.followup ? `${path}/replace/effects/1/steps/0` : undefined;
+    this.node({ id: proposal, path, node: "exile-replacement", scope: context.ability, object, filter: match?.id,
+      from: "battlefield", originalDestination: "graveyard", exileEvent,
+      ...(followup ? { reflexiveTrigger: this.id(followup, "ability") } : {}), rules });
+    const execution: Context = { ...context, phase: "resolution",
+      exactEventObject: { path: child(exilePath, "what"), id: object, rules } };
+    this.effect(parts.exile, exilePath, execution);
+    if (parts.life) this.effect(parts.life, `${path}/replace/effects/0/steps/1`, execution);
+    if (parts.followup?.effect === "create-reflexive-trigger" && parts.followup.event.event === "preceding-action" && followup) {
+      const triggerRules = ["603.12", "614.6"];
+      this.walk(parts.followup.event.who, `${followup}/event/who`, execution);
+      this.node({ id: this.id(followup, "performed-exile"), path: `${followup}/event`, node: "performed-action-trigger",
+        scope: context.ability, event: exileEvent, outcome: "actually-exiled", rules: triggerRules });
+      const trigger = this.nestedAbility(followup, execution, "reflexive-triggered", triggerRules);
+      this.sentences(parts.followup.effects, child(followup, "effects"), trigger);
+    }
+    this.engineFeature("zone-replacement", path,
+      "Replace each matching proposed battlefield-to-graveyard move with exile and execute the printed follow-up.", rules);
+    return true;
+  }
+
+  private preventionOutcome(prevention: Extract<StaticEffect, { static: "prevent-damage" }>["prevention"],
+    path: string, context: Context): boolean {
+    const { shield, eventScope, kind, to, after } = prevention;
+    if (context.barrier || !context.permanentSource || context.phase !== "continuous" ||
+        Object.keys(prevention).some(key => !["shield", "eventScope", "kind", "to", "after"].includes(key)) ||
+        !isDeepStrictEqual(shield, { shield: "events", occurrence: "each", prevent: { prevent: "all" } }) ||
+        eventScope.sources !== "simultaneous" || eventScope.recipients !== "each" || to?.length !== 1 ||
+        !("ref" in to[0]) || to[0].ref !== "filter" || objectCardinality(to[0]) !== "one" ||
+        after?.length !== 1 || after[0].steps.length !== 1 || Object.keys(after[0]).length !== 1) return false;
+    const [step] = after[0].steps;
+    if (step.effect !== "put-counters" || Object.keys(step).some(key => !["effect", "on", "counter", "count"].includes(key)) ||
+        !isDeepStrictEqual(step.on, { ref: "prevention-event-object", role: "recipient" }) ||
+        !isDeepStrictEqual(step.count, { amount: "prevention-event-quantity", quantity: "prevented" })) return false;
+
+    const rules = ["120.4b", "615.1a", "615.5", "615.12"];
+    this.walk(to[0], `${path}/to/0`, { ...context, phase: "replacement-match", sourceExclusionPath: `${path}/to/0/filter` });
+    const filter = this.at(`${path}/to/0`);
+    if (!filter) return true;
+    const afterPath = `${path}/after/0/steps/0`;
+    const preventionId = this.id(path, "prevention");
+    const recipient = this.node({ id: this.id(child(afterPath, "on"), "recipient"), path: child(afterPath, "on"),
+      node: "event-participant", scope: context.ability, event: preventionId,
+      role: "prevented-damage-recipient", cardinality: "one", rules });
+    const prevented = this.eventResult(child(afterPath, "count"), preventionId, "quantity", "one", "measured-quantity");
+    const followup = this.id(afterPath, "event");
+    this.node({ id: preventionId, path, node: "prevention-outcome", scope: context.ability, targetFilter: filter.id,
+      kind, prevented: prevented.id, recipient, followup, rules });
+    this.effect(step, afterPath, { ...context, phase: "resolution",
+      exactEventObject: { path: child(afterPath, "on"), id: recipient, rules },
+      exactEventQuantity: { path: child(afterPath, "count"), id: prevented.id } });
+    return true;
+  }
+
   /** CR 614.5–7, 616.1: match the proposed event and modify its quantities.
    * The pattern's participants are predicates on that event, not selections. */
   quantityReplacement(replacement: ReplacementInstruction, path: string, context: Context): boolean {
@@ -1601,6 +1711,13 @@ class Analyzer {
 
     const scope: Context = { ...context, phase: "replacement-match" };
     const firstReference = this.result.references.length;
+    if (event.event === "damage" && event.source?.ref === "filter" && event.source.filter.otherThan) {
+      const at = `${path}/event/source/filter/otherThan`;
+      const recipient = this.node({ id: this.id(at, "proposed-damage-recipient"), path: at, node: "event-participant",
+        scope: context.ability, event: this.id(path, "quantity-replacement"), role: "proposed-damage-recipient",
+        cardinality: "one", rules: ["120.4b", "614.7a"] });
+      scope.exactEventObject = { path: at, id: recipient, rules: ["120.4b", "614.7a"] };
+    }
     this.walk(event, child(path, "event"), scope);
     const operands = this.result.references.slice(firstReference)
       .flatMap(reference => reference.binding === "bound" ? [reference.target] : []);
@@ -1855,6 +1972,9 @@ class Analyzer {
     if (grant.gained === "keyword" && grant.costDefinition) this.walk(grant.costDefinition, child(path, "costDefinition"), { ...granted, phase: "payment" });
   }
   object(expression: ObjectRef, path: string, context: Context): Candidate | undefined {
+    if (!context.barrier && context.exactEventObject?.path === path &&
+        (expression.ref === "replacement-event-object" || expression.ref === "prevention-event-object"))
+      return this.bound(expression, path, context.exactEventObject.id, context.exactEventObject.rules);
     if (expression.ref === "related" && expression.relation.relation === "event-result" &&
         expression.relation.event === "exile" && expression.filter.cls === "card" &&
         Object.keys(expression.filter).length === 1 && !context.barrier && !context.uncertainExileOrigin &&
@@ -3033,6 +3153,7 @@ class Analyzer {
       : subject.ref === "trigger-event-object" && context.triggerObject?.event === subject.event
         ? subject.event === "cast" ? "spell" : "ability" : undefined;
     if (!stack || objectCardinality(subject) !== "one") return false;
+    if (effect.effect === "change-targets" && effect.scope === "each") return false;
     if (effect.effect === "change-targets" && (effect.to || effect.newTarget)) return false;
     if (effect.effect === "copy-stack-object" && (effect.copyExceptions || effect.copyGrant ||
         effect.count.amount !== "fixed" || !Number.isSafeInteger(effect.count.value) || effect.count.value < 1 ||
@@ -3068,11 +3189,13 @@ class Analyzer {
       context.stackCopies = [...(context.stackCopies ?? []), { path, event, result, chooser: chooser.id, inlineRetarget: Boolean(effect.retarget) }];
       this.engineFeature("stack-instruction", path, "Create copies on the stack with inherited choices and the original ability source. Apply printed retargeting during creation.", rules);
     } else if (effect.effect === "change-targets" || effect.effect === "choose-new-targets") {
-      const rules = [effect.effect === "choose-new-targets" ? "115.7d" :
-        effect.scope === "all" ? "115.7a" : effect.scope === "one" ? "115.7b" : "115.7c", "115.7e", "115.7f"];
+      const changeScope = effect.effect === "change-targets" ? effect.scope : undefined;
+      if (changeScope === "each") return false;
+      const rules = [changeScope === undefined ? "115.7d"
+        : changeScope === "all" ? "115.7a" : changeScope === "one" ? "115.7b" : "115.7c", "115.7e", "115.7f"];
       this.node({ id: at, path, node: "stack-instruction", scope, subject: candidate.id, chooser: chooser.id,
-        action: effect.effect === "change-targets" ? { kind: effect.effect, scope: effect.scope }
-          : { kind: effect.effect, timing: "resolution" }, rules });
+        action: changeScope === undefined ? { kind: "choose-new-targets", timing: "resolution" }
+          : { kind: "change-targets", scope: changeScope }, rules });
       this.engineFeature("stack-instruction", path, "Apply the printed target-change procedure to the bound stack object, preserving modes and division.", rules);
     }
     return true;
@@ -3402,7 +3525,7 @@ class Analyzer {
       ...(effect.optional || context.decider ? { optional: true as const, ...(decider ? { decider } : {}) } : {}),
       ...(effect.forEach ? { repeated: "for-each" as const } : {}), ...(context.conditional ? { conditional: true as const } : {}) });
     if (effect.effect === "exile" && context.linkedExile?.path === path) {
-      const rules = ["400.7", "607.2a", "607.3", "607.5"];
+      const rules = ["400.7", context.linkedExile.rule, "607.3", "607.5"];
       this.node({ id: this.id(path, "linked-exile-pool"), path, node: "linked-exile-pool", scope: context.ability,
         source: context.source, producer: context.ability, event, membership: "still-in-exile",
         identity: "source-incarnation", cardinality: "many", rules });
@@ -3925,7 +4048,8 @@ class Analyzer {
           const at = `${path}/effect/replacement`;
           if (this.quantityReplacement(ability.effect.replacement, at, context) ||
               this.keepUnspentMana(ability.effect.replacement, at, context) ||
-              this.additionalStackCopy(ability.effect.replacement, at, context)) break;
+              this.additionalStackCopy(ability.effect.replacement, at, context) ||
+              this.exileReplacement(ability.effect.replacement, at, context)) break;
         }
         // "..., where X is ...": the static ability's own definition (CR 107.3c).
         if ("bindings" in ability.effect && Array.isArray(ability.effect.bindings)

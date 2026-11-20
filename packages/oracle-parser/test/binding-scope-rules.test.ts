@@ -577,11 +577,15 @@ describe("state reads and quantity replacements", () => {
     assert.ok(typeof recipient !== "string" && recipient.node === "selection" && recipient.selection === "event-participant-filter");
   });
 
-  it("rejects a replacement that needs an additional captured event role", () => {
+  it("binds the exact proposed damage recipient used in a replacement exclusion", () => {
     const graph = analyze("If another creature would deal combat damage to equipped creature, "
       + "it deals double that damage to equipped creature instead.\nEquip {2}", "Artifact — Equipment");
-    assert.ok(graph.diagnostics.some(d => d.code === "unsupported-scope" && d.path.endsWith("/abilities/0")));
-    assert.ok(!graph.nodes.some(node => node.node === "quantity-replacement"));
+    assert.equal(graph.referencesBound, true);
+    const replacement = graph.nodes.find(node => node.node === "quantity-replacement");
+    const recipient = bound(graph, "/replacement/event/source/filter/otherThan");
+    assert.ok(typeof recipient !== "string" && recipient.node === "event-participant");
+    assert.equal(recipient.role, "proposed-damage-recipient");
+    assert.equal(recipient.event, replacement?.id);
   });
 
   it("binds a devotion query's chosen color without claiming layered evaluation", () => {

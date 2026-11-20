@@ -719,3 +719,73 @@ describe("activation and declaration actors", () => {
     assert.ok(rejected.diagnostics.some(diagnostic => diagnostic.code === "unsupported-reference"));
   });
 });
+
+describe("per-event replacements and prevention", () => {
+  it("links an exile replacement to the eligible move and only the cards exiled by it", () => {
+    const graph = analyze("If a nontoken creature an opponent controls would die, instead exile it and you gain 2 life.\n"
+      + "{4}{B}{B}, {T}: Put target creature card exiled with this artifact onto the battlefield tapped under your control "
+      + "with two additional +1/+1 counters on it.", "Artifact");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "exile-replacement");
+    const pool = graph.nodes.find(node => node.node === "linked-exile-pool");
+    assert.ok(replacement && pool);
+    assert.equal(replacement.object, bound(graph, "/replace/effects/0/steps/0/what"));
+    assert.equal(pool.event, replacement.exileEvent);
+    assert.equal(pool.identity, "source-incarnation");
+    assert.ok(pool.rules.includes("607.2b"));
+  });
+
+  it("fires a reflexive token trigger only for the exile that actually happened", () => {
+    const graph = analyze("If a creature an opponent controls would die, exile it instead. "
+      + "When you do, create a 1/1 green Saproling creature token.", "Creature");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "exile-replacement");
+    const trigger = graph.nodes.find(node => node.node === "performed-action-trigger");
+    assert.ok(replacement?.reflexiveTrigger && trigger);
+    assert.equal(trigger.event, replacement.exileEvent);
+    assert.equal(trigger.outcome, "actually-exiled");
+  });
+
+  it("leaves distinct exile producers unlinked", () => {
+    const graph = analyze("If a nontoken creature an opponent controls would die, instead exile it and you gain 2 life.\n"
+      + "{2}: Exile target creature.\n{T}: Put target creature card exiled with this artifact onto the battlefield.",
+      "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "linked-exile-pool"));
+  });
+
+  it("requires a unique eligible object recipient for a source exclusion", () => {
+    const name = "Fixture";
+    const typeLine = "Artifact — Equipment";
+    const result = parseOracleText("If another creature would deal combat damage to equipped creature, "
+      + "it deals double that damage to equipped creature instead.", name, { typeLine, includeSourceProvenance: true });
+    assert.ok(result.ok);
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "static" && ability.effect.static === "replacement");
+    const event = ability.effect.replacement.event;
+    assert.ok(event.event === "damage" && event.to);
+    event.to.push({ player: "you" });
+    const graph = analyzeCardBindings({ identity: "fixture", source: { name, type_line: typeLine, layout: "normal" },
+      faces: [{ sourceFaceIndex: 0, result }] });
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "event-participant"));
+  });
+
+  it("applies the counter follow-up to the same recipient and the actual prevention amount", () => {
+    const graph = analyze("If damage would be dealt to another creature you control, prevent that damage. "
+      + "Put a +1/+1 counter on that creature for each 1 damage prevented this way.", "Creature");
+    boundCard(graph);
+    const prevention = graph.nodes.find(node => node.node === "prevention-outcome");
+    assert.ok(prevention);
+    assert.equal(prevention.recipient, bound(graph, "/after/0/steps/0/on"));
+    assert.equal(prevention.prevented, bound(graph, "/after/0/steps/0/count"));
+    assert.ok(graph.engineFeatures.some(feature => feature.feature === "damage-prevention" && feature.path.endsWith("/count")));
+  });
+
+  it("leaves prevention references unresolved outside the prevention follow-up", () => {
+    const graph = analyze("Prevent all damage that would be dealt to target creature this turn. "
+      + "Put a +1/+1 counter on that creature for each 1 damage prevented this way.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "prevention-outcome"));
+  });
+});
