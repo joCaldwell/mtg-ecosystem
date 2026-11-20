@@ -19,7 +19,7 @@ pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
 };
 mod color_hybrid_cost;
-pub use color_hybrid_cost::{ColorHybridSymbol, color_hybrid_cost};
+pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -377,6 +377,7 @@ pub enum Capability {
     ControlledCreatureDamageReplacementV1,
     NormalLayoutV1,
     ColorHybridCostV1,
+    PhyrexianCostV1,
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -2442,6 +2443,14 @@ impl Definition {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
         if !self.characteristics.hybrid_mana.is_empty() {
             set.insert(Capability::ColorHybridCostV1);
+            if self
+                .characteristics
+                .hybrid_mana
+                .iter()
+                .any(|s| s.colors.contains(&HybridPayment::PayTwoLife))
+            {
+                set.insert(Capability::PhyrexianCostV1);
+            }
         }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
@@ -7324,6 +7333,7 @@ mod tests {
             RandomBottomV1,
             NormalLayoutV1,
             ColorHybridCostV1,
+            PhyrexianCostV1,
             BasicLandManaV1,
             LandPlayV1,
             BaseCreatureV1,
