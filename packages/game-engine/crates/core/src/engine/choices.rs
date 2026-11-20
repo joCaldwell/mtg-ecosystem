@@ -456,6 +456,51 @@ impl Game {
         Ok(None)
     }
 
+    pub(super) fn valid_mixed_target_receipt(
+        &self,
+        entry: &StackInstance,
+        complete: bool,
+    ) -> Result<bool, String> {
+        let Some(children) = self.mixed_mode_children(entry)? else {
+            return Ok(false);
+        };
+        if !entry.player_targets.is_empty() {
+            return Ok(false);
+        }
+        let mut objects = 0;
+        let mut stack = 0;
+        let mut entities = 0;
+        for child in children {
+            let bound = match child.targets.first().map(|t| t.domain) {
+                None => continue,
+                Some(TargetDomain::CreatureOrPlaneswalker | TargetDomain::BattlefieldCreature) => {
+                    objects += 1;
+                    objects <= entry.targets.len()
+                }
+                Some(TargetDomain::StackSpell) => {
+                    stack += 1;
+                    stack <= entry.stack_targets.len()
+                }
+                Some(TargetDomain::AnyPlayer) => {
+                    let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(child) else {
+                        return Ok(false);
+                    };
+                    entities += 1;
+                    entities == 1 && self.graveyard_group_structure(&entry.entity_targets, maximum)
+                }
+                _ => return Ok(false),
+            };
+            if !bound {
+                return Ok(!complete
+                    && entry.targets.len() <= objects
+                    && entry.stack_targets.len() <= stack
+                    && entry.entity_targets.is_empty());
+            }
+        }
+        Ok(objects == entry.targets.len()
+            && stack == entry.stack_targets.len()
+            && entities == usize::from(!entry.entity_targets.is_empty()))
+    }
     pub(super) fn continue_spell_targeting(&mut self, cast: Casting) -> Result<Frame, String> {
         if self.mixed_mode_children(self.top()?)?.is_some() {
             self.spell_announcement_frame(cast)

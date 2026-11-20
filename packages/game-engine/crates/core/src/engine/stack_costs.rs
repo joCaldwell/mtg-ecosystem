@@ -468,6 +468,10 @@ impl Game {
             return Err("snapshot X/death LKI binding invariant".into());
         }
         let program = self.program_for(entry)?;
+        let mixed = self.mixed_mode_children(entry)?.is_some();
+        if mixed && !self.valid_mixed_target_receipt(entry, entry.paid.is_some())? {
+            return Err("malformed selected-mode target receipt".into());
+        }
         let stack_domain = program.targets.first().is_some_and(|target| {
             matches!(
                 target.domain,
@@ -477,8 +481,7 @@ impl Game {
             )
         });
         if !entry.stack_targets.is_empty() {
-            if !stack_domain
-                || !entry.targets.is_empty()
+            if (!mixed && (!stack_domain || !entry.targets.is_empty()))
                 || !entry.player_targets.is_empty()
                 || entry.stack_targets.len() > program.targets.len()
                 || entry.announced_stack_targets.len() != 4
@@ -493,7 +496,8 @@ impl Game {
         } else if !entry.announced_stack_targets.is_empty() {
             return Err("snapshot stack target announcement invariant".into());
         }
-        if stack_domain && (!entry.targets.is_empty() || !entry.player_targets.is_empty()) {
+        if !mixed && stack_domain && (!entry.targets.is_empty() || !entry.player_targets.is_empty())
+        {
             return Err("snapshot wrong target binding domain".into());
         }
         Ok(())

@@ -407,7 +407,15 @@ impl Game {
             return Err("unexpected spell effect source references".into());
         }
         let program = self.program_for(entry)?;
-        let graveyard = mtg_contracts::graveyard_shuffle::offered_by(program);
+        let mixed = self.mixed_mode_children(entry)?;
+        let graveyard = mixed
+            .as_ref()
+            .and_then(|children| {
+                children
+                    .iter()
+                    .find_map(|p| mtg_contracts::graveyard_shuffle::offered_by(p))
+            })
+            .or_else(|| mtg_contracts::graveyard_shuffle::offered_by(program));
         let damage = program
             .targets
             .first()
@@ -433,9 +441,9 @@ impl Game {
         }
         if !entry.entity_targets.is_empty() {
             if (!damage && graveyard.is_none())
-                || !entry.targets.is_empty()
+                || (mixed.is_none() && !entry.targets.is_empty())
                 || !entry.player_targets.is_empty()
-                || !entry.stack_targets.is_empty()
+                || (mixed.is_none() && !entry.stack_targets.is_empty())
                 || if let Some(maximum) = graveyard {
                     !self.graveyard_group_structure(&entry.entity_targets, maximum)
                 } else {
@@ -461,10 +469,11 @@ impl Game {
         } else if !entry.announced_entity_targets.is_empty() {
             return Err("snapshot entity announcement invariant".into());
         }
-        if (damage || graveyard.is_some())
+        if mixed.is_none()
+            && (damage || graveyard.is_some())
             && (!entry.targets.is_empty()
                 || !entry.player_targets.is_empty()
-                || !entry.stack_targets.is_empty())
+                || (mixed.is_none() && !entry.stack_targets.is_empty()))
         {
             return Err("snapshot wrong damage binding domain".into());
         }
