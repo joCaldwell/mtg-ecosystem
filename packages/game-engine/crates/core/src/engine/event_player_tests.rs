@@ -318,6 +318,7 @@ fn d2cb_synthetic_absent_actor_upkeep_draw_end_and_multiple_controller_apnap() {
             let mut g = Game::with_trace(p, mode);
             g.concede(PlayerId(0)).unwrap();
             let runtime = match step {
+                BeginningStep::PrecombatMain => TurnStep::PrecombatMain,
                 BeginningStep::Upkeep => TurnStep::Upkeep,
                 BeginningStep::Draw => TurnStep::Draw,
                 BeginningStep::End => TurnStep::End,

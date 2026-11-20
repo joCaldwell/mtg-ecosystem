@@ -158,6 +158,15 @@ impl Strategy<'_> {
                 }
                 PlayerResponse::ChooseManaAbility { ability }
             }
+            PlayerRequest::ManaCombination { total, .. } => PlayerResponse::ManaCombination {
+                amounts: [
+                    Quantity::zero(),
+                    Quantity::zero(),
+                    Quantity::zero(),
+                    Quantity::zero(),
+                    total.clone(),
+                ],
+            },
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
                 color: self
                     .mana_color

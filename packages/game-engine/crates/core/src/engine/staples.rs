@@ -219,6 +219,11 @@ impl Game {
             | Instruction::DrawControllerCards { .. }
             | Instruction::DrawCardsIfAdditionalCost { .. }
             | Instruction::DrawDamageAmount { .. } => Ok(frame.spell.controller),
+            Instruction::OptionalDrawForSoleGreatestEntrant { .. } => frame
+                .entrant_draw
+                .as_ref()
+                .map(|entrant| entrant.controller)
+                .ok_or_else(|| "missing resolved entrant".into()),
             _ => Err("not draw instruction".into()),
         }
     }
@@ -859,6 +864,22 @@ impl Game {
                 *player == frame.spell.controller
                     && b == source_block
                     && self.valid_colored_reveal(*player, colors, revealed.as_deref())
+            }
+            (
+                ResolutionChoice::OptionalDraw {
+                    player,
+                    source_block,
+                },
+                Instruction::OptionalDrawForSoleGreatestEntrant {
+                    source_block: expected,
+                },
+            ) => {
+                source_block == expected
+                    && self.is_live(*player)
+                    && frame
+                        .entrant_draw
+                        .as_ref()
+                        .is_some_and(|entrant| entrant.controller == *player)
             }
             (
                 ResolutionChoice::OptionalDraw {

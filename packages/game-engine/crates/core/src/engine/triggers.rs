@@ -138,6 +138,8 @@ pub enum TriggerEventWitness {
     /// CR 603.6a/603.10: the entrant as it appeared after the whole event.
     /// A move names its actual successor; a created token starts at incarnation 0.
     CreatureEnteredWithPower {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_appearance: Option<Box<ObjectBefore>>,
         entrant: Box<ObjectBefore>,
         movement: Option<MoveOutcome>,
     },
@@ -240,6 +242,7 @@ fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
         (step, turn.step),
         (BeginningStep::Upkeep, TurnStep::Upkeep)
             | (BeginningStep::Draw, TurnStep::Draw)
+            | (BeginningStep::PrecombatMain, TurnStep::PrecombatMain)
             | (BeginningStep::End, TurnStep::End)
     )
 }
@@ -807,6 +810,7 @@ impl Game {
                             )
                         {
                             power_entry = Some(TriggerEventWitness::CreatureEnteredWithPower {
+                                last_appearance:None,
                                 entrant: Box::new(entrant.clone()),
                                 movement: match &witness {
                                     TriggerEventWitness::Moved { movement } => {
@@ -890,7 +894,12 @@ impl Game {
                     TriggerCondition::AnyCreatureDies => creature && dies,
                     TriggerCondition::SelfEntersBattlefield => enters && Some(object.id) == subject,
                     TriggerCondition::OtherCreatureEntersBattlefield => {
-                        creature && enters && Some(object.id) != subject
+                        let matched=creature && enters && Some(object.id)!=subject;
+                        if matched && matches!(definition.program.instructions.as_slice(),[Instruction::OptionalDrawForSoleGreatestEntrant{..}]) {
+                            let entrant=observers.object_before(subject.ok_or("missing entrant identity")?)?;
+                            power_entry=Some(TriggerEventWitness::CreatureEnteredWithPower{entrant:Box::new(entrant.clone()),last_appearance:Some(Box::new(entrant)),movement:match &witness{TriggerEventWitness::Moved{movement}=>Some(movement.clone()),TriggerEventWitness::TokenEntered{..}=>None,_=>return Err("missing actual entry movement".into())}});
+                        }
+                        matched
                     }
                 };
                 let matches = matches
@@ -1703,6 +1712,18 @@ impl Game {
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
+        if matches!(
+            definition.program.instructions.as_slice(),
+            [Instruction::OptionalDrawForSoleGreatestEntrant { .. }]
+        ) && !matches!(
+            witness,
+            TriggerEventWitness::CreatureEnteredWithPower {
+                last_appearance: Some(_),
+                ..
+            }
+        ) {
+            return Err("missing greatest-power entrant evidence".into());
+        }
         let condition = &definition.condition;
         let valid = match witness {
             TriggerEventWitness::DelayedCreatureEntered {
@@ -1953,11 +1974,38 @@ impl Game {
                     && *at_tap == controller
                     && death_controller.is_none()
             }
-            TriggerEventWitness::CreatureEnteredWithPower { entrant, movement } => {
+            TriggerEventWitness::CreatureEnteredWithPower {
+                entrant,
+                movement,
+                last_appearance,
+            } => {
+                let special = matches!(
+                    definition.program.instructions.as_slice(),
+                    [Instruction::OptionalDrawForSoleGreatestEntrant { .. }]
+                );
+                if let Some(last) = last_appearance {
+                    self.validate_characteristic_identity(
+                        last.object,
+                        last.zone,
+                        &last.characteristics,
+                    )?;
+                    if last.object != entrant.object
+                        || last.owner != entrant.owner
+                        || last.zone != Zone::Battlefield
+                        || last.controller.0 >= 4
+                    {
+                        return Err("invalid entrant appearance".into());
+                    }
+                }
                 self.valid_creature_entry(entrant, movement.as_ref())?
+                    && special == last_appearance.is_some()
                     && death_controller.is_none()
-                    && matches!(condition, TriggerCondition::ControlledCreatureEntersWithPower { minimum_power, other }
-                        if power_entry_matches(minimum_power, *other, source, controller, entrant))
+                    && ((special
+                        && *condition == TriggerCondition::OtherCreatureEntersBattlefield
+                        && entrant.object != source
+                        && entrant.characteristics.has_type(CardKind::Creature))
+                        || matches!(condition, TriggerCondition::ControlledCreatureEntersWithPower { minimum_power, other }
+                        if power_entry_matches(minimum_power, *other, source, controller, entrant)))
             }
             TriggerEventWitness::Moved { movement: m } => {
                 self.state.rules.cards.contains_key(&m.previous.card)

@@ -58,6 +58,11 @@ function parseElidedPossessive(c: Cursor, g: ConditionGrammar): Condition | null
     if (!identified(value.of) || c.word("is") === null) return null;
     const degree = c.words("greater", "than") ? "gt" : c.words("less", "than") ? "lt" : null;
     if (!degree) return null;
+    if (c.words("each", "other")) {
+      if (!c.possessive("creature") || !c.word(value.attribute)) return null;
+      return { condition: "strict-attribute-extremum", what: value.of, attribute: value.attribute,
+        extremum: degree === "gt" ? "maximum" : "minimum", among: { types: ["creature"] } };
+    }
     const than = g.parsePossessiveObject(c);
     if (!identified(than)) return null;
     // A following characteristic word is the ordinary, unelided comparison.

@@ -50,6 +50,7 @@ impl Game {
             Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
                 CommanderContinuation::GraveyardShuffle { frame, .. }
                 | CommanderContinuation::HandReturn { frame, .. }
+                | CommanderContinuation::LookTopMana { frame, .. }
                 | CommanderContinuation::LibrarySelect { frame, .. }
                 | CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }

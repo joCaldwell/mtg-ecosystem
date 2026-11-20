@@ -20,6 +20,10 @@ pub(super) enum CommanderContinuation {
         choices: Vec<(ObjectId, bool)>,
         source_block: u32,
     },
+    LookTopMana {
+        frame: Resolving,
+        revealed: bool,
+    },
     LibrarySelect {
         frame: Resolving,
         looked: Vec<ObjectId>,
@@ -292,6 +296,9 @@ impl Game {
                     choices.push((object, to_command));
                 }
                 self.continue_hand_return(frame, objects, remaining, choices, source_block)?;
+            }
+            CommanderContinuation::LookTopMana { frame, revealed } => {
+                self.finish_look_top_mana(frame, object, revealed, to_command)?;
             }
             CommanderContinuation::LibrarySelect {
                 frame,
@@ -568,6 +575,16 @@ impl Game {
                         return Err("hand return commander destination".into());
                     }
                 }
+                CommanderContinuation::LookTopMana { frame, revealed } => {
+                    self.validate_resolving(frame)?;
+                    self.validate_look_top_mana_move(frame, *object, *revealed)?;
+                    if owner != frame.spell.controller
+                        || *destination != (Zone::Hand { owner })
+                        || current.zone != (Zone::Library { owner })
+                    {
+                        return Err("snapshot top card commander invariant".into());
+                    }
+                }
                 CommanderContinuation::LibrarySelect {
                     frame,
                     looked,
@@ -714,7 +731,8 @@ impl Game {
                                         || frame.draw_progress.is_some())
                             }
                             Some(
-                                Instruction::OptionalDrawCards { source_block: b }
+                                Instruction::OptionalDrawForSoleGreatestEntrant { source_block: b }
+                                | Instruction::OptionalDrawCards { source_block: b }
                                 | Instruction::OptionalDrawUnlessCasterPays {
                                     source_block: b, ..
                                 },

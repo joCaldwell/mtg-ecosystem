@@ -129,6 +129,7 @@ pub(super) fn plan(
             ManaProduction::CommanderColor => identity.clone(),
             ManaProduction::Choice { .. }
             | ManaProduction::OpponentLandColors
+            | ManaProduction::GreatestControlledPowerCombination
             | ManaProduction::EachPermanentColor { .. } => continue,
         };
         if colors.is_empty() {

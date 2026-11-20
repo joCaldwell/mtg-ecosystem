@@ -671,6 +671,13 @@ fn paid_hybrid_controller_grants_begin_only_after_resolution() {
         true,
     );
 }
+#[test]
+fn paid_phyrexian_symbol_debits_life_on_cast() {
+    hybrid_payment_witness(
+        include_str!("../../../../tests/fixtures/synthetic-ashen-lattice.json"),
+        false,
+    );
+}
 fn hybrid_payment_witness(raw: &str, grants: bool) {
     let mut p = prepared(
         &[
@@ -710,6 +717,16 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
         panic!("missing hybrid announcement")
     };
     assert_eq!(symbols.len(), 2);
+    let phyrexian = symbols[1].colors.contains(&HybridPayment::PayTwoLife);
+    let choices = vec![
+        HybridPayment::Mana(Color::G),
+        if phyrexian {
+            HybridPayment::PayTwoLife
+        } else {
+            HybridPayment::Mana(Color::W)
+        },
+    ];
+    let mut expected_life = g.state.rules.players[player.0 as usize].life.clone();
     let source = g.top().unwrap().source;
     for (actor, colors) in [
         (PlayerId(1), vec![Color::G, Color::W]),
@@ -717,8 +734,14 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
         (player, vec![Color::U, Color::G]),
     ] {
         assert!(
-            g.respond(actor, decision_id, Response::HybridCost { colors })
-                .is_err()
+            g.respond(
+                actor,
+                decision_id,
+                Response::HybridCost {
+                    colors: colors.into_iter().map(HybridPayment::Mana).collect()
+                }
+            )
+            .is_err()
         );
     }
     recover(&g);
@@ -726,17 +749,25 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
         player,
         decision_id,
         Response::HybridCost {
-            colors: vec![Color::G, Color::W],
+            colors: choices.clone(),
         },
     )
     .unwrap();
     let Request::Mana { cost, .. } = request(&mut g, 1) else {
         panic!("missing locked payment")
     };
-    assert_eq!(cost.colored, [Color::G, Color::W]);
-    assert_eq!(g.top().unwrap().hybrid_colors, [Color::G, Color::W]);
+    assert_eq!(
+        cost.colored,
+        choices.iter().filter_map(|c| c.color()).collect::<Vec<_>>()
+    );
+    assert_eq!(g.top().unwrap().hybrid_colors, choices);
+    assert_eq!(g.state.rules.players[player.0 as usize].life, expected_life);
     recover(&g);
     pay_and_resolve(&mut g, 1, vec![]);
+    if phyrexian {
+        expected_life.subtract(&2.into());
+    }
+    assert_eq!(g.state.rules.players[player.0 as usize].life, expected_life);
     let permanent = object(&g, 0);
     assert_ne!(permanent, source);
     if grants {
@@ -748,4 +779,194 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
     }
     assert_eq!(g.zone(permanent), Some(Zone::Battlefield));
     recover(&g);
+}
+
+#[test]
+fn paid_omnath_first_main_looks_reveals_and_puts_titanic_ultimatum_in_hand() {
+    let owner = PlayerId(0);
+    let mut p = prepared(
+        &[
+            ("Darksteel Plate", true),
+            ("Plains", false),
+            ("Island", false),
+            ("Mountain", false),
+            ("Forest", false),
+        ],
+        false,
+    );
+    // The ordinary draw step takes the first Forest. Omnath looks at the next card.
+    let top = p.config.initial_libraries()[&owner][1];
+    let catalog = Arc::make_mut(&mut p.catalog);
+    for (card, name, manifest, raw) in [
+        (
+            CardId(0),
+            "Omnath, Locus of All",
+            include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+            include_str!(
+                "../../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json"
+            ),
+        ),
+        (
+            top,
+            "Titanic Ultimatum",
+            mtg_compiler::fixtures::MANIFEST,
+            include_str!("../../../../tests/fixtures/0cd28580-d718-4d0b-96e3-a836c2911c27.json"),
+        ),
+    ] {
+        let result = mtg_compiler::compile(manifest, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("{result:?}")
+        };
+        assert_eq!(definition.name, name);
+        p.config.cards[card.0 as usize].oracle_id = definition.oracle_id.clone();
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    request(&mut g, 4096);
+    let mut life = g.state.rules.players[0].life.clone();
+    answer(&mut g, 4096, Response::Cast { card: CardId(0) });
+    answer(
+        &mut g,
+        4096,
+        Response::HybridCost {
+            colors: vec![HybridPayment::PayTwoLife],
+        },
+    );
+    let Request::Mana { cost, .. } = request(&mut g, 4096) else {
+        panic!("locked cast cost")
+    };
+    assert_eq!(cost.colored, [Color::W, Color::U, Color::R, Color::G]);
+    pay_and_resolve(&mut g, 4096, vec![]);
+    life.subtract(&2.into());
+    assert_eq!(g.state.rules.players[0].life, life);
+    assert!((1..=4).all(|id| g.current(object(&g, id)).unwrap().tapped));
+    assert_eq!(g.zone(object(&g, 0)), Some(Zone::Battlefield));
+
+    let next_turn = g.state.rules.turn.number + 4;
+    loop {
+        let r = request(&mut g, 4096);
+        assert!(g.state.rules.turn.number <= next_turn);
+        if matches!(r, Request::OptionalEffect {player,..} if player == owner) {
+            break;
+        }
+        let response = super::temporary_indestructible_tests::pass(&r);
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    assert_eq!(g.state.rules.turn.number, next_turn);
+    assert_eq!(g.state.rules.active, Some(owner));
+    assert_eq!(g.state.rules.turn.step, TurnStep::PrecombatMain);
+    let looked = g.library_prefix(owner, &1.into()).unwrap()[0];
+    assert_eq!(looked.card, top);
+    let oracle = g.definition(top).unwrap().oracle_id.clone();
+    let sees_card = |game: &Game, viewer| {
+        let QueryResult::Complete(QueryValue::Observation(o)) =
+            game.observe(viewer, Budget::unlimited())
+        else {
+            panic!("observation")
+        };
+        o.view.objects.iter().any(|o| o.oracle_id == oracle)
+            || o.view
+                .known_searched_hand
+                .iter()
+                .any(|(player, id)| *player == owner && id == &oracle)
+            || o.view
+                .known_library_positions
+                .iter()
+                .any(|p| p.oracle_id == oracle && p.position == 1 && p.library_owner == owner)
+    };
+    assert!(sees_card(&g, owner));
+    assert!(!sees_card(&g, PlayerId(1)));
+    recover(&g);
+    // Synthetic prior knowledge only. The ordinary privately looked and
+    // publicly revealed branches below retain their accepted-input proof.
+    let mut already_known = g.fork();
+    already_known.state.knowledge.visibility[1]
+        .public_tucked_cards
+        .insert(looked);
+    assert!(sees_card(&already_known, PlayerId(1)));
+    answer(
+        &mut already_known,
+        4096,
+        Response::OptionalEffect { perform: false },
+    );
+    request(&mut already_known, 4096);
+    assert_eq!(
+        already_known.zone(already_known.object_id(top).unwrap()),
+        Some(Zone::Hand { owner })
+    );
+    assert!(sees_card(&already_known, PlayerId(1)));
+    assert!(!sees_card(&already_known, PlayerId(2)));
+    let start = g.trace.records.len();
+    for reveal in [false, true] {
+        let mut branch = g.fork();
+        answer(
+            &mut branch,
+            4096,
+            Response::OptionalEffect { perform: reveal },
+        );
+        if reveal {
+            let Request::ManaCombination {
+                player,
+                total,
+                colors,
+                ..
+            } = request(&mut branch, 4096)
+            else {
+                panic!("reveal allocation")
+            };
+            assert_eq!(player, owner);
+            assert_eq!(total, 3.into());
+            assert_eq!(colors, [Color::W, Color::R, Color::G]);
+            assert!(sees_card(&branch, PlayerId(1)));
+            recover(&branch);
+            answer(
+                &mut branch,
+                4096,
+                Response::ManaCombination {
+                    amounts: [2_i64, 0, 0, 1, 0].map(Quantity::from),
+                },
+            );
+        }
+        assert!(
+            matches!(request(&mut branch,4096), Request::Priority {player,..} if player==owner)
+        );
+        assert_eq!(
+            branch.zone(branch.object_id(top).unwrap()),
+            Some(Zone::Hand { owner })
+        );
+        if !reveal {
+            assert!(!sees_card(&branch, PlayerId(1)));
+        }
+        for (color, n) in [Color::W, Color::U, Color::B, Color::R, Color::G]
+            .into_iter()
+            .zip([2_i64, 0, 0, 1, 0])
+        {
+            assert_eq!(
+                branch.mana(owner, color),
+                Some((if reveal { n } else { 0 }).into())
+            );
+        }
+        let mut reveals = 0;
+        for record in branch.trace.records.iter().skip(start) {
+            if let EvidenceRecord::Batch { batch } = &record.record {
+                assert!(!matches!(batch.cause, BatchCause::DrawStep { .. }));
+                for event in &batch.occurrences {
+                    assert!(!matches!(event.proposed, ProposedEvent::FailedDraw { .. }));
+                    if let EventOutcome::LibraryCardRevealed { player, object } = &event.actual {
+                        assert_eq!((*player, *object), (owner, looked));
+                        reveals += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(reveals, usize::from(reveal));
+        recover(&branch);
+    }
 }

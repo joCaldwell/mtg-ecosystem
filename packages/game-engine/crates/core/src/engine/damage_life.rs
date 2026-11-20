@@ -16,7 +16,22 @@ pub struct NoncombatDamageOccurrence {
     pub recipient: DamageRecipient,
     pub amount: Quantity,
 }
+fn update_entrant(w: &mut TriggerEventWitness, fact: &ObjectBefore) {
+    if let TriggerEventWitness::CreatureEnteredWithPower {
+        entrant,
+        last_appearance: Some(last),
+        ..
+    } = w
+        && entrant.object == fact.object
+        && fact.zone == Zone::Battlefield
+    {
+        **last = fact.clone();
+    }
+}
 fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
+    if let StackKind::Triggered { witness, .. } = &mut entry.kind {
+        update_entrant(witness, fact);
+    }
     if entry.source == fact.object && entry.source_facts.is_some() {
         entry.source_facts = Some(fact.clone());
     }
@@ -77,6 +92,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
             CommanderContinuation::GraveyardShuffle { frame, .. }
             | CommanderContinuation::HandReturn { frame, .. }
+            | CommanderContinuation::LookTopMana { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
@@ -152,6 +168,7 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
             CommanderContinuation::GraveyardShuffle { frame, .. }
             | CommanderContinuation::HandReturn { frame, .. }
+            | CommanderContinuation::LookTopMana { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
@@ -213,6 +230,7 @@ impl Game {
     pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         for trigger in &mut self.state.rules.pending_triggers {
+            update_entrant(&mut trigger.witness, fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }

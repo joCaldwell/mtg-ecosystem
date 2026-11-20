@@ -1235,6 +1235,15 @@ export type Effect = EffectBase &
     | { effect: "scan-library"; who: PlayerRef; operation: "reveal" | "exile";
         library: ZoneRef; until: { count: Amount; matching: ObjectFilter } }
     | { effect: "look-at"; who: PlayerRef; what: ObjectRef | LookTop }
+    /** Privately look at one top card. Offer to reveal it only if its mana cost
+     * meets the colored-symbol threshold (count each hybrid or Phyrexian symbol
+     * once). After a reveal, add the fixed amount in any combination of the
+     * card's colors. Both outcomes put that same card into hand (CR 105.2,
+     * 107.4e–f, 608.2c–d, 609.3, 701.20). */
+    | { effect: "look-top-may-reveal-for-mana"; who: { player: "you" };
+        library: { zone: "library"; owner: "your" };
+        revealIf: { op: "ge"; value: Extract<Amount, { amount: "fixed" }> };
+        mana: Extract<Amount, { amount: "fixed" }>; to: { zone: "hand"; owner: "your" } }
     | { effect: "fight"; a: ObjectRef; b: ObjectRef }
     /** CR 701.14a: two already identified creatures ("those creatures",
      * "the chosen creatures") fight each other; each deals damage equal to
@@ -2655,6 +2664,8 @@ export type Condition =
   | { condition: "targets"; what: ObjectRef; target: ObjectRef | PlayerRef }
   | { condition: "characteristic-relation"; what: ObjectRef; test: CharacteristicRelation }
   | { condition: "compare"; value: Amount; comparison: Comparison }
+  /** Compare the identified object with every other member, excluding its own incarnation. */
+  | { condition: "strict-attribute-extremum"; what: ObjectRef; attribute: "power" | "toughness"; extremum: "maximum" | "minimum"; among: ObjectFilter }
   /** Quantified players retain their quantifier: an opponent is existential,
    * while each player is tested independently, never a combined counter sum. */
   | { condition: "player-counters"; who: PlayerRef; counter: CounterSpec | "any"; comparison: Comparison }

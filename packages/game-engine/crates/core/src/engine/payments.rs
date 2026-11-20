@@ -29,6 +29,16 @@ pub(super) enum AnnouncementPayment {
     Unpayable,
 }
 
+pub(super) fn phyrexian_life(choices: &[HybridPayment]) -> Quantity {
+    let mut total = Quantity::zero();
+    for choice in choices {
+        if *choice == HybridPayment::PayTwoLife {
+            total.add(&2.into());
+        }
+    }
+    total
+}
+
 impl Game {
     pub(super) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
         match self.payment_pool(player, cost) {
@@ -40,11 +50,16 @@ impl Game {
 
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
-        Ok(if self.can_pay(stack.controller, &stack.total_cost)? {
-            Frame::SpendMana { cast }
-        } else {
-            Frame::Payment { cast }
-        })
+        Ok(
+            if self.state.rules.players[stack.controller.0 as usize]
+                .can_pay_life(&phyrexian_life(&stack.hybrid_colors))
+                && self.can_pay(stack.controller, &stack.total_cost)?
+            {
+                Frame::SpendMana { cast }
+            } else {
+                Frame::Payment { cast }
+            },
+        )
     }
 
     pub(super) fn spend_mana_request(&self) -> Result<Request, String> {
@@ -199,7 +214,14 @@ impl Game {
             },
             AnnouncementPayment::Unpayable => {
                 let undo = cast.undo_mana;
-                self.reverse_cast(cast, "insufficient mana", undo)?;
+                let reason = if self.state.rules.players[self.top()?.controller.0 as usize]
+                    .can_pay_life(&phyrexian_life(&self.top()?.hybrid_colors))
+                {
+                    "insufficient mana"
+                } else {
+                    "insufficient life or prohibited life payment"
+                };
+                self.reverse_cast(cast, reason, undo)?;
             }
         }
         if during_resolution {
@@ -249,7 +271,10 @@ impl Game {
         {
             return Ok(AnnouncementPayment::Unpayable);
         }
-        if !self.can_pay(stack.controller, &cost)? {
+        let life = phyrexian_life(&stack.hybrid_colors);
+        if !self.state.rules.players[stack.controller.0 as usize].can_pay_life(&life)
+            || !self.can_pay(stack.controller, &cost)?
+        {
             return Ok(AnnouncementPayment::Unpayable);
         }
         self.check_sacrifice_payment(&stack, cast)?;
@@ -272,6 +297,18 @@ impl Game {
                 player: stack.controller,
             },
         )?;
+        if life > Quantity::zero() {
+            self.commit(
+                ProposedEvent::LoseLife {
+                    player: stack.controller,
+                    amount: life,
+                },
+                BatchCause::Payment {
+                    stack_id: cast.stack_id,
+                    player: stack.controller,
+                },
+            )?;
+        }
         // CR601.2h/602.2b/702.29a: debit the complete explicit mana selection
         // before discarding precisely the preflighted source as a cost. The
         // containing rule step stages both occurrences atomically. No choice

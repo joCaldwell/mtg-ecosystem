@@ -183,7 +183,7 @@ pub struct VisibleStackEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hybrid_colors: Vec<Color>,
+    pub hybrid_colors: Vec<HybridPayment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -356,6 +356,12 @@ pub enum PlayerRequest {
         player: PlayerId,
         choices: Vec<ManaAbilityIdentity>,
         mana_ability_source: ObjectHandle,
+    },
+    ManaCombination {
+        token: DecisionToken,
+        player: PlayerId,
+        total: Quantity,
+        colors: Vec<Color>,
     },
     ManaColor {
         token: DecisionToken,
@@ -568,6 +574,7 @@ impl PlayerRequest {
             | Self::Surveil { token, .. } => token,
             Self::LegendRule { token, .. }
             | Self::ChooseManaAbility { token, .. }
+            | Self::ManaCombination { token, .. }
             | Self::ManaColor { token, .. }
             | Self::ColoredSearch { token, .. }
             | Self::SearchLands { token, .. }
@@ -658,7 +665,7 @@ pub enum PlayerResponse {
         keep: ObjectHandle,
     },
     HybridCost {
-        colors: Vec<Color>,
+        colors: Vec<HybridPayment>,
     },
     AnnounceX {
         value: Quantity,
@@ -671,6 +678,9 @@ pub enum PlayerResponse {
     },
     ChooseManaAbility {
         ability: ManaAbilityIdentity,
+    },
+    ManaCombination {
+        amounts: [Quantity; 5],
     },
     ManaColor {
         color: Color,
@@ -1954,6 +1964,12 @@ impl Game {
                         })
                         .collect::<Result<_, String>>()?,
                 },
+                Request::ManaCombination { total, colors, .. } => PlayerRequest::ManaCombination {
+                    token,
+                    player: viewer,
+                    total,
+                    colors,
+                },
                 Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
                     token,
                     player: viewer,
@@ -2178,6 +2194,14 @@ impl Game {
                             request,
                             Some(self.handle_for(viewer, activation.source)?),
                         )?,
+                    Request::ManaCombination { total, colors, .. } => {
+                        PlayerRequest::ManaCombination {
+                            token,
+                            player: viewer,
+                            total,
+                            colors,
+                        }
+                    }
                     Request::ManaColor { colors, .. } => PlayerRequest::ManaColor {
                         token,
                         player: viewer,
@@ -2798,6 +2822,9 @@ impl Game {
             PlayerResponse::ChooseManaAbility { ability } => {
                 Ok(Response::ChooseManaAbility { ability: *ability })
             }
+            PlayerResponse::ManaCombination { amounts } => Ok(Response::ManaCombination {
+                amounts: amounts.clone(),
+            }),
             PlayerResponse::ManaColor { color } => Ok(Response::ManaColor { color: *color }),
             PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
                 spending: spending.clone(),

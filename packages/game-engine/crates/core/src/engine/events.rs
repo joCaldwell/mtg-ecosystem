@@ -620,9 +620,21 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             BTreeSet::from([FactKey::Object(source.card), FactKey::Mana(*player)]),
             BTreeSet::from([FactKey::Mana(*player)]),
         ),
-        ProposedEvent::ClearMana { player }
-        | ProposedEvent::PayMana { player, .. }
-        | ProposedEvent::PayManaSelected { player, .. } => {
+        ProposedEvent::ClearMana { player } => {
+            let keys = BTreeSet::from([FactKey::Mana(*player)]);
+            let mut reads = keys.clone();
+            if game.has_unspent_mana_converter() {
+                reads.extend(
+                    game.state
+                        .rules
+                        .objects
+                        .keys()
+                        .map(|card| FactKey::Object(*card)),
+                );
+            }
+            (reads, keys)
+        }
+        ProposedEvent::PayMana { player, .. } | ProposedEvent::PayManaSelected { player, .. } => {
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
             (keys.clone(), keys)
         }
@@ -1303,8 +1315,11 @@ impl Game {
                     }
                     players.insert(*player);
                 }
-                ProposedEvent::ClearMana { player }
-                | ProposedEvent::PayMana { player, .. }
+                ProposedEvent::ClearMana { player } => {
+                    players.insert(*player);
+                    objects.extend(self.unspent_mana_converters(*player));
+                }
+                ProposedEvent::PayMana { player, .. }
                 | ProposedEvent::PayManaSelected { player, .. } => {
                     players.insert(*player);
                 }
@@ -2928,11 +2943,27 @@ impl Game {
                 if !self.is_live(*player) {
                     return Err("invalid mana clearing player".into());
                 }
-                let previous =
-                    std::mem::take(&mut self.state.rules.players[player.0 as usize].mana);
+                let retain = !self.unspent_mana_converters(*player).is_empty();
+                let pool = &mut self.state.rules.players[player.0 as usize].mana;
+                let previous = std::mem::take(pool);
+                let retained_as = if retain {
+                    let mut retained = Quantity::zero();
+                    for amount in previous.values() {
+                        retained.add(amount);
+                    }
+                    if retained > Quantity::zero() {
+                        pool.insert(Color::B, retained);
+                        Some(Color::B)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 EventOutcome::ManaCleared {
                     player: *player,
                     previous,
+                    retained_as,
                 }
             }
             ProposedEvent::LandPlayed { player } => {
@@ -3023,6 +3054,7 @@ impl Game {
                 source,
             } => {
                 if self.current(*source).is_err()
+                    && !self.retained_look_top_mana_source(*player, *source)
                     && !(self
                         .state
                         .rules

@@ -64,6 +64,11 @@ pub(super) enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
+    LookTopMana {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        revealed: bool,
+    },
     Hideaway {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -527,6 +532,13 @@ impl Game {
                     count: looked.len(),
                 })
             }
+            ResolutionChoice::LookTopMana {
+                player,
+                looked,
+                revealed,
+            } if self.is_live(*player) => {
+                Some(self.look_top_mana_request(frame, *player, looked, *revealed)?)
+            }
             ResolutionChoice::Hideaway {
                 player,
                 looked,
@@ -616,6 +628,9 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let Some(result) = self.validate_look_top_mana_response(player, response) {
+            return Some(result);
+        }
         if let (
             Frame::ResolutionChoice {
                 choice:
@@ -944,6 +959,14 @@ impl Game {
                     return self.optional_shuffle_step(frame, player, source_block);
                 }
 
+                if let ResolutionChoice::LookTopMana {
+                    player,
+                    looked,
+                    revealed,
+                } = choice
+                {
+                    return self.look_top_mana_step(frame, player, looked, revealed);
+                }
                 if let ResolutionChoice::Hideaway {
                     player,
                     looked,
@@ -1010,6 +1033,7 @@ impl Game {
                         | ResolutionChoice::HandReturn { .. }
                         | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
+                        | ResolutionChoice::LookTopMana { .. }
                         | ResolutionChoice::Hideaway { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
@@ -1048,6 +1072,7 @@ impl Game {
                     | ResolutionChoice::HandReturn { .. }
                     | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
+                    | ResolutionChoice::LookTopMana { .. }
                     | ResolutionChoice::Hideaway { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
@@ -1174,6 +1199,7 @@ impl Game {
         if frame.draw_progress.is_some() || frame.each_player_draw.is_some() {
             return Err("cannot advance an unfinished counted draw".into());
         }
+        frame.entrant_draw = None;
         frame.outcomes.push(outcome);
         frame.cursor = frame
             .cursor
@@ -1226,6 +1252,7 @@ impl Game {
             Instruction::OptionalShuffleLibrary { source_block } => {
                 self.begin_optional_shuffle(frame, source_block)
             }
+            Instruction::LookTopMayRevealForMana { .. } => self.begin_look_top_mana(frame),
             Instruction::Hideaway { .. } => self.begin_hideaway(frame),
             Instruction::SelectLibraryCard {
                 amount,
@@ -1531,6 +1558,38 @@ impl Game {
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            Instruction::OptionalDrawForSoleGreatestEntrant { source_block } => {
+                let entrant = self.resolving_entrant(&frame)?;
+                let power = entrant
+                    .characteristics
+                    .power
+                    .as_ref()
+                    .ok_or("entrant without power")?;
+                for o in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield() && o.id != entrant.object)
+                {
+                    if self.is_battlefield_creature(o.id)
+                        && self
+                            .characteristics(o.id)?
+                            .power
+                            .as_ref()
+                            .is_some_and(|p| p >= power)
+                    {
+                        return self.finish_instruction(
+                            frame,
+                            InstructionOutcome::Effect { actual: None },
+                        );
+                    }
+                }
+                let player = entrant.controller;
+                let mut frame = frame;
+                frame.entrant_draw = Some(Box::new(entrant));
+                self.offer_player_draw(frame, player, source_block)
+            }
             Instruction::OptionalDrawCards { source_block } => {
                 self.offer_controller_draw(frame, source_block)
             }
@@ -1588,12 +1647,42 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
+    pub(super) fn resolving_entrant(&self, frame: &Resolving) -> Result<ObjectBefore, String> {
+        let StackKind::Triggered {
+            witness:
+                TriggerEventWitness::CreatureEnteredWithPower {
+                    entrant,
+                    last_appearance: Some(last),
+                    ..
+                },
+            ..
+        } = &frame.spell.kind
+        else {
+            return Err("missing resolving entrant".into());
+        };
+        if self
+            .current(entrant.object)
+            .is_ok_and(|o| o.present_on_battlefield())
+        {
+            self.object_before(entrant.object)
+        } else {
+            Ok((**last).clone())
+        }
+    }
     pub(super) fn offer_controller_draw(
         &mut self,
         frame: Resolving,
         source_block: u32,
     ) -> Result<(), String> {
         let player = frame.spell.controller;
+        self.offer_player_draw(frame, player, source_block)
+    }
+    fn offer_player_draw(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        source_block: u32,
+    ) -> Result<(), String> {
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -2066,6 +2155,31 @@ impl Game {
         self.validate_group_discard_progress(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
+        if let Some(fact) = &frame.entrant_draw {
+            let StackKind::Triggered {
+                witness:
+                    TriggerEventWitness::CreatureEnteredWithPower {
+                        entrant,
+                        last_appearance: Some(_),
+                        ..
+                    },
+                ..
+            } = &entry.kind
+            else {
+                return Err("detached entrant choice".into());
+            };
+            if !matches!(
+                program.instructions.get(frame.cursor as usize),
+                Some(Instruction::OptionalDrawForSoleGreatestEntrant { .. })
+            ) || entrant.object != fact.object
+                || entrant.owner != fact.owner
+                || fact.zone != Zone::Battlefield
+                || fact.controller != self.resolving_entrant(frame)?.controller
+            {
+                return Err("invalid resolving entrant identity".into());
+            }
+            self.validate_characteristic_identity(fact.object, fact.zone, &fact.characteristics)?;
+        }
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
@@ -2194,6 +2308,16 @@ impl Game {
                     Instruction::OptionalShuffleLibrary { source_block: b },
                 ) => *player == frame.spell.controller && source_block == b,
 
+                (
+                    ResolutionChoice::LookTopMana {
+                        player,
+                        looked,
+                        revealed,
+                    },
+                    Instruction::LookTopMayRevealForMana { .. },
+                ) => self
+                    .validate_look_top_mana_choice(frame, *player, looked, *revealed)
+                    .is_ok(),
                 (
                     ResolutionChoice::Hideaway {
                         player,

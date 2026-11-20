@@ -15,6 +15,7 @@ impl Game {
                         bottom: None,
                     }
                     | ResolutionChoice::LibrarySelect { player, looked, .. }
+                    | ResolutionChoice::LookTopMana { player, looked, .. }
                     | ResolutionChoice::Scry { player, looked, .. }
                     | ResolutionChoice::Surveil { player, looked, .. },
                 ..

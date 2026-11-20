@@ -279,8 +279,11 @@ impl Game {
         }
         match &self.state.rules.frame {
             Frame::ManaAbility { activation }
-                if activation.stage == mana_permanents::ManaStage::Color
-                    && self.is_live(activation.player) =>
+                if matches!(
+                    activation.stage,
+                    mana_permanents::ManaStage::Color
+                        | mana_permanents::ManaStage::Combination { .. }
+                ) && self.is_live(activation.player) =>
             {
                 return Ok(());
             }

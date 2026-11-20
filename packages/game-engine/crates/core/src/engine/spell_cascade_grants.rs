@@ -385,6 +385,7 @@ pub(super) fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> 
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
             CommanderContinuation::GraveyardShuffle { frame, .. }
             | CommanderContinuation::HandReturn { frame, .. }
+            | CommanderContinuation::LookTopMana { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
