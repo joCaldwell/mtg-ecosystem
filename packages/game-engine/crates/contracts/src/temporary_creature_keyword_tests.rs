@@ -303,6 +303,7 @@ fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
                 6 => p.targets[0].domain = TargetDomain::BattlefieldPermanent,
                 7 => {
                     p.targets[0].filter = Some(PermanentFilter {
+                        power: None,
                         types: vec![],
                         non_types: vec![],
                         non_colors: vec![],
