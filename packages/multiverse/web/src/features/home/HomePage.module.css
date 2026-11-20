@@ -4,7 +4,6 @@
   align-content: end;
   justify-items: start;
   gap: var(--s-5);
-  min-block-size: var(--art-feature-height);
   padding: var(--s-8);
 }
 .play h2 {
