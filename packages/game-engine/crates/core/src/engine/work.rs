@@ -435,9 +435,9 @@ impl Game {
                     candidates.push(visible.handle.clone());
                 }
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
-                    && self
-                        .top()
-                        .is_ok_and(|entry| self.object_target_legal(entry, object.id))
+                    && self.top().is_ok_and(|entry| {
+                        self.entity_target_legal(TargetEntity::Object { object: object.id }, entry)
+                    })
                 {
                     candidates.push(PlayerTargetEntity::Object {
                         object: visible.handle.clone(),
@@ -647,7 +647,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 49,
+                    observation_version: 52,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -787,7 +787,14 @@ impl Game {
                     } else {
                         cache
                             .next_object(self)
-                            .filter(|o| self.top().is_ok_and(|e| self.object_target_legal(e, o.id)))
+                            .filter(|o| {
+                                self.top().is_ok_and(|e| {
+                                    self.entity_target_legal(
+                                        TargetEntity::Object { object: o.id },
+                                        e,
+                                    )
+                                })
+                            })
                             .map(|o| TargetEntity::Object { object: o.id })
                     };
                     if let Some(target) = target {
@@ -938,7 +945,13 @@ impl Game {
                         (
                             Frame::EntityTargets { .. },
                             PlayerResponse::EntityTargets { entities },
-                        ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
+                        ) => {
+                            let p = self.program().map_err(invalid)?;
+                            mtg_contracts::graveyard_shuffle::offered_by(p)
+                                .map_or(entities.len() == p.targets.len(), |m| {
+                                    (1..=usize::from(m) + 1).contains(&entities.len())
+                                })
+                        }
                         (
                             Frame::DamageAllocation { .. },
                             PlayerResponse::DamageAllocation { allocations },
@@ -948,6 +961,7 @@ impl Game {
                             PlayerResponse::ActivateMana { .. }
                             | PlayerResponse::FinishMana { .. }
                             | PlayerResponse::SpendMana { .. }
+                            | PlayerResponse::ManaCombination { .. }
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
                         (
@@ -1012,7 +1026,13 @@ impl Game {
                         (
                             Frame::TriggerTargets { .. },
                             PlayerResponse::EntityTargets { entities },
-                        ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
+                        ) => {
+                            let p = self.program().map_err(invalid)?;
+                            mtg_contracts::graveyard_shuffle::offered_by(p)
+                                .map_or(entities.len() == p.targets.len(), |m| {
+                                    (1..=usize::from(m) + 1).contains(&entities.len())
+                                })
+                        }
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len() == self.program().map_err(invalid)?.targets.len()
                         }
@@ -1257,7 +1277,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 49,
+                            observation_version: 52,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1293,7 +1313,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 45,
+                    context_version: 48,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1312,7 +1332,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 45,
+            work_version: 48,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1321,7 +1341,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 45
+        if saved.work_version != 48
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

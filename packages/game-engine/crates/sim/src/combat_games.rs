@@ -90,6 +90,7 @@ impl Policy {
                 return Err("sacrifice request unsupported by this completion policy".into());
             }
             PlayerRequest::ChooseManaAbility { .. }
+            | PlayerRequest::ManaCombination { .. }
             | PlayerRequest::ManaColor { .. }
             | PlayerRequest::ColoredSearch { .. }
             | PlayerRequest::SearchLands { .. }

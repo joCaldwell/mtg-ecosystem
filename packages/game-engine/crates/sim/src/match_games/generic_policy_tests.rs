@@ -81,6 +81,7 @@ mod reactive_tests {
             ("Goliath Sphinx", 2),
         ] {
             v.stack.push(mtg_core::VisibleStackEntry {
+                spell_copy: false,
                 bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
@@ -106,6 +107,8 @@ mod reactive_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            mana_combination: None,
+            hybrid_choices: vec![],
         };
         assert_eq!(
             s.opposing_stack(&v, false, None),
@@ -257,6 +260,7 @@ mod wipe_tests {
         ] {
             v.objects.push(card(&c, name, 1, Zone::Stack));
             v.stack.push(mtg_core::VisibleStackEntry {
+                spell_copy: false,
                 bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
@@ -282,6 +286,8 @@ mod wipe_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            mana_combination: None,
+            hybrid_choices: vec![],
         };
         assert!(!c.definitions.is_empty());
         assert_eq!(
@@ -323,6 +329,8 @@ mod wipe_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            mana_combination: None,
+            hybrid_choices: vec![],
         };
         let d = |name: &str| c.definitions.iter().find(|d| d.name == name).unwrap();
         assert_eq!(
@@ -395,6 +403,8 @@ fn names_and_catalog_size_do_not_select_policy_or_wipe_amounts() {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
+        hybrid_choices: vec![],
     };
     let d = definition(&c, &id).unwrap();
     assert!(s.definition_ready(&v, d));
@@ -420,6 +430,8 @@ fn creature_target_readiness_and_prevention_follow_programs() {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
+        hybrid_choices: vec![],
     };
     for name in ["Murder", "Disfigure", "Giant Growth", "Pacifism"] {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
@@ -468,6 +480,8 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
+        hybrid_choices: vec![],
     };
     assert_eq!(
         s.priority(&Observation {
@@ -488,6 +502,8 @@ fn strategy(c: &Catalog) -> Strategy<'_> {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
+        hybrid_choices: vec![],
     }
 }
 fn observation(view: PermittedView) -> Observation {
@@ -501,6 +517,7 @@ fn observation(view: PermittedView) -> Observation {
 fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = wipe_tests::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
+        spell_copy: false,
         bestowed: false,
         hybrid_colors: vec![],
         selected_additional_costs: None,
@@ -633,6 +650,19 @@ fn reactive_modal_spell_selects_prevention_instead_of_ready_life_mode() {
     // The caster has not selected a mode yet; both modes are otherwise usable.
     v.stack.last_mut().unwrap().cast_complete = false;
     assert_eq!(strategy(&c).choose_mode(&v, &[0, 1]), Some(1));
+    assert_eq!(
+        strategy(&c).mode_response(&v, &[0, 1], Some(2), false, false),
+        Some(PlayerResponse::ModeSubset { modes: vec![0, 1] })
+    );
+    assert_eq!(
+        strategy(&c).mode_response(&v, &[1], Some(3), true, false),
+        Some(PlayerResponse::ModeSubset { modes: vec![1; 3] })
+    );
+    assert_eq!(
+        strategy(&c).mode_response(&v, &[1], Some(2), false, false),
+        None
+    );
+
     v.combat.clear();
     v.stack.pop();
     stack_spell(&mut v, &c, "Lightning Bolt", 0);
@@ -2325,6 +2355,7 @@ mod activated_permanent_tap_policy_tests {
         );
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
+            spell_copy: false,
             bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
@@ -2504,6 +2535,7 @@ mod activated_headless_policy_tests {
     }
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
+            spell_copy: false,
             bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
@@ -2871,6 +2903,7 @@ mod temporal_adept_policy_tests {
             );
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
+                spell_copy: false,
                 bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
@@ -3358,3 +3391,103 @@ mod compound_protection_policy_tests;
 
 #[path = "collar_policy_tests.rs"]
 mod collar_policy_tests;
+
+#[test]
+fn match_policy_partitions_only_offered_library_handles() {
+    let catalog = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut strategy = strategy(&catalog);
+    let mut obs = observation(wipe_tests::view(&catalog));
+    let handles: Vec<_> = ["looked-a", "looked-b", "looked-c"]
+        .into_iter()
+        .map(|s| ObjectHandle(s.into()))
+        .collect();
+    obs.decision = Some(PlayerRequest::LibrarySelect {
+        token: mtg_core::DecisionToken("looked".into()),
+        player: obs.view.viewer,
+        candidates: handles.clone(),
+        remainder: mtg_contracts::LibraryRemainder::Graveyard,
+    });
+    assert_eq!(
+        strategy.choose(&obs).unwrap(),
+        PlayerResponse::LibrarySelect {
+            hand: handles[..1].to_vec(),
+            remainder: handles[1..].to_vec(),
+        }
+    );
+    let candidate = |handle: ObjectHandle, slots: Vec<Color>| mtg_core::ColoredCardCandidate {
+        handle,
+        slots,
+        oracle_id: "permitted".into(),
+    };
+    obs.decision = Some(PlayerRequest::ColoredSearch {
+        token: mtg_core::DecisionToken("colored".into()),
+        player: obs.view.viewer,
+        colors: vec![Color::U, Color::G],
+        library: vec![],
+        candidates: vec![
+            candidate(handles[0].clone(), vec![Color::U, Color::G]),
+            candidate(handles[1].clone(), vec![Color::U]),
+        ],
+    });
+    assert_eq!(
+        strategy.choose(&obs).unwrap(),
+        PlayerResponse::ColoredSearch {
+            assignments: vec![
+                mtg_core::ColoredCardAssignment {
+                    slot: Color::U,
+                    handle: handles[1].clone()
+                },
+                mtg_core::ColoredCardAssignment {
+                    slot: Color::G,
+                    handle: handles[0].clone()
+                }
+            ],
+        }
+    );
+}
+
+#[test]
+fn match_policy_hybrid_uses_offered_mana_and_only_payable_life() {
+    use mtg_contracts::{
+        ColorHybridSymbol,
+        HybridPayment::{Mana, PayTwoLife},
+    };
+    let catalog = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&catalog);
+    v.objects.clear();
+    let payer = v.players.iter_mut().find(|p| p.player == v.viewer).unwrap();
+    payer.mana = BTreeMap::from([(Color::U, 1.into())]);
+    payer.life = 3.into();
+    let symbols = [
+        ColorHybridSymbol {
+            colors: [Mana(Color::G), Mana(Color::U)],
+        },
+        ColorHybridSymbol {
+            colors: [Mana(Color::R), PayTwoLife],
+        },
+    ];
+    let (chosen, plan) = mana_policy::hybrid_plan(&catalog, &v, zero_cost(), &symbols).unwrap();
+    assert_eq!(chosen, [Mana(Color::U), PayTwoLife]);
+    assert!(plan.is_empty());
+    v.players
+        .iter_mut()
+        .find(|p| p.player == v.viewer)
+        .unwrap()
+        .life_frozen_until_next_turn = true;
+    assert!(mana_policy::hybrid_plan(&catalog, &v, zero_cost(), &symbols).is_none());
+    let mut strategy = strategy(&catalog);
+    strategy.mana_color = Some(Color::G);
+    let mut obs = observation(v);
+    obs.decision = Some(PlayerRequest::ManaCombination {
+        token: mtg_core::DecisionToken("restricted".into()),
+        player: obs.view.viewer,
+        total: 7.into(),
+        colors: vec![Color::U, Color::R],
+    });
+    assert_eq!(
+        strategy.choose(&obs).unwrap(),
+        PlayerResponse::ManaCombination {
+            amounts: [0_i64, 7, 0, 0, 0].map(Quantity::from)
+        }
+    );
+}

@@ -16,7 +16,22 @@ pub struct NoncombatDamageOccurrence {
     pub recipient: DamageRecipient,
     pub amount: Quantity,
 }
+fn update_entrant(w: &mut TriggerEventWitness, fact: &ObjectBefore) {
+    if let TriggerEventWitness::CreatureEnteredWithPower {
+        entrant,
+        last_appearance: Some(last),
+        ..
+    } = w
+        && entrant.object == fact.object
+        && fact.zone == Zone::Battlefield
+    {
+        **last = fact.clone();
+    }
+}
 fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
+    if let StackKind::Triggered { witness, .. } = &mut entry.kind {
+        update_entrant(witness, fact);
+    }
     if entry.source == fact.object && entry.source_facts.is_some() {
         entry.source_facts = Some(fact.clone());
     }
@@ -77,7 +92,9 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
         }
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-            CommanderContinuation::HandReturn { frame, .. }
+            CommanderContinuation::GraveyardShuffle { frame, .. }
+            | CommanderContinuation::HandReturn { frame, .. }
+            | CommanderContinuation::LookTopMana { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
@@ -159,7 +176,9 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
         }
         Frame::Stabilize { resume, .. } => update_frame(resume, fact),
         Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-            CommanderContinuation::HandReturn { frame, .. }
+            CommanderContinuation::GraveyardShuffle { frame, .. }
+            | CommanderContinuation::HandReturn { frame, .. }
+            | CommanderContinuation::LookTopMana { frame, .. }
             | CommanderContinuation::LibrarySelect { frame, .. }
             | CommanderContinuation::BoardReturn { frame, .. }
             | CommanderContinuation::SpellMove { frame, .. }
@@ -221,6 +240,7 @@ impl Game {
     pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         for trigger in &mut self.state.rules.pending_triggers {
+            update_entrant(&mut trigger.witness, fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }
@@ -313,7 +333,12 @@ impl Game {
         entities: &[TargetEntity],
     ) -> Result<(), String> {
         let top = self.top()?;
-        let program = self.program_for(top)?;
+        let program = self.program()?;
+        if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(program) {
+            return self
+                .announced_graveyard_group(top.controller, player, maximum, entities)
+                .map(|_| ());
+        }
         if player != top.controller
             || entities.len() != program.targets.len()
             || entities.iter().enumerate().any(|(slot, target)| {
@@ -355,10 +380,16 @@ impl Game {
             .stack
             .last_mut()
             .ok_or("missing targeted invocation")?;
-        top.entity_targets = entities;
-        top.announced_entity_targets = announced;
+        top.entity_targets.extend(entities);
+        if top.announced_entity_targets.is_empty() {
+            top.announced_entity_targets = announced;
+        } else {
+            for (old, new) in top.announced_entity_targets.iter_mut().zip(announced) {
+                old.extend(new);
+            }
+        }
         if cast.origin.is_spell() {
-            self.state.rules.frame = self.announcement_mana_frame(cast)?;
+            self.state.rules.frame = self.continue_spell_targeting(cast)?;
         } else {
             self.continue_activation_after_targets(cast, input.decision_id)?;
         }
@@ -468,10 +499,19 @@ impl Game {
             return Err("unexpected spell effect source references".into());
         }
         let program = self.program_for(entry)?;
+        let mixed = self.mixed_mode_children(entry)?;
+        let graveyard = mixed
+            .as_ref()
+            .and_then(|children| {
+                children
+                    .iter()
+                    .find_map(|p| mtg_contracts::graveyard_shuffle::offered_by(p))
+            })
+            .or_else(|| mtg_contracts::graveyard_shuffle::offered_by(program));
         let damage = program
             .targets
-            .first()
-            .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget);
+            .iter()
+            .any(|t| t.domain == TargetDomain::AnyDamageTarget);
         {
             let fact = entry
                 .source_facts
@@ -492,11 +532,15 @@ impl Game {
             }
         }
         if !entry.entity_targets.is_empty() {
-            if !damage
-                || !entry.targets.is_empty()
-                || !entry.player_targets.is_empty()
-                || !entry.stack_targets.is_empty()
-                || entry.entity_targets.len() > program.targets.len()
+            if (!damage && graveyard.is_none())
+                || (mixed.is_none() && !entry.targets.is_empty())
+                || (mixed.is_none() && !entry.player_targets.is_empty())
+                || (mixed.is_none() && !entry.stack_targets.is_empty())
+                || if let Some(maximum) = graveyard {
+                    !self.graveyard_group_structure(&entry.entity_targets, maximum)
+                } else {
+                    entry.entity_targets.len() > program.targets.len()
+                }
                 || entry.announced_entity_targets.len() != 4
                 || entry.announced_entity_targets.iter().any(|row| {
                     row.len() != entry.entity_targets.len()
@@ -517,10 +561,11 @@ impl Game {
         } else if !entry.announced_entity_targets.is_empty() {
             return Err("snapshot entity announcement invariant".into());
         }
-        if damage
+        if mixed.is_none()
+            && (damage || graveyard.is_some())
             && (!entry.targets.is_empty()
-                || !entry.player_targets.is_empty()
-                || !entry.stack_targets.is_empty())
+                || (mixed.is_none() && !entry.player_targets.is_empty())
+                || (mixed.is_none() && !entry.stack_targets.is_empty()))
         {
             return Err("snapshot wrong damage binding domain".into());
         }
@@ -555,9 +600,8 @@ impl Game {
             .get(index)
             .map(|spec| spec.domain)
         {
-            Some(TargetDomain::AnyDamageTarget) => *spell
-                .entity_targets
-                .get(index)
+            Some(TargetDomain::AnyDamageTarget) => *self
+                .bound_damage_target(spell, index)
                 .ok_or("missing damage binding")?,
             Some(TargetDomain::PlayerOrPlaneswalker) => {
                 let player = *spell

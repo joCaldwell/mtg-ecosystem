@@ -1,4 +1,6 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+mod mana_combination;
+pub use mana_combination::{MANA_COMBINATION_COLORS, validate_mana_combination};
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod bestow;
@@ -6,6 +8,8 @@ pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative, canonical_besto
 mod cascade_land_entry;
 mod granted_land_mana;
 pub mod hand_cast_cascade;
+pub mod library_top_mana;
+mod unspent_mana;
 pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
@@ -18,7 +22,7 @@ pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
 };
 mod color_hybrid_cost;
-pub use color_hybrid_cost::{ColorHybridSymbol, color_hybrid_cost};
+pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -86,11 +90,15 @@ pub use targeted_counted_draw::targeted_counted_draw_program;
 pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
 mod controller_library;
 mod counter_spell_controller_mill;
+pub mod creature_planeswalker_return;
 mod draw_discard;
 mod fixed_mill;
 mod graveyard_battlefield_return;
+pub mod graveyard_shuffle;
 mod group_discard;
 mod hand_return;
+pub mod modal_targets;
+pub mod repeated_target_modes;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
@@ -123,10 +131,12 @@ pub use archives::*;
 mod creature_entry_return;
 mod divided_plus_one_counters;
 mod flash_end_step_draw;
+mod greatest_power;
 mod hand_size_adjustments;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
+pub use greatest_power::{greatest_power_ast, greatest_power_programs, greatest_power_source};
 mod power_filtered_removal;
 pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
 mod strict_io;
@@ -270,6 +280,17 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 impl Characteristics {
+    /// Each colored hybrid or Phyrexian symbol counts once (CR 107.4e–f).
+    pub fn colored_mana_symbol_count(&self) -> Quantity {
+        let fixed = self
+            .mana_cost
+            .colored
+            .iter()
+            .filter(|color| **color != Color::C)
+            .count();
+        Quantity::from(fixed as i64 + self.hybrid_mana.len() as i64)
+    }
+
     pub fn printed_mana_value(&self) -> Quantity {
         let mut value = self.mana_cost.generic.clone();
         value.add(&Quantity::from(
@@ -310,16 +331,19 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    PlayerGraveyardShuffleV1,
     OpeningPlacementV1,
     ExileResolvingSpellV1,
     ControllerProtectionUntilNextTurnV1,
     ControllerLifeFreezeV1,
     ControlledPermanentPhasingV1,
+    TargetedPhasingV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
     CombatHandCastV1,
     CascadeV1,
+    LookTopMayRevealForManaV1,
     RevealAndCastV1,
     DemonstrateV1,
     ProtectionFromEverythingV1,
@@ -366,6 +390,7 @@ pub enum Capability {
     ConditionalBasicLandEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
+    UnspentManaConversionV1,
     ControllerLandGrantedManaV1,
     ControllerLandBasicTypesV1,
     ControllerNonlandColorsV1,
@@ -388,6 +413,8 @@ pub enum Capability {
     DelayedControllerCreatureEntryV1,
     NormalLayoutV1,
     ColorHybridCostV1,
+    PhyrexianCostV1,
+    GreatestPowerV1,
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -454,6 +481,9 @@ pub enum Capability {
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
+    CreatureOrPlaneswalkerTargetV1,
+    FixedTargetModesV1,
+    RepeatedTargetModesV1,
     ModalChoiceV1,
     CommanderModalKeywordGrantV1,
     NonemptyModeSubsetV1,
@@ -529,6 +559,11 @@ pub enum EvaluationStage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetDomain {
+    CreatureOrPlaneswalker,
+    PlayerGraveyardCards {
+        owner_slot: u32,
+        maximum: u8,
+    },
     BattlefieldPermanent,
     ControlledBattlefieldPermanent,
     ControlledBattlefieldCreature,
@@ -814,6 +849,11 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    LookTopMayRevealForMana {
+        minimum_symbols: Quantity,
+        mana: Quantity,
+        source_block: u32,
+    },
     RegisterControllerCreatureEntryThisTurn {
         program: Box<SpellProgram>,
         source_block: u32,
@@ -865,6 +905,9 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    ShufflePlayerGraveyard {
+        source_block: u32,
+    },
     OptionalShuffleLibrary {
         source_block: u32,
     },
@@ -903,6 +946,10 @@ pub enum Instruction {
         source_block: u32,
     },
     PhaseOutControllerPermanents {
+        source_block: u32,
+    },
+    PhaseOutTargetPermanent {
+        target_slot: u32,
         source_block: u32,
     },
     MoveSet {
@@ -1197,6 +1244,9 @@ pub enum Instruction {
     },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
     /// one card, including when their library is empty.
+    OptionalDrawForSoleGreatestEntrant {
+        source_block: u32,
+    },
     OptionalDrawCards {
         source_block: u32,
     },
@@ -1299,7 +1349,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
+            Self::LookTopMayRevealForMana { source_block, .. }
+            | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
             | Self::Hideaway { source_block, .. }
             | Self::PlayHideawayLinked { source_block, .. }
             | Self::GrantHandCastCascade { source_block }
@@ -1316,6 +1367,7 @@ impl Instruction {
             | Self::GrantLandPlaysThisTurn { source_block, .. }
             | Self::PutHandOnLibrary { source_block, .. } => *source_block,
             Self::OrderLibraryTop { source_block, .. }
+            | Self::ShufflePlayerGraveyard { source_block }
             | Self::OptionalShuffleLibrary { source_block }
             | Self::SelectLibraryCard { source_block, .. }
             | Self::Scry { source_block, .. }
@@ -1325,6 +1377,7 @@ impl Instruction {
             | Self::ProtectControllerUntilNextTurn { source_block }
             | Self::FreezeControllerLifeUntilNextTurn { source_block }
             | Self::PhaseOutControllerPermanents { source_block }
+            | Self::PhaseOutTargetPermanent { source_block, .. }
             | Self::MoveSet { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
@@ -1375,7 +1428,8 @@ impl Instruction {
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::UntapControllerLands { source_block } => *source_block,
-            Self::OptionalDrawCards { source_block, .. }
+            Self::OptionalDrawForSoleGreatestEntrant { source_block }
+            | Self::OptionalDrawCards { source_block, .. }
             | Self::OptionalDrawUnlessCasterPays { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardPlayerSet { source_block, .. }
@@ -1493,6 +1547,7 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    KeepUnspentManaAsBlack,
     Bestow {
         cost: ManaCost,
         program: SpellProgram,
@@ -1665,6 +1720,8 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
+    ChooseModes { exactly: u32 },
+    ChooseRepeatedModes { exactly: u32 },
     OneOrMoreModes,
     Instructions,
     Permanent,
@@ -1817,6 +1874,7 @@ pub struct PermanentActivationCosts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
+    GreatestControlledPowerCombination,
     Fixed {
         symbols: Vec<Color>,
     },
@@ -2098,6 +2156,7 @@ impl TypePredicate {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BeginningStep {
+    PrecombatMain,
     Upkeep,
     Draw,
     End,
@@ -2508,6 +2567,21 @@ impl Definition {
         ]);
         if !self.characteristics.hybrid_mana.is_empty() {
             set.insert(Capability::ColorHybridCostV1);
+            if self
+                .characteristics
+                .hybrid_mana
+                .iter()
+                .any(|s| s.colors.contains(&HybridPayment::PayTwoLife))
+            {
+                set.insert(Capability::PhyrexianCostV1);
+            }
+        }
+        if self
+            .mana_abilities
+            .iter()
+            .any(|a| a.production == ManaProduction::GreatestControlledPowerCombination)
+        {
+            set.insert(Capability::GreatestPowerV1);
         }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
@@ -2795,6 +2869,7 @@ impl Definition {
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
+                StaticEffect::KeepUnspentManaAsBlack => Capability::UnspentManaConversionV1,
                 StaticEffect::GrantControllerLandsAnyColorMana => {
                     Capability::ControllerLandGrantedManaV1
                 }
@@ -2883,6 +2958,7 @@ impl Definition {
         unlimited_hand_size::validate_definition(self)?;
         hand_size_adjustments::validate_definition(self)?;
         power_entry_draw::validate_definition(self)?;
+        greatest_power::validate(self)?;
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
@@ -3268,15 +3344,19 @@ impl Definition {
         {
             return Err("invalid identity, characteristics, or capability closure".into());
         }
-        if !accepted_provenance(
+        if !(accepted_provenance(
             &self.provenance.archive_manifest_sha256,
             &self.provenance.parser_sha256,
-        ) || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
+        ) || library_top_mana::authenticated_reparse(&self.provenance))
+            || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
             || sha256(format!("[{}]", self.provenance.abilities_json).as_bytes())
                 != self.provenance.ast_sha256
         {
             return Err("invalid source/AST provenance".into());
         }
+        creature_planeswalker_return::validate(self)?;
+        modal_targets::validate_definition(self)?;
+        graveyard_shuffle::validate_definition(self)?;
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
         colored_library_search::validate_definition(self)?;
@@ -3284,8 +3364,12 @@ impl Definition {
         commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        let library_top = library_top_mana::validate(self)?;
+        if !library_top {
+            unspent_mana::validate(self)?;
+        }
         granted_land_mana::validate_definition(self)?;
-        color_hybrid_cost::validate_definition(self, opening_composition)?;
+        color_hybrid_cost::validate_definition(self, opening_composition, library_top)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3855,7 +3939,8 @@ impl Definition {
                 || p.instructions.iter().any(|instruction| {
                     !matches!(
                         instruction,
-                        Instruction::PumpSet { .. }
+                        Instruction::LookTopMayRevealForMana { .. }
+                            | Instruction::PumpSet { .. }
                             | Instruction::DealDamage { .. }
                             | Instruction::LoseLifeDeathController { .. }
                             | Instruction::SacrificeDamage { .. }
@@ -3873,6 +3958,7 @@ impl Definition {
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
                             | Instruction::UntapControllerLands { .. }
+                            | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
@@ -3896,6 +3982,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::CascadeLandEntry
+                    | StaticEffect::KeepUnspentManaAsBlack
                     | StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn
                     | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::ReduceSelfGenericCost { .. }
@@ -4149,7 +4236,10 @@ impl Definition {
                     || p.timing != cast_timing
                     || !matches!(
                         p.resolution,
-                        SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                        SpellResolution::Instructions
+                            | SpellResolution::OneOrMoreModes
+                            | SpellResolution::ChooseModes { .. }
+                            | SpellResolution::ChooseRepeatedModes { .. }
                     )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
@@ -4735,7 +4825,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             || !p.instructions.is_empty()
             || !matches!(
                 p.resolution,
-                SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                SpellResolution::Instructions
+                    | SpellResolution::OneOrMoreModes
+                    | SpellResolution::ChooseModes { .. }
+                    | SpellResolution::ChooseRepeatedModes { .. }
             )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
@@ -4767,7 +4860,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         .windows(2)
         .any(|targets| targets[0].domain != targets[1].domain)
     {
-        return Err("mixed target domains are unsupported".into());
+        if graveyard_shuffle::offered_by(p).is_none() {
+            return Err("mixed target domains are unsupported".into());
+        }
     }
     // Requests expose one common candidate set, and execution uses that common
     // predicate. Distinct per-slot filters need a different request contract;
@@ -4821,6 +4916,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         }
     }
     let mut used = BTreeSet::new();
+    if graveyard_shuffle::offered_by(p).is_some() {
+        used.extend([0, 1]);
+    }
     fn reference(p: &SpellProgram, slot: u32) -> Result<(u32, TargetDomain), String> {
         let t = p.targets.get(slot as usize).ok_or("unbound LKI target")?;
         if !matches!(
@@ -4845,6 +4943,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::DrawEachPlayer { .. }
             | Instruction::UntapControllerLands { .. }
+            | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::DrawDamageAmount { .. } => None,
@@ -4940,6 +5039,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
             | Instruction::ExilePermanent { target_slot, .. }
+            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
             | Instruction::UntapPermanent { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
@@ -5065,6 +5165,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::OfferHandCastWithoutManaCost { .. }
             | Instruction::Cascade { .. }
             | Instruction::Demonstrate { .. }
+            | Instruction::LookTopMayRevealForMana { .. }
             | Instruction::RevealAndCast { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
@@ -5120,7 +5221,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     .domain;
                 if !matches!(
                     domain,
-                    TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                    TargetDomain::CreatureOrPlaneswalker
+                        | TargetDomain::BattlefieldCreature
+                        | TargetDomain::BattlefieldPermanent
                 ) {
                     return Err("unsupported owner-hand target domain".into());
                 }
@@ -5252,6 +5355,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PutHandOnLibrary { .. }
             | Instruction::OrderLibraryTop { .. }
+            | Instruction::ShufflePlayerGraveyard { .. }
             | Instruction::OptionalShuffleLibrary { .. }
             | Instruction::SelectLibraryCard { .. } => None,
             Instruction::MillCards {
@@ -5494,6 +5598,15 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if matches!(
+            program.resolution,
+            SpellResolution::ChooseRepeatedModes { .. }
+        ) {
+            set.insert(Capability::RepeatedTargetModesV1);
+        }
+        if matches!(program.resolution, SpellResolution::ChooseModes { .. }) {
+            set.insert(Capability::FixedTargetModesV1);
+        }
         if akromas_will_program(program) {
             set.insert(Capability::CommanderModalKeywordGrantV1);
         }
@@ -5522,11 +5635,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
                 Capability::PermanentRemovalV1
             }
+            TargetDomain::CreatureOrPlaneswalker => Capability::CreatureOrPlaneswalkerTargetV1,
             TargetDomain::BattlefieldCreature => Capability::CreatureTargetV1,
             TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
             TargetDomain::OwnGraveyardCard => Capability::OwnGraveyardCardReturnV1,
+            TargetDomain::PlayerGraveyardCards { .. } => Capability::PlayerGraveyardShuffleV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
             TargetDomain::StackSpell | TargetDomain::ControlledCreatureSpell => {
                 Capability::StackSpellTargetV1
@@ -5656,6 +5771,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PhaseOutControllerPermanents { .. } => {
                 Capability::ControlledPermanentPhasingV1
             }
+            Instruction::PhaseOutTargetPermanent { .. } => Capability::TargetedPhasingV1,
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
@@ -5667,6 +5783,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::GrantHandCastCascade { .. } => Capability::HandCastCascadeGrantV1,
             Instruction::OfferHandCastWithoutManaCost { .. } => Capability::CombatHandCastV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
+            Instruction::LookTopMayRevealForMana { .. } => Capability::LookTopMayRevealForManaV1,
             Instruction::RevealAndCast { .. } => Capability::RevealAndCastV1,
             Instruction::Demonstrate { .. } => Capability::DemonstrateV1,
             Instruction::GrantKeywordsSet {
@@ -5775,6 +5892,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
             Instruction::UntapControllerLands { .. } => Capability::UntapControllerLandsV1,
+            Instruction::OptionalDrawForSoleGreatestEntrant { .. } => Capability::GreatestPowerV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::OptionalDrawUnlessCasterPays { .. } => Capability::CastPayerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
@@ -5806,6 +5924,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
             Instruction::SelectLibraryCard { .. } => Capability::ControllerLibrarySelectionV1,
+            Instruction::ShufflePlayerGraveyard { .. } => Capability::PlayerGraveyardShuffleV1,
             Instruction::OrderLibraryTop { .. } | Instruction::OptionalShuffleLibrary { .. } => {
                 Capability::ControllerLibraryOrderV1
             }
@@ -6303,7 +6422,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
             "targets":{"maxItems":0},"instructions":{"maxItems":0},
-            "resolution":{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},
+            "resolution":{"anyOf":[{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},{"type":"object","required":["choose_modes"],"properties":{"choose_modes":{"properties":{"exactly":{"minimum":2,"maximum":3}}}}},{"const":SpellResolution::ChooseRepeatedModes{exactly:5}}]},
             "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
                 "modes":{"maxItems":0},"instructions":{"minItems":1},
                 "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
@@ -7208,6 +7327,10 @@ pub fn catalog_schema() -> serde_json::Value {
     optional_costs::schema(&mut schema);
     counted_costs::schema(&mut schema);
     fixed_artifact_sacrifice_schema(&mut schema);
+    creature_planeswalker_return::schema(&mut schema);
+    modal_targets::schema(&mut schema);
+    repeated_target_modes::schema(&mut schema);
+    graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     opponent_mana::extend_schema(&mut schema);
@@ -7240,6 +7363,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    unspent_mana::extend_schema(&mut schema);
     granted_land_mana::extend_schema(&mut schema);
     keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
@@ -7266,6 +7390,7 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    greatest_power::extend_schema(&mut schema);
     commander_modal_keyword::extend_schema(&mut schema);
     divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
@@ -7309,6 +7434,7 @@ pub fn catalog_schema() -> serde_json::Value {
     color_hybrid_cost::extend_schema(&mut schema);
     opening_placement::permit_composition(&mut schema);
     opening_placement::require_composition(&mut schema);
+    library_top_mana::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7445,15 +7571,18 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            PlayerGraveyardShuffleV1,
             ExileResolvingSpellV1,
             ControllerProtectionUntilNextTurnV1,
             ControllerLifeFreezeV1,
             ControlledPermanentPhasingV1,
+            TargetedPhasingV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
             CombatHandCastV1,
             CascadeV1,
+            LookTopMayRevealForManaV1,
             RevealAndCastV1,
             DemonstrateV1,
             ProtectionFromEverythingV1,
@@ -7470,6 +7599,8 @@ mod tests {
             DelayedControllerCreatureEntryV1,
             NormalLayoutV1,
             ColorHybridCostV1,
+            PhyrexianCostV1,
+            GreatestPowerV1,
             BasicLandManaV1,
             LandPlayV1,
             BaseCreatureV1,
@@ -7543,6 +7674,9 @@ mod tests {
             StaticDamageReplacementV1,
             SelfDiesV1,
             InterveningIfV1,
+            CreatureOrPlaneswalkerTargetV1,
+            FixedTargetModesV1,
+            RepeatedTargetModesV1,
             ModalChoiceV1,
             CommanderModalKeywordGrantV1,
             NonemptyModeSubsetV1,
@@ -7606,6 +7740,7 @@ mod tests {
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
+            UnspentManaConversionV1,
             ControllerLandGrantedManaV1,
             OpeningPlacementV1,
             ControllerNonlandColorsV1,
@@ -8021,6 +8156,7 @@ mod tests {
         definitions.push(each_player_draw::witness());
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
+        definitions.push(greatest_power::witness());
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
         definitions.push(divided_plus_one_counters::witness());
@@ -8070,6 +8206,9 @@ mod tests {
         );
         definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
+        definitions.push(graveyard_shuffle::witness());
+        definitions.push(modal_targets::witness());
+        definitions.push(creature_planeswalker_return::witness());
         definitions.push(controlled_creature_spell_copy::witness());
         definitions.push(creative_technique::witness());
         definitions.push(library_selection::witness());
@@ -8353,6 +8492,13 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(granted_land_mana::witness(artifact));
+        let source = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        definitions.push(unspent_mana::witness(source));
+        definitions.push(library_top_mana::frozen_definition().unwrap());
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")

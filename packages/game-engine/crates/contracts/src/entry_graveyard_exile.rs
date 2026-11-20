@@ -85,6 +85,12 @@ fn enters_tapped() -> StaticAbility {
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseRepeatedModes { .. }))
+    {
+        return crate::modal_targets::validate_definition(d);
+    }
     let reserved = d.capabilities.contains(&Capability::EntryGraveyardExileV1);
     let raw = &d.provenance.source_json;
     let phrase = "exile target player's graveyard";
@@ -197,16 +203,22 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let op = json!({"required":["op"],"properties":{"op":{"const":"exile_target_graveyard"}}});
     let has_op = json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":op}}});
     let singleton = |item: Value| json!({"minItems":1,"maxItems":1,"items":item});
-    // Each nested mode is a SpellProgram and checks the same mode edge.
-    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
-        "properties":{"modes":{"items":{"properties":{"program":{"not":has_op}}}}},
-        "if":has_op,"then":{"properties":{
-            "timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+    let child = |block: u32, selection: Value| {
+        json!({"properties":{
+            "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":singleton(json!({"const":{"op":"exile_target_graveyard","target_slot":0,"source_block":1}})),
-            "targets":singleton(json!({"properties":{"slot":{"const":0},"selection_id":{"const":SELECTION},
+            "instructions":singleton(json!({"const":{"op":"exile_target_graveyard","target_slot":0,"source_block":block}})),
+            "targets":singleton(json!({"properties":{"slot":{"const":0},"selection_id":selection,
                 "chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":"any_player"},"filter":{"type":"null"}}}))
-        }}
+        }})
+    };
+    let entry_child = json!({"allOf":[child(1,json!({"const":SELECTION})),{"properties":{"timing":{"const":"instant"}}}]});
+    let repeated_child = child(0, json!({"type":"string","minLength":1}));
+    let nested =
+        json!({"properties":{"modes":{"items":{"properties":{"program":{"not":has_op}}}}}});
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
+        "allOf":[{"if":{"$ref":"#/$defs/RepeatedTargetRoot"},"then":{"properties":{"modes":{"items":{"properties":{"program":{"if":has_op,"then":repeated_child}}}}}},"else":nested},
+            {"if":has_op,"then":{"oneOf":[entry_child,repeated_child]}}]
     }));
     let trigger = json!({"required":["program"],"properties":{"program":has_op}});
     let caps = |extra: &[Capability]| {
@@ -253,14 +265,14 @@ pub(super) fn extend_schema(schema: &mut Value) {
     }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"spell":{"not":has_op},"activated":{"items":{"not":trigger}}},
-        "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":EntryGraveyardExileV1}}}},
+        "if":{"not":{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/RepeatedTargetRoot"}}},"anyOf":[{"properties":{"capabilities":{"contains":{"const":EntryGraveyardExileV1}}}},
             {"required":["triggered"],"properties":{"triggered":{"contains":trigger}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"[^"]*exile target player's graveyard"#}}}}}
         ]},
         "then":{"required":["triggered"],"oneOf":[land,creature],"properties":{
             "characteristics":{"properties":{"basic":{"const":false},"legendary":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0}}},
             "x_mana_cost":{"const":false},"activated":{"maxItems":0},
-            "triggered":singleton(json!({"allOf":[trigger],"properties":{"condition":{"const":"self_enters_battlefield"},"functioning_zone":{"const":"battlefield"},"death_filter":{"type":"null"},"intervening_if":{"type":"null"}}}))
+            "triggered":singleton(json!({"allOf":[trigger],"properties":{"program":entry_child,"condition":{"const":"self_enters_battlefield"},"functioning_zone":{"const":"battlefield"},"death_filter":{"type":"null"},"intervening_if":{"type":"null"}}}))
         }}
     }));
 }

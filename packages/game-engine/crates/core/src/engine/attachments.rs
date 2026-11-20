@@ -309,6 +309,28 @@ impl Game {
         })
     }
     pub(super) fn entity_target_legal(&self, target: TargetEntity, entry: &StackInstance) -> bool {
+        let choosing = matches!(self.state.rules.frame, Frame::EntityTargets { .. })
+            && self.top().is_ok_and(|top| top.id == entry.id);
+        let program = if choosing {
+            self.program()
+        } else {
+            self.program_for(entry)
+        };
+        if program.is_ok_and(|p| mtg_contracts::graveyard_shuffle::offered_by(p).is_some()) {
+            return match target {
+                TargetEntity::Player { .. } => self.entity_legal(target),
+                TargetEntity::Object { object } => self.current(object).is_ok_and(|o| {
+                    let Zone::Graveyard { owner } = o.zone else {
+                        return false;
+                    };
+                    entry
+                        .entity_targets
+                        .first()
+                        .is_none_or(|p| *p == TargetEntity::Player { player: owner })
+                        && self.player_graveyard_card(o, owner)
+                }),
+            };
+        }
         self.entity_legal(target)
             && match target {
                 TargetEntity::Player { .. } => true,

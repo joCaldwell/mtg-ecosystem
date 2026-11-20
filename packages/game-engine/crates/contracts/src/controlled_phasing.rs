@@ -9,6 +9,7 @@ fn contains(p: &SpellProgram) -> bool {
             Instruction::ExileResolvingSpell { .. }
                 | Instruction::ProtectControllerUntilNextTurn { .. }
                 | Instruction::PhaseOutControllerPermanents { .. }
+                | Instruction::PhaseOutTargetPermanent { .. }
                 | Instruction::FreezeControllerLifeUntilNextTurn { .. }
         )
     }) || p.modes.iter().any(|m| contains(&m.program))
@@ -57,6 +58,12 @@ pub fn controller_window_instructions(
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseRepeatedModes { .. }))
+    {
+        return crate::modal_targets::validate_definition(d);
+    }
     let fail = || "phasing requires the complete ordinary controller spell".to_string();
     if d.activated.iter().any(|a|contains(&a.program)) || d.triggered.iter().any(|a|contains(&a.program))
         || d.static_abilities.iter().any(|a|matches!(&a.effect,StaticEffect::GrantSpellCascade{program,..} if contains(program))) {return Err(fail());}
@@ -193,6 +200,14 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn schema(s: &mut Value) {
+    let op = json!({"required":["op"],"properties":{"op":{"const":"phase_out_target_permanent"}}});
+    let free = json!({"$ref":"#/$defs/TargetPermanentPhaseFree"});
+    s["$defs"]["TargetPermanentPhaseFree"] = json!({"properties":{"instructions":{"not":{"contains":op}},"modes":{"items":{"properties":{"program":free}}}}});
+    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}}},
+        "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}}}},{"properties":{"spell":{"type":"object","not":free}}}]},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}},"spell":{"$ref":"#/$defs/RepeatedTargetRoot"}}}
+    }));
     for (name, capability, free_name, pattern) in [
         (
             "phase_out_controller_permanents",

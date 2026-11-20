@@ -123,6 +123,8 @@ fn run_profiled(
         mulligans,
         mana_plan: Default::default(),
         mana_color: None,
+        mana_combination: None,
+        hybrid_choices: vec![],
     };
     let selected_checkpoints = config.seed == seed(0) && policy == Policy::Develop;
     let mut checkpoints = vec![];

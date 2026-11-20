@@ -361,6 +361,7 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
     matches!(
         event,
         ProposedEvent::PhaseOutControlled { .. }
+            | ProposedEvent::PhaseOutTarget { .. }
             | ProposedEvent::Move { .. }
             | ProposedEvent::DestroyPermanent { .. }
             | ProposedEvent::DestroyCreature { .. }
@@ -532,7 +533,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Life(*player)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PhaseOutControlled { .. } => {
+        ProposedEvent::PhaseOutControlled { .. } | ProposedEvent::PhaseOutTarget { .. } => {
             let keys = BTreeSet::from([FactKey::Effects, FactKey::Turn]);
             (keys.clone(), keys)
         }
@@ -620,9 +621,21 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             BTreeSet::from([FactKey::Object(source.card), FactKey::Mana(*player)]),
             BTreeSet::from([FactKey::Mana(*player)]),
         ),
-        ProposedEvent::ClearMana { player }
-        | ProposedEvent::PayMana { player, .. }
-        | ProposedEvent::PayManaSelected { player, .. } => {
+        ProposedEvent::ClearMana { player } => {
+            let keys = BTreeSet::from([FactKey::Mana(*player)]);
+            let mut reads = keys.clone();
+            if game.has_unspent_mana_converter() {
+                reads.extend(
+                    game.state
+                        .rules
+                        .objects
+                        .keys()
+                        .map(|card| FactKey::Object(*card)),
+                );
+            }
+            (reads, keys)
+        }
+        ProposedEvent::PayMana { player, .. } | ProposedEvent::PayManaSelected { player, .. } => {
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
             (keys.clone(), keys)
         }
@@ -764,6 +777,7 @@ fn collect<'a>(
                             | ProposedEvent::CreateCreatureTokens { .. }
                             | ProposedEvent::FreezeLifeUntilNextTurn { .. }
                             | ProposedEvent::PhaseOutControlled { .. }
+                            | ProposedEvent::PhaseOutTarget { .. }
                             | ProposedEvent::ClearDamage
                             | ProposedEvent::ConsumeDeathtouchWindow { .. }
                             | ProposedEvent::TurnTransition { .. }
@@ -1248,6 +1262,12 @@ impl Game {
                 ProposedEvent::FreezeLifeUntilNextTurn { player } => {
                     players.insert(*player);
                 }
+                ProposedEvent::PhaseOutTarget { object } => {
+                    objects.extend(
+                        self.installed_phasing()
+                            .phase_out(self, phasing::PhaseSelection::Target(*object))?,
+                    );
+                }
                 ProposedEvent::PhaseOutControlled { controller } => {
                     players.insert(*controller);
                     objects.extend(
@@ -1296,8 +1316,11 @@ impl Game {
                     }
                     players.insert(*player);
                 }
-                ProposedEvent::ClearMana { player }
-                | ProposedEvent::PayMana { player, .. }
+                ProposedEvent::ClearMana { player } => {
+                    players.insert(*player);
+                    objects.extend(self.unspent_mana_converters(*player));
+                }
+                ProposedEvent::PayMana { player, .. }
                 | ProposedEvent::PayManaSelected { player, .. } => {
                     players.insert(*player);
                 }
@@ -1576,6 +1599,7 @@ impl Game {
             matches!(
                 e,
                 ProposedEvent::PhaseOutControlled { .. }
+                    | ProposedEvent::PhaseOutTarget { .. }
                     | ProposedEvent::FreezeLifeUntilNextTurn { .. }
             )
         }) {
@@ -1596,6 +1620,23 @@ impl Game {
                 ) if *controller == frame.spell.controller => Some(*source_block),
                 (
                     EventGroup::Occurrence {
+                        proposed: ProposedEvent::PhaseOutTarget { object },
+                    },
+                    Some(Instruction::PhaseOutTargetPermanent {
+                        target_slot,
+                        source_block,
+                    }),
+                ) if self.bound_object_target(&frame.spell, *target_slot as usize)
+                    == Some(object)
+                    && frame.legal_targets.get(*target_slot as usize) == Some(&true)
+                    && self
+                        .current(*object)
+                        .is_ok_and(|o| o.present_on_battlefield()) =>
+                {
+                    Some(*source_block)
+                }
+                (
+                    EventGroup::Occurrence {
                         proposed: ProposedEvent::FreezeLifeUntilNextTurn { player },
                     },
                     Some(Instruction::FreezeControllerLifeUntilNextTurn { source_block }),
@@ -1607,7 +1648,7 @@ impl Game {
                 || self.top()? != &frame.spell
                 || !authorized_block.is_some_and(|block| cause == Self::wipe_cause(frame, block))
             {
-                return Err("phase-out requires the paid controller instruction".into());
+                return Err("status change requires the matching paid spell instruction".into());
             }
         }
         if events.iter().any(|event| {
@@ -2222,6 +2263,7 @@ impl Game {
         if matches!(
             proposed,
             ProposedEvent::PhaseOutControlled { .. }
+                | ProposedEvent::PhaseOutTarget { .. }
                 | ProposedEvent::FreezeLifeUntilNextTurn { .. }
         ) {
             return Err("phase-out requires an authorized instruction batch".into());
@@ -2879,22 +2921,10 @@ impl Game {
                 }
             }
             ProposedEvent::PhaseOutControlled { controller } => {
-                let ids = self.phase_out_controller_permanents(*controller)?;
-                let members = ids
-                    .into_iter()
-                    .map(|id| {
-                        Ok((
-                            id,
-                            self.current(id)?
-                                .phased_out
-                                .ok_or("missing phased status")?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-                EventOutcome::PermanentsPhasedOut {
-                    controller: *controller,
-                    members,
-                }
+                self.phase_out_permanents(phasing::PhaseSelection::Controlled(*controller))?
+            }
+            ProposedEvent::PhaseOutTarget { object } => {
+                self.phase_out_permanents(phasing::PhaseSelection::Target(*object))?
             }
             ProposedEvent::ClearDamage => {
                 let mut previous = vec![];
@@ -2978,11 +3008,27 @@ impl Game {
                 if !self.is_live(*player) {
                     return Err("invalid mana clearing player".into());
                 }
-                let previous =
-                    std::mem::take(&mut self.state.rules.players[player.0 as usize].mana);
+                let retain = !self.unspent_mana_converters(*player).is_empty();
+                let pool = &mut self.state.rules.players[player.0 as usize].mana;
+                let previous = std::mem::take(pool);
+                let retained_as = if retain {
+                    let mut retained = Quantity::zero();
+                    for amount in previous.values() {
+                        retained.add(amount);
+                    }
+                    if retained > Quantity::zero() {
+                        pool.insert(Color::B, retained);
+                        Some(Color::B)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 EventOutcome::ManaCleared {
                     player: *player,
                     previous,
+                    retained_as,
                 }
             }
             ProposedEvent::LandPlayed { player } => {
@@ -3073,6 +3119,7 @@ impl Game {
                 source,
             } => {
                 if self.current(*source).is_err()
+                    && !self.retained_look_top_mana_source(*player, *source)
                     && !(self
                         .state
                         .rules

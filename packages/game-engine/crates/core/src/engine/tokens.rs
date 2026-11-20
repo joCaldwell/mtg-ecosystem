@@ -355,10 +355,8 @@ impl Game {
                                 InstructionOutcome::Effect { actual: None },
                             );
                         }
-                        *frame
-                            .spell
-                            .targets
-                            .get(target_slot as usize)
+                        *self
+                            .bound_object_target(&frame.spell, target_slot as usize)
                             .ok_or("missing counter target")?
                     }
                 };

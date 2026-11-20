@@ -111,7 +111,7 @@ impl Game {
     pub(super) fn validate_hybrid_colors(
         &self,
         card: CardId,
-        colors: &[Color],
+        colors: &[HybridPayment],
     ) -> Result<(), String> {
         let symbols = &self.definition(card)?.characteristics.hybrid_mana;
         if symbols.is_empty()
@@ -131,7 +131,7 @@ impl Game {
         alternative: Option<cascade::AlternativeCost>,
         x: Option<&Quantity>,
         selected: &[String],
-        hybrid: Option<&[Color]>,
+        hybrid: Option<&[HybridPayment]>,
         lock: &CostLock,
     ) -> Result<ManaCost, String> {
         let definition = self.definition(card)?;
@@ -182,7 +182,8 @@ impl Game {
                     let mut cost = definition.characteristics.mana_cost.clone();
                     if let Some(colors) = hybrid {
                         self.validate_hybrid_colors(card, colors)?;
-                        cost.colored.extend_from_slice(colors);
+                        cost.colored
+                            .extend(colors.iter().filter_map(|choice| choice.color()));
                     }
                     cost
                 }

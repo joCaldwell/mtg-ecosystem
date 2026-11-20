@@ -147,7 +147,7 @@ impl Game {
                     CounterRecipient::Target { target_slot }
                         if frame.legal_targets.get(*target_slot as usize) == Some(&true) =>
                     {
-                        frame.spell.targets.get(*target_slot as usize)
+                        self.bound_object_target(&frame.spell, *target_slot as usize)
                     }
                     _ => None,
                 };

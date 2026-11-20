@@ -88,7 +88,7 @@ fn power_entry_draw_freezes_each_controlled_entrant_before_optional_resolution()
         (observer, PlayerId(0))
     );
     assert!(matches!(&trigger.kind, StackKind::Triggered {
-        witness: TriggerEventWitness::CreatureEnteredWithPower { entrant: fact, movement: Some(m) }, ..
+        witness: TriggerEventWitness::CreatureEnteredWithPower { entrant: fact, movement: Some(m), .. }, ..
     } if fact.object == entrant && fact.characteristics.power == Some(4.into())
         && m.previous == previous && m.successor == entrant && m.from == Zone::Stack));
     let mut forged = trigger.clone();
@@ -140,6 +140,7 @@ fn power_entry_draw_freezes_each_controlled_entrant_before_optional_resolution()
                 TriggerEventWitness::CreatureEnteredWithPower {
                     entrant,
                     movement: None,
+                    ..
                 },
             ..
         } = &trigger.kind
@@ -170,4 +171,91 @@ fn power_entry_draw_freezes_each_controlled_entrant_before_optional_resolution()
     }
     assert!(g.state.rules.stack.is_empty());
     assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), library - 2);
+}
+
+#[test]
+fn greatest_power_paid_allocation_and_entrant_draw() {
+    let rows = [
+        ("Copperleaf Surveyor", 0, 0, false),
+        ("Island", 0, 0, false),
+        ("Forest", 0, 0, false),
+        ("Grizzly Bears", 0, 0, true),
+    ];
+    let p = prepared_with_sources(
+        &rows,
+        &[include_str!(
+            "../../../../tests/fixtures/synthetic-copperleaf-surveyor.json"
+        )],
+    );
+    let mut g = Game::with_trace(p, TraceMode::Off);
+    announce(&mut g, 1, 3, vec![]);
+    assert!(matches!(resolve_top(&mut g), Request::Priority { .. }));
+    assert!(matches!(
+        resolve_top(&mut g),
+        Request::OptionalEffect {
+            player: PlayerId(0),
+            ..
+        }
+    ));
+    recover(&g);
+    let mut forged = g.state.rules.frame.clone();
+    let Frame::ResolutionChoice {
+        frame,
+        choice: actions::ResolutionChoice::OptionalDraw { player, .. },
+    } = &mut forged
+    else {
+        panic!("expected optional draw")
+    };
+    *player = PlayerId(1);
+    frame.entrant_draw.as_mut().unwrap().controller = *player;
+    assert!(g.validate_resolving(frame).is_err());
+    let before = g.state.rules.libraries[&PlayerId(0)].len();
+    answer(&mut g, 1, Response::OptionalEffect { perform: true });
+    request(&mut g, 1);
+    assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), before - 1);
+    let turn = g.turn().number;
+    own_main(&mut g, 1, 0, turn);
+    let source = object(&g, 0);
+    let island = object(&g, 1);
+    answer(&mut g, 1, Response::ActivateMana { object: source });
+    answer(&mut g, 1, Response::ActivateMana { object: island });
+    answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        1,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::U, 1.into())]),
+        },
+    );
+    let r = request(&mut g, 1);
+    assert!(matches!(&r,Request::ManaCombination{total,..} if *total==2.into()));
+    recover(&g);
+    let mut forged = g.state.rules.frame.clone();
+    let Frame::ManaAbility { activation } = &mut forged else {
+        panic!("expected paid mana frame")
+    };
+    activation.stage = mana_permanents::ManaStage::Combination { total: 3.into() };
+    assert!(g.validate_nested_mana_frame(&forged).is_err());
+    assert!(
+        g.respond(
+            r.player(),
+            r.decision_id(),
+            Response::ManaCombination {
+                amounts: [0_i64, 0, 0, 0, 1].map(Quantity::from)
+            }
+        )
+        .is_err()
+    );
+    answer(
+        &mut g,
+        1,
+        Response::ManaCombination {
+            amounts: [1_i64, 0, 0, 0, 1].map(Quantity::from),
+        },
+    );
+    request(&mut g, 1);
+    assert!(g.current(source).unwrap().tapped && g.current(island).unwrap().tapped);
+    assert_eq!(g.mana(PlayerId(0), Color::W), Some(1.into()));
+    assert_eq!(g.mana(PlayerId(0), Color::G), Some(1.into()));
+    recover(&g);
 }

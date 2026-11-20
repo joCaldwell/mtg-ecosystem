@@ -50,7 +50,9 @@ impl Game {
                 Self::target_information_frame(resume)
             }
             Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-                CommanderContinuation::HandReturn { frame, .. }
+                CommanderContinuation::GraveyardShuffle { frame, .. }
+                | CommanderContinuation::HandReturn { frame, .. }
+                | CommanderContinuation::LookTopMana { frame, .. }
                 | CommanderContinuation::LibrarySelect { frame, .. }
                 | CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }
@@ -84,11 +86,11 @@ impl Game {
             .map(|(slot, spec)| {
                 legal.get(slot) == Some(&true)
                     && if spec.domain == TargetDomain::StackSpell {
-                        entry.stack_targets.get(slot).is_some_and(|id| {
+                        self.bound_stack_target(&entry, slot).is_some_and(|id| {
                             self.state.rules.stack.iter().any(|entry| entry.id == *id)
                         })
                     } else {
-                        entry.targets.get(slot).is_some_and(|id| {
+                        self.bound_object_target(&entry, slot).is_some_and(|id| {
                             self.current(*id)
                                 .is_ok_and(|object| object.present_on_battlefield())
                         })
@@ -186,6 +188,10 @@ impl Game {
             })
             .collect()
     }
+    fn needs_target_facts(entry: &StackInstance, target: &TargetSpec, legal: bool) -> bool {
+        legal && (entry.mode_subset.is_none() || target.filter.is_some())
+    }
+
     pub(super) fn capture_target_facts(
         &self,
         entry: &StackInstance,
@@ -199,7 +205,7 @@ impl Game {
             .iter()
             .enumerate()
             .map(|(slot, t)| {
-                if !legal[slot] {
+                if !Self::needs_target_facts(entry, t, legal.get(slot) == Some(&true)) {
                     return Ok(None);
                 }
                 let (controller, c) = if t.domain == TargetDomain::StackSpell {
@@ -208,16 +214,15 @@ impl Game {
                         .rules
                         .stack
                         .iter()
-                        .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
+                        .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
                         .ok_or("missing LKI stack target")?;
                     (
                         e.controller,
                         self.targeting_characteristics(e)?.into_owned(),
                     )
                 } else {
-                    let object = *entry
-                        .targets
-                        .get(slot)
+                    let object = *self
+                        .bound_object_target(entry, slot)
                         .ok_or("missing LKI permanent target")?;
                     (
                         self.current(object)?.controller,
@@ -231,7 +236,7 @@ impl Game {
                         .rules
                         .stack
                         .iter()
-                        .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
+                        .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
                         .ok_or("missing stack mana value")?;
                     mana_value = self.stack_mana_value(entry)?;
                 }
@@ -244,21 +249,20 @@ impl Game {
             .collect()
     }
     pub(super) fn validate_target_facts(&self, frame: &Resolving) -> Result<(), String> {
-        let expected = self
-            .program_for(&frame.spell)?
-            .targets
-            .iter()
-            .any(|t| t.filter.is_some());
+        let program = self.program_for(&frame.spell)?;
+        let expected = program.targets.iter().any(|t| t.filter.is_some());
         if (!expected && !frame.target_facts.is_empty())
             || (expected
-                && (frame.target_facts.len() != frame.legal_targets.len()
-                    || frame
-                        .target_facts
+                && (frame.target_facts.len() != program.targets.len()
+                    || program
+                        .targets
                         .iter()
-                        .zip(&frame.legal_targets)
-                        .any(|(f, l)| {
-                            f.is_some() != *l
-                                || f.as_ref().is_some_and(|f| {
+                        .zip(&frame.target_facts)
+                        .enumerate()
+                        .any(|(slot, (target, fact))| {
+                            let legal = frame.legal_targets.get(slot) == Some(&true);
+                            fact.is_some() != Self::needs_target_facts(&frame.spell, target, legal)
+                                || fact.as_ref().is_some_and(|f| {
                                     f.controller.0 >= 4 || f.mana_value.is_negative()
                                 })
                         })))
@@ -381,9 +385,17 @@ impl Game {
                 target_slot,
                 source_block,
             } => {
-                let target = frame.spell.targets[target_slot as usize];
+                let target = *self
+                    .bound_object_target(&frame.spell, target_slot as usize)
+                    .ok_or("missing removal target")?;
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.object_target_legal(&frame.spell, target)
+                    || !self.object_target_legal_for(
+                        &frame.spell,
+                        target,
+                        self.program_for(&frame.spell)?
+                            .targets
+                            .get(target_slot as usize),
+                    )
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });

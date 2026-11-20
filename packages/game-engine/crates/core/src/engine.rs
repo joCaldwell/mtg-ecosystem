@@ -152,6 +152,7 @@ pub use allocation::*;
 mod choices;
 #[cfg(test)]
 mod choices_tests;
+mod graveyard_targets;
 pub use choices::*;
 mod effects;
 #[cfg(test)]
@@ -372,6 +373,7 @@ mod intrinsic_mana;
 mod library_order;
 mod library_position_memory;
 mod library_selection;
+mod look_top_mana;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
@@ -382,6 +384,7 @@ mod successor_tuck;
 #[cfg(test)]
 mod successor_tuck_tests;
 mod surveil;
+mod unspent_mana;
 pub use mana_permanents::PermanentManaUndo;
 use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
 mod stack_costs;
@@ -983,7 +986,7 @@ struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cost_lock: Option<costs::CostLock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    hybrid_colors: Vec<Color>,
+    hybrid_colors: Vec<HybridPayment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1073,6 +1076,8 @@ struct DrawProgress {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Resolving {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    entrant_draw: Option<Box<ObjectBefore>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     group_discard: Option<group_discard::GroupDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1297,7 +1302,7 @@ pub enum Response {
         value: Quantity,
     },
     HybridCost {
-        colors: Vec<Color>,
+        colors: Vec<HybridPayment>,
     },
     SacrificeCost {
         object: ObjectId,
@@ -1307,6 +1312,9 @@ pub enum Response {
     },
     ChooseManaAbility {
         ability: ManaAbilityIdentity,
+    },
+    ManaCombination {
+        amounts: [Quantity; 5],
     },
     ManaColor {
         color: Color,
@@ -1530,6 +1538,12 @@ pub enum Request {
         player: PlayerId,
         choices: Vec<ManaAbilityIdentity>,
     },
+    ManaCombination {
+        decision_id: u64,
+        player: PlayerId,
+        total: Quantity,
+        colors: Vec<Color>,
+    },
     ManaColor {
         decision_id: u64,
         player: PlayerId,
@@ -1598,6 +1612,10 @@ pub enum Request {
         player: PlayerId,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         one_or_more: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_repeat: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exactly: Option<u32>,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {
@@ -1722,6 +1740,7 @@ impl Request {
             | Self::HybridCost { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
+            | Self::ManaCombination { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
@@ -1774,6 +1793,7 @@ impl Request {
             | Self::HybridCost { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
+            | Self::ManaCombination { player, .. }
             | Self::ManaColor { player, .. }
             | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
@@ -1829,6 +1849,9 @@ pub enum ProposedEvent {
     },
     PhaseOutControlled {
         controller: PlayerId,
+    },
+    PhaseOutTarget {
+        object: ObjectId,
     },
     RevealSearchLands {
         player: PlayerId,
@@ -2074,6 +2097,7 @@ pub enum EventOutcome {
         player: PlayerId,
     },
     PermanentsPhasedOut {
+        /// Controller of the directly phased permanents at phase-out (CR 702.26a).
         controller: PlayerId,
         members: Vec<(ObjectId, PhaseReturn)>,
     },
@@ -2284,6 +2308,8 @@ pub enum EventOutcome {
     ManaCleared {
         player: PlayerId,
         previous: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retained_as: Option<Color>,
     },
     LandPlayCounted {
         player: PlayerId,
@@ -2874,7 +2900,19 @@ impl Game {
             .ok_or_else(|| "missing stack frame".into())
     }
     fn program(&self) -> Result<&SpellProgram, String> {
-        self.program_for(self.top()?)
+        let entry = self.top()?;
+        if matches!(
+            self.state.rules.frame,
+            Frame::PlayerTargets { .. }
+                | Frame::Targets { .. }
+                | Frame::StackTargets { .. }
+                | Frame::EntityTargets { .. }
+        ) {
+            if let Some(child) = self.next_mode_target(entry)? {
+                return Ok(child);
+            }
+        }
+        self.program_for(entry)
     }
     fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
         if let Some(plan) = &stack.mode_subset {
@@ -3175,7 +3213,13 @@ impl Game {
                 && entry.alternative_cost.is_none()
                 && entry.hybrid_colors.is_empty()
             {
-                return self.validate_hybrid_colors(entry.source.card, colors);
+                self.validate_hybrid_colors(entry.source.card, colors)?;
+                if !self.state.rules.players[player.0 as usize]
+                    .can_pay_life(&payments::phyrexian_life(colors))
+                {
+                    return Err("announced Phyrexian life payment is unpayable".into());
+                }
+                return Ok(());
             }
             return Err("invalid hybrid mana announcement".into());
         }
@@ -3309,7 +3353,8 @@ impl Game {
                 if self.program()?.targets.iter().any(|t| {
                     !matches!(
                         t.domain,
-                        TargetDomain::ControlledBattlefieldCreature
+                        TargetDomain::CreatureOrPlaneswalker
+                            | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
@@ -3569,8 +3614,14 @@ impl Game {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let top = self.state.rules.stack.last_mut().ok_or("missing stack")?;
-                top.targets = objects;
-                top.announced_targets = announced;
+                top.targets.extend(objects);
+                if top.announced_targets.is_empty() {
+                    top.announced_targets = announced;
+                } else {
+                    for (old, new) in top.announced_targets.iter_mut().zip(announced) {
+                        old.extend(new);
+                    }
+                }
                 let entry = self.top()?;
                 let immediate_cost = match &entry.kind {
                     StackKind::Activated { ability, .. } => {
@@ -3586,7 +3637,7 @@ impl Game {
                     // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.state.rules.frame = self.continue_spell_targeting(cast)?;
                 }
             }
             Frame::Mana { mut cast } => {
@@ -3676,7 +3727,9 @@ impl Game {
                             target_slot,
                             source_block,
                         } => {
-                            let target = stack.targets[*target_slot as usize];
+                            let target = *self
+                                .bound_object_target(&stack, *target_slot as usize)
+                                .ok_or("missing return target")?;
                             let outcome = if !frame.legal_targets[*target_slot as usize] {
                                 InstructionOutcome::IllegalTarget { target }
                             } else if self.current(target).is_err() {
@@ -3895,7 +3948,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 72,
+            snapshot_version: 75,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3937,7 +3990,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 72
+        if s.snapshot_version != 75
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -4226,17 +4279,40 @@ impl Game {
                 {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
-                if matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
-                    Frame::AdditionalCosts { .. }
-                        | Frame::HybridCost { .. }
-                        | Frame::AnnounceX { .. }
-                        | Frame::Modes { .. }
-                        | Frame::EntityTargets { .. }
+                let stage = self.underlying_mana_frame(&s.rules.frame);
+                let target_stage = matches!(
+                    stage,
+                    Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
                         | Frame::PlayerTargets { .. }
                         | Frame::StackTargets { .. }
-                ) && self.bound_target_count(top) != 0
+                );
+                if target_stage && self.mixed_mode_children(top)?.is_some() {
+                    let next = self.next_mode_target(top)?.and_then(|p| p.targets.first());
+                    if !self.valid_mixed_target_receipt(top, false)?
+                        || !matches!(
+                            (stage, next.map(|t| t.domain)),
+                            (
+                                Frame::Targets { .. },
+                                Some(
+                                    TargetDomain::BattlefieldCreature
+                                        | TargetDomain::CreatureOrPlaneswalker
+                                )
+                            ) | (Frame::StackTargets { .. }, Some(TargetDomain::StackSpell))
+                                | (Frame::EntityTargets { .. }, Some(TargetDomain::AnyPlayer))
+                        )
+                    {
+                        return Err("snapshot selected-mode announcement target invariant".into());
+                    }
+                } else if (target_stage
+                    || matches!(
+                        stage,
+                        Frame::AdditionalCosts { .. }
+                            | Frame::HybridCost { .. }
+                            | Frame::AnnounceX { .. }
+                            | Frame::Modes { .. }
+                    ))
+                    && self.bound_target_count(top) != 0
                 {
                     return Err("snapshot announcement target invariant".into());
                 }
@@ -4246,7 +4322,7 @@ impl Game {
                         | Frame::SpendMana { .. }
                         | Frame::SacrificeCost { .. }
                         | Frame::Payment { .. }
-                ) && self.bound_target_count(top) != self.program()?.targets.len()
+                ) && !self.announced_target_count_valid(self.program()?, top)
                 {
                     return Err("snapshot payment target invariant".into());
                 }

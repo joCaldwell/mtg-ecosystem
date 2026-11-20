@@ -62,6 +62,16 @@ impl Game {
         program: &SpellProgram,
         entry: &StackInstance,
     ) -> bool {
+        if self.mixed_mode_children(entry).is_ok_and(|m| m.is_some()) {
+            return self
+                .valid_mixed_target_receipt(entry, true)
+                .unwrap_or(false);
+        }
+        if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(program) {
+            return entry.kind.is_spell()
+                && self.bound_target_count(entry) == entry.entity_targets.len()
+                && self.graveyard_group_structure(&entry.entity_targets, maximum);
+        }
         if let Some(offer) = CounterDivision::offered_by(program) {
             entry.kind.is_spell()
                 && self.bound_target_count(entry) == entry.targets.len()

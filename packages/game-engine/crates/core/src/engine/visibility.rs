@@ -183,7 +183,7 @@ pub struct VisibleStackEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hybrid_colors: Vec<Color>,
+    pub hybrid_colors: Vec<HybridPayment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -362,6 +362,12 @@ pub enum PlayerRequest {
         choices: Vec<ManaAbilityIdentity>,
         mana_ability_source: ObjectHandle,
     },
+    ManaCombination {
+        token: DecisionToken,
+        player: PlayerId,
+        total: Quantity,
+        colors: Vec<Color>,
+    },
     ManaColor {
         token: DecisionToken,
         player: PlayerId,
@@ -432,6 +438,10 @@ pub enum PlayerRequest {
         player: PlayerId,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         one_or_more: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_repeat: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exactly: Option<u32>,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {
@@ -569,6 +579,7 @@ impl PlayerRequest {
             | Self::Surveil { token, .. } => token,
             Self::LegendRule { token, .. }
             | Self::ChooseManaAbility { token, .. }
+            | Self::ManaCombination { token, .. }
             | Self::ManaColor { token, .. }
             | Self::ColoredSearch { token, .. }
             | Self::SearchLands { token, .. }
@@ -660,7 +671,7 @@ pub enum PlayerResponse {
         keep: ObjectHandle,
     },
     HybridCost {
-        colors: Vec<Color>,
+        colors: Vec<HybridPayment>,
     },
     AnnounceX {
         value: Quantity,
@@ -673,6 +684,9 @@ pub enum PlayerResponse {
     },
     ChooseManaAbility {
         ability: ManaAbilityIdentity,
+    },
+    ManaCombination {
+        amounts: [Quantity; 5],
     },
     ManaColor {
         color: Color,
@@ -1806,11 +1820,15 @@ impl Game {
         if let Some(Request::Modes {
             player,
             one_or_more,
+            allow_repeat,
+            exactly,
             ..
         }) = self.modes_request()?
         {
             return Ok((player == viewer).then_some(PlayerRequest::Modes {
                 one_or_more,
+                allow_repeat,
+                exactly,
                 token,
                 player,
                 candidates: vec![],
@@ -1985,6 +2003,12 @@ impl Game {
                         })
                         .collect::<Result<_, String>>()?,
                 },
+                Request::ManaCombination { total, colors, .. } => PlayerRequest::ManaCombination {
+                    token,
+                    player: viewer,
+                    total,
+                    colors,
+                },
                 Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
                     token,
                     player: viewer,
@@ -2107,11 +2131,12 @@ impl Game {
         match &self.state.rules.frame {
             Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
                 if self.top()?.controller == viewer
-                    && self
-                        .program()?
-                        .targets
-                        .first()
-                        .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
+                    && self.program()?.targets.first().is_some_and(|t| {
+                        t.domain == TargetDomain::AnyDamageTarget
+                            || self.program().is_ok_and(|p| {
+                                mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
+                            })
+                    }) =>
             {
                 Ok(Some(PlayerRequest::EntityTargets {
                     token,
@@ -2208,6 +2233,14 @@ impl Game {
                             request,
                             Some(self.handle_for(viewer, activation.source)?),
                         )?,
+                    Request::ManaCombination { total, colors, .. } => {
+                        PlayerRequest::ManaCombination {
+                            token,
+                            player: viewer,
+                            total,
+                            colors,
+                        }
+                    }
                     Request::ManaColor { colors, .. } => PlayerRequest::ManaColor {
                         token,
                         player: viewer,
@@ -2493,11 +2526,12 @@ impl Game {
                     }
                     Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
                         if self.top()?.controller == viewer
-                            && self
-                                .program()?
-                                .targets
-                                .first()
-                                .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
+                            && self.program()?.targets.first().is_some_and(|t| {
+                                t.domain == TargetDomain::AnyDamageTarget
+                                    || self.program().is_ok_and(|p| {
+                                        mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
+                                    })
+                            }) =>
                     {
                         Some((self.state.rules.revision, 10))
                     }
@@ -2834,6 +2868,9 @@ impl Game {
             PlayerResponse::ChooseManaAbility { ability } => {
                 Ok(Response::ChooseManaAbility { ability: *ability })
             }
+            PlayerResponse::ManaCombination { amounts } => Ok(Response::ManaCombination {
+                amounts: amounts.clone(),
+            }),
             PlayerResponse::ManaColor { color } => Ok(Response::ManaColor { color: *color }),
             PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
                 spending: spending.clone(),

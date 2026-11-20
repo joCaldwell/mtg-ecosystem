@@ -1224,7 +1224,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             );
             for a in &d.static_abilities {
                 match &a.effect {
-                    StaticEffect::GrantControllerLandsAnyColorMana
+                    StaticEffect::KeepUnspentManaAsBlack
+                    | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::MayBeginOnBattlefield
                     | StaticEffect::SelfGraveyardRevealShuffle
                     | StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn
@@ -1587,6 +1588,112 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
         .state,
         g.state
     );
+}
+
+pub(super) fn seeded_mixed_target_fixture(raw: &str) -> Prepared {
+    let mut p = typed_land_search_tests::typed_prepared(raw);
+    let mut probe = Game::new(p.clone());
+    opening(&mut probe);
+    let caster = PlayerId(0);
+    let opening_forest = probe
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| {
+            o.zone == Zone::Hand { owner: caster }
+                && probe.definition(o.id.card).unwrap().name == "Forest"
+        })
+        .unwrap()
+        .id
+        .card;
+    let oracle = |name: &str| {
+        p.catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .oracle_id
+            .clone()
+    };
+    let island = oracle("Island");
+    let plains = oracle("Plains");
+    let commander = oracle("Isamaru, Hound of Konda");
+    for card in &mut p.config.cards {
+        if card.id == opening_forest {
+            card.oracle_id = island.clone();
+        }
+        if card.owner == PlayerId(2) {
+            card.oracle_id = if matches!(card.zone, Zone::Command { .. }) {
+                commander.clone()
+            } else {
+                plains.clone()
+            };
+        }
+    }
+    let config = p.match_config.as_mut().unwrap();
+    config.decks[2].commander = commander;
+    for seat in [0, 2] {
+        let mut counts = BTreeMap::<String, u32>::new();
+        for card in p.config.cards.iter().filter(|c| c.owner == PlayerId(seat)) {
+            *counts.entry(card.oracle_id.clone()).or_default() += 1;
+        }
+        config.decks[seat as usize].cards = counts
+            .into_iter()
+            .map(|(oracle_id, count)| DeckEntry { oracle_id, count })
+            .collect();
+    }
+    p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
+    p
+}
+
+#[test]
+fn paid_target_graveyard_shuffle_moves_distinct_opposing_cards_and_replays_owner_shuffle() {
+    let p = typed_land_search_tests::typed_prepared(include_str!(
+        "../../../../tests/fixtures/synthetic-target-graveyard-shuffle.json"
+    ));
+    let mut g = Game::new(p);
+    // Other seats pass through cleanup without playing from hand.
+    let spell = develop_search(&mut g, "Letters for Tomorrow", 3);
+    let owner = PlayerId(1);
+    let selected: Vec<_> = g
+        .state
+        .rules
+        .objects
+        .values()
+        .filter(|o| g.player_graveyard_card(o, owner))
+        .map(|o| o.id)
+        .take(2)
+        .collect();
+    assert_eq!(selected.len(), 2);
+    let entities = std::iter::once(TargetEntity::Player { player: owner })
+        .chain(selected.iter().map(|o| TargetEntity::Object { object: *o }))
+        .collect();
+    let before = g.state.rules.match_state.as_ref().unwrap().library_shuffles;
+    announce(&mut g, spell.0, entities);
+    assert!(g.top().unwrap().paid.is_some());
+    check(&g);
+    while !g.state.rules.stack.is_empty() {
+        let r = request(&mut g);
+        if g.state.rules.stack.is_empty() {
+            break;
+        }
+        assert!(matches!(r, Request::Priority { .. }));
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
+    }
+    for old in selected {
+        let current = g.object_id(old.card).unwrap();
+        assert_ne!(old, current);
+        assert_eq!(g.zone(current), Some(Zone::Library { owner }));
+    }
+    let mut expected = before;
+    expected[1] += 1;
+    assert_eq!(
+        g.state.rules.match_state.as_ref().unwrap().library_shuffles,
+        expected
+    );
+    check(&g);
 }
 
 #[test]

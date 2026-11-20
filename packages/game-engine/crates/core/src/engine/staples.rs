@@ -160,23 +160,7 @@ impl Game {
         source_block: u32,
     ) -> Result<(), String> {
         let player = frame.spell.controller;
-        let index = u32::try_from(
-            self.state
-                .rules
-                .libraries
-                .get(&player)
-                .map_or(0, |l| l.len().saturating_sub(1)),
-        )
-        .map_err(|_| "shuffle length resource limit")?;
-        self.state.rules.frame = Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::Shuffle {
-                player,
-                index,
-                source_block,
-            },
-        };
-        Ok(())
+        self.begin_player_library_shuffle(frame, player, source_block)
     }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         let instruction = self
@@ -235,6 +219,11 @@ impl Game {
             | Instruction::DrawControllerCards { .. }
             | Instruction::DrawCardsIfAdditionalCost { .. }
             | Instruction::DrawDamageAmount { .. } => Ok(frame.spell.controller),
+            Instruction::OptionalDrawForSoleGreatestEntrant { .. } => frame
+                .entrant_draw
+                .as_ref()
+                .map(|entrant| entrant.controller)
+                .ok_or_else(|| "missing resolved entrant".into()),
             _ => Err("not draw instruction".into()),
         }
     }
@@ -245,8 +234,7 @@ impl Game {
         player: PlayerId,
         domain: TargetDomain,
     ) -> bool {
-        object.zone == (Zone::Graveyard { owner: player })
-            && !self.state.rules.tokens.contains_key(&object.id.card)
+        self.player_graveyard_card(object, player)
             && match domain {
                 TargetDomain::OwnGraveyardCard => true,
                 TargetDomain::OwnGraveyardCreatureCard => self
@@ -255,31 +243,48 @@ impl Game {
                 _ => false,
             }
     }
+    pub(super) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
+        self.current(id).is_ok_and(|o| o.present_on_battlefield())
+            && self
+                .characteristics(id)
+                .is_ok_and(|c| c.has_type(CardKind::Creature))
+    }
     pub(super) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
+        let announced = matches!(self.state.rules.frame, Frame::Targets { .. })
+            && self.top().is_ok_and(|top| top.id == entry.id);
+        let program = if announced {
+            self.program()
+        } else {
+            self.program_for(entry)
+        };
+        let spec = program.ok().and_then(|p| p.targets.first());
+        self.object_target_legal_for(entry, object, spec)
+    }
+    pub(super) fn object_target_legal_for(
+        &self,
+        entry: &StackInstance,
+        object: ObjectId,
+        spec: Option<&mtg_contracts::TargetSpec>,
+    ) -> bool {
         if !self
             .targeting_characteristics(entry)
             .is_ok_and(|source| !self.protected_from(object, &source))
         {
             return false;
         }
-        match self
-            .program_for(entry)
-            .ok()
-            .and_then(|p| p.targets.first())
-            .map(|t| t.domain)
-        {
+        match spec.map(|t| t.domain) {
             Some(
                 TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
-            ) => self
-                .program_for(entry)
-                .ok()
-                .and_then(|p| p.targets.first())
-                .is_some_and(|spec| self.permanent_target_legal(object, entry.controller, spec)),
+            ) => spec.is_some_and(|t| self.permanent_target_legal(object, entry.controller, t)),
             Some(
                 domain @ (TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard),
             ) => self
                 .current(object)
                 .is_ok_and(|o| self.graveyard_target_legal(o, entry.controller, domain)),
+            Some(TargetDomain::CreatureOrPlaneswalker) => {
+                self.creature_or_planeswalker(object)
+                    && self.targetable_by(object, entry.controller)
+            }
             Some(TargetDomain::ControlledBattlefieldCreature) => {
                 self.is_battlefield_creature(object)
                     && self.targetable_by(object, entry.controller)
@@ -712,21 +717,7 @@ impl Game {
                         },
                     )?;
                 }
-                let index = self
-                    .state
-                    .rules
-                    .libraries
-                    .get(&player)
-                    .map_or(0, |l| l.len().saturating_sub(1)) as u32;
-                self.state.rules.frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::Shuffle {
-                        player,
-                        index,
-                        source_block,
-                    },
-                };
-                Ok(())
+                self.begin_player_library_shuffle(frame, player, source_block)
             }
             ResolutionChoice::SearchSplit {
                 objects,
@@ -771,21 +762,7 @@ impl Game {
                         },
                     )?;
                 }
-                let index = self
-                    .state
-                    .rules
-                    .libraries
-                    .get(&player)
-                    .map_or(0, |l| l.len().saturating_sub(1)) as u32;
-                self.state.rules.frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::Shuffle {
-                        player,
-                        index,
-                        source_block,
-                    },
-                };
-                Ok(())
+                self.begin_player_library_shuffle(frame, player, source_block)
             }
             ResolutionChoice::OptionalDraw { source_block, .. } => {
                 let input = self
@@ -911,6 +888,22 @@ impl Game {
                     player,
                     source_block,
                 },
+                Instruction::OptionalDrawForSoleGreatestEntrant {
+                    source_block: expected,
+                },
+            ) => {
+                source_block == expected
+                    && self.is_live(*player)
+                    && frame
+                        .entrant_draw
+                        .as_ref()
+                        .is_some_and(|entrant| entrant.controller == *player)
+            }
+            (
+                ResolutionChoice::OptionalDraw {
+                    player,
+                    source_block,
+                },
                 Instruction::OptionalDrawCards {
                     source_block: expected,
                 }
@@ -972,6 +965,29 @@ impl Game {
                     && objects
                         .iter()
                         .all(|o| self.search_lands(*player).contains(o))
+            }
+            (
+                ResolutionChoice::Shuffle {
+                    player,
+                    index,
+                    source_block,
+                },
+                Instruction::ShufflePlayerGraveyard { source_block: b },
+            ) => {
+                source_block == b
+                    && frame.spell.entity_targets.first()
+                        == Some(&TargetEntity::Player { player: *player })
+                    && self
+                        .graveyard_legality(frame)
+                        .is_ok_and(|(legal, _)| legal.first() == Some(&true))
+                    && (*index as usize)
+                        < self
+                            .state
+                            .rules
+                            .libraries
+                            .get(player)
+                            .map_or(1, Vec::len)
+                            .max(1)
             }
             (
                 ResolutionChoice::Shuffle {

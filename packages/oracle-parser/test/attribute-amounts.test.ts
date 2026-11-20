@@ -46,3 +46,13 @@ describe('attribute amounts stated with "of"', () => {
     fails('Draw cards equal to the power of those creatures.');
   });
 });
+
+it("strict characteristic comparisons exclude the exact identified creature", () => {
+  const text = "Whenever another creature enters, its controller may draw a card if its toughness is less than each other creature's toughness.";
+  const result = one(text, "Opaline Marshal");
+  assert.deepEqual(result.effects[0].condition, {
+    condition: "strict-attribute-extremum", what: {ref:"it"}, attribute:"toughness",
+    extremum:"minimum", among:{types:["creature"]},
+  });
+  assert.equal(parseOracleText(text.replace("creature's toughness", "creature's power")).ok, false);
+});

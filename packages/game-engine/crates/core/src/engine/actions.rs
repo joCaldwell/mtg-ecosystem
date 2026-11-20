@@ -64,6 +64,11 @@ pub(super) enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
+    LookTopMana {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        revealed: bool,
+    },
     Hideaway {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -157,6 +162,15 @@ impl Game {
         player: PlayerId,
         source: &Characteristics,
     ) -> bool {
+        if let SpellResolution::ChooseModes { exactly } = program.resolution {
+            return program
+                .modes
+                .iter()
+                .filter(|mode| self.has_target_domain(&mode.program, player, source))
+                .take(exactly as usize)
+                .count()
+                == exactly as usize;
+        }
         if !program.modes.is_empty() {
             return program
                 .modes
@@ -164,6 +178,7 @@ impl Game {
                 .any(|mode| self.has_target_domain(&mode.program, player, source));
         }
         match program.targets.first().map(|target| target.domain) {
+            Some(TargetDomain::PlayerGraveyardCards { .. }) => false,
             None => true,
             Some(TargetDomain::AnyDamageTarget) => {
                 self.live_players()
@@ -207,11 +222,15 @@ impl Game {
                 })
             }
             Some(
-                domain @ (TargetDomain::BattlefieldCreature
+                domain @ (TargetDomain::CreatureOrPlaneswalker
+                | TargetDomain::BattlefieldCreature
                 | TargetDomain::ControlledBattlefieldCreature),
             ) => self.state.rules.objects.values().any(|o| {
-                self.is_battlefield_creature(o.id)
-                    && self.targetable_by(o.id, player)
+                (if domain == TargetDomain::CreatureOrPlaneswalker {
+                    self.creature_or_planeswalker(o.id)
+                } else {
+                    self.is_battlefield_creature(o.id)
+                }) && self.targetable_by(o.id, player)
                     && !self.protected_from(o.id, source)
                     && (domain != TargetDomain::ControlledBattlefieldCreature
                         || o.controller == player)
@@ -219,6 +238,63 @@ impl Game {
         }
     }
     pub(super) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
+        if entry.mode_subset.is_some() {
+            let Ok(program) = self.program_for(entry) else {
+                return vec![];
+            };
+            let mut legal = vec![];
+            for (slot, target) in program.targets.iter().enumerate() {
+                match target.domain {
+                    TargetDomain::PlayerGraveyardCards { .. } => {
+                        if let Some((TargetEntity::Player { player }, cards)) =
+                            entry.entity_targets.split_first()
+                        {
+                            legal.extend(cards.iter().map(|target|
+                                matches!(target, TargetEntity::Object { object } if self.current(*object).is_ok_and(|o| self.player_graveyard_card(o,*player)))
+                            ));
+                        }
+                    }
+                    TargetDomain::AnyPlayer
+                        if matches!(program.targets.get(slot + 1).map(|t|t.domain),
+                        Some(TargetDomain::PlayerGraveyardCards {owner_slot,..}) if owner_slot as usize==slot) =>
+                    {
+                        legal.push(matches!(entry.entity_targets.first(),Some(TargetEntity::Player{player}) if self.player_target_legal(entry,slot,*player)));
+                    }
+                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
+                        let index = self.selected_storage_index(entry, slot, |d| {
+                            matches!(d, TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
+                        });
+                        legal.push(
+                            index
+                                .and_then(|i| entry.player_targets.get(i))
+                                .is_some_and(|p| self.player_target_legal(entry, slot, *p)),
+                        );
+                    }
+                    TargetDomain::StackSpell
+                    | TargetDomain::ControlledCreatureSpell
+                    | TargetDomain::StackActivatedOrTriggeredAbility => {
+                        legal.push(self.bound_stack_target(entry, slot).is_some_and(|id| {
+                            self.eligible_stack_targets_for(
+                                target,
+                                entry.controller,
+                                Some(entry.id),
+                            )
+                            .contains(id)
+                        }));
+                    }
+                    TargetDomain::AnyDamageTarget => legal.push(
+                        self.bound_damage_target(entry, slot)
+                            .is_some_and(|t| self.entity_target_legal(*t, entry)),
+                    ),
+                    _ => {
+                        legal.push(self.bound_object_target(entry, slot).is_some_and(|id| {
+                            self.object_target_legal_for(entry, *id, Some(target))
+                        }))
+                    }
+                }
+            }
+            return legal;
+        }
         if !entry.entity_targets.is_empty() {
             entry
                 .entity_targets
@@ -456,6 +532,13 @@ impl Game {
                     count: looked.len(),
                 })
             }
+            ResolutionChoice::LookTopMana {
+                player,
+                looked,
+                revealed,
+            } if self.is_live(*player) => {
+                Some(self.look_top_mana_request(frame, *player, looked, *revealed)?)
+            }
             ResolutionChoice::Hideaway {
                 player,
                 looked,
@@ -545,6 +628,9 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let Some(result) = self.validate_look_top_mana_response(player, response) {
+            return Some(result);
+        }
         if let (
             Frame::ResolutionChoice {
                 choice:
@@ -760,10 +846,13 @@ impl Game {
                 let caster = top.controller;
                 if player != caster
                     || players.len() != self.program()?.targets.len()
-                    || players
-                        .iter()
-                        .enumerate()
-                        .any(|(slot, p)| !self.player_target_legal(top, slot, *p))
+                    || players.iter().enumerate().any(|(slot, p)| {
+                        !self.program().is_ok_and(|program| {
+                            program.targets.get(slot).is_some_and(|spec| {
+                                self.eligible_players(spec.domain, caster).contains(p)
+                            })
+                        })
+                    })
                 {
                     return Err("invalid player targets".into());
                 }
@@ -830,11 +919,12 @@ impl Game {
                     .stack
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
-                    .player_targets = players;
+                    .player_targets
+                    .extend(players);
                 if cast.origin == AnnouncementOrigin::Activated {
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.state.rules.frame = self.continue_spell_targeting(cast)?;
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
@@ -869,6 +959,14 @@ impl Game {
                     return self.optional_shuffle_step(frame, player, source_block);
                 }
 
+                if let ResolutionChoice::LookTopMana {
+                    player,
+                    looked,
+                    revealed,
+                } = choice
+                {
+                    return self.look_top_mana_step(frame, player, looked, revealed);
+                }
                 if let ResolutionChoice::Hideaway {
                     player,
                     looked,
@@ -935,6 +1033,7 @@ impl Game {
                         | ResolutionChoice::HandReturn { .. }
                         | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
+                        | ResolutionChoice::LookTopMana { .. }
                         | ResolutionChoice::Hideaway { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
@@ -973,6 +1072,7 @@ impl Game {
                     | ResolutionChoice::HandReturn { .. }
                     | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
+                    | ResolutionChoice::LookTopMana { .. }
                     | ResolutionChoice::Hideaway { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
@@ -1104,6 +1204,7 @@ impl Game {
         if frame.draw_progress.is_some() || frame.each_player_draw.is_some() {
             return Err("cannot advance an unfinished counted draw".into());
         }
+        frame.entrant_draw = None;
         frame.outcomes.push(outcome);
         frame.cursor = frame
             .cursor
@@ -1150,9 +1251,13 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_library_order(frame, amount, source_block),
+            Instruction::ShufflePlayerGraveyard { source_block } => {
+                self.start_graveyard_shuffle(frame, source_block)
+            }
             Instruction::OptionalShuffleLibrary { source_block } => {
                 self.begin_optional_shuffle(frame, source_block)
             }
+            Instruction::LookTopMayRevealForMana { .. } => self.begin_look_top_mana(frame),
             Instruction::Hideaway { .. } => self.begin_hideaway(frame),
             Instruction::SelectLibraryCard {
                 amount,
@@ -1197,6 +1302,34 @@ impl Game {
                         actual: Some(actual),
                     },
                 )
+            }
+            Instruction::PhaseOutTargetPermanent {
+                target_slot,
+                source_block,
+            } => {
+                let slot = target_slot as usize;
+                let target = *self
+                    .bound_object_target(&frame.spell, slot)
+                    .ok_or("missing phasing target")?;
+                // CR 608.2b, 702.26b: keep resolution-start legality, but a
+                // previous mode may already have phased this incarnation out.
+                let outcome = if frame.legal_targets.get(slot) != Some(&true) {
+                    InstructionOutcome::IllegalTarget { target }
+                } else if !self
+                    .current(target)
+                    .is_ok_and(|o| o.present_on_battlefield())
+                {
+                    InstructionOutcome::ObjectNoLongerPresent { target }
+                } else {
+                    let actual = self.commit(
+                        ProposedEvent::PhaseOutTarget { object: target },
+                        Self::wipe_cause(&frame, source_block),
+                    )?;
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    }
+                };
+                self.finish_instruction(frame, outcome)
             }
             Instruction::PhaseOutControllerPermanents { source_block } => {
                 let actual = self.commit(
@@ -1410,10 +1543,8 @@ impl Game {
                                 InstructionOutcome::Effect { actual: None },
                             );
                         }
-                        *frame
-                            .spell
-                            .player_targets
-                            .get(target_slot as usize)
+                        *self
+                            .bound_player_target(&frame.spell, target_slot as usize)
                             .ok_or("missing draw player target")?
                     }
                 };
@@ -1432,6 +1563,38 @@ impl Game {
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            Instruction::OptionalDrawForSoleGreatestEntrant { source_block } => {
+                let entrant = self.resolving_entrant(&frame)?;
+                let power = entrant
+                    .characteristics
+                    .power
+                    .as_ref()
+                    .ok_or("entrant without power")?;
+                for o in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield() && o.id != entrant.object)
+                {
+                    if self.is_battlefield_creature(o.id)
+                        && self
+                            .characteristics(o.id)?
+                            .power
+                            .as_ref()
+                            .is_some_and(|p| p >= power)
+                    {
+                        return self.finish_instruction(
+                            frame,
+                            InstructionOutcome::Effect { actual: None },
+                        );
+                    }
+                }
+                let player = entrant.controller;
+                let mut frame = frame;
+                frame.entrant_draw = Some(Box::new(entrant));
+                self.offer_player_draw(frame, player, source_block)
+            }
             Instruction::OptionalDrawCards { source_block } => {
                 self.offer_controller_draw(frame, source_block)
             }
@@ -1489,12 +1652,42 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
+    pub(super) fn resolving_entrant(&self, frame: &Resolving) -> Result<ObjectBefore, String> {
+        let StackKind::Triggered {
+            witness:
+                TriggerEventWitness::CreatureEnteredWithPower {
+                    entrant,
+                    last_appearance: Some(last),
+                    ..
+                },
+            ..
+        } = &frame.spell.kind
+        else {
+            return Err("missing resolving entrant".into());
+        };
+        if self
+            .current(entrant.object)
+            .is_ok_and(|o| o.present_on_battlefield())
+        {
+            self.object_before(entrant.object)
+        } else {
+            Ok((**last).clone())
+        }
+    }
     pub(super) fn offer_controller_draw(
         &mut self,
         frame: Resolving,
         source_block: u32,
     ) -> Result<(), String> {
         let player = frame.spell.controller;
+        self.offer_player_draw(frame, player, source_block)
+    }
+    fn offer_player_draw(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        source_block: u32,
+    ) -> Result<(), String> {
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -1967,6 +2160,31 @@ impl Game {
         self.validate_group_discard_progress(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
+        if let Some(fact) = &frame.entrant_draw {
+            let StackKind::Triggered {
+                witness:
+                    TriggerEventWitness::CreatureEnteredWithPower {
+                        entrant,
+                        last_appearance: Some(_),
+                        ..
+                    },
+                ..
+            } = &entry.kind
+            else {
+                return Err("detached entrant choice".into());
+            };
+            if !matches!(
+                program.instructions.get(frame.cursor as usize),
+                Some(Instruction::OptionalDrawForSoleGreatestEntrant { .. })
+            ) || entrant.object != fact.object
+                || entrant.owner != fact.owner
+                || fact.zone != Zone::Battlefield
+                || fact.controller != self.resolving_entrant(frame)?.controller
+            {
+                return Err("invalid resolving entrant identity".into());
+            }
+            self.validate_characteristic_identity(fact.object, fact.zone, &fact.characteristics)?;
+        }
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
@@ -2095,6 +2313,16 @@ impl Game {
                     Instruction::OptionalShuffleLibrary { source_block: b },
                 ) => *player == frame.spell.controller && source_block == b,
 
+                (
+                    ResolutionChoice::LookTopMana {
+                        player,
+                        looked,
+                        revealed,
+                    },
+                    Instruction::LookTopMayRevealForMana { .. },
+                ) => self
+                    .validate_look_top_mana_choice(frame, *player, looked, *revealed)
+                    .is_ok(),
                 (
                     ResolutionChoice::Hideaway {
                         player,

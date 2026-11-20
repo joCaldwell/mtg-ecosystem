@@ -26,12 +26,11 @@ Follow [development](game-engine-development.md); names identify witnesses, neve
 [Evidence](game-engine-evidence.md) owns qualified M0–M4 producers, limits and receipts.
 [Historical plan](https://github.com/joCaldwell/mtg-ecosystem/blob/ad428b23ee5b3f5750f8c79b4a7823c8d93d5b7f/docs/game-engine-ramos-plan.md).
 
-## Ordered remaining milestones
+## Engine milestones
 
 ### M2 Complete land and ramp infrastructure
 
-`038172b7` validates **79/85** (73 original, six source-identical reparses). [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
-retains exact producer boundaries; complete-deck admission remains open.
+**85/85** exact definitions compile with eight registered, source-identical reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration) retains the producer boundaries.
 
 ### M4 Complete the cascade package and casting history
 
@@ -39,11 +38,11 @@ Averna, Call Forth, Double Major, Yidris and Creative Technique use authorized r
 
 ### M5 Add color and mana engines
 
-Omen, Lantern and Leyline have focused witnesses. Complete Selvala and Omnath.
+Omen, Lantern, Leyline, Selvala and Omnath have focused mana witnesses.
 
 ### M6 Complete card advantage and flexible choices
 
-Whirlwind, Rhystic, Abzan, Urban and Conflux have focused witnesses. Complete Quandrix’s choose-two and graveyard targets.
+Whirlwind, Rhystic, Abzan, Urban and Conflux have focused witnesses. Quandrix’s two modes retain distinct targets and support graveyard shuffle recovery.
 
 ### M7 Complete protection and board interaction
 
@@ -56,20 +55,15 @@ Double Major, Creative Technique and Protege compile from authorized reparses.
 
 ### M9 Add linked permissions, bestow and Sagas
 
-Mosswort has paid hideaway and linked-play witnesses. Complete Chromanticore’s
-bestow transitions and Thunder’s chapters.
+Paid witnesses cover Mosswort’s linked play, Chromanticore’s Bestow and Thunder’s chapters.
 
 ### M10 Complete phasing and remaining effects
 
-Teferi, Archangel and Progenitus have paid witnesses. Complete Coalition’s repeated modes.
+Paid witnesses cover Teferi, Archangel, Progenitus and Coalition’s repeated modes.
 
 ### M11 Qualify the exact deck and host it
 
-Qualify target definitions, provenance, capabilities and Commander/pod admission.
-Run seeded four-seat completion and replay with public policies, rotating and
-repeating Ramos among varied opponents. Report outcomes, faults and truncation.
-Qualify host/SDK privacy, retries, reconnect, recovery and four-client completion.
-Search remains separate.
+The exact 100-card list finished a seeded four-seat headless game with an independent replay. [Run the exact profile](../scripts/play-ramos.sh) with a pinned compiler and the eight registered manifests. Seat rotation, varied pods and hosted client qualification remain open.
 
 ## Execution and reporting
 

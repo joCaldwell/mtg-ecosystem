@@ -478,6 +478,10 @@ impl Game {
             return Err("snapshot X/death LKI binding invariant".into());
         }
         let program = self.program_for(entry)?;
+        let mixed = self.mixed_mode_children(entry)?.is_some();
+        if mixed && !self.valid_mixed_target_receipt(entry, entry.paid.is_some())? {
+            return Err("malformed selected-mode target receipt".into());
+        }
         let stack_domain = program.targets.first().is_some_and(|target| {
             matches!(
                 target.domain,
@@ -487,8 +491,7 @@ impl Game {
             )
         });
         if !entry.stack_targets.is_empty() {
-            if !stack_domain
-                || !entry.targets.is_empty()
+            if (!mixed && (!stack_domain || !entry.targets.is_empty()))
                 || !entry.player_targets.is_empty()
                 || entry.stack_targets.len() > program.targets.len()
                 || entry.announced_stack_targets.len() != 4
@@ -503,7 +506,8 @@ impl Game {
         } else if !entry.announced_stack_targets.is_empty() {
             return Err("snapshot stack target announcement invariant".into());
         }
-        if stack_domain && (!entry.targets.is_empty() || !entry.player_targets.is_empty()) {
+        if !mixed && stack_domain && (!entry.targets.is_empty() || !entry.player_targets.is_empty())
+        {
             return Err("snapshot wrong target binding domain".into());
         }
         Ok(())
@@ -558,7 +562,7 @@ impl Game {
         entries: &[StackId],
     ) -> Result<(), String> {
         let top = self.top()?;
-        let program = self.program_for(top)?;
+        let program = self.program()?;
         if top.controller != player
             || entries.len() != program.targets.len()
             || entries.iter().enumerate().any(|(slot, target)| {
@@ -598,7 +602,7 @@ impl Game {
             .ok_or("missing stack target invocation")?;
         top.stack_targets = entries;
         top.announced_stack_targets = announced;
-        self.state.rules.frame = self.announcement_mana_frame(cast)?;
+        self.state.rules.frame = self.continue_spell_targeting(cast)?;
         Ok(())
     }
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs
@@ -612,10 +616,8 @@ impl Game {
         mill_count: Option<Quantity>,
     ) -> Result<(), String> {
         let slot = target_slot as usize;
-        let target = *frame
-            .spell
-            .stack_targets
-            .get(slot)
+        let target = *self
+            .bound_stack_target(&frame.spell, slot)
             .ok_or("missing counter target binding")?;
         if frame.legal_targets.get(slot) != Some(&true) {
             return self

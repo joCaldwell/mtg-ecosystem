@@ -40,6 +40,7 @@ mod counter_unless_generic;
 pub mod coverage;
 mod creative_technique;
 mod creature_entry_return;
+mod creature_planeswalker_return;
 mod diagnostics;
 mod distinct_permanent_colors;
 mod divided_plus_one_counters;
@@ -53,7 +54,10 @@ mod entry_graveyard_exile;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod fixed_target_modes;
 mod graveyard_battlefield_return;
+mod graveyard_shuffle;
+mod greatest_power;
 mod group_discard;
 mod hand_cast_cascade;
 mod hand_return;
@@ -79,6 +83,7 @@ mod pain_mana;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod saga;
+mod repeated_target_modes;
 mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
@@ -229,6 +234,12 @@ enum Ability {
     DividedPlusOneCountersModal,
     #[serde(skip)]
     CommanderModalKeyword,
+    #[serde(skip)]
+    PlayerGraveyardShuffle,
+    #[serde(skip)]
+    FixedTargetModes,
+    #[serde(skip)]
+    CreaturePlaneswalkerReturn,
     #[serde(skip)]
     HandCastCascade,
     #[serde(skip)]
@@ -1424,6 +1435,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
     }
+    if r.status != "parsed"
+        && archive.manifest_sha256 == library_top_mana::ARCHIVE
+        && r.source_sha256 == library_top_mana::SOURCE
+        && sha256(record.strip_suffix('\n').unwrap_or(record).as_bytes())
+            == library_top_mana::ARCHIVED_ROW
+    {
+        return library_top_mana::frozen_definition().map_err(|e| invalid("reparse", e));
+    }
+    if let Some(definition) = greatest_power::lower(&r, archive)? {
+        return Ok(definition);
+    }
     if r.status != "parsed" {
         return Err(unsupported("status", "complete-card parsing is required"));
     }
@@ -1481,6 +1503,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     let ast_sha256 = r
         .ast_sha256
+        .clone()
         .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
     if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
         return Err(invalid("astSha256", "successful AST hash mismatch"));
@@ -1509,9 +1532,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     )?;
     let controller_window =
         controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let graveyard_shuffle =
+        graveyard_shuffle::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let repeated_modes = repeated_target_modes::lower(&shape, &result, &binding, &r)?;
+    let fixed_modes = match repeated_modes {
+        Some(p) => Some(p),
+        None => fixed_target_modes::lower(&shape, &result, &binding, &r.oracle_identity)?,
+    };
+    let permanent_union =
+        creature_planeswalker_return::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let has_linked_hideaway = linked_hideaway::validate(&source, &shape, &result, &binding)?;
     let abilities = if has_linked_hideaway {
         (0..4).map(|_| Ability::LinkedHideaway).collect()
+    } else if permanent_union.is_some() {
+        vec![Ability::CreaturePlaneswalkerReturn]
+    } else if fixed_modes.is_some() {
+        vec![Ability::FixedTargetModes]
+    } else if graveyard_shuffle.is_some() {
+        vec![Ability::PlayerGraveyardShuffle]
     } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
     } else if self_graveyard_shuffle {
@@ -1839,6 +1877,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if permanent_union.is_some() => {
+            definition.spell = permanent_union;
+        }
+        CardKind::Sorcery | CardKind::Instant if fixed_modes.is_some() => {
+            definition.spell = fixed_modes;
+        }
+        CardKind::Sorcery | CardKind::Instant if graveyard_shuffle.is_some() => {
+            definition.spell = graveyard_shuffle;
+        }
         CardKind::Sorcery | CardKind::Instant if controller_window.is_some() => {
             definition.spell = controller_window;
         }
@@ -11281,4 +11328,35 @@ fn hybrid_announcement_requires_the_exact_source_face_and_empty_ability_graph() 
             CompileResult::Lowered { .. }
         ));
     }
+}
+
+#[test]
+fn frozen_library_top_mana_requires_complete_source_and_reparse() {
+    let header = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+    let row =
+        include_str!("../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json");
+    let CompileResult::Lowered { definition } = compile(header, row) else {
+        panic!("expected frozen reparse")
+    };
+    definition.validate().unwrap();
+    assert_eq!(
+        definition.characteristics.colored_mana_symbol_count(),
+        5.into()
+    );
+    assert_eq!(
+        definition.triggered[0].program.instructions,
+        [Instruction::LookTopMayRevealForMana {
+            minimum_symbols: 3.into(),
+            mana: 3.into(),
+            source_block: 1
+        }]
+    );
+    assert!(!matches!(
+        compile(header, &row.replace("three or more", "four or more")),
+        CompileResult::Lowered { .. }
+    ));
+    let mut changed = *definition;
+    changed.triggered.clear();
+    changed.capabilities = changed.requirements();
+    assert!(changed.validate().is_err());
 }

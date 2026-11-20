@@ -87,6 +87,7 @@ fn fixed_bestow_cast_preserves_printed_cost_and_restores_its_creature() {
         colored: vec![color],
     };
     let printed = Characteristics {
+        hybrid_mana: vec![],
         kind: CardKind::Creature,
         additional_types: vec![CardKind::Enchantment],
         subtypes: vec!["Crab".into()],
@@ -395,6 +396,7 @@ fn statics() -> Vec<StaticAbility> {
 fn characteristics() -> Characteristics {
     let colors = vec![Color::B, Color::G, Color::R, Color::U, Color::W];
     Characteristics {
+        hybrid_mana: vec![],
         kind: CardKind::Creature,
         additional_types: vec![CardKind::Enchantment],
         basic: false,
