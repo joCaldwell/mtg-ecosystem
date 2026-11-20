@@ -507,10 +507,35 @@ function parseLookAndPlay(c: Cursor, options: PlayInstructionOptions): Effect[] 
   });
 }
 
+/** Each cast spends one available slot for one of the nonland card types
+ * of the spell being cast (CR 205.2b, 601.3e). A multitype spell can use
+ * either slot; a cast neither spends all its types nor recasts an exiled card.
+ * https://magic.wizards.com/en/news/feature/commander-2018-edition-release-notes-2018-07-27 */
+function parsePerTypeExilePermission(c: Cursor, duration: Duration | undefined): Effect | null {
+  return c.attempt(c => {
+    if (duration?.duration !== "end-of-turn" || !c.words("for", "each", "nonland", "card", "type") ||
+      !c.punct(",") || !c.words("you", "may", "cast", "a", "spell", "of", "that", "type", "from", "among")) return null;
+    const fromAmong = parseObjectRef(c);
+    if (fromAmong?.ref !== "related" || fromAmong.number !== "plural" || fromAmong.filter?.cls !== "card" ||
+      fromAmong.relation.relation !== "event-result" || fromAmong.relation.event !== "exile" ||
+      !c.words("without", "paying", "its", "mana", "cost") || (!c.done() && !c.isPunct("."))) return null;
+    return { effect: "grant-play-permission", duration, permission: {
+      who: { player: "you" }, action: "cast", fromAmong,
+      what: { ref: "filter", filter: { cls: "spell" }, count: { amount: "fixed", value: 1 } },
+      alternativeCost: { cost: "without-mana-cost" },
+      useLimit: { maximum: 1, period: "permission", per: "nonland-card-type" },
+    } };
+  });
+}
+
 /** Use before generic optional/duration decoration, or provide those consumed
  * values explicitly. A duration grant is mandatory creation of a permission;
  * "may" describes the later choice and must not become optional:true here. */
 export function parsePlayInstruction(c: Cursor, options: PlayInstructionOptions = {}): Effect[] | null {
+  if (!options.optionalConsumed && options.leadingDuration) {
+    const perType = parsePerTypeExilePermission(c, options.leadingDuration);
+    if (perType) return [perType];
+  }
   if (!options.optionalConsumed && !options.leadingDuration) {
     const mandatory = c.attempt((c): Effect | null => {
       if (!c.words("the", "player", "casts", "it", "without", "paying", "its", "mana", "cost", "if", "able")) return null;

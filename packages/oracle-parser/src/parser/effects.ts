@@ -19,7 +19,7 @@ import { parseLoyaltyLimitEffect } from "./activation-rules.ts";
 import { parseTargetingEffect } from "./targeting-rules.ts";
 import { parseLookPermissionEffect } from "./persistent-rules.ts";
 import { parseUntapSuppressionEffect } from "./untap.ts";
-import { liftCardExileCounters, parseDefiniteCardExileCounters, parseExileCounters, parseExileUntil } from "./linked-exile.ts";
+import { liftCardExileCounters, parseDefiniteCardExileCounters, parseExileCounters, parseExileUntil, parseRepeatedHandExile } from "./linked-exile.ts";
 import { parseAddManaEffect, parseManaRetention, parseManaSpendingRules } from "./mana.ts";
 import { parsePrevention, parsePreventionSentence } from "./prevention.ts";
 import { parseRedirectionSentence } from "./damage-redirection.ts";
@@ -45,8 +45,8 @@ import { parseLegendRuleEffect } from "./legend-rule.ts";
 import { parseEndEffectAction } from "./effect-endings.ts";
 import { parseAllCreatureTypes } from "./type-grants.ts";
 import { parseCostModificationEffect } from "./cost-modifiers.ts";
-import { foldCopyRetarget, parseStackCopy, parseChooseNewTargets, type StackCopyInputProof } from "./stack-copy.ts";
-import { castCopiesAreCreated, parseCardCopy } from "./card-copy.ts";
+import { foldCopyRetarget, parseStackCopy, parseChooseNewTargets, parseOpponentCopyBonus, type StackCopyInputProof } from "./stack-copy.ts";
+import { castCopiesAreCreated, parseCardCopy, parseEachCardCopyCast } from "./card-copy.ts";
 import { parseDiceRoll } from "./dice.ts";
 import { foldCounterTotalLimit } from "./counter-limits.ts";
 import { foldCoinFlipOutcome, parseDivisionTargets, parseQuantityOp, parseRandomSelection, quantityOpAcceptsDuration } from "./quantity-ops.ts";
@@ -59,11 +59,12 @@ import { parseLibraryScan } from "./library-scan.ts";
 import { parseLibraryTopMana } from "./library-top-mana.ts";
 import { parseContextualLibraryPlacement, parseLibraryDepth, parseSameLibraryPlacement, parseSplitPairMember } from "./library-placement.ts";
 import { parseCounterChoice } from "./counter-choices.ts";
+import { foldMillRepetition, parseExileAndSearchPlacement, parseExileReturnReplacement, parsePermanentRepresentatives, parseDistinctFights, parsePerObjectCounterKind, parseLinkedOwnersBottomPlacement, parseGroupedSearchPlacement, parseGroupedRevealPlacements } from "./compound-results.ts";
 import { disjointPools } from "./pooled-counts.ts";
 import { parseRemoveCountedCounters } from "./counter-anaphora.ts";
 import { parsePlacementChoice } from "./placement-choices.ts";
 import { isPluralTargetPlayers, parsePluralTargetPlayers } from "./player-targets.ts";
-import { forEachContinuationsScoped, parseForEach } from "./for-each.ts";
+import { forEachContinuationsScoped, parseForEach, parseGoadedCombatTrigger } from "./for-each.ts";
 import { parseExceptFor } from "./filter-exceptions.ts";
 import { parseCommanderCastUnit, parseHistoryUnit } from "./history-amounts.ts";
 import { parseTemporal } from "./temporal.ts";
@@ -81,7 +82,8 @@ import { parseRepeatProcess } from "./repeat-process.ts";
 import { parsePlayerControl } from "./player-control.ts";
 import { parseMiscEffect } from "./misc-effects.ts";
 import { parseSetLifeTotal } from "./life-totals.ts";
-import { parseChangeTargets } from "./target-changes.ts";
+import { parseChangeTargets, parseRandomReselectionOfSingleTarget, parseRandomReselectionOfSpellAndCopy,
+  parseEnteredPermanentExchange, parsePairedPlayerAttackRule } from "./target-changes.ts";
 import { parseChangeText } from "./text-changes.ts";
 import { parseNextSpellModification } from "./next-spell.ts";
 import { hasCombatHistory, parseAggregateCount } from "./aggregates.ts";
@@ -96,7 +98,7 @@ import { foldExcessDamageSentence } from "./excess-damage.ts";
 import { parseInvertedBattlefieldMove } from "./inverted-moves.ts";
 import { parseElidedCounterRemoval } from "./counter-alternatives.ts";
 import { foldEntrySentence } from "./entry-sentences.ts";
-import { carriesFreshChoice, parseCoordinatedSubjects } from "./subject-lists.ts";
+import { carriesFreshChoice, parseCoordinatedSubjects, parseCopyPairFollowup } from "./subject-lists.ts";
 import { withConditionDifference } from "./condition-differences.ts";
 import { withinEmblem } from "./emblem-scope.ts";
 import { deferredHalf, parseHalfOwnLibrary, parseHalfOwnLife, resolveDeferredRounding, resolveRoundingHere, withDeferredRounding } from "./half-amounts.ts";
@@ -131,7 +133,7 @@ export interface EffectContext {
    * newly created/quoted body. The marker is immutable across backtracking. */
   stackCopyInput?: StackCopyInputProof;
   /** The current body belongs to one proven trigger, never a nested body. */
-  triggerScope?: "cast" | "leaves-self";
+  triggerScope?: "cast" | "leaves-self" | "dies-self" | "adds-mana-chosen" | "taps-for-mana-chosen" | "stack-single-target" | "enters-permanent";
   /** Only result-table row parsers set this; fresh nested bodies do not inherit it. */
   allowRollAgain?: boolean;
   /** Actor of an elided imperative verb after "[player] may"; set only while
@@ -154,6 +156,10 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
   const previousSubject = ctx.lastSubject;
   const previousPlayer = ctx.lastPlayer;
   const result = c.attempt((c): Sentence[] | null => {
+    const reselection = ctx.triggerScope === "stack-single-target" && parseRandomReselectionOfSingleTarget(c);
+    if (reselection) return [{ steps: [reselection] }];
+    const exchange = ctx.triggerScope === "enters-permanent" && parseEnteredPermanentExchange(c);
+    if (exchange) return exchange;
     const topMana = parseLibraryTopMana(c);
     if (topMana) return [{ steps: [topMana] }];
     const sentences: Sentence[] = [];
@@ -173,6 +179,12 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
           continue;
         }
         if (foldCounterDestination(c, lastSentence)) continue;
+        if (sentences.length === 1 && foldMillRepetition(c, lastSentence)) continue;
+        const continuation = parseExileAndSearchPlacement(c, lastSentence, parseShuffle)
+          ?? parseGroupedSearchPlacement(c, lastSentence, sentences.at(-2)) ?? parseGroupedRevealPlacements(c, lastSentence)
+          ?? parseDistinctFights(c, lastSentence) ?? parseRandomReselectionOfSpellAndCopy(c, lastSentence)
+          ?? (sentences.length === 1 ? parsePairedPlayerAttackRule(c, lastSentence) : null);
+        if (continuation) { sentences.push(continuation); continue; }
         if (foldCopyAbilityGrant(c, lastSentence)) continue;
         if (foldConditionalFreeCast(c, lastSentence)) continue;
         if (foldSuspendCastingCost(c, lastSentence)) continue;
@@ -275,6 +287,12 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       if (ending) { sentences.push({ steps: [ending] }); continue; }
       const offered = parseOfferedDamageFallback(c, c => parseSentence(c, ctx));
       if (offered) { sentences.push(offered); continue; }
+      const copyContinuation = parseEachCardCopyCast(c, previousSentence) ?? parseOpponentCopyBonus(c, previousSentence);
+      if (copyContinuation) { sentences.push(copyContinuation); continue; }
+      const repeatedHandExile = sentences.length === 1 && parseRepeatedHandExile(c, previousSentence);
+      if (repeatedHandExile) { sentences.push(...repeatedHandExile); continue; }
+      const goaded = parseGoadedCombatTrigger(c, sentences.at(-2), previousSentence);
+      if (goaded) { sentences.push(goaded); continue; }
       const sameInstruction = parseDoesTheSame(c, sentences.at(-1));
       if (sameInstruction) { sentences.push(sameInstruction); continue; }
       // CR 111.3: the token's printed power and toughness, stated after it.
@@ -288,7 +306,8 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       }
       const tokenDefinition = containsEffect(sentences, "create-token") && hasTokenDefinitionSubject(c);
       const beginsThen = c.isWord("then");
-      const s = parseSentence(c, ctx);
+      const s = parseSentence(c, ctx)
+        ?? (previousSentence && sentences.length === 1 ? parseCopyPairFollowup(c, previousSentence, { parseObjectRef, parsePtModifier }) : null);
       if (!s) break; // leave the cursor at the failed sentence; caller decides
       if (!clashOutcomeHasClash(sentences, s, containsEffect)) return c.fail("clash before its result is tested");
       if (!voteReferencesResolved(sentences, s)) return c.fail("vote offering the choice that its result names");
@@ -594,8 +613,11 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     if (prevention) return prevention;
     const redirection = parseRedirectionSentence(c, { leadingDuration: leadingDuration ?? undefined });
     if (redirection) return redirection;
-    const replacement = parseReplacementSentence(c, ctx, parseSentences, { leadingDuration: leadingDuration ?? undefined });
-    if (replacement) return replacement;
+    const representatives = !leadingDuration ? parsePermanentRepresentatives(c) : null;
+    if (representatives) return representatives;
+    const replacement = !leadingDuration ? parseExileReturnReplacement(c, parseSentences) : null;
+    const resolvingReplacement = replacement ?? parseReplacementSentence(c, ctx, parseSentences, { leadingDuration: leadingDuration ?? undefined });
+    if (resolvingReplacement) return resolvingReplacement;
     const resolving = leadingDuration ? null : parseResolutionReplacement(c, ctx, parseSentences);
     if (resolving) return resolving;
 
@@ -1299,6 +1321,15 @@ const parseDraw: StepParser = transactionalStep((c, ctx) => {
     amount = { amount: "chosen", minimum: 0, maximum: amount };
   } else if (amount) c.word("additional");
   if (c.word("card", "cards") === null) return null;
+  if (!amount && who.player === "each-player" && ctx.triggerScope === "leaves-self") {
+    amount = c.attempt(c => {
+      if (!c.words("equal", "to", "the", "amount", "of", "damage", "dealt", "to")) return null;
+      const to = parseObjectRef(c);
+      if (!to || !["self", "this"].includes(to.ref) || !c.words("this", "turn", "by", "sources", "they", "controlled"))
+        return null;
+      return { amount: "damage-history-total", to, during: "this-turn", sourceControllerAtDamage: { player: "they" } } satisfies Amount;
+    });
+  }
   if (!amount) amount = parseEqualTo(c);
   if (!amount) return null;
   amount = parseAmountAdjustment(c, amount);
@@ -1361,6 +1392,14 @@ const parseGet: StepParser = transactionalStep((c, ctx) => {
 const parseChoose: StepParser = transactionalStep((c, ctx, options) => {
   const who = parseActor(c, ctx, "choose", "chooses");
   if (!who) return null;
+  const pair = who.player === "you" && c.attempt(c => {
+    if (c.word("two") === null) return null;
+    const token = c.peek();
+    if (!c.words("target", "players") || !c.isPunct(".")) return null;
+    return { effect: "declare-target", what: { player: "target-player", count: { amount: "fixed", value: 2 },
+      ...targetSelectionProvenance(token) } } satisfies Effect;
+  });
+  if (pair) return options?.optionalConsumed ? null : [pair];
   const value = parseValueChoice(c, parseFilter);
   if (value) return [{ effect: "choose-value", who, ...value }];
   // "Choose target creature you control and target creature you don't
@@ -1596,7 +1635,8 @@ const parseReturn: StepParser = transactionalStep((c, ctx) => {
   }
   if (toHand) return refs.map((what): Effect => ({ effect: "return-to-hand", what, to: toHand, ...(from ? { from } : {}), ...actor }));
   if (implicitBattlefield || c.words("the", "battlefield")) {
-    const details = parseBattlefieldEntryDetails(c);
+    const died = ctx.triggerScope === "dies-self" && refs.length === 1 && refs[0].ref === "it" ? refs[0] : undefined;
+    const details = parseBattlefieldEntryDetails(c, died);
     if (!details || implicitBattlefield && !details.controller || details.from && (from || refs.some(hasExplicitSourceZone))) return null;
     return refs.map((what): Effect => ({ effect: "move-zone", what, to: { zone: "battlefield" },
       ...details, ...(from ? { from } : {}), ...actor }));
@@ -1985,6 +2025,15 @@ function parseZoneMoveDetails(c: Cursor, to: ZoneRef): Pick<ZoneMove, "tapped" |
 }
 
 const parseAddMana: StepParser = transactionalStep((c, ctx) => {
+  const triggerMana = c.attempt((c): Effect[] | null => {
+    const tapped = ctx.triggerScope === "taps-for-mana-chosen";
+    if (tapped ? !c.words("its", "controller", "adds") : ctx.triggerScope !== "adds-mana-chosen" || c.word("add") === null)
+      return null;
+    if (!c.words("an", "additional", "one", "mana", "of", "that", "color") || !c.isPunct(".")) return null;
+    const who: PlayerRef = tapped ? { player: "controller", of: { ref: "it" } } : { player: "you" };
+    return [{ effect: "add-mana", who, mana: { mana: "trigger-event-color", amount: { amount: "fixed", value: 1 } } }];
+  });
+  if (triggerMana) return triggerMana;
   const result = parseAddManaEffect(c, ctx.lastPlayer);
   if (!result) return null;
   ctx.lastPlayer = result.actor;
@@ -2568,7 +2617,8 @@ const STEP_PARSERS: StepParser[] = [
     actor: (c, imperative, conjugated) => parseActor(c, ctx, imperative, conjugated), amount: parseAmount,
   })),
   transactionalStep(c => {
-    const effect = parseForEach(c, body => parseSentences(body, { modalOptions: [] }));
+    const effect = parsePerObjectCounterKind(c) ?? parseLinkedOwnersBottomPlacement(c)
+      ?? parseForEach(c, body => parseSentences(body, { modalOptions: [] }));
     return effect ? [effect] : null;
   }),
   transactionalStep(c => parseVillainousChoice(c, parsePlayerRef, option => parseSteps(option, { modalOptions: [] }))),

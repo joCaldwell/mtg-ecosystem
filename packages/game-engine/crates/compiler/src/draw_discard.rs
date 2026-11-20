@@ -59,7 +59,12 @@ pub(super) fn coalesce(effects: &[Sentence]) -> Result<Option<(Quantity, Quantit
         (what.count.value as i64).into(),
     )))
 }
-pub(super) fn validate_source(binding: &Value, identity: &str, raw: &str) -> Result<(), Failure> {
+pub(super) fn validate_source(
+    source: &Value,
+    binding: &Value,
+    identity: &str,
+    raw: &str,
+) -> Result<(), Failure> {
     let fail = || {
         unsupported(
             "binding",
@@ -83,6 +88,15 @@ pub(super) fn validate_source(binding: &Value, identity: &str, raw: &str) -> Res
         != json!([{"kind":"spell","effects":[{"steps":[{"effect":"draw","who":{"player":"you"},"amount":draw},{"effect":"discard","who":{"player":"you"},"what":selected}]}]}])
     {
         return Err(fail());
+    }
+    if count["value"] == 1 {
+        // A single discard has no quantity result in the archived binding.
+        return ordinary_sequence::bind(
+            source,
+            abilities.as_array().ok_or_else(fail)?,
+            binding,
+            identity,
+        );
     }
     let base = "/faces/0/abilities/0";
     let root = format!("card:{identity}{base}");

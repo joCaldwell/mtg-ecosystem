@@ -323,7 +323,9 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       const condition = c.attempt((cc) => {
         if (cc.word("if") === null) return null;
         // CR 701.54a: only a temptation event carries a Ring-bearer choice.
-        const cond = (trigger.trigger === "ring-tempts" && trigger.who.player === "you" ? parseRingBearerChoice(cc) : null) ?? parseCondition(cc);
+        const declaredAttackers = trigger.trigger === "player-attacks" && trigger.per === "declaration" ? true : undefined;
+        const cond = (trigger.trigger === "ring-tempts" && trigger.who.player === "you" ? parseRingBearerChoice(cc) : null)
+          ?? parseCondition(cc, { declaredAttackers });
         if (!cond || !cc.punct(",")) return null;
         return cond;
       });
@@ -332,7 +334,16 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
       // establish either predicate. Do not backtrack into a resolving `if`.
       if (condition && hasMatchTimeTarget(condition)) return null;
       const triggerScope = uniqueStackTriggerEvent(trigger) === "cast" ? "cast"
-        : trigger.trigger === "leaves" && (trigger.what.ref === "self" || trigger.what.ref === "this") ? "leaves-self" : undefined;
+        : trigger.trigger === "leaves" && (trigger.what.ref === "self" || trigger.what.ref === "this") ? "leaves-self"
+        : trigger.trigger === "dies" && !trigger.grouping && (trigger.what.ref === "self" || trigger.what.ref === "this") ? "dies-self"
+        : trigger.trigger === "adds-mana-from-ability" ? "adds-mana-chosen"
+        : trigger.trigger === "taps-for-mana" && trigger.producingChosenColor ? "taps-for-mana-chosen"
+        : trigger.trigger === "put-into-zone" && trigger.to.zone === "stack" && !trigger.grouping
+          && condition?.condition === "is-filter" && condition.what.ref === "it" && condition.filter.singleTarget === true
+          && Object.keys(condition.filter).length === 1 ? "stack-single-target"
+        : trigger.trigger === "enters" && !trigger.grouping && trigger.what.ref === "filter" && !trigger.what.upTo
+          && trigger.what.count.amount === "fixed" && trigger.what.count.value === 1
+          && (!trigger.what.filter.cls || trigger.what.filter.cls === "permanent") ? "enters-permanent" : undefined;
       const block = withConditionDifference(condition ?? undefined, () => parseEffectsBlock(c, options,
         condition ? undefined : prepareStackCopyInput(c, trigger), true, false, triggerScope));
       if (block && !block.restriction && !block.permission && !block.costModifications && !block.paymentRestriction &&

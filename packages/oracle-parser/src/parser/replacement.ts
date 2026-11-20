@@ -87,6 +87,20 @@ function parseDamageSource(c: Cursor): ObjectRef | null {
       if (!other && c.word("a", "an", "any") === null) return null;
       const filter: ObjectFilter = {};
       if (other) filter.otherThan = { ref: "self" };
+      // CR 609.7: a damage source can have either characteristic, from
+      // any zone; the trailing control phrase qualifies both alternatives.
+      const either = !other && c.attempt(c => {
+        const word = c.peek();
+        if (word?.kind !== "word" || word.possessive || !COLORS.has(word.value)) return null;
+        c.next();
+        return c.words("or", "artifact", "source") ? word.value as NonNullable<ObjectFilter["colors"]>[number] : null;
+      });
+      if (either) {
+        filter.anyOf = [{ colors: [either] }, { types: ["artifact"] }];
+        if (c.words("you", "control")) filter.control = "you";
+        else if (c.words("an", "opponent", "controls")) filter.control = "opponent";
+        return { ref: "filter", filter, count: one };
+      }
       while (c.peek()?.kind === "word") {
         const token = c.peek();
         if (token?.kind !== "word" || !COLORS.has(token.value)) break;
@@ -235,7 +249,18 @@ function parseEvent(c: Cursor): ReplacementEvent | null {
     if (damage) return damage;
 
     const what = parseEligibleObject(c);
-    if (!what || c.word("would") === null) return null;
+    if (!what) return null;
+    // CR 109.4 and 614.1: this exclusion applies to the pre-move object,
+    // including an uncontrolled card. Graveyard ownership is independent.
+    const excludedController = what.ref === "filter" && what.filter.cls === "card" &&
+      c.words("you", "didn't", "control") ? you : undefined;
+    if (c.word("would") === null) return null;
+    if (excludedController) {
+      if (!c.words("be", "put", "into")) return null;
+      const to = parseZoneRef(c);
+      if (!to || to.zone !== "graveyard" || !to.owner || !c.words("from", "anywhere")) return null;
+      return { event: "move-zone", what, from: "anywhere", to, notControlledByBefore: excludedController };
+    }
     if (c.word("die") !== null) return { event: "move-zone", what, from: { zone: "battlefield" }, to: { zone: "graveyard" } };
     if (c.words("leave", "the", "battlefield")) return { event: "move-zone", what, from: { zone: "battlefield" } };
     if (c.words("be", "destroyed")) return { event: "destroy", what };

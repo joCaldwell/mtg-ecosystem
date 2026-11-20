@@ -784,7 +784,7 @@ impl Game {
                         .chain(std::iter::once(*object))
                         .chain(remaining.iter().copied())
                         .collect::<Vec<_>>();
-                    if ids.len() > 4
+                    if ids.len() > self.state.rules.commanders.records.len()
                         || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
                         || !matches!(resume, Frame::Stabilize { .. })
                         || current.zone != *destination

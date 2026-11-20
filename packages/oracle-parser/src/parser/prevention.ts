@@ -563,7 +563,31 @@ export function parseStaticPrevention(c: Cursor, parseBody: BodyParser): StaticE
     c.pos = c.tokens.length;
     return { static: "conditional", condition: { condition: "your-turn" }, effect };
   });
-  return turnScoped ?? parseStaticPreventionClause(c, parseBody);
+  return turnScoped ?? parseStaticPreventionClause(c, parseBody) ?? parseSharedColorPrevention(c);
+}
+
+/** CR 105.2c, 615.1, 615.10: match each source–recipient pair at the
+ * damage event. Distinct creatures must have a color in common. */
+function parseSharedColorPrevention(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    if (!c.words("prevent", "all", "damage", "that", "would", "be", "dealt", "to", "a", "creature", "by", "another", "creature", "if",
+      "they", "share", "a", "color")) return null;
+    c.punct(".");
+    if (!c.done()) return null;
+    const recipient: ObjectRef = { ref: "prevention-event-object", role: "recipient" };
+    const source: ObjectRef = { ref: "prevention-event-object", role: "source" };
+    const count: Amount = { amount: "fixed", value: 1 };
+    return { static: "prevent-damage", prevention: {
+      kind: "all",
+      eventScope: { sources: "each", recipients: "each" },
+      shield: { shield: "events", occurrence: "each", prevent: { prevent: "all" } },
+      by: { ref: "filter", filter: { types: ["creature"], otherThan: recipient }, count },
+      to: [{ ref: "filter", filter: { types: ["creature"] }, count }],
+      condition: { condition: "characteristic-relation", what: source, test: {
+        relation: "shared-value", characteristic: "color", with: { operand: "object", what: recipient },
+      } },
+    } };
+  });
 }
 
 function parseStaticPreventionClause(c: Cursor, parseBody: BodyParser): StaticEffect | null {

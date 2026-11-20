@@ -1,7 +1,9 @@
 //! Finite public-information planner for the v16 mana pool. No native state,
 //! hidden hands, library order, receipts or query recovery data are consulted.
 use super::*;
-use mtg_contracts::{KeywordAbility, ManaAbility, ManaProduction, basic_land_color};
+use mtg_contracts::{
+    KeywordAbility, ManaAbility, ManaProduction, SingleColorManaAmount, basic_land_color,
+};
 use mtg_core::{ManaAbilityIdentity, PermittedView};
 
 #[derive(Clone)]
@@ -163,6 +165,28 @@ fn production(
         ManaProduction::Fixed { symbols } => symbols.clone(),
         ManaProduction::Choice { colors } => colors.clone(),
         ManaProduction::AnyColor => mtg_contracts::MANA_COMBINATION_COLORS.to_vec(),
+        ManaProduction::AnyOneColor {
+            amount: single_color,
+        } => {
+            amount = match single_color {
+                SingleColorManaAmount::Fixed { quantity } => quantity.clone(),
+                SingleColorManaAmount::ControllerEnchantments => {
+                    let count = view
+                        .objects
+                        .iter()
+                        .filter(|o| {
+                            controlled_permanent(view, o)
+                                && o.characteristics
+                                    .as_ref()
+                                    .is_some_and(|c| c.has_type(CardKind::Enchantment))
+                        })
+                        .count();
+                    // An unrepresentable count is planned conservatively as no mana.
+                    Quantity::from(i64::try_from(count).unwrap_or_default())
+                }
+            };
+            mtg_contracts::MANA_COMBINATION_COLORS.to_vec()
+        }
         ManaProduction::CommanderColor => commander_colors(catalog, view).to_vec(),
         ManaProduction::GreatestControlledPowerCombination => {
             amount = view

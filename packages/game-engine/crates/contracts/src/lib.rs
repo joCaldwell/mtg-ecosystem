@@ -25,8 +25,11 @@ mod color_hybrid_cost;
 pub use color_hybrid_cost::{
     ColorHybridSymbol, HybridPayment, color_hybrid_cost, hybrid_intrinsic_keywords,
 };
+mod checkland_entry;
 mod conditional_lands;
 mod cycling;
+#[cfg(test)]
+mod wave1_mana_witnesses;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
 mod distinct_permanent_colors;
@@ -55,6 +58,8 @@ mod creative_technique;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
+mod basic_land_fetch;
+pub use basic_land_fetch::basic_land_fetch_program;
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
@@ -114,6 +119,7 @@ mod hand_return;
 pub mod modal_targets;
 pub mod repeated_target_modes;
 pub mod scoped_creature_stats;
+pub mod scoped_static;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
@@ -126,6 +132,7 @@ mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub mod source_regeneration;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
+mod same_color_mana;
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
 pub mod source_attack_pump;
@@ -152,6 +159,7 @@ mod divided_plus_one_counters;
 mod flash_end_step_draw;
 mod greatest_power;
 mod hand_size_adjustments;
+pub mod ordinary_sequence;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
@@ -352,6 +360,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
     ComposedOrdinarySpellV1,
+    FilteredStaticModifiersV1,
     PlayerGraveyardShuffleV1,
     OpeningPlacementV1,
     ExileResolvingSpellV1,
@@ -386,6 +395,7 @@ pub enum Capability {
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     ListedManaChoiceV1,
+    SameColorManaV1,
     DisjointPainManaV1,
     SourceTapTriggerV1,
     ControllerCreaturePlusOneCounterReplacementV1,
@@ -416,6 +426,7 @@ pub enum Capability {
     ConditionalOtherLandEntryV1,
     ConditionalOpponentCountEntryV1,
     RevealLandEntryV1,
+    ConditionalLandTypeEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
     UnspentManaConversionV1,
@@ -550,6 +561,7 @@ pub enum Capability {
     GraveyardBattlefieldReturnV1,
     OwnGraveyardCardReturnV1,
     BasicLandSearchV1,
+    BasicLandFetchV1,
     BasicLandSplitSearchV1,
     ColoredLibrarySearchV1,
     TypedLandSearchV1,
@@ -1134,6 +1146,10 @@ pub enum Instruction {
         maximum: u32,
         source_block: u32,
     },
+    FetchBasicLand {
+        force_tapped: bool,
+        source_block: u32,
+    },
     CreateCreatureTokens {
         count: u32,
         token: CreatureToken,
@@ -1452,7 +1468,8 @@ impl Instruction {
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
-            Self::SearchBasicLands { source_block, .. } => *source_block,
+            Self::SearchBasicLands { source_block, .. }
+            | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
@@ -1665,6 +1682,9 @@ pub enum StaticEffect {
     EntersTappedUnlessRevealLandTypes {
         subtypes: [BasicLandType; 2],
     },
+    EntersTappedUnlessControllerLandTypes {
+        subtypes: [BasicLandType; 2],
+    },
     /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
     EntersTappedUnlessPayLife {
         amount: Quantity,
@@ -1778,13 +1798,18 @@ pub struct StaticAbility {
 }
 /// Static scopes in the finite attachment pool (CR 611.3a, 613.1f/4c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CreatureScope {
     Equipped,
     Enchanted,
     Controller,
     /// Dynamic attacking creatures controlled by this battlefield source.
     AttackingController,
+    ControlledSubtype {
+        subtype: scoped_static::Subtype,
+        creatures_only: bool,
+        other: bool,
+    },
     Source,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1965,6 +1990,9 @@ pub enum ManaProduction {
         symbols: Vec<Color>,
     },
     AnyColor,
+    AnyOneColor {
+        amount: SingleColorManaAmount,
+    },
     CommanderColor,
     /// Add one mana of a color an opponent's land could produce.
     OpponentLandColors,
@@ -1976,6 +2004,12 @@ pub enum ManaProduction {
     Choice {
         colors: Vec<Color>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SingleColorManaAmount {
+    Fixed { quantity: Quantity },
+    ControllerEnchantments,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -2761,7 +2795,7 @@ impl Definition {
         }
         if let Some(program) = &self.spell {
             add_program_requirements(&mut set, program);
-            if composed_spell::program(program) {
+            if composed_spell::program(program) || ordinary_sequence::program(program) {
                 set.insert(Capability::ComposedOrdinarySpellV1);
             }
         }
@@ -2778,6 +2812,9 @@ impl Definition {
             )
         }) {
             set.insert(Capability::DistinctPermanentColorsV1);
+        }
+        if same_color_mana::present(self) {
+            set.insert(Capability::SameColorManaV1);
         }
         if listed_mana_choice::present(self) {
             set.insert(Capability::ListedManaChoiceV1);
@@ -3000,6 +3037,18 @@ impl Definition {
             {
                 set.insert(Capability::IndestructibleV1);
             }
+            if let StaticEffect::ModifyCreatures {
+                scope: CreatureScope::ControlledSubtype { .. },
+                keywords,
+                ..
+            } = &a.effect
+            {
+                set.extend(
+                    keywords
+                        .iter()
+                        .filter_map(|k| intrinsic_keyword_capability(*k)),
+                );
+            }
             let static_capability = match a.effect {
                 StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
                 StaticEffect::Bestow { .. } => Capability::BestowV1,
@@ -3042,6 +3091,9 @@ impl Definition {
                 StaticEffect::EntersTappedUnlessRevealLandTypes { .. } => {
                     Capability::RevealLandEntryV1
                 }
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
+                    Capability::ConditionalLandTypeEntryV1
+                }
                 StaticEffect::ReduceSelfGenericCost { .. } => {
                     Capability::CountedSelfGenericCostReductionV1
                 }
@@ -3081,6 +3133,10 @@ impl Definition {
                     scope: CreatureScope::Source,
                     ..
                 } => Capability::SacrificeV1,
+                StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::ControlledSubtype { .. },
+                    ..
+                } => Capability::FilteredStaticModifiersV1,
                 StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
             };
             set.insert(static_capability);
@@ -3093,9 +3149,13 @@ impl Definition {
         let source_regeneration = source_regeneration::validate(self)?;
         let activated_creature_tap = activated_creature_tap::validate(self)?;
         scoped_creature_stats::validate(self)?;
+        scoped_static::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
-        typed_land_search::validate_definition(self)?;
+        let basic_land_fetch = basic_land_fetch::validate_definition(self)?;
+        if !basic_land_fetch {
+            typed_land_search::validate_definition(self)?;
+        }
         activated_source_keyword::validate(self)?;
         conditional_lands::validate_definition(self)?;
         cascade_land_entry::validate_definition(self)?;
@@ -3118,6 +3178,7 @@ impl Definition {
         opponent_life_drain::validate_definition(self)?;
         targeted_game_loss::validate_definition(self)?;
         composed_spell::validate(self)?;
+        ordinary_sequence::validate(self)?;
         controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
@@ -3137,6 +3198,7 @@ impl Definition {
         other_land_entry::validate(self)?;
         opponent_count_entry::validate(self)?;
         reveal_land_entry::validate(self)?;
+        checkland_entry::validate(self)?;
         let land_sacrifice_draw = land_sacrifice_draw::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
@@ -3556,6 +3618,7 @@ impl Definition {
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
+        same_color_mana::validate(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
@@ -3626,6 +3689,7 @@ impl Definition {
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
             && !typed_land_search::activation_definition(self)
+            && !basic_land_fetch
             && !self.capabilities.contains(&Capability::LinkedExilePlayV1)
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
@@ -3708,7 +3772,10 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
-            if typed_land_search::activation(ability) || *ability == linked_hideaway::play() {
+            if basic_land_fetch
+                || typed_land_search::activation(ability)
+                || *ability == linked_hideaway::play()
+            {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
@@ -4204,6 +4271,7 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
                     | StaticEffect::EntersTappedUnlessOpponentCount { .. }
                     | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
                     | StaticEffect::ControllerScopedCreatureStats { .. }
@@ -4221,7 +4289,9 @@ impl Definition {
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
-                        scope: CreatureScope::AttackingController | CreatureScope::Controller,
+                        scope: CreatureScope::AttackingController
+                            | CreatureScope::Controller
+                            | CreatureScope::ControlledSubtype { .. },
                         ..
                     }
                 )
@@ -4344,6 +4414,7 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
                     | StaticEffect::EntersTappedUnlessOpponentCount { .. }
                     | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
@@ -4401,6 +4472,7 @@ impl Definition {
                     if c.subtypes.is_empty() || listed_mana_choice::descriptive_land_subtype(self) {
                         self.mana_abilities.is_empty()
                             && !typed_land_search::activation_definition(self)
+                            && !basic_land_fetch
                     } else {
                         !self.mana_abilities.is_empty()
                             || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
@@ -4901,6 +4973,7 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    let scalar_sequence = ordinary_sequence::program(p);
     if p.functioning_zone == FunctioningZone::Any {
         return Err("all-zone functioning is reserved for the self graveyard replacement".into());
     }
@@ -4923,6 +4996,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("unsupported complete targeted counted draw".into());
     }
     if hand_return::has_hand_program(p)
+        && !scalar_sequence
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
         && !controller_counted_draw_program(p)
@@ -4938,7 +5012,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if library_selection::has_selection(p) && !controller_library_selection_program(p) {
         return Err("unsupported complete library selection program".into());
     }
-    if fixed_mill::has_mill(p) && !fixed_mill_program(p) {
+    if fixed_mill::has_mill(p) && !scalar_sequence && !fixed_mill_program(p) {
         return Err("unsupported complete fixed mill program".into());
     }
     // Controller selectors require complete ordinary temporary-effect families.
@@ -4976,6 +5050,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
 
     if controller_library::has_look(p)
+        && !scalar_sequence
         && !controller_scry_program(p)
         && !controller_surveil_program(p)
         && !temporary_permanent_keyword_program(p).is_some_and(|d| d.controller_scry.is_some())
@@ -4986,6 +5061,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("unsupported temporary keyword grant program".into());
     }
     if has_permanent_owner_hand(p)
+        && !scalar_sequence
         && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
             || !p.modes.is_empty()
             || p.functioning_zone != FunctioningZone::Stack
@@ -5382,6 +5458,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::FetchBasicLand { .. } => None,
             Instruction::CreateCreatureTokens { count, token, .. } => {
                 if *count == 0 {
                     return Err("token count must be positive".into());
@@ -5640,7 +5717,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 ))
             }
             Instruction::DiscardCards { count, .. } => {
-                if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
+                if *count != Quantity::from(1)
+                    && !scalar_sequence
+                    && !controller_draw_discard_program(p)
+                {
                     return Err("unsupported draw/discard cardinality".into());
                 }
                 None
@@ -5950,6 +6030,23 @@ fn add_program_requirements_for_source_pump(
         {
             set.insert(Capability::AttachmentsV1);
         }
+        if let Instruction::CreateTokensFor {
+            recipient: EffectRecipient::TargetController { target_slot },
+            token,
+            ..
+        } = instruction
+            && program
+                .targets
+                .get(*target_slot as usize)
+                .is_some_and(|target| target.domain == TargetDomain::BattlefieldPermanent)
+        {
+            set.extend(
+                token
+                    .keywords
+                    .iter()
+                    .filter_map(|k| intrinsic_keyword_capability(*k)),
+            );
+        }
         if let Instruction::GrantKeywords { keywords, .. }
         | Instruction::GrantKeywordsSet { keywords, .. }
         | Instruction::GrantSourceKeywords { keywords, .. } = instruction
@@ -6091,6 +6188,7 @@ fn add_program_requirements_for_source_pump(
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
             Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
                 Capability::AnnouncedXEffectsV1
             }
@@ -6143,7 +6241,8 @@ fn add_program_requirements_for_source_pump(
                 Capability::ControllerDrawV1
             }
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
-                if controller_counted_draw_program(program)
+                if ordinary_sequence::program(program)
+                    || controller_counted_draw_program(program)
                     || controller_counted_draw::standalone_controller_draw(program).is_some()
                 {
                     Capability::ControllerCountedDrawV1
@@ -6200,14 +6299,7 @@ fn add_program_requirements_for_source_pump(
     }
 }
 pub fn basic_land_color(subtype: &str) -> Option<Color> {
-    match subtype {
-        "Plains" => Some(Color::W),
-        "Island" => Some(Color::U),
-        "Swamp" => Some(Color::B),
-        "Mountain" => Some(Color::R),
-        "Forest" => Some(Color::G),
-        _ => None,
-    }
+    BasicLandType::from_subtype(subtype).map(BasicLandType::color)
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -6741,7 +6833,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["targets","instructions"],"properties":permanent_owner_hand},
-        "then":{"properties":{
+        "then":{"anyOf":[{"$ref":ordinary_sequence::SCHEMA},{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
@@ -6750,7 +6842,7 @@ pub fn catalog_schema() -> serde_json::Value {
                     "types":{"maxItems":0},"non_types":{"enum":[[],["land"]]},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}
                 }}
             }}}
-        }}
+        }}]}
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}}}
@@ -7613,16 +7705,19 @@ pub fn catalog_schema() -> serde_json::Value {
     repeated_target_modes::schema(&mut schema);
     graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
+    basic_land_fetch::extend_schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     opponent_mana::extend_schema(&mut schema);
     distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
+    same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     other_land_entry::extend_schema(&mut schema);
     opponent_count_entry::extend_schema(&mut schema);
     reveal_land_entry::extend_schema(&mut schema);
+    checkland_entry::extend_schema(&mut schema);
     cascade_land_entry::extend_schema(&mut schema);
     entry_copy::extend_schema(&mut schema);
     counter_spell_controller_mill::extend_schema(&mut schema);
@@ -7636,6 +7731,7 @@ pub fn catalog_schema() -> serde_json::Value {
     opponent_life_drain::extend_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
     composed_spell::extend_schema(&mut schema);
+    ordinary_sequence::extend_schema(&mut schema);
     controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
@@ -7659,6 +7755,7 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_creature_activation::extend_schema(&mut schema);
     source_regeneration::extend_schema(&mut schema);
     scoped_creature_stats::extend_schema(&mut schema);
+    scoped_static::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -7868,6 +7965,7 @@ mod tests {
             ControlledPermanentPhasingV1,
             TargetedPhasingV1,
             ComposedOrdinarySpellV1,
+            FilteredStaticModifiersV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
@@ -8010,6 +8108,7 @@ mod tests {
             GraveyardBattlefieldReturnV1,
             OwnGraveyardCardReturnV1,
             BasicLandSearchV1,
+            BasicLandFetchV1,
             BasicLandSplitSearchV1,
             ColoredLibrarySearchV1,
             TypedLandSearchV1,
@@ -8041,6 +8140,7 @@ mod tests {
             ConditionalOtherLandEntryV1,
             ConditionalOpponentCountEntryV1,
             RevealLandEntryV1,
+            ConditionalLandTypeEntryV1,
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
@@ -8059,6 +8159,7 @@ mod tests {
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             ListedManaChoiceV1,
+            SameColorManaV1,
             DisjointPainManaV1,
             SourceTapTriggerV1,
             ControllerCreaturePlusOneCounterReplacementV1,
@@ -8458,6 +8559,7 @@ mod tests {
         definitions.push(fixed_mill::witness());
         definitions.push(source_regeneration::witness());
         definitions.push(scoped_creature_stats::witness());
+        definitions.push(scoped_static::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());
@@ -8556,6 +8658,7 @@ mod tests {
         definitions.push(other_land_entry::witness());
         definitions.push(opponent_count_entry::witness());
         definitions.push(reveal_land_entry::witness());
+        definitions.extend(wave1_mana_witnesses::definitions());
         definitions.push(conditional_lands::tests::optional_land());
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());

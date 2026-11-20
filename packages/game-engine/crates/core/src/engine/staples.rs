@@ -14,16 +14,23 @@ struct LandSearch<'a> {
     typed: Option<&'a TypedLandSearch>,
     maximum: u32,
     split: bool,
+    force_tapped: bool,
     source_block: u32,
 }
 impl<'a> LandSearch<'a> {
     fn instruction(instruction: &'a Instruction) -> Option<Self> {
-        let (typed, maximum, split, source_block) = match instruction {
+        let (typed, maximum, split, force_tapped, source_block) = match instruction {
             Instruction::SearchBasicLands {
                 maximum,
                 source_block,
-            } => (None, *maximum, false, *source_block),
-            Instruction::SearchBasicLandsSplit { source_block } => (None, 2, true, *source_block),
+            } => (None, *maximum, false, true, *source_block),
+            Instruction::FetchBasicLand {
+                force_tapped,
+                source_block,
+            } => (None, 1, false, *force_tapped, *source_block),
+            Instruction::SearchBasicLandsSplit { source_block } => {
+                (None, 2, true, true, *source_block)
+            }
             Instruction::SearchTypedLands {
                 search,
                 source_block,
@@ -36,7 +43,13 @@ impl<'a> LandSearch<'a> {
                 } else {
                     search.maximum.to_string().parse().ok()?
                 };
-                (Some(search), maximum, false, *source_block)
+                (
+                    Some(search),
+                    maximum,
+                    false,
+                    search.force_tapped,
+                    *source_block,
+                )
             }
             _ => return None,
         };
@@ -44,6 +57,7 @@ impl<'a> LandSearch<'a> {
             typed,
             maximum,
             split,
+            force_tapped,
             source_block,
         })
     }
@@ -52,7 +66,7 @@ impl<'a> LandSearch<'a> {
             .map_or_else(|| c.kind == CardKind::Land && c.basic, |s| s.accepts(c))
     }
     fn force_tapped(&self) -> bool {
-        self.typed.is_none_or(|s| s.force_tapped)
+        self.force_tapped
     }
 }
 impl Game {
@@ -300,6 +314,24 @@ impl Game {
             }
         }
     }
+    /// CR 701.23a/401.2: private search inspection is distinct from the
+    /// selectable subset. No selectable handle or library position is created.
+    pub(super) fn search_library_identities(
+        &self,
+        player: PlayerId,
+    ) -> Result<Vec<String>, String> {
+        let mut cards = self
+            .state
+            .rules
+            .libraries
+            .get(&player)
+            .into_iter()
+            .flatten()
+            .map(|id| Ok(self.definition(*id)?.oracle_id.clone()))
+            .collect::<Result<Vec<_>, String>>()?;
+        cards.sort();
+        Ok(cards)
+    }
     pub(super) fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
         let descriptor = self.active_land_search();
         // CardId order is physical order, never library order (CR 401.2).
@@ -466,6 +498,7 @@ impl Game {
             }
             op @ (Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
+            | Instruction::FetchBasicLand { .. }
             | Instruction::SearchTypedLands { .. }) => {
                 let descriptor =
                     LandSearch::instruction(&op).ok_or("invalid land search instruction")?;
@@ -999,6 +1032,9 @@ impl Game {
                     source_block: b, ..
                 }
                 | Instruction::SearchBasicLandsSplit { source_block: b }
+                | Instruction::FetchBasicLand {
+                    source_block: b, ..
+                }
                 | Instruction::SearchTypedLands {
                     source_block: b, ..
                 }

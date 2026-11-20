@@ -2,7 +2,7 @@
 // The return is not a triggered ability, uses the object's previous zone, and
 // must not exile anything if the return event has already occurred (610.3a/b).
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Effect, ObjectRef, ZoneRef } from "../ast.ts";
+import type { Effect, ObjectRef, PlayerRef, Sentence, ZoneRef } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import { parseCount, parseCounterSpec, parseObjectRef, parsePlayerRef } from "./refs.ts";
 
@@ -90,5 +90,51 @@ export function parseExileUntil(c: Cursor, what: ObjectRef[], from?: ZoneRef): E
       until,
       return: { to: "previous-zone", battlefieldController: "owner" },
     };
+  });
+}
+
+
+/** Repeat the two instructions for the announced target, with that player
+ * deciding whether to exile their own card. The following grant links both
+ * exile actions, not just the opponent's (CR 608.2b–d, 400.7j, 702.62).
+ * https://magic.wizards.com/en/news/feature/magic-the-gathering-doctor-who-release-notes */
+export function parseRepeatedHandExile(c: Cursor, previous: Sentence | undefined): Sentence[] | null {
+  return c.attempt(c => {
+    if (!c.isWord("then") || !previous || previous.condition || previous.otherwise || previous.bindings ||
+      previous.steps.length !== 2) return null;
+    const [draw, exile] = previous.steps;
+    if (draw.effect !== "draw" || draw.who.player !== "you" || draw.optional || draw.duration || draw.forEach ||
+      draw.amount.amount !== "fixed" || draw.amount.value !== 2 ||
+      exile.effect !== "exile" || !exile.optional || exile.decidedBy || exile.forEach || exile.duration ||
+      exile.from || exile.faceDown || exile.pile || exile.who ||
+      exile.what.ref !== "filter" || exile.what.upTo || exile.what.random || exile.what.groupConstraints ||
+      exile.what.count.amount !== "fixed" || exile.what.count.value !== 1) return null;
+    const { filter } = exile.what;
+    if (filter.cls !== "card" || filter.nonTypes?.length !== 1 || filter.nonTypes[0] !== "land" ||
+      filter.zone?.zone !== "hand" || filter.zone.owner !== "your" || Object.keys(filter).length !== 3 ||
+      exile.counters?.length !== 1) return null;
+    const [{ counter, count }] = exile.counters;
+    if (counter.type !== "time" || count.amount !== "attribute" || count.attribute !== "mana-value" || count.of.ref !== "it") return null;
+    c.word("then");
+    const opponent = parsePlayerRef(c);
+    if (opponent?.player !== "target-opponent" || opponent.count || opponent.upTo || opponent.random ||
+      !c.words("does", "the", "same") || !c.punct(".") ||
+      !c.words("cards", "exiled", "this", "way", "that", "don't", "have", "suspend", "gain", "suspend") ||
+      (!c.punct(".") && !c.done())) return null;
+    const who: PlayerRef = { player: "that-player" };
+    return [
+      { steps: [
+        { ...draw, who: opponent },
+        { ...exile, what: { ...exile.what, filter: { ...filter, zone: { zone: "hand", owner: who } } },
+          who, decidedBy: who },
+      ] },
+      { steps: [
+        { effect: "gain-abilities",
+          what: { ref: "each", filter: { cls: "card", withoutAbility: ["suspend"],
+            fromAmong: { ref: "related", number: "plural", filter: { cls: "card" },
+              relation: { relation: "event-result", event: "exile", scope: "this-way" } } } },
+          abilities: [{ gained: "keyword", keyword: { keyword: "suspend" } }] },
+      ] },
+    ];
   });
 }

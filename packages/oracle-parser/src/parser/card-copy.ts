@@ -110,3 +110,22 @@ export function isCardCopyCast(before: Effect, after: Effect): boolean {
   return before.effect === "copy-card" && after.effect === "play-card"
     && (copyResultNumber(after.instruction.what) ?? copyResultNumber(after.instruction.fromAmong)) !== undefined;
 }
+
+/** CR 707.12a: the copying player may cast each card copy separately while
+ * the ability resolves. This is a plural optional cast of the card copies,
+ * not an all-or-none choice, nor a cast of a spell that was copied. */
+export function parseEachCardCopyCast(c: Cursor, previous: Sentence | undefined): Sentence | null {
+  return c.attempt(c => {
+    if (!previous || previous.condition || previous.otherwise || previous.bindings || previous.steps.length !== 1) return null;
+    const [copy] = previous.steps;
+    if (copy.effect !== "copy-card" || copy.who.player !== "that-player" || copy.what.ref !== "each" ||
+      copy.optional || copy.forEach || copy.count.amount !== "fixed" || copy.count.value !== 1) return null;
+    if (!c.words("for", "each", "copy") || !c.punct(",") ||
+      !c.words("the", "player", "may", "cast", "the", "copy", "without", "paying", "its", "mana", "cost") ||
+      !c.punct(".") && !c.done()) return null;
+    return { steps: [{ effect: "play-card", optional: true, decidedBy: copy.who, instruction: {
+      who: copy.who, action: "cast", what: { ref: "copy-result", number: "plural" },
+      alternativeCost: { cost: "without-mana-cost" },
+    } }] };
+  });
+}
