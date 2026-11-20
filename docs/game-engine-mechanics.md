@@ -131,6 +131,12 @@ ordinary stack. Casting pays all costs before resolution. The resolving spell
 counts matching permanents once and credits its controller through a staged
 mana event. A zero count leaves the mana pool untouched.
 
+Cast observers can match a spell subtype or a disjunction of subtypes against
+its frozen paid cast event. A temporary creature combat restriction attaches to
+the resolved target incarnation, expires in cleanup, and applies when blockers
+are declared (CR 506.4a, 509.1b). Its paid source and ordered sibling instructions
+remain distinct.
+
 Stack projections run bottom to top. Saved announcement handles are historical
 and never bind successor incarnations; reversal restores living players' passes.
 Resolving frames retain frozen instances through supported source departure

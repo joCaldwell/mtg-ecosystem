@@ -28,14 +28,18 @@ mod cast_entry;
 mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
+mod cast_subtype;
 pub mod catalog;
 mod checkland_entry;
 mod colored_library_search;
 mod combat_hand_cast;
+mod combat_window;
 mod commander_modal_keyword;
 mod composed_spell;
 #[cfg(test)]
 mod composition_wave_a_tests;
+#[cfg(test)]
+mod composition_wave_c_tests;
 mod controlled_creature_spell_copy;
 mod controlled_land_entry;
 mod controller_counted_draw;
@@ -1649,6 +1653,12 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         Some(program) => Some(program),
         None => resolution_mana::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
     };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => {
+            combat_window::lower_spell(&shape, &result, &binding, &r.oracle_identity, types.kind)?
+        }
+    };
     let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
         matches!(
@@ -1705,6 +1715,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     || (types.kind == CardKind::Creature
                         && mtg_contracts::permanent_entry::each_creature_sacrifice(&l.text))
                     || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
+                    || mtg_contracts::cast_subtype::candidate(&l.text)
+                    || (types.kind == CardKind::Land
+                        && mtg_contracts::combat_window::split_activation(&l.text).is_some())
                     || entrance_noun.is_some_and(|noun| {
                         mtg_contracts::permanent_entry::candidate(&l.text, noun)
                     })
@@ -1735,6 +1748,22 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                             &shape,
                             &r.oracle_identity,
                             noun,
+                        )?
+                    {
+                        return Ok(a);
+                    }
+                    if let Some(a) =
+                        cast_subtype::lower(block, &result, &binding, &shape, &r.oracle_identity)?
+                    {
+                        return Ok(a);
+                    }
+                    if types.kind == CardKind::Land
+                        && let Some(a) = combat_window::lower_activation(
+                            block,
+                            &result,
+                            &binding,
+                            &shape,
+                            &r.oracle_identity,
                         )?
                     {
                         return Ok(a);

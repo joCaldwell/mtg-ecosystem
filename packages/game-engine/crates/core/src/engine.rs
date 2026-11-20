@@ -83,6 +83,8 @@ mod aura_control_tests;
 #[cfg(test)]
 mod blocking_target_tests;
 #[cfg(test)]
+mod combat_window_tests;
+#[cfg(test)]
 mod composed_spell_tests;
 mod counter_placement;
 mod equipped_events;

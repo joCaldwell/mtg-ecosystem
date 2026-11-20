@@ -102,6 +102,10 @@ pub enum ResolvedEffectKind {
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
     },
+    CombatRestriction {
+        target: ObjectId,
+        restriction: CreatureRestriction,
+    },
     ModifyPowerToughness {
         target: ObjectId,
         power: Quantity,
@@ -612,6 +616,28 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::GrantCreatureRestriction {
+                target_slot,
+                restriction,
+                source_block,
+            } => {
+                let target = *self
+                    .bound_object_target(&frame.spell, target_slot as usize)
+                    .ok_or("missing combat restriction target")?;
+                if frame.legal_targets.get(target_slot as usize) != Some(&true)
+                    || !self.target_is_creature(target)
+                {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::CombatRestriction {
+                        target,
+                        restriction,
+                    },
+                    source_block,
+                )
+            }
             Instruction::ModifyPowerToughness {
                 target_slot,
                 power,
@@ -716,6 +742,7 @@ impl Game {
         };
         let target_handles = match &kind {
             ResolvedEffectKind::GrantKeywords { target, .. }
+            | ResolvedEffectKind::CombatRestriction { target, .. }
             | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                 self.capture_trigger_source_handles(*target)?
             }
@@ -1621,6 +1648,33 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::GrantCreatureRestriction {
+                            target_slot,
+                            restriction,
+                            source_block,
+                        },
+                        ResolvedEffectKind::CombatRestriction {
+                            target,
+                            restriction: actual,
+                        },
+                    ) => {
+                        restriction == actual
+                            && *source_block == effect.origin.source_block
+                            && frame.spell.mode.is_none()
+                            && (frame.spell.kind.is_spell()
+                                || frame.spell.kind.activated_index().is_some())
+                            && frame.spell.paid.is_some()
+                            && self.top()? == &frame.spell
+                            && self.bound_object_target(&frame.spell, *target_slot as usize)
+                                == Some(target)
+                            && frame.legal_targets.get(*target_slot as usize) == Some(&true)
+                            && self.target_is_creature(*target)
+                            && !self.state.rules.effects.iter().any(|active| {
+                                active.origin.stack_id == frame.spell.id
+                                    && active.origin.cursor == frame.cursor
+                            })
+                    }
+                    (
                         Instruction::ModifyPowerToughness {
                             target_slot,
                             power,
@@ -1721,6 +1775,7 @@ impl Game {
                             })
                     }
                     ResolvedEffectKind::GrantKeywords { target, .. }
+                    | ResolvedEffectKind::CombatRestriction { target, .. }
                     | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
@@ -2004,6 +2059,31 @@ impl Game {
                     || !e.target_handles.is_empty()
                 {
                     return Err("invalid hand cast cascade effect attachment".into());
+                }
+                continue;
+            }
+            if let ResolvedEffectKind::CombatRestriction {
+                target,
+                restriction,
+            } = &e.kind
+            {
+                let source = self.copiable_definition(e.origin.source)?;
+                let program = if let Some(index) = e.origin.activated_ability {
+                    source.activated.get(index as usize).map(|a| &a.program)
+                } else {
+                    source.spell.as_ref()
+                };
+                if e.origin.mode.is_some()
+                    || e.target_handles.len() != 4
+                    || !self
+                        .copiable_definition(*target)?
+                        .characteristics
+                        .has_type(CardKind::Creature)
+                    || !matches!(program.and_then(|p|p.instructions.get(e.origin.cursor as usize)),
+                        Some(Instruction::GrantCreatureRestriction {restriction:expected,source_block,..})
+                            if expected==restriction && *source_block==e.origin.source_block)
+                {
+                    return Err("invalid historical combat restriction".into());
                 }
                 continue;
             }
@@ -2399,6 +2479,13 @@ pub enum VisibleEffect {
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
+    CombatRestriction {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        target: VisibleTarget,
+        restriction: CreatureRestriction,
+        expires_in_cleanup_of_turn: u64,
+    },
     ModifyPowerToughness {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2685,6 +2772,16 @@ impl Game {
                 target: target_view(*target)?,
                 modifier: modifier.clone(),
                 keywords: keywords.clone(),
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
+            ResolvedEffectKind::CombatRestriction {
+                target,
+                restriction,
+            } => VisibleEffect::CombatRestriction {
+                handle,
+                origin,
+                target: target_view(*target)?,
+                restriction: *restriction,
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
             ResolvedEffectKind::ModifyPowerToughness {

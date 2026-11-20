@@ -1426,6 +1426,7 @@ impl Game {
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::RegenerateSource { .. }
             | Instruction::GrantSourceKeywords { .. }
+            | Instruction::GrantCreatureRestriction { .. }
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::PreventCombatDamage { .. }

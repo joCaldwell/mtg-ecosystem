@@ -11,9 +11,11 @@ const TAPPED: &str = " for each tapped land your opponents control";
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaResolutionQuantity {
     Fixed {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
         amount: Quantity,
     },
     PerMatchingPermanent {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
         amount: Quantity,
         filter: PermanentFilter,
     },
@@ -23,7 +25,7 @@ pub fn candidate(text: &str) -> bool {
     text.lines().any(|line| line.starts_with("Add {"))
 }
 
-pub fn printed(text: &str, ast: &Value, kind: CardKind) -> Option<SpellProgram> {
+fn spec(text: &str, kind: CardKind) -> Option<(Value, SpellProgram)> {
     let timing = match kind {
         CardKind::Instant => SpellTiming::Instant,
         CardKind::Sorcery => SpellTiming::MainPhase,
@@ -86,23 +88,31 @@ pub fn printed(text: &str, ast: &Value, kind: CardKind) -> Option<SpellProgram> 
         ManaResolutionQuantity::Fixed { amount }
     };
     expected.push(json!({"kind":"spell","effects":[{"steps":[step]}]}));
-    (*ast == json!(expected)).then_some(SpellProgram {
-        timing,
-        functioning_zone: FunctioningZone::Stack,
-        resolution: SpellResolution::Instructions,
-        optional_additional_costs: vec![],
-        additional_sacrifice: sacrifice.then(|| SacrificeFilter {
-            types: vec![CardKind::Creature],
-            subtypes: vec![],
-        }),
-        targets: vec![],
-        instructions: vec![Instruction::AddResolutionMana {
-            color,
-            quantity,
-            source_block: u32::from(sacrifice),
-        }],
-        modes: vec![],
-    })
+    Some((
+        json!(expected),
+        SpellProgram {
+            timing,
+            functioning_zone: FunctioningZone::Stack,
+            resolution: SpellResolution::Instructions,
+            optional_additional_costs: vec![],
+            additional_sacrifice: sacrifice.then(|| SacrificeFilter {
+                types: vec![CardKind::Creature],
+                subtypes: vec![],
+            }),
+            targets: vec![],
+            instructions: vec![Instruction::AddResolutionMana {
+                color,
+                quantity,
+                source_block: u32::from(sacrifice),
+            }],
+            modes: vec![],
+        },
+    ))
+}
+
+pub fn printed(text: &str, ast: &Value, kind: CardKind) -> Option<SpellProgram> {
+    let (expected, program) = spec(text, kind)?;
+    (*ast == expected).then_some(program)
 }
 
 fn uses(p: &SpellProgram) -> bool {
@@ -124,14 +134,16 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         return Ok(());
     }
     let row: Value = strict_read(raw)?;
-    let Some(expected) = printed(
+    let Some((ast, expected)) = spec(
         row["oracle_text"].as_str().unwrap_or_default(),
-        &strict_read(&d.provenance.abilities_json)?,
         d.characteristics.kind,
     ) else {
         return if use_mana { Err(error.into()) } else { Ok(()) };
     };
     if d.spell.as_ref() != Some(&expected)
+        || strict_read::<Value>(&d.provenance.abilities_json)? != ast
+        || row["colors"] != json!(d.characteristics.colors)
+        || row["color_identity"] != json!(d.characteristics.color_identity)
         || row["id"] != d.provenance.printing_id
         || row["oracle_id"] != d.oracle_id
         || row["name"] != d.name

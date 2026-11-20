@@ -1161,6 +1161,7 @@ impl Game {
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
+                        | ResolvedEffectKind::CombatRestriction { target, .. }
                         | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                             objects.insert(*target);
                         }

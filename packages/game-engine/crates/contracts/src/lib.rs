@@ -46,6 +46,10 @@ pub use hybrid_filter_mana::{hybrid_filter_abilities, hybrid_filter_colors, hybr
 pub use pain_mana::disjoint_pain_mana_family;
 pub mod basic_landwalk;
 mod cast_entry;
+pub mod cast_subtype;
+pub mod combat_window;
+#[cfg(test)]
+mod composition_fixtures;
 mod entry_copy;
 mod saga;
 pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
@@ -421,6 +425,8 @@ pub enum Capability {
     CastTriggerV1,
     CastOriginTriggerV1,
     CastColorPredicateV1,
+    CastSubtypePredicateV1,
+    TemporaryCombatRestrictionV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     ListedManaChoiceV1,
@@ -1243,6 +1249,11 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
+    GrantCreatureRestriction {
+        target_slot: u32,
+        restriction: CreatureRestriction,
+        source_block: u32,
+    },
     ModifyPowerToughness {
         target_slot: u32,
         power: Quantity,
@@ -1526,7 +1537,8 @@ impl Instruction {
             Self::GrantKeywords { source_block, .. }
             | Self::GrantSourceKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
-            Self::ModifyPowerToughness { source_block, .. } => *source_block,
+            Self::GrantCreatureRestriction { source_block, .. }
+            | Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
             Self::ExileTargetGraveyard { source_block, .. }
@@ -2290,6 +2302,10 @@ pub enum TypePredicate {
     NotType {
         kind: CardKind,
     },
+    Subtype {
+        #[schemars(regex(pattern = "^[A-Z][A-Za-z -]{0,63}$"))]
+        subtype: String,
+    },
     All {
         #[schemars(length(min = 1, max = 32))]
         terms: Vec<TypePredicate>,
@@ -2313,25 +2329,33 @@ impl TypePredicate {
             Self::SpellColor { color } => c.colors.contains(color),
             Self::Type { kind } => c.has_type(*kind),
             Self::NotType { kind } => !c.has_type(*kind),
+            Self::Subtype { subtype } => c.subtypes.contains(subtype),
             Self::All { terms } => terms.iter().all(|t| t.matches(c)),
             Self::AnyOf { terms } => terms.iter().any(|t| t.matches(c)),
         }
     }
     pub fn validate(&self) -> Result<(), String> {
-        fn visit(p: &TypePredicate, depth: usize, remaining: &mut usize) -> bool {
+        self.validate_type_shape(false)
+    }
+
+    fn validate_type_shape(&self, cast: bool) -> Result<(), String> {
+        fn visit(p: &TypePredicate, depth: usize, remaining: &mut usize, cast: bool) -> bool {
             if depth > 8 || *remaining == 0 {
                 return false;
             }
             *remaining -= 1;
             match p {
                 TypePredicate::SpellColor { .. } => false,
+                TypePredicate::Subtype { subtype } => {
+                    cast && cast_subtype::subtype_spelling(subtype)
+                }
                 TypePredicate::All { terms } | TypePredicate::AnyOf { terms } => {
-                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining))
+                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining, cast))
                 }
                 _ => true,
             }
         }
-        if visit(self, 0, &mut 32) {
+        if visit(self, 0, &mut 32, cast) {
             Ok(())
         } else {
             Err("type predicate structural bound".into())
@@ -3037,6 +3061,12 @@ impl Definition {
                     set.insert(Capability::CastColorPredicateV1);
                     Capability::CastTriggerV1
                 }
+                TriggerCondition::SpellCast { ref spell, .. }
+                    if cast_subtype::restricted(spell) =>
+                {
+                    set.insert(Capability::CastSubtypePredicateV1);
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::SelfSpellCast | TriggerCondition::SpellCast { .. } => {
                     Capability::CastTriggerV1
                 }
@@ -3247,6 +3277,8 @@ impl Definition {
         equipped_trigger::validate(self)?;
         ability_sequence::validate(self)?;
         permanent_entry::validate(self)?;
+        cast_subtype::validate(self)?;
+        combat_window::validate(self)?;
         resolution_mana::validate(self)?;
         predefined_tokens::validate(self)?;
         attachment_modifiers::validate(self)?;
@@ -3803,12 +3835,21 @@ impl Definition {
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
             && !land_sacrifice_draw
+            && !(c.kind == CardKind::Land
+                && self
+                    .activated
+                    .iter()
+                    .all(|a| combat_window::activation_program(&a.program)))
             && !(c.kind == CardKind::Enchantment
                 && self.activated.iter().all(ability_sequence::activation))
         {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if combat_window::activation_program(&ability.program) {
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if let ActivationCost::SacrificePermanent {
                 count,
                 filter,
@@ -4166,7 +4207,7 @@ impl Definition {
                         return Err("invalid spell color".into());
                     }
                     TypePredicate::SpellColor { .. } => (),
-                    _ => spell.validate()?,
+                    _ => spell.validate_type_shape(true)?,
                 }
             }
             if let Some(f) = &ability.death_filter
@@ -5638,6 +5679,19 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 // The complete family guard above restricts this to its two domains.
                 Some((*target_slot, p.targets[0].domain))
             }
+            Instruction::GrantCreatureRestriction {
+                target_slot,
+                restriction,
+                ..
+            } => {
+                if !matches!(
+                    restriction,
+                    CreatureRestriction::CantBeBlocked | CreatureRestriction::CantBlock
+                ) {
+                    return Err("unsupported temporary combat restriction".into());
+                }
+                Some((*target_slot, TargetDomain::BattlefieldCreature))
+            }
             Instruction::ModifyPowerToughness { target_slot, .. } => {
                 let domain = p
                     .targets
@@ -6362,6 +6416,9 @@ fn add_program_requirements_for_source_pump(
                 } else {
                     temporary_creature_keyword_capability(program)
                 }
+            }
+            Instruction::GrantCreatureRestriction { .. } => {
+                Capability::TemporaryCombatRestrictionV1
             }
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
@@ -7905,6 +7962,8 @@ pub fn catalog_schema() -> serde_json::Value {
     ability_sequence::extend_schema(&mut schema);
     predefined_tokens::extend_schema(&mut schema);
     resolution_mana::extend_schema(&mut schema);
+    cast_subtype::extend_schema(&mut schema);
+    combat_window::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -8314,6 +8373,8 @@ mod tests {
             CastTriggerV1,
             CastOriginTriggerV1,
             CastColorPredicateV1,
+            CastSubtypePredicateV1,
+            TemporaryCombatRestrictionV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             ListedManaChoiceV1,
@@ -8724,6 +8785,8 @@ mod tests {
         definitions.push(equipped_trigger::witness());
         definitions.push(predefined_tokens::witness());
         definitions.push(resolution_mana::witness());
+        definitions.push(cast_subtype::witness());
+        definitions.push(combat_window::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());
