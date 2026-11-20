@@ -132,7 +132,7 @@ impl Game {
     /// battlefield even during the existing sequential physical removal wave.
     fn control_battlefield(&self, object: ObjectId) -> bool {
         self.current(object).is_ok_and(|o| {
-            o.zone == Zone::Battlefield && self.is_live(self.state.rules.cards[&object.card].owner)
+            o.present_on_battlefield() && self.is_live(self.state.rules.cards[&object.card].owner)
         })
     }
 

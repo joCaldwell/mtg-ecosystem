@@ -626,7 +626,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && o.deathtouch_damage)
+            .filter(|o| o.present_on_battlefield() && o.deathtouch_damage)
             .map(|o| o.id)
             .collect::<Vec<_>>();
         let mut occurrences = vec![];
@@ -793,7 +793,7 @@ impl Game {
             .copied()
             .filter(|id| {
                 self.current(*id)
-                    .is_ok_and(|o| o.zone == Zone::Battlefield && o.deathtouch_damage)
+                    .is_ok_and(|o| o.present_on_battlefield() && o.deathtouch_damage)
             })
             .collect::<Vec<_>>();
         if !objects.is_empty() {

@@ -31,7 +31,10 @@ pub(super) fn entry_grant_charge(entry: &StackInstance) -> usize {
     match &entry.kind {
         StackKind::Triggered { witness, grant, .. } => witness_history_charge(witness)
             .saturating_add(grant.as_ref().map_or(0, stored_history::payload_charge)),
-        _ => 0,
+        _ => entry
+            .hand_cast_permission
+            .as_deref()
+            .map_or(0, stored_history::payload_charge),
     }
 }
 impl Game {
@@ -46,7 +49,16 @@ impl Game {
             StackKind::Triggered { grant, .. } => grant.as_ref(),
             _ => None,
         });
-        let mut charge = pending.chain(placed).fold(0usize, |n, g| {
+        let hand_permissions = self
+            .state
+            .rules
+            .stack
+            .iter()
+            .filter_map(|e| e.hand_cast_permission.as_deref())
+            .fold(0usize, |n, p| {
+                n.saturating_add(stored_history::payload_charge(p))
+            });
+        let mut charge = pending.chain(placed).fold(hand_permissions, |n, g| {
             n.saturating_add(stored_history::payload_charge(g))
         });
         // Cascade/owned-child frames already charge their complete payload.
