@@ -84,6 +84,8 @@ mod blocking_target_tests;
 #[cfg(test)]
 mod composed_spell_tests;
 mod counter_placement;
+#[cfg(test)]
+mod phase1_sequences_tests;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
@@ -363,6 +365,7 @@ use hand_cast::HandCastPermission;
 #[cfg(test)]
 mod cascade_tests;
 mod casting;
+mod checkland_entry;
 use cascade::{CascadeProgress, CastCompletion, CastOwner, CastPermission};
 #[cfg(test)]
 mod cast_origin_tests;
@@ -384,6 +387,7 @@ mod mana_permanents;
 mod mana_tests;
 mod mill;
 mod opponent_mana;
+mod same_color_mana;
 mod scry;
 mod successor_tuck;
 #[cfg(test)]
@@ -698,7 +702,10 @@ impl Prepared {
         })
     }
     pub fn match_config(&self) -> Option<&MatchConfig> {
-        self.match_config.as_ref()
+        self.match_config.as_ref().filter(|config| {
+            config.profile != DYNAMIC_PROFILE
+                || self.config.commanders.len() == self.config.players as usize
+        })
     }
     pub fn admit(catalog: Catalog, config: ScenarioConfig) -> Result<Self, String> {
         catalog.validate()?;
@@ -2589,6 +2596,7 @@ pub struct SnapshotWriteInfo {
     pub state_sha256: String,
 }
 pub struct Game {
+    opening_library_sizes: [u32; 4],
     catalog_has_land_type_grant: bool,
     catalog_has_nonland_color_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
@@ -2683,6 +2691,7 @@ impl Game {
                 )
             })
             .collect();
+        let opening_library_sizes = prepared.config.initial_library_sizes();
         let state = State {
             rules: RulesState {
                 mana_ability_uses: BTreeSet::new(),
@@ -2690,7 +2699,12 @@ impl Game {
                 entry_copies: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
-                match_state: prepared.match_config.as_ref().map(MatchState::new),
+                match_state: prepared.match_config.as_ref().map(|config| {
+                    MatchState::new(
+                        config,
+                        opening_library_sizes[config.starting_player.0 as usize],
+                    )
+                }),
                 effects: vec![],
                 delayed_chapters: vec![],
                 next_effect_id: 0,
@@ -2753,6 +2767,7 @@ impl Game {
             },
         };
         let mut game = Self {
+            opening_library_sizes,
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
@@ -2776,6 +2791,7 @@ impl Game {
     }
     pub fn fork(&self) -> Self {
         Self {
+            opening_library_sizes: self.opening_library_sizes,
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
             catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             prepared: self.prepared.clone(),
@@ -4018,6 +4034,7 @@ impl Game {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
         let game = Self {
+            opening_library_sizes: prepared.config.initial_library_sizes(),
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),

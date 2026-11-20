@@ -15,7 +15,7 @@ const SLIP: &str =
 const PROMOTION: &str =
     include_str!("../../../../tests/fixtures/303d74d0-84db-4694-bb1a-470cf470bc4f.json");
 
-fn cursor(g: &mut Game, expected: u32) {
+pub(super) fn cursor(g: &mut Game, expected: u32) {
     for _ in 0..100 {
         if matches!(&g.state.rules.frame, Frame::Resolve { frame } if frame.cursor == expected) {
             assert!(g.state.rules.pending.is_none());

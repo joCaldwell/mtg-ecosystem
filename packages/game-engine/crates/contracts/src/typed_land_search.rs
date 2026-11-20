@@ -14,6 +14,25 @@ pub enum BasicLandType {
     Forest,
 }
 impl BasicLandType {
+    pub fn from_subtype(subtype: &str) -> Option<Self> {
+        match subtype {
+            "Plains" => Some(Self::Plains),
+            "Island" => Some(Self::Island),
+            "Swamp" => Some(Self::Swamp),
+            "Mountain" => Some(Self::Mountain),
+            "Forest" => Some(Self::Forest),
+            _ => None,
+        }
+    }
+    pub fn color(self) -> Color {
+        match self {
+            Self::Plains => Color::W,
+            Self::Island => Color::U,
+            Self::Swamp => Color::B,
+            Self::Mountain => Color::R,
+            Self::Forest => Color::G,
+        }
+    }
     pub fn subtype(self) -> &'static str {
         match self {
             Self::Plains => "Plains",
@@ -182,7 +201,8 @@ pub(super) fn schema(s: &mut serde_json::Value) {
         "tap_pay_life_sacrifice_source":{"properties":{"life":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"}}}
     }}));
     let activated = json!({"required":["activated"],"properties":{"activated":{"contains":{"anyOf":[
-        {"properties":{"program":present}}, {"properties":{"cost":cost}}
+        {"properties":{"program":present}},
+        {"allOf":[{"properties":{"cost":cost}},{"not":basic_land_fetch::activation_schema()}]}
     ]}}}});
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":activated,
         "then":{"properties":{
@@ -194,7 +214,8 @@ pub(super) fn schema(s: &mut serde_json::Value) {
             }}},
             "triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"keywords":{"maxItems":0},
             "capabilities":{"minItems":7,"maxItems":7,"uniqueItems":true,"items":{"enum":[Capability::NormalLayoutV1,Capability::LandPlayV1,Capability::ActivatedAbilityV1,Capability::TapSourceCostV1,Capability::SacrificeSourceCostV1,Capability::PayLifeCostV1,Capability::TypedLandSearchV1]}}
-        }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::PayLifeCostV1}}}}}
+        }},"else":{"if":{"not":{"required":["activated"],"properties":{"activated":{"contains":basic_land_fetch::activation_schema()}}}},
+            "then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::PayLifeCostV1}}}}}}
     }));
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/TypedLandSearchFreeProgram"}}}}

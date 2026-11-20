@@ -295,6 +295,15 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
     if (!verb) return null;
     const chosen = parseChoiceCharacteristics(c);
     if (chosen) {
+      const first = chosen[0];
+      // CR 611.2d, 613.1e–f, 702.11d: share the one color fixed as this
+      // effect is created across its color change and granted hexproof.
+      if (first.modifier === 'colors' && !Array.isArray(first.colors) && first.colors.choice === 'fresh-choice'
+        && first.colors.quantity === 'one' && c.words('and', pluralSubject(what) ? 'gain' : 'gains', 'hexproof', 'from', 'that', 'color')) {
+        chosen.push({ modifier: 'abilities', abilities: [{ gained: 'keyword', keyword: {
+          keyword: 'hexproof', from: [{ scope: 'color-chosen-by-characteristic-effect' }],
+        } }] });
+      }
       const duration = parseDuration(c) ?? undefined;
       return { effect: 'modify-characteristics', what, modifiers: chosen, snapshot: 'effect-created', ...(duration ? { duration } : {}) };
     }

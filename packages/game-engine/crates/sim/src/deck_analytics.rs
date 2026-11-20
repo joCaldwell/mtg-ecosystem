@@ -3,9 +3,9 @@
 use crate::match_games::can_fund;
 use mtg_contracts::{CardKind, Catalog, Definition, Instruction, Quantity, StaticEffect, digest};
 use mtg_core::{
-    Advance, BatchCause, Budget, CardId, Event, EventGroup, EventOutcome, EvidenceRecord, Game,
-    MatchProfile, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal, Request,
-    SetupOutcome, TraceMode, TurnStep, Zone,
+    Advance, BatchCause, Budget, CardId, DeckRole, Decklist, DynamicDeckEntry, Event, EventGroup,
+    EventOutcome, EvidenceRecord, Game, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue,
+    ReplayJournal, Request, SetupOutcome, TraceMode, TurnStep, Zone,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -15,6 +15,45 @@ use std::{
     fs,
     path::Path,
 };
+
+/// Deck slots and catalog identity of a bench source, embedded or bulk.
+pub(crate) struct AnalyticsProfile<'a> {
+    pub name: &'a str,
+    pub catalog: &'a Catalog,
+    pub catalog_sha256: &'a str,
+    pub decks: [AnalyticsDeck; 4],
+}
+
+/// Sorted commander designations and physical quantities, commanders included.
+pub(crate) struct AnalyticsDeck {
+    commanders: Vec<String>,
+    cards: BTreeMap<String, u64>,
+}
+impl AnalyticsDeck {
+    pub(crate) fn embedded(deck: &Decklist) -> Self {
+        let mut cards = BTreeMap::new();
+        for card in &deck.cards {
+            *cards.entry(card.oracle_id.clone()).or_default() += u64::from(card.count);
+        }
+        Self {
+            commanders: vec![deck.commander.clone()],
+            cards,
+        }
+    }
+    pub(crate) fn dynamic(rows: &[DynamicDeckEntry]) -> Self {
+        let mut commanders = Vec::with_capacity(2);
+        let mut cards = BTreeMap::new();
+        for row in rows {
+            if row.role == DeckRole::Commander {
+                commanders.push(row.oracle_id.clone());
+            }
+            *cards.entry(row.oracle_id.clone()).or_default() += u64::from(row.quantity);
+        }
+        commanders.sort_unstable();
+        commanders.dedup();
+        Self { commanders, cards }
+    }
+}
 
 pub(crate) struct PodOutcome {
     pub index: usize,
@@ -552,26 +591,22 @@ fn markdown_cell(text: &str) -> String {
 
 pub(crate) fn write(
     dest: &Path,
-    profile: &MatchProfile,
+    profile: &AnalyticsProfile<'_>,
     workers: usize,
     seed_start: u32,
     rotation: bool,
     decision_limit: usize,
     input: impl Iterator<Item = (PodOutcome, Option<ReplayInput>)>,
 ) -> Result<(), String> {
-    let catalog = profile.catalog();
+    let catalog = profile.catalog;
     let mut groups = BTreeMap::<String, (Vec<usize>, DeckStats)>::new();
     let mut keys = Vec::with_capacity(4);
     for (slot, deck) in profile.decks.iter().enumerate() {
-        let mut quantities = BTreeMap::<&str, u64>::new();
-        for card in &deck.cards {
-            *quantities.entry(&card.oracle_id).or_default() += u64::from(card.count);
-        }
-        let key = digest(&(&deck.commander, &quantities))?;
+        let key = digest(&(&deck.commanders, &deck.cards))?;
         let (slots, stats) = groups.entry(key.clone()).or_default();
         slots.push(slot);
-        for id in quantities.keys() {
-            stats.cards.entry((*id).into()).or_default();
+        for id in deck.cards.keys() {
+            stats.cards.entry(id.clone()).or_default();
         }
         keys.push(key);
     }
@@ -659,7 +694,7 @@ pub(crate) fn write(
 }
 
 fn reports(
-    profile: &MatchProfile,
+    profile: &AnalyticsProfile<'_>,
     catalog: &Catalog,
     groups: BTreeMap<String, (Vec<usize>, DeckStats)>,
     games: u64,
@@ -667,7 +702,7 @@ fn reports(
 ) -> Result<(Vec<Value>, String), String> {
     let mut summary = format!(
         "# Commander deck analytics\n\n{} · {completed}/{games} pods completed and replayed. Rates use completed seats unless stated otherwise. Early mana flags are estimates.\n\n",
-        markdown_cell(&profile.name)
+        markdown_cell(profile.name)
     );
     summary.push_str("| Deck | Seats | Win | Mean rank | Unfinished | Decision cap | Mean turns | Mean decisions | Missed land | Mana blocked | Color blocked |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
     let mut seats_md = String::from(
@@ -676,14 +711,19 @@ fn reports(
     let mut cards_md = String::new();
     let mut decks = Vec::with_capacity(groups.len());
     for (key, (slots, stats)) in groups {
-        let commander = &profile.decks[slots[0]].commander;
-        let name = &catalog
-            .definition_by_oracle_id(commander)
-            .ok_or("missing commander definition")?
-            .name;
+        let commanders = &profile.decks[slots[0]].commanders;
+        let names = commanders
+            .iter()
+            .map(|id| {
+                catalog
+                    .definition_by_oracle_id(id)
+                    .map(|definition| definition.name.as_str())
+                    .ok_or("missing commander definition")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let label = format!(
             "{} (slots {})",
-            markdown_cell(name),
+            markdown_cell(&names.join(" + ")),
             slots
                 .iter()
                 .map(usize::to_string)
@@ -787,8 +827,8 @@ fn reports(
             );
         }
         decks.push(json!({
-            "deck_sha256": key, "profile_slots": slots, "commander_oracle_id": commander,
-            "commander": name, "attempts": stats.attempts, "completed": stats.completed,
+            "deck_sha256": key, "profile_slots": slots, "commander_oracle_ids": commanders,
+            "commanders": names, "attempts": stats.attempts, "completed": stats.completed,
             "win_rate": rate(stats.wins, stats.completed),
             "unfinished_rate": rate(unfinished, stats.attempts),
             "decision_cap_rate": rate(stats.decision_capped, stats.attempts),
@@ -816,4 +856,29 @@ fn reports(
     summary.push_str(&cards_md);
     summary.push_str("\nOH WR uses the final kept opener. GIH WR includes any later hand entry. Drawn metrics use post-setup draws and require a later cast of the same physical copy. Land plays have a separate count and land spell-cast rates are undefined.\n");
     Ok((decks, summary))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dynamic_decks_keep_both_commanders_and_merge_rows() {
+        let row = |id: &str, quantity, role| DynamicDeckEntry {
+            oracle_id: id.into(),
+            quantity,
+            role,
+        };
+        let deck = AnalyticsDeck::dynamic(&[
+            row("b", 1, DeckRole::Commander),
+            row("x", 2, DeckRole::Main),
+            row("a", 1, DeckRole::Commander),
+            row("x", 3, DeckRole::Main),
+        ]);
+        assert_eq!(deck.commanders, ["a", "b"]);
+        assert_eq!(
+            deck.cards.into_iter().collect::<Vec<_>>(),
+            [("a".into(), 1), ("b".into(), 1), ("x".into(), 5)]
+        );
+    }
 }

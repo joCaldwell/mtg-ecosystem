@@ -83,20 +83,22 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
      {"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"domain":{"const":"any_player"},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"filter":{"type":"null"}}}},"instructions":composition(targeted)}}
     ]}]});
     schema["$defs"]["MillFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"mill_cards"}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}}}});
-    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/MillFreeProgram"}},"then":{"$ref":"#/$defs/FixedMillProgram"}}));
+    schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/MillFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/FixedMillProgram"},{"$ref":ordinary_sequence::SCHEMA}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/MillFreeProgram"}}}});
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap();
     def.push(json!({"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}},"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}}}}));
     def.push(json!({"if":has,"then":{"properties":{
-  "spell":{"$ref":"#/$defs/FixedMillProgram"},"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
+  "spell":{"anyOf":[{"$ref":"#/$defs/FixedMillProgram"},{"$ref":ordinary_sequence::SCHEMA}]},"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
   "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
-  "capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::FixedMillProgramV1,Capability::AnyPlayerTargetV1,Capability::ControllerDrawV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::FixedMillProgramV1}}]}
+  "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::FixedMillProgramV1}}]}
  }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::FixedMillProgramV1}}}}}}));
+    def.push(json!({"if":{"allOf":[has.clone(),{"not":{"properties":{"spell":{"$ref":ordinary_sequence::SCHEMA}}}}]},
+        "then":{"properties":{"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::FixedMillProgramV1,Capability::AnyPlayerTargetV1,Capability::ControllerDrawV1]}}}}}));
     def.push(json!({"if":has,"then":{"allOf":[
   {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},"then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},"else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
-  {"if":{"properties":{"spell":{"properties":{"targets":{"minItems":1}}}}},"then":{"properties":{"capabilities":{"contains":{"const":Capability::AnyPlayerTargetV1}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::AnyPlayerTargetV1}}}}}},
+  {"if":{"properties":{"spell":{"properties":{"targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"any_player"}}}}}}}},"then":{"properties":{"capabilities":{"contains":{"const":Capability::AnyPlayerTargetV1}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::AnyPlayerTargetV1}}}}}},
   {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"draw_cards"}}}}}}}},"then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerDrawV1}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerDrawV1}}}}}}
  ]}}));
 }

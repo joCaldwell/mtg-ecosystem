@@ -475,7 +475,7 @@ pub(crate) fn extend_schema(schema: &mut Value) {
             {"if":has_phase,"then":{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}}}},
                 "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TargetedPhasingV1}}}}}}
         ]},
-        "else":{"properties":{"capabilities":{"not":cap}}}
+        "else":{"if":{"not":{"required":["spell"],"properties":{"spell":{"$ref":ordinary_sequence::SCHEMA}}}}, "then":{"properties":{"capabilities":{"not":cap}}}}
     }));
 }
 

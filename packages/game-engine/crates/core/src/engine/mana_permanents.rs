@@ -207,35 +207,37 @@ impl Game {
             ManaProduction::Fixed { symbols } | ManaProduction::Choice { colors: symbols } => {
                 symbols.clone()
             }
-            ManaProduction::GreatestControlledPowerCombination | ManaProduction::AnyColor => {
+            ManaProduction::GreatestControlledPowerCombination
+            | ManaProduction::AnyColor
+            | ManaProduction::AnyOneColor { .. } => {
                 vec![Color::W, Color::U, Color::B, Color::R, Color::G]
             }
             ManaProduction::OpponentLandColors => return self.opponent_land_mana_colors(player),
             ManaProduction::EachPermanentColor { scope } => {
                 self.permanent_colors(*scope, player)?.into_iter().collect()
             }
-            ManaProduction::CommanderColor => self
-                .prepared
-                .config
-                .commanders
-                .iter()
-                .find(|id| {
-                    self.prepared
-                        .config
-                        .cards
-                        .iter()
-                        .any(|c| c.id == **id && c.owner == player)
-                })
-                .and_then(|id| self.prepared.config.cards.iter().find(|c| c.id == *id))
-                .and_then(|c| {
-                    self.prepared
-                        .catalog
-                        .definitions
-                        .iter()
-                        .find(|d| d.oracle_id == c.oracle_id)
-                })
-                .map(|d| d.characteristics.color_identity.clone())
-                .unwrap_or_default(),
+            // CR 702.124c, 903.4: both designations contribute their
+            // original color identities, independently of zone or control.
+            ManaProduction::CommanderColor => {
+                let mut commanders = self
+                    .state
+                    .rules
+                    .commanders
+                    .records
+                    .values()
+                    .filter(|history| history.owner == player)
+                    .peekable();
+                match commanders.next() {
+                    None => Vec::new(),
+                    Some(history) if commanders.peek().is_none() => history.color_identity.clone(),
+                    Some(history) => std::iter::once(history)
+                        .chain(commanders)
+                        .flat_map(|owner| owner.color_identity.iter().copied())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect(),
+                }
+            }
         })
     }
     pub(super) fn mana_continuation_charge(&self) -> usize {
@@ -990,6 +992,10 @@ impl Game {
         a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
+        if let ManaProduction::AnyOneColor { amount } = &a.ability.production {
+            let units = self.single_color_mana_units(a.player, color, amount)?;
+            return self.produce_mana_units(a, units);
+        }
         let symbols = match &a.ability.production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
             ManaProduction::EachPermanentColor { .. } => {

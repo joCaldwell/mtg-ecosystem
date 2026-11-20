@@ -14,6 +14,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod basic_land_fetch;
 mod basic_landwalk;
 mod bestow;
 mod bindings;
@@ -24,6 +25,7 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
+mod checkland_entry;
 mod colored_library_search;
 mod combat_hand_cast;
 mod commander_modal_keyword;
@@ -88,15 +90,20 @@ mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_costs;
+mod ordinary_sequence;
 mod other_land_entry;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
+#[cfg(test)]
+mod phase1_sequences_tests;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
 mod saga;
+mod same_color_mana;
 mod scoped_creature_stats;
+mod scoped_static;
 mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
@@ -109,6 +116,7 @@ mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
+mod target_compensation;
 use optional_costs::KickedCondition;
 mod artifact_loss;
 mod artifact_modal;
@@ -1379,6 +1387,9 @@ enum SourceMana {
     AnyColor {
         amount: Count,
     },
+    AnyOneColor {
+        amount: serde_json::Value,
+    },
     CommanderColor {
         amount: Count,
         whose: PlayerSelector,
@@ -1583,7 +1594,23 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         creature_planeswalker_return::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let has_linked_hideaway = linked_hideaway::validate(&source, &shape, &result, &binding)?;
     let composition =
-        composed_spell::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?;
+        match composed_spell::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)? {
+            Some(program) => Some(program),
+            None => {
+                ordinary_sequence::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?
+            }
+        };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => target_compensation::lower(
+            &shape,
+            &result,
+            &binding,
+            &r.oracle_identity,
+            types.kind,
+            &archive.parser_source_sha256,
+        )?,
+    };
     let abilities = if let Some(program) = composition {
         vec![Ability::ComposedSpell(program)]
     } else if has_linked_hideaway {
@@ -1663,7 +1690,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             "source contains unaccounted or mismatched normalized blocks",
         ));
     }
-    if result.lines.len() != abilities.len() {
+    if result.lines.len() != abilities.len()
+        && !matches!(abilities.as_slice(), [Ability::ComposedSpell(_)])
+    {
         return Err(invalid("lines", "unaccounted ability block"));
     }
     for (block, ability) in abilities.iter().enumerate() {
@@ -1692,9 +1721,16 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         }
     }
     conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
-    typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
+    let basic_ramp_spell = basic_land_fetch::spell(&result, &shape, &binding, &source)?;
+    if basic_fetch.is_none() {
+        typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    }
     cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
+    if original.len() != result.lines.len() {
+        return Err(invalid("lines", "unaccounted archived ability block"));
+    }
     for (line, ability) in result.lines.iter().zip(&original) {
         let a: serde_json::Value = decode(line.ability.get(), "lines.ability")?;
         let b: serde_json::Value = decode(ability.get(), "abilities")?;
@@ -1721,11 +1757,16 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let keyword_removal_wipe = keyword_removal_wipe::lower(&source, &shape, &result, &binding)?;
     source_dies_nonland_destroy::bind(&source, &result, &binding)?;
-    let mut draw_land_allowance =
-        draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
+    let mut draw_land_allowance = if matches!(abilities.as_slice(), [Ability::ComposedSpell(_)]) {
+        None
+    } else {
+        draw_land_allowance::lower(&abilities, &result, &binding, &source)?
+    };
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
-        typed_fetchland::validate_raw(ability, raw.get())?;
+        if basic_fetch.is_none() {
+            typed_fetchland::validate_raw(ability, raw.get())?;
+        }
     }
     controller_library::validate_fixed_cast_effects(
         &abilities,
@@ -1953,6 +1994,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if basic_ramp_spell.is_some() => {
+            definition.spell = basic_ramp_spell;
+        }
         CardKind::Sorcery | CardKind::Instant if fixed_creature_damage.is_some() => {
             definition.spell = fixed_creature_damage;
         }
@@ -2090,7 +2134,16 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                                 kind,
                             )? {
                                 Some(ability) => ability,
-                                None => lower_static(effect, source_block(block)?)?,
+                                None => match scoped_static::lower(
+                                    block,
+                                    &result,
+                                    &shape,
+                                    &binding,
+                                    &definition.oracle_id,
+                                )? {
+                                    Some(ability) => ability,
+                                    None => lower_static(effect, source_block(block)?)?,
+                                },
                             },
                         };
                         definition.static_abilities.push(ability);
@@ -2345,14 +2398,24 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                         restriction,
                         ..
                     } => {
-                        let mana = listed_mana::lower(
+                        let mana = match same_color_mana::lower(
                             ability,
-                            block,
-                            &result.lines[block].text,
+                            &result,
                             &shape,
                             &binding,
                             &definition.oracle_id,
-                        )?;
+                            &source.oracle_text,
+                        )? {
+                            Some(mana) => Some(mana),
+                            None => listed_mana::lower(
+                                ability,
+                                block,
+                                &result.lines[block].text,
+                                &shape,
+                                &binding,
+                                &definition.oracle_id,
+                            )?,
+                        };
                         let mana = match mana {
                             Some(mana) => Some(mana),
                             None => lower_mana_ability(
@@ -2379,7 +2442,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                                 "~",
                                 source_block(block)?,
                             );
-                            let activated = if let Some(loss) = artifact_loss.take() {
+                            let activated = if let Some(fetch) = basic_fetch.take() {
+                                fetch
+                            } else if let Some(loss) = artifact_loss.take() {
                                 loss
                             } else if let Some(bound) = counted_artifact_modes.remove(&block) {
                                 bound
@@ -2863,6 +2928,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     }) && group_discard.is_none()
         && discard_target.is_none()
         && !announced_x_effects
+        && !matches!(abilities.as_slice(), [Ability::ComposedSpell(_)])
         && !definition.spell.as_ref().is_some_and(|p| {
             controller_draw_discard_program(p)
                 || matches!(
@@ -2884,7 +2950,12 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         .as_ref()
         .is_some_and(controller_draw_discard_program)
     {
-        draw_discard::validate_source(&binding, &definition.oracle_id, &canonical_abilities)?;
+        draw_discard::validate_source(
+            &shape,
+            &binding,
+            &definition.oracle_id,
+            &canonical_abilities,
+        )?;
     }
     if definition
         .spell
@@ -2984,6 +3055,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
+    checkland_entry::validate_binding(&definition, &shape, &binding)?;
     land_sacrifice_draw::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell

@@ -151,6 +151,8 @@ pub struct PreEventFacts {
         deserialize_with = "multiplayer::player_quantity_map"
     )]
     pub entry_other_lands: BTreeMap<PlayerId, Quantity>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub entry_land_types: BTreeSet<(PlayerId, BasicLandType)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) control: Option<Box<ControlBefore>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -179,12 +181,14 @@ pub struct PreEventFacts {
 enum EntryLandCount {
     Basic,
     Other,
+    LandTypes,
 }
 
 #[derive(Default)]
 struct EntryLandCounts {
     basic: BTreeMap<PlayerId, Quantity>,
     other: BTreeMap<PlayerId, Quantity>,
+    land_types: BTreeSet<(PlayerId, BasicLandType)>,
 }
 
 /// Consumed layer-2 authority, separate from the leaf's ordinary object facts
@@ -1519,6 +1523,14 @@ impl Game {
             } else {
                 BTreeMap::new()
             },
+            entry_land_types: if events
+                .iter()
+                .any(|event| self.conditional_entry(event) == Some(EntryLandCount::LandTypes))
+            {
+                counts.land_types.clone()
+            } else {
+                BTreeSet::new()
+            },
             control: if events.iter().any(|event| changes_control_inputs(event)) {
                 self.control_before()?
             } else {
@@ -1887,6 +1899,7 @@ impl Game {
                     Some(before) => EntryLandCounts {
                         basic: before.entry_basic_lands.clone(),
                         other: before.entry_other_lands.clone(),
+                        land_types: before.entry_land_types.clone(),
                     },
                     None => common.entry_land_counts(&occurrences.iter().collect::<Vec<_>>())?,
                 };
@@ -2042,6 +2055,9 @@ impl Game {
                 StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
                     Some(EntryLandCount::Other)
                 }
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
+                    Some(EntryLandCount::LandTypes)
+                }
                 _ => None,
             })
     }
@@ -2049,15 +2065,17 @@ impl Game {
     fn entry_land_counts(&self, events: &[&ProposedEvent]) -> Result<EntryLandCounts, String> {
         let mut basic = false;
         let mut other = false;
+        let mut land_types = false;
         for event in events {
             match self.conditional_entry(event) {
                 Some(EntryLandCount::Basic) => basic = true,
                 Some(EntryLandCount::Other) => other = true,
+                Some(EntryLandCount::LandTypes) => land_types = true,
                 None => {}
             }
         }
         let mut counts = EntryLandCounts::default();
-        if !basic && !other {
+        if !basic && !other && !land_types {
             return Ok(counts);
         }
         for player in self.live_players() {
@@ -2083,6 +2101,13 @@ impl Game {
                 }
                 if other {
                     counts.other.entry(object.controller).or_default().add(&one);
+                }
+                if land_types {
+                    checkland_entry::record_land_types(
+                        &mut counts.land_types,
+                        object.controller,
+                        &characteristics,
+                    );
                 }
             }
         }
@@ -2116,12 +2141,32 @@ impl Game {
                     }
                     (EntryLandCount::Other, *comparison, threshold)
                 }
+                StaticEffect::EntersTappedUnlessControllerLandTypes { subtypes } => {
+                    if self.current(object)?.zone == Zone::Battlefield {
+                        return Err("checkland replacement requires an entrant from outside the battlefield".into());
+                    }
+                    let current;
+                    let land_types = if let Some(before) = before {
+                        &before.entry_land_types
+                    } else {
+                        current = self.entry_land_counts(&[&ProposedEvent::Move {
+                            object,
+                            destination: Zone::Battlefield,
+                        }])?;
+                        &current.land_types
+                    };
+                    if !checkland_entry::controls_land_type(land_types, controller, subtypes) {
+                        return Ok(true);
+                    }
+                    continue;
+                }
                 _ => continue,
             };
             let current;
             let counts = match (before, kind) {
                 (Some(before), EntryLandCount::Basic) => &before.entry_basic_lands,
                 (Some(before), EntryLandCount::Other) => &before.entry_other_lands,
+                (Some(_), EntryLandCount::LandTypes) => unreachable!("not a land count"),
                 (None, kind) => {
                     current = self.entry_land_counts(&[&ProposedEvent::Move {
                         object,
@@ -2130,6 +2175,7 @@ impl Game {
                     match kind {
                         EntryLandCount::Basic => &current.basic,
                         EntryLandCount::Other => &current.other,
+                        EntryLandCount::LandTypes => unreachable!("not a land count"),
                     }
                 }
             };

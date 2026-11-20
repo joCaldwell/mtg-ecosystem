@@ -169,8 +169,21 @@ describe("excluded origin zones (CR 601.2a, 603.6a)", () => {
     unsupported("Whenever you cast or copy a spell from anywhere other than your hand");
     unsupported("Whenever you cast a spell from anywhere other than your hand or graveyard");
     unsupported("Whenever you cast a spell from anywhere other than");
-    // Shadow of the Goblin: the origin may qualify the land play too.
-    unsupported("Whenever you play a land or cast a spell from anywhere other than your hand");
+    unsupported("Whenever you play a land or you cast a spell from anywhere other than your hand");
+    unsupported("Whenever you play a land or cast a spell from anywhere other than your hand or graveyard");
+  });
+
+  it("distributes the shared hand exclusion over the land play and spell cast", () => {
+    // Shadow of the Goblin: the official Japanese printing puts the origin first.
+    const notFrom = { zone: "hand", owner: "your" } as const;
+    assert.deepEqual(trigger("Whenever you play a land or cast a spell from anywhere other than your hand"), {
+      trigger: "any-of", events: [
+        { trigger: "plays", who: you, what: { types: ["land"] }, notFrom },
+        { trigger: "cast", who: you, what: { cls: "spell" }, notFrom },
+      ],
+    });
+    assert.ok(parseOracleText("Undying Vengeance — Whenever you play a land or cast a spell from anywhere other than your hand, this enchantment deals 1 damage to each opponent.",
+      "Fixture", { typeLine: "Enchantment" }).ok);
   });
 });
 

@@ -149,7 +149,14 @@ impl Game {
         if !permanent.present_on_battlefield() {
             return vec![];
         }
-        let creature = self.target_is_creature(target);
+        let characteristics = self.structural_characteristics(target).ok();
+        let creature = characteristics
+            .as_ref()
+            .is_some_and(|c| c.kind == CardKind::Creature);
+        let subtypes = characteristics
+            .as_ref()
+            .map(|c| c.subtypes.as_slice())
+            .unwrap_or_default();
         self.state
             .rules
             .objects
@@ -169,9 +176,26 @@ impl Game {
                                 {
                                     Some((&a.effect, o.keyword_timestamp))
                                 }
+                                StaticEffect::ModifyCreatures {
+                                    scope:
+                                        CreatureScope::ControlledSubtype {
+                                            subtype,
+                                            creatures_only,
+                                            other,
+                                        },
+                                    ..
+                                } if a.functioning_zone == FunctioningZone::Battlefield
+                                    && o.controller == permanent.controller
+                                    && (!other || o.id != target)
+                                    && (!creatures_only || creature)
+                                    && subtypes.iter().any(|s| s == subtype.name()) =>
+                                {
+                                    Some((&a.effect, o.keyword_timestamp))
+                                }
                                 StaticEffect::ModifyCreatures { scope, .. }
                                     if creature
                                         && match scope {
+                                            CreatureScope::ControlledSubtype { .. } => false,
                                             CreatureScope::Source => o.id == target,
                                             CreatureScope::Controller => {
                                                 o.controller == permanent.controller

@@ -28,21 +28,28 @@ export function hasExplicitSourceZone(ref: ObjectRef): boolean {
   return ref.ref === "from-pool" && hasExplicitSourceZone(ref.pool);
 }
 
-function entryCounter(c: Cursor): EntryCounter | null {
+function entryCounter(c: Cursor, died?: ObjectRef): EntryCounter | null {
   return c.attempt(c => {
+    const article = c.isWord("a", "an");
     const count = parseCount(c);
     if (!count) return null;
-    const additional = c.word("additional") !== null;
+    const fewer = c.word("fewer") !== null;
+    if (fewer && (!died || article || count.amount !== "fixed" || count.value < 1)) return null;
+    const additional = !fewer && c.word("additional") !== null;
     const counter = parseCounterSpec(c);
     if (!counter || c.word("counter", "counters") === null) return null;
+    // CR 122.2, 603.10a: count the counters before death. The card being
+    // returned is a new object in its owner's graveyard and has no counters.
+    if (died && fewer) return { counter, count: { amount: "minus",
+      a: { amount: "counter-count-before-zone-change", counter, of: died, event: "dies" }, b: count } };
     return { count, counter, ...(additional ? { additional: true } : {}) };
   });
 }
 
-function counters(c: Cursor): EntryCounter[] | null {
+function counters(c: Cursor, died?: ObjectRef): EntryCounter[] | null {
   return c.attempt(c => {
     if (c.word("with") === null) return null;
-    const first = entryCounter(c);
+    const first = entryCounter(c, died);
     if (!first) return null;
     const results = [first];
     while (true) {
@@ -54,7 +61,9 @@ function counters(c: Cursor): EntryCounter[] | null {
       if (!next) break;
       results.push(next);
     }
-    if (c.word("on") === null || c.word("it", "them") === null) return null;
+    if (c.word("on") === null) return null;
+    const pronoun = c.word("it", "them");
+    if (!pronoun || (first.count.amount === "minus" && first.count.a.amount === "counter-count-before-zone-change" && pronoun !== "it")) return null;
     return results;
   });
 }
@@ -69,7 +78,7 @@ function singular(ref: ObjectRef | PlayerRef): boolean {
 
 /** Called immediately after a battlefield destination. Does not consume the
  * separator of a following instruction. Every modifier belongs to one move. */
-export function parseBattlefieldEntryDetails(c: Cursor): EntryDetails | null {
+export function parseBattlefieldEntryDetails(c: Cursor, died?: ObjectRef): EntryDetails | null {
   return c.attempt(c => {
     const details: EntryDetails = {};
     const entry: BattlefieldEntryModifiers = {};
@@ -99,7 +108,7 @@ export function parseBattlefieldEntryDetails(c: Cursor): EntryDetails | null {
         details.from = from;
       } else if (c.isWord("with")) {
         if (entry.counters) return null;
-        const parsed = counters(c);
+        const parsed = counters(c, died);
         if (!parsed) return null;
         entry.counters = parsed;
       } else if (c.word("attached") !== null) {

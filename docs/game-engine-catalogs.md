@@ -128,6 +128,32 @@ still change and must be qualified independently.
 Every IR field addition requires reviewing capability derivation and hosted/search
 sets before admitting a catalog. Profiles never bypass shared rules or capacities.
 
+## Bulk headless admission
+
+`mtg-sim catalog build-ir ARCHIVE --out DIR` publishes compact schema-1 IR,
+the archive outcome index, and their pinned artifact manifest. Bulk format 2
+adds source-derived Commander pairing and color facts. A consumer verifies
+the exact producer, manifest pin, payload proofs, and successful definition
+joins during load.
+
+Dynamic decks contain 100 cards including one or two designated legendary
+creatures. Two designations require ordinary Partner on both or Doctor’s
+companion paired with a Time Lord Doctor that has no other creature types.
+Pairing can be inspected independently of compilation. Admission additionally
+requires executable definitions and reviewed capabilities. The two color
+identities combine for deck legality and commander-color mana. Each physical
+designation keeps its own command-zone cast and combat damage history
+([CR 702.124, 903.3–903.10](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
+Dynamic identities carry headless admission only.
+
+`mtg-sim bench-pods --bulk-artifact DIR --manifest-sha SHA --pod-decks JSON`
+reads an object with a `decks` array of four seat lists. Each entry contains
+`oracle_id`, `quantity`, and `role` (`main` or `commander`). Workers share a
+single validated projection. The bulk manifest, policy, projection and
+per-case admission digest identify the benchmark. The existing worker options,
+sampled replay checks and `--analytics-out` apply to both input modes; analytics
+group decks by sorted commander designations and physical quantities.
+
 ## Generic completion batches
 
 Reuse a coordinated executable rather than building merely to read a report.

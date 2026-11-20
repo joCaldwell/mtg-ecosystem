@@ -2,18 +2,23 @@
 //! time in each phase and are summed across workers. Proof runs are outside the
 //! measured window and go through the ordinary snapshot verifier.
 use super::*;
-use crate::deck_analytics::{self, PodOutcome};
+use crate::bulk_input;
+use crate::deck_analytics::{self, AnalyticsDeck, AnalyticsProfile, PodOutcome};
+use mtg_core::{DYNAMIC_PROFILE, DynamicDeckEntry, DynamicPodTemplate, MatchProfile};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 const QUANTUM: u64 = 1024;
-const USAGE: &str = "usage: mtg-sim bench-pods PROFILE [--threads 1..32] [--games N] \
+const USAGE: &str = "usage: mtg-sim bench-pods PROFILE [OPTIONS]\n\
+       mtg-sim bench-pods --bulk-artifact DIR --manifest-sha SHA --pod-decks JSON [OPTIONS]\n\
+OPTIONS: [--threads 1..32] [--games N] \
 [--seed-start N] [--rotate-seats] [--decision-limit N] [--analytics-out NEW_DIR]\n\
 --games is the total number of pods (default 32). Rotation requires a multiple of four.\n\
 Each rotated group reuses one seed and starting seat while cycling the four deck slots.\n\
 The first and last seed groups are independently rerun and replayed.\n\
+Pod JSON is an object with four decks of {oracle_id, quantity, role} rows.\n\
 --analytics-out writes aggregate analytics.json and summary.md from independent terminal replays.";
 
 struct Options {
@@ -25,6 +30,19 @@ struct Options {
     analytics_out: Option<PathBuf>,
 }
 impl Options {
+    fn ensure_new_analytics_out(&self) -> Result<(), String> {
+        let Some(path) = &self.analytics_out else {
+            return Ok(());
+        };
+        match fs::symlink_metadata(path) {
+            Ok(_) => Err(format!(
+                "analytics output already exists: {}",
+                path.display()
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
     fn parse(args: &[String]) -> Result<Self, String> {
         let mut options = Self {
             threads: std::thread::available_parallelism().map_or(1, |n| n.get().min(32)),
@@ -111,6 +129,88 @@ impl Case {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PodSource<'a> {
+    Embedded(&'a MatchProfile),
+    Dynamic {
+        template: &'a DynamicPodTemplate,
+        decks: &'a [Vec<DynamicDeckEntry>; 4],
+    },
+}
+impl<'a> PodSource<'a> {
+    fn prepare(
+        self,
+        case: Case,
+        admission_ns: &mut u128,
+    ) -> Result<(Prepared, u8, Option<String>), String> {
+        match self {
+            Self::Embedded(profile) => {
+                let config = case.config(&profile.name)?;
+                let starting = config.starting_player.0;
+                let prepared = timed(admission_ns, || {
+                    Prepared::admit_pod(profile.catalog().clone(), config)
+                })
+                .map_err(|error| error.to_string())?;
+                Ok((prepared, starting, None))
+            }
+            Self::Dynamic { template, .. } => {
+                let starting = PlayerId((case.seed_index % 4) as u8);
+                let seed = seed_for("bench-pods-v1", case.seed_index);
+                let pod = timed(admission_ns, || {
+                    template.prepare(starting, seed, case.rotation)
+                })
+                .map_err(|error| error.to_string())?;
+                Ok((
+                    pod.prepared,
+                    starting.0,
+                    Some(pod.identity.admission_digest),
+                ))
+            }
+        }
+    }
+    fn catalog(self) -> &'a Catalog {
+        match self {
+            Self::Embedded(profile) => profile.catalog(),
+            Self::Dynamic { template, .. } => template.catalog().catalog(),
+        }
+    }
+    fn timing_scope(self) -> &'static str {
+        match self {
+            Self::Embedded(_) => {
+                "wall includes worker startup, pod admission, play and unsampled disposal; excludes catalog load, sampled disposal/proofs, aggregation and output. Phase clocks sum concurrent worker elapsed times."
+            }
+            Self::Dynamic { .. } => {
+                "wall includes worker startup, pod setup, play and unsampled disposal. Bulk load, projection, sampled disposal/proofs, aggregation and output are outside worker wall time. Phase clocks sum concurrent worker elapsed times."
+            }
+        }
+    }
+    fn analytics_profile(self) -> AnalyticsProfile<'a> {
+        let (_, name, catalog_sha256) = self.report_profile();
+        let decks = match self {
+            Self::Embedded(profile) => profile.decks.each_ref().map(AnalyticsDeck::embedded),
+            Self::Dynamic { decks, .. } => {
+                decks.each_ref().map(|rows| AnalyticsDeck::dynamic(rows))
+            }
+        };
+        AnalyticsProfile {
+            name,
+            catalog: self.catalog(),
+            catalog_sha256,
+            decks,
+        }
+    }
+    fn report_profile(self) -> (&'static str, &'a str, &'a str) {
+        match self {
+            Self::Embedded(profile) => ("bench-pods-v1", &profile.name, &profile.catalog_sha256),
+            Self::Dynamic { template, .. } => (
+                "bench-pods-bulk-v1",
+                DYNAMIC_PROFILE,
+                template.catalog().digest(),
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 enum Outcome {
@@ -169,6 +269,8 @@ fn timed<T>(sum: &mut u128, f: impl FnOnce() -> T) -> T {
 struct ResultRow {
     case: Case,
     starting_seat: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    admission_sha256: Option<String>,
     outcome: Outcome,
     detail: Option<String>,
     winner: Option<PlayerId>,
@@ -186,25 +288,18 @@ struct Pod {
 }
 
 fn play(
-    catalog: &Catalog,
-    profile: &str,
+    source: PodSource<'_>,
     case: Case,
     decision_limit: usize,
     sample: bool,
     analytics: bool,
 ) -> Result<Pod, String> {
     let mut clocks = Clocks::default();
-    let config = case.config(profile)?;
-    let starting_seat = config.starting_player.0;
-    let prepared = timed(&mut clocks.admission, || {
-        // Embedded admission still takes an owned Catalog. Policy workers
-        // borrow the embedded catalog and replays clone Prepared's Arc.
-        Prepared::admit_pod(catalog.clone(), config)
-    })
-    .map_err(|error| error.to_string())?;
+    let (prepared, starting_seat, admission_sha256) =
+        source.prepare(case, &mut clocks.admission)?;
     let replay_start = (sample || analytics).then(|| prepared.clone());
     let mut game = Game::with_trace(prepared, TraceMode::Off);
-    let mut strategy = Strategy::new(catalog, Policy::Develop, [0; 4]);
+    let mut strategy = Strategy::new(source.catalog(), Policy::Develop, [0; 4]);
     let mut placements = Placements::default();
     let mut winner = None;
     let mut detail = None;
@@ -299,6 +394,7 @@ fn play(
     let row = ResultRow {
         case,
         starting_seat,
+        admission_sha256,
         outcome,
         detail,
         winner,
@@ -376,12 +472,12 @@ struct Proof {
     error: Option<String>,
 }
 
-fn check_sample(catalog: &Catalog, profile: &str, options: &Options, measured: &mut Pod) -> Proof {
+fn check_sample(source: PodSource<'_>, options: &Options, measured: &mut Pod) -> Proof {
     let case = measured.row.case;
     let checked = (|| {
-        let (prepared, original) = measured.proof.take().ok_or("missing proof game")?;
-        let rerun = play(catalog, profile, case, options.decision_limit, true, false)?;
-        let (_, rerun_game) = rerun.proof.ok_or("missing rerun proof game")?;
+        let (_, original) = measured.proof.take().ok_or("missing proof game")?;
+        let rerun = play(source, case, options.decision_limit, true, false)?;
+        let (prepared, rerun_game) = rerun.proof.ok_or("missing rerun proof game")?;
         let journal = original.replay_journal();
         let state_sha256 = original.state_digest()?;
         if measured.row != rerun.row
@@ -427,11 +523,7 @@ fn check_sample(catalog: &Catalog, profile: &str, options: &Options, measured: &
     }
 }
 
-fn run(
-    profile: &mtg_core::MatchProfile,
-    options: &Options,
-) -> Result<(serde_json::Value, bool), String> {
-    let catalog = profile.catalog();
+fn run(source: PodSource<'_>, options: &Options) -> Result<(serde_json::Value, bool), String> {
     let analytics = options.analytics_out.is_some();
     let workers = options.threads.min(options.games);
     let next = AtomicUsize::new(0);
@@ -453,8 +545,7 @@ fn run(
                         let case = options.case(index);
                         pods.push(
                             play(
-                                catalog,
-                                &profile.name,
+                                source,
                                 case,
                                 options.decision_limit,
                                 options.sample(index),
@@ -497,7 +588,7 @@ fn run(
     let proofs: Vec<_> = pods
         .iter_mut()
         .filter(|pod| pod.proof.is_some())
-        .map(|pod| check_sample(catalog, &profile.name, options, pod))
+        .map(|pod| check_sample(source, options, pod))
         .collect();
     let proof_wall = clock.elapsed();
     let verified = proofs.iter().all(|p| p.error.is_none());
@@ -507,7 +598,7 @@ fn run(
         let clock = Instant::now();
         deck_analytics::write(
             path,
-            profile,
+            &source.analytics_profile(),
             workers,
             options.seed_start,
             options.rotate,
@@ -566,13 +657,14 @@ fn run(
     let games = options.games as f64;
     let seconds = wall.as_secs_f64();
     let rows: Vec<_> = pods.into_iter().map(|pod| pod.row).collect();
+    let (schema, profile, catalog_sha256) = source.report_profile();
     let mut report = serde_json::json!({
-        "schema": "bench-pods-v1",
+        "schema": schema,
         "build": {"id": BUILD_ID, "profile": BUILD_PROFILE, "opt_level": BUILD_OPT_LEVEL,
                   "debug": BUILD_DEBUG, "debug_assertions": BUILD_DEBUG_ASSERTIONS,
                   "rustc": BUILD_RUSTC, "target": BUILD_TARGET, "rustflags": BUILD_RUSTFLAGS},
-        "profile": profile.name,
-        "catalog_sha256": profile.catalog_sha256,
+        "profile": profile,
+        "catalog_sha256": catalog_sha256,
         "policy": Policy::Develop,
         "trace_mode": TraceMode::Off,
         "threads": workers, "threads_requested": options.threads,
@@ -594,16 +686,17 @@ fn run(
         "placements_by_deck_slot": ranks_by_deck,
         "placement_method": "columns 0=unplaced, 1..4=rank; seats eliminated in the same advance call share a rank",
         "worker_elapsed_ns": clocks,
-        "timing_scope": "wall includes worker startup, pod admission, play and unsampled disposal; excludes catalog load, sampled disposal/proofs, aggregation and output. Phase clocks sum concurrent worker elapsed times.",
+        "timing_scope": source.timing_scope(),
         "proofs_verified": verified,
         "proofs": proofs, "rows": rows,
     });
     if let Some(elapsed) = analytics_wall {
         report["analytics_wall_ns"] = serde_json::json!(elapsed);
         report["analytics_out"] = serde_json::json!(options.analytics_out);
-        report["timing_scope"] = serde_json::json!(
-            "wall includes optional terminal journal/digest capture. Detailed analytics replays and file output are measured separately."
-        );
+        report["timing_scope"] = serde_json::json!(format!(
+            "{} Wall also includes optional terminal journal/digest capture. Detailed analytics replays and file output are measured separately.",
+            source.timing_scope()
+        ));
     }
     Ok((report, verified))
 }
@@ -613,23 +706,57 @@ pub(crate) fn cli(args: &[String]) -> Result<(), String> {
         println!("{USAGE}");
         return Ok(());
     }
-    let name = args.first().ok_or(USAGE)?;
-    let options = Options::parse(&args[1..])?;
-    let profile =
-        mtg_core::match_profile(name).ok_or_else(|| format!("unknown match profile {name}"))?;
-    if let Some(path) = &options.analytics_out {
-        match fs::symlink_metadata(path) {
-            Ok(_) => {
-                return Err(format!(
-                    "analytics output already exists: {}",
-                    path.display()
-                ));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
+    let (report, verified) = if args.first().is_some_and(|arg| arg == "--bulk-artifact") {
+        let [
+            _,
+            directory,
+            manifest_flag,
+            pin,
+            decks_flag,
+            decks_path,
+            options @ ..,
+        ] = args
+        else {
+            return Err(USAGE.into());
+        };
+        if manifest_flag != "--manifest-sha" || decks_flag != "--pod-decks" {
+            return Err(USAGE.into());
         }
-    }
-    let (report, verified) = run(profile, &options)?;
+        let options = Options::parse(options)?;
+        options.ensure_new_analytics_out()?;
+        let decks = bulk_input::read_pod_decks(Path::new(decks_path))?;
+        let start = Instant::now();
+        let artifact = bulk_input::load(Path::new(directory), pin)?;
+        let load_ns = start.elapsed().as_nanos();
+        let start = Instant::now();
+        let template = DynamicPodTemplate::admit(&artifact, &decks)
+            .map_err(|error| serde_json::to_string(&error).unwrap_or_else(|_| error.to_string()))?;
+        let projection_ns = start.elapsed().as_nanos();
+        let source = PodSource::Dynamic {
+            template: &template,
+            decks: &decks,
+        };
+        let (mut report, verified) = run(source, &options)?;
+        report["bulk"] = serde_json::json!({
+            "manifest_sha256": artifact.manifest_sha256(),
+            "catalog_sha256": artifact.catalog().digest(),
+            "policy_sha256": template.policy_digest(),
+            "load_ns": load_ns,
+            "projection_ns": projection_ns,
+        });
+        (report, verified)
+    } else {
+        let name = args.first().ok_or(USAGE)?;
+        let options = Options::parse(&args[1..])?;
+        options.ensure_new_analytics_out()?;
+        let profile =
+            mtg_core::match_profile(name).ok_or_else(|| format!("unknown match profile {name}"))?;
+        run(PodSource::Embedded(profile), &options)?
+    };
+    publish(report, verified)
+}
+
+fn publish(report: serde_json::Value, verified: bool) -> Result<(), String> {
     println!(
         "{}",
         serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
@@ -672,10 +799,10 @@ mod tests {
                 assert_eq!(config.decks[seat], profile.decks[case.deck_slot(seat)]);
             }
         }
-        let (serial, verified) = run(profile, &options).unwrap();
+        let (serial, verified) = run(PodSource::Embedded(profile), &options).unwrap();
         assert!(verified, "{}", serial["proofs"]);
         options.threads = 4;
-        let (parallel, verified) = run(profile, &options).unwrap();
+        let (parallel, verified) = run(PodSource::Embedded(profile), &options).unwrap();
         assert!(verified, "{}", parallel["proofs"]);
         assert_eq!(parallel["budget_capped"], 4);
         assert_eq!(parallel["rows"], serial["rows"]);
@@ -683,7 +810,7 @@ mod tests {
 
         let directory = test_output("capped");
         options.analytics_out = Some(directory.clone());
-        let (instrumented, verified) = run(profile, &options).unwrap();
+        let (instrumented, verified) = run(PodSource::Embedded(profile), &options).unwrap();
         let analytics: serde_json::Value =
             serde_json::from_slice(&fs::read(directory.join("analytics.json")).unwrap()).unwrap();
         fs::remove_dir_all(&directory).unwrap();
@@ -706,13 +833,13 @@ mod tests {
         let profile = mtg_core::match_profile("commander-foundations-v1").unwrap();
         let mut options =
             Options::parse(&["--games", "1", "--threads", "1"].map(String::from)).unwrap();
-        let (plain, verified) = run(profile, &options).unwrap();
+        let (plain, verified) = run(PodSource::Embedded(profile), &options).unwrap();
         assert!(verified);
         assert_eq!(plain["unfinished"], 0);
 
         let directory = test_output("terminal");
         options.analytics_out = Some(directory.clone());
-        let (enabled, verified) = run(profile, &options).unwrap();
+        let (enabled, verified) = run(PodSource::Embedded(profile), &options).unwrap();
         let analytics: serde_json::Value =
             serde_json::from_slice(&fs::read(directory.join("analytics.json")).unwrap()).unwrap();
         let markdown = fs::read_to_string(directory.join("summary.md")).unwrap();
