@@ -1544,6 +1544,7 @@ impl Game {
             }
             op @ (Instruction::DealDamage { .. }
             | Instruction::DealDamageToController { .. }
+            | Instruction::DealDamageToManaActivator { .. }
             | Instruction::DealDamageAnnouncedX { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),

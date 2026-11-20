@@ -53,6 +53,9 @@ use hideaway::HideawayLink;
 mod impulse_play;
 #[cfg(test)]
 mod impulse_play_tests;
+mod mana_tap_observer;
+#[cfg(test)]
+mod mana_tap_observer_tests;
 mod optional_block;
 #[cfg(test)]
 mod optional_block_tests;
@@ -1100,6 +1103,8 @@ struct ManaActivationUndo {
     color: Color,
     amount: Quantity,
     mana_was_absent: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tap_triggers: Vec<TriggerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     permanent: Option<Box<PermanentManaUndo>>,
 }
@@ -2166,6 +2171,8 @@ pub enum ProposedEvent {
         amount: Quantity,
         source: Option<ObjectId>,
         remove_zero: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tap_triggers: Vec<TriggerId>,
     },
     Tap {
         object: ObjectId,
@@ -2718,6 +2725,7 @@ pub struct Game {
     catalog_has_land_reclamation: bool,
     catalog_has_nonland_color_grant: bool,
     catalog_has_target_color_set: bool,
+    catalog_has_mana_tap_observer: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     // Derived accelerator only, never state: catalog row for each physical
@@ -2899,6 +2907,7 @@ impl Game {
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             catalog_has_target_color_set: prepared.has_target_color_set(),
+            catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: Self::definition_index(&prepared.catalog, &state.rules.cards),
             prepared: Arc::new(prepared),
             state,
@@ -2926,6 +2935,7 @@ impl Game {
             catalog_has_land_reclamation: self.catalog_has_land_reclamation,
             catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             catalog_has_target_color_set: self.catalog_has_target_color_set,
+            catalog_has_mana_tap_observer: self.catalog_has_mana_tap_observer,
             prepared: self.prepared.clone(),
             definition_index: self.definition_index.clone(),
             state: self.state.clone(),
@@ -4237,6 +4247,7 @@ impl Game {
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             catalog_has_target_color_set: prepared.has_target_color_set(),
+            catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: Self::definition_index(&prepared.catalog, &s.state.rules.cards),
             prepared: Arc::new(prepared),
             state: s.state,

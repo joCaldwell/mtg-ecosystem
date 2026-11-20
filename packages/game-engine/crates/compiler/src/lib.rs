@@ -102,6 +102,7 @@ mod library_selection_tests;
 mod linked_hideaway;
 mod listed_mana;
 mod mana_life_gain;
+mod mana_tap_observer;
 mod nonland_exile_life;
 mod normalization;
 mod opponent_count_entry;
@@ -1758,6 +1759,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
+        vec![ability]
+    } else if let Some(ability) = mana_tap_observer::lower(&source, &shape, &result, &binding)? {
         vec![ability]
     } else if controlled_creature_spell_copy::candidate(&source) {
         vec![Ability::ControlledCreatureSpellCopy]

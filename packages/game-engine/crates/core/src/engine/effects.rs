@@ -3511,6 +3511,17 @@ impl Game {
                                 player: self.removal_target_controller(frame, *target_slot)?,
                             },
                         ),
+                        Instruction::DealDamageToManaActivator {
+                            amount,
+                            source_block,
+                        } => (
+                            None,
+                            amount,
+                            *source_block,
+                            TargetEntity::Player {
+                                player: Self::mana_tap_activator(&frame.spell)?,
+                            },
+                        ),
                         Instruction::DealDamageToController {
                             amount,
                             source_block,

@@ -769,6 +769,23 @@ impl Game {
                     true,
                 )
             }
+            Instruction::DealDamageToManaActivator {
+                amount,
+                source_block,
+            } => {
+                let player = Self::mana_tap_activator(&frame.spell)?;
+                if !self.is_live(player) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
+                }
+                let damage = NoncombatDamageOccurrence {
+                    source: self.source_facts(&frame.spell)?,
+                    controller: frame.spell.controller,
+                    recipient: DamageRecipient::Player { player },
+                    amount,
+                };
+                return self.prepare_noncombat_damage(frame, damage, source_block);
+            }
             Instruction::DealDamageToController {
                 amount,
                 source_block,

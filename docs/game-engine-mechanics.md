@@ -401,6 +401,11 @@ controllers, actors, incarnations and witnesses. Power-filtered entries use
 derived post-event power; intervening conditions recheck at resolution. Source
 status uses current incarnation or departure-refreshed LKI. Cast triggers collect
 after successful payment; declared attacks use the real declaration batch.
+
+Mana-tap damage observers require a tap-cost mana ability to produce mana
+(CR 106.12a, 605.1b). Each matching observer keeps the activating player and
+joins the usual APNAP placement after the mana window. Reversing the mana
+activation also cancels its pending triggers (CR 733.1).
 Intrinsic landwalk and fixed-color protection can share a card with separately
 proved entry effects and fixed paid creature activations. Entry triggers on
 artifacts, Equipment and Auras use the entering incarnation. Supported entry
