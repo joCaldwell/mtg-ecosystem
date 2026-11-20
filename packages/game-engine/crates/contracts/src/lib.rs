@@ -256,7 +256,9 @@ fn is_false(value: &bool) -> bool {
 impl Characteristics {
     pub fn printed_mana_value(&self) -> Quantity {
         let mut value = self.mana_cost.generic.clone();
-        value.add(&Quantity::from((self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64));
+        value.add(&Quantity::from(
+            (self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64,
+        ));
         value
     }
 
@@ -351,6 +353,7 @@ pub enum Capability {
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
     NormalLayoutV1,
+    ColorHybridCostV1,
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -2365,6 +2368,9 @@ pub fn is_canonical_cascade_program(program: &SpellProgram) -> bool {
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
+        if !self.characteristics.hybrid_mana.is_empty() {
+            set.insert(Capability::ColorHybridCostV1);
+        }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
         }
@@ -6976,6 +6982,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}}}
     }));
     colored_library_search::extend_schema(&mut schema);
+    color_hybrid_cost::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7122,6 +7129,7 @@ mod tests {
             CastManaValueSweepV1,
             RandomBottomV1,
             NormalLayoutV1,
+            ColorHybridCostV1,
             BasicLandManaV1,
             LandPlayV1,
             BaseCreatureV1,
@@ -7994,6 +8002,43 @@ mod tests {
         colored.triggered.clear();
         colored.capabilities = colored.requirements();
         definitions.push(colored);
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-glaze-lattice.json"
+        ))
+        .unwrap();
+        let raw = &record["source"];
+        let mut hybrid = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Artifact
+                    && d.characteristics.additional_types.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        hybrid.name = raw["name"].as_str().unwrap().into();
+        hybrid.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+        hybrid.provenance.printing_id = raw["id"].as_str().unwrap().into();
+        hybrid.provenance.source_json = canonical(raw).unwrap();
+        hybrid.provenance.source_sha256 = sha256(hybrid.provenance.source_json.as_bytes());
+        hybrid.provenance.abilities_json = "[]".into();
+        hybrid.provenance.ast_sha256 = sha256(b"[[]]");
+        hybrid.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        (
+            hybrid.characteristics.mana_cost,
+            hybrid.characteristics.hybrid_mana,
+        ) = color_hybrid_cost(raw["mana_cost"].as_str().unwrap()).unwrap();
+        hybrid.characteristics.colors = vec![Color::W, Color::U, Color::G];
+        hybrid.characteristics.color_identity = hybrid.characteristics.colors.clone();
+        hybrid.source_labels = None;
+        hybrid.static_abilities.clear();
+        hybrid.triggered.clear();
+        hybrid.activated.clear();
+        hybrid.mana_abilities.clear();
+        hybrid.keywords.clear();
+        hybrid.capabilities = hybrid.requirements();
+        definitions.push(hybrid);
+
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

@@ -66,12 +66,10 @@ impl Game {
         }
     }
     pub(super) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
-        let c = &self
+        let mut q = self
             .definition(entry.source.card)?
             .characteristics
-            .mana_cost;
-        let mut q = c.generic.clone();
-        q.add(&Quantity::from(c.colored.len() as i64));
+            .printed_mana_value();
         if let Some(x) = &entry.x {
             q.add(x);
         }

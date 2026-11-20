@@ -653,3 +653,77 @@ fn equipped_indestructible_paid_exile_removes_grant_before_lethal_sba() {
         },
     );
 }
+
+#[test]
+fn paid_hybrid_colors_are_bound_per_symbol_and_replay() {
+    let mut p = prepared(
+        &[
+            ("Darksteel Plate", true),
+            ("Forest", false),
+            ("Plains", false),
+        ],
+        false,
+    );
+    let raw = include_str!("../../../../tests/fixtures/synthetic-glaze-lattice.json");
+    let result = mtg_compiler::compile(mtg_compiler::fixtures::MANIFEST, raw);
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}")
+    };
+    assert_eq!(definition.characteristics.printed_mana_value(), 2.into());
+    let mut stripped = (*definition).clone();
+    stripped.characteristics.hybrid_mana.clear();
+    stripped.capabilities = stripped.requirements();
+    assert!(stripped.validate().is_err());
+    let catalog = Arc::make_mut(&mut p.catalog);
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    request(&mut g, 1);
+    answer(&mut g, 1, Response::Cast { card: CardId(0) });
+    let Request::HybridCost {
+        player,
+        decision_id,
+        symbols,
+    } = request(&mut g, 1)
+    else {
+        panic!("missing hybrid announcement")
+    };
+    assert_eq!(symbols.len(), 2);
+    let source = g.top().unwrap().source;
+    for (actor, colors) in [
+        (PlayerId(1), vec![Color::G, Color::W]),
+        (player, vec![Color::W]),
+        (player, vec![Color::U, Color::G]),
+    ] {
+        assert!(
+            g.respond(actor, decision_id, Response::HybridCost { colors })
+                .is_err()
+        );
+    }
+    recover(&g);
+    g.respond(
+        player,
+        decision_id,
+        Response::HybridCost {
+            colors: vec![Color::G, Color::W],
+        },
+    )
+    .unwrap();
+    let Request::Mana { cost, .. } = request(&mut g, 1) else {
+        panic!("missing locked payment")
+    };
+    assert_eq!(cost.colored, [Color::G, Color::W]);
+    assert_eq!(g.top().unwrap().hybrid_colors, [Color::G, Color::W]);
+    recover(&g);
+    pay_and_resolve(&mut g, 1, vec![]);
+    let permanent = object(&g, 0);
+    assert_ne!(permanent, source);
+    assert_eq!(g.zone(permanent), Some(Zone::Battlefield));
+    recover(&g);
+}

@@ -108,12 +108,30 @@ impl Game {
             reducers,
         })
     }
+    pub(super) fn validate_hybrid_colors(
+        &self,
+        card: CardId,
+        colors: &[Color],
+    ) -> Result<(), String> {
+        let symbols = &self.definition(card)?.characteristics.hybrid_mana;
+        if symbols.is_empty()
+            || symbols.len() != colors.len()
+            || !symbols
+                .iter()
+                .zip(colors)
+                .all(|(s, c)| s.colors.contains(c))
+        {
+            return Err("hybrid announcement requires one allowed color per printed symbol".into());
+        }
+        Ok(())
+    }
     pub(super) fn construct_spell_cost(
         &self,
         card: CardId,
         alternative: Option<cascade::AlternativeCost>,
         x: Option<&Quantity>,
         selected: &[String],
+        hybrid: Option<&[Color]>,
         lock: &CostLock,
     ) -> Result<ManaCost, String> {
         let definition = self.definition(card)?;
@@ -160,7 +178,14 @@ impl Game {
         }
         Ok(total_cost(
             match alternative {
-                None => definition.characteristics.mana_cost.clone(),
+                None => {
+                    let mut cost = definition.characteristics.mana_cost.clone();
+                    if let Some(colors) = hybrid {
+                        self.validate_hybrid_colors(card, colors)?;
+                        cost.colored.extend_from_slice(colors);
+                    }
+                    cost
+                }
                 Some(cascade::AlternativeCost::WithoutManaCost) => zero_mana_cost(),
             },
             x,
@@ -177,12 +202,22 @@ impl Game {
         if entry.cost_lock.is_some() {
             return self.validate_cost_lock(entry);
         }
+        if entry.alternative_cost.is_none()
+            && !self
+                .definition(entry.source.card)?
+                .characteristics
+                .hybrid_mana
+                .is_empty()
+        {
+            self.validate_hybrid_colors(entry.source.card, &entry.hybrid_colors)?;
+        }
         let lock = self.cost_lock_inputs(entry.source.card, entry.controller, entry.cast_from)?;
         let total = self.construct_spell_cost(
             entry.source.card,
             entry.alternative_cost,
             entry.x.as_ref(),
             entry.selected_additional_costs.as_deref().unwrap_or(&[]),
+            (!entry.hybrid_colors.is_empty()).then_some(entry.hybrid_colors.as_slice()),
             &lock,
         )?;
         let entry = self
@@ -196,6 +231,22 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String> {
+        let needs_choice = entry.kind.is_spell()
+            && entry.alternative_cost.is_none()
+            && !self
+                .definition(entry.source.card)?
+                .characteristics
+                .hybrid_mana
+                .is_empty();
+        let choosing = matches!(self.underlying_mana_frame(&self.state.rules.frame),Frame::HybridCost {cast} if cast.stack_id==entry.id);
+        if choosing && (!needs_choice || entry.paid.is_some())
+            || (!entry.hybrid_colors.is_empty()) != (needs_choice && !choosing)
+        {
+            return Err("hybrid announcement binding invariant".into());
+        }
+        if !entry.hybrid_colors.is_empty() {
+            self.validate_hybrid_colors(entry.source.card, &entry.hybrid_colors)?;
+        }
         if !entry.kind.is_spell() {
             return if entry.cost_lock.is_none() {
                 Ok(())
@@ -205,7 +256,7 @@ impl Game {
         }
         if let Some(lock) = &entry.cost_lock {
             if matches!(self.underlying_mana_frame(&self.state.rules.frame),
-                Frame::AdditionalCosts {cast} | Frame::AnnounceX {cast} | Frame::Modes {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
+                Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Modes {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
             {
                 return Err("spell cost locked before announcement choices".into());
             }
@@ -217,6 +268,7 @@ impl Game {
                         entry.alternative_cost,
                         entry.x.as_ref(),
                         entry.selected_additional_costs.as_deref().unwrap_or(&[]),
+                        (!entry.hybrid_colors.is_empty()).then_some(entry.hybrid_colors.as_slice()),
                         lock,
                     )?
             {
@@ -227,7 +279,7 @@ impl Game {
         let frame = self.underlying_mana_frame(&self.state.rules.frame);
         if entry.paid.is_none()
             && matches!(frame,
-            Frame::AdditionalCosts {cast} | Frame::AnnounceX {cast} | Frame::Modes {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
+            Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Modes {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
             || matches!(frame, Frame::Fault { .. } | Frame::Finished { .. })
         {
             return Ok(());
