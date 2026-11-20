@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, ChosenValueRef, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
+import type { Amount, CascadeExiledCards, CharacteristicRelation, ChosenValueRef, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, StaticEffect, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -141,6 +141,16 @@ export type BindingNode = NodeBase & (
       refresh: "after-announcement-or-special-action" }
   | { node: "text-choice"; scope: string; subject: string; chooser: string;
       replacements: Extract<Effect, { effect: "change-text" }>["replacements"] }
+  | { node: "characteristic-subject"; scope: string; role: "evaluated-candidate" | "affected-member"; of?: string;
+      timing: BindingPhase | "stack-announcement" }
+  | { node: "characteristic-predicate"; scope: string; subject: string; test: CharacteristicRelation;
+      operand: { kind: "object"; object: string; information: "current" | "current-or-last-known" }
+        | { kind: "matching-set"; filter: ObjectFilter; quantifier: "any" | "every" };
+      timing: BindingPhase | "stack-announcement" }
+  | { node: "common-name-subset"; scope: string; controller: string; filter: ObjectFilter; minimum: number }
+  | { node: "static-rule"; scope: string; rule: Extract<StaticEffect, { static: "prohibit" | "untap-during-step" | "untap-step-limit" }>;
+      operands: string[] }
+  | { node: "keep-unspent-mana"; scope: string; player: string; symbol: string }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
@@ -189,7 +199,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

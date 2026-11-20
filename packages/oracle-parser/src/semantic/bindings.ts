@@ -4,7 +4,7 @@
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import { isDeepStrictEqual } from "node:util";
-import type { Ability, Amount, CascadeExiledCards, Color, Cost, CostModification, Effect, GainedAbility, KeywordInstance, LookPermission, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, CharacteristicRelation, Color, Condition, Cost, CostModification, Effect, GainedAbility, KeywordInstance, LookPermission, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -230,6 +230,8 @@ function resolutionCount(effect: Effect, path: string): Context["resolutionCount
     return { path: child(path, "for"), operation: "search" };
 }
 
+type StaticRule = Extract<StaticEffect, { static: "prohibit" | "untap-during-step" | "untap-step-limit" }>;
+
 interface Context {
   source: string; face: string; ability: string; you: string; phase: BindingPhase;
   objects: Candidate[]; players: Candidate[]; quantities: Candidate[]; x?: string;
@@ -254,6 +256,8 @@ interface Context {
   exileResults?: { event: string; result: Candidate }[];
   uncertainExileOrigin?: boolean;
   uncertainStackOrigin?: boolean;
+  characteristicSubject?: string;
+  affectedMember?: Candidate;
   entryChoice?: ChoiceOrigin;
   resolutionChoice?: ChoiceOrigin;
   availableChoice?: ChoiceOrigin;
@@ -620,6 +624,10 @@ class Analyzer {
       return;
     }
     if (value.ref === "affected-object") {
+      if (context.affectedMember && !context.barrier) {
+        this.bound({ ref: "affected-object" }, path, context.affectedMember.id, ["611.3a", "613.6"]);
+        return;
+      }
       this.unresolved({ ref: "affected-object" }, path, "unsupported-reference", "This exclusion requires a bound per-affected-object scope.", ["611.3"]);
       return;
     }
@@ -737,6 +745,8 @@ class Analyzer {
     if (value.static === "prevent-damage" || value.effect === "prevent-damage" || value.choice === "damage-source"
       || value.amount === "prevention-event-quantity" || value.condition === "damage-prevented")
       this.engineFeature("damage-prevention", path, "Prevention needs the engine's future damage events, source-choice eligibility, shield consumption, and prevented quantities.", ["609.7", "615.5", "615.7", "615.8", "615.10", "615.12"]);
+    if ((value.static === "prohibit" || value.static === "untap-during-step" || value.static === "untap-step-limit") &&
+        this.staticRule(value as unknown as StaticRule, path, context)) return;
     if (value.static === "look-permission" && this.privateLibraryLook(value.permission as LookPermission, path, context)) return;
     if (value.static === "look-permission" || value.effect === "grant-look-permission"
       || value.static === "commander-eligibility" || value.static === "optional-untap"
@@ -744,6 +754,27 @@ class Analyzer {
       const barrier = "Persistent information queries, pregame commander eligibility, and turn-based untap choices require their own rule-specific binding scopes.";
       this.diagnostic("unsupported-scope", path, barrier, ["401.5", "502.3", "708.5", "903.3a", "113.6n"]);
       this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    if (value.condition === "characteristic-relation" && !context.barrier) {
+      const condition = value as Extract<Condition, { condition: "characteristic-relation" }>;
+      const at = child(path, "what");
+      this.walk(condition.what, at, { ...context, lastKnown: context.phase === "resolution" && !context.announcementOperand });
+      const subject = this.at(at);
+      if (subject?.domain === "object" && subject.cardinality === "one") {
+        this.characteristicPredicate(condition.test, child(path, "test"), subject.id, context);
+        return;
+      }
+      this.diagnostic("unsupported-scope", path, "The characteristic comparison requires one bound subject.", ["608.2h"]);
+      this.walk(condition.test, child(path, "test"), { ...context, barrier: "The comparison has no bound subject." });
+      return;
+    }
+    if (Array.isArray(value.characteristicRelations) && context.characteristicSubject && !context.barrier) {
+      const { characteristicRelations, ...operand } = value;
+      this.walk(operand, path, { ...context, characteristicSubject: undefined });
+      for (const [index, relation] of characteristicRelations.entries())
+        this.characteristicPredicate(relation as CharacteristicRelation, `${path}/characteristicRelations/${index}`,
+          context.characteristicSubject, context);
       return;
     }
     if (value.characteristicRelations || value.condition === "characteristic-relation" || value.constraint === "shared-value") {
@@ -804,6 +835,8 @@ class Analyzer {
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
+    if (value.condition === "controls-subset" &&
+        this.commonNameSubset(value as Extract<Condition, { condition: "controls-subset" }>, path, context)) return;
     if (value.condition === "controls-subset") {
       const barrier = "A controlled-subset existence predicate requires candidate, cardinality and pairwise characteristic scopes; it does not select or capture objects.";
       this.diagnostic("unsupported-scope", path, barrier, ["201.2b", "603.4", "608.2h"]);
@@ -922,6 +955,7 @@ class Analyzer {
       return;
     }
     if (value.valueScope === "each-affected-object") {
+      if (this.dynamicStaticValue(value, path, context)) return;
       const barrier = "A dynamic characteristic value needs a distinct affected-object binding for each match.";
       this.diagnostic("unsupported-scope", path, barrier, ["611.3", "613.6"]);
       this.walkChildren(value, path, { ...context, barrier });
@@ -1203,6 +1237,126 @@ class Analyzer {
     }
     bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), scope));
   }
+  private characteristicPredicate(test: CharacteristicRelation, path: string, subject: string, context: Context): void {
+    let inner = test;
+    let at = path;
+    while (inner.relation === "not") { inner = inner.of; at = child(at, "of"); }
+    if (inner.relation === "shared-value" && inner.among) {
+      this.diagnostic("unsupported-scope", at, "The comparison needs a bound preceding set of named types.", ["205.2", "608.2c"]);
+      return;
+    }
+    const operand = inner.relation === "shared-value" ? inner.with : inner.from;
+    const operandPath = child(at, inner.relation === "shared-value" ? "with" : "from");
+    const knownTiming = context.announcementOperand ? "stack-announcement" : context.phase;
+    const rules = ["105.2", "201.2a", "201.2c", "205.2", "205.3", "608.2h"];
+    const scoped = { ...context, characteristicSubject: undefined };
+    let binding: Extract<BindingNode, { node: "characteristic-predicate" }>["operand"];
+    if (operand.operand === "matching-set") {
+      this.walk(operand.filter, child(operandPath, "filter"), scoped);
+      binding = { kind: "matching-set", filter: operand.filter, quantifier: operand.quantifier };
+    } else {
+      const whatPath = child(operandPath, "what");
+      const lastKnown = knownTiming === "resolution";
+      this.walk(operand.what, whatPath, { ...scoped, lastKnown });
+      const target = this.at(whatPath);
+      if (target?.domain !== "object" || target.cardinality !== "one") {
+        this.diagnostic("unsupported-scope", operandPath, "The comparison operand needs one bound object.", ["608.2h"]);
+        return;
+      }
+      binding = { kind: "object", object: target.id, information: lastKnown ? "current-or-last-known" : "current" };
+    }
+    this.node({ id: this.id(path, "characteristic-predicate"), path, node: "characteristic-predicate",
+      scope: context.ability, subject, operand: binding, timing: knownTiming, test, rules });
+    this.engineFeature("characteristic-predicate", path,
+      "Evaluate the printed relation using the indicated characteristic set and quantifier at its binding time.", rules);
+  }
+
+  private commonNameSubset(condition: Extract<Condition, { condition: "controls-subset" }>, path: string, context: Context): boolean {
+    const { who, of, minimum, groupConstraints } = condition;
+    if (context.barrier || who.player !== "you" || minimum.amount !== "fixed" || minimum.value < 2 ||
+        !isDeepStrictEqual(groupConstraints, [{ constraint: "shared-value", characteristic: "name" }])) return false;
+    this.walk(who, child(path, "who"), context);
+    this.walk(of, child(path, "of"), context);
+    const rules = ["201.2a", "602.2b", "608.2h"];
+    this.node({ id: this.id(path, "common-name-subset"), path, node: "common-name-subset",
+      scope: context.ability, controller: context.you, filter: of, minimum: minimum.value, rules });
+    this.engineFeature("characteristic-predicate", path, "Test for a qualifying group with a common name without selecting any of its members.", rules);
+    return true;
+  }
+
+  private dynamicStaticValue(value: Record<string, unknown>, path: string, context: Context): boolean {
+    const recipient = context.recipient;
+    const multiplier = value.multiplier;
+    if (context.barrier || context.phase !== "continuous" || value.modifier !== "pt" ||
+        !recipient || !("candidate" in recipient) || recipient.candidate.domain !== "object" || !isRecord(multiplier)) return false;
+    const countsSelf = multiplier.amount === "counter-count" && isRecord(multiplier.on) && multiplier.on.ref === "it";
+    if (!countsSelf && multiplier.amount !== "distinct-count") return false;
+    const group = recipient.candidate;
+    const rules = ["611.3a", "613.1g", "613.6"];
+    const member = this.node({ id: this.id(path, "affected-member"), path, node: "characteristic-subject",
+      scope: context.ability, role: "affected-member", of: group.id, timing: "continuous", rules });
+    const candidate: Candidate = { id: member, cardinality: "one", domain: "object", description: group.description };
+    // In this value scope alone, "it" means the individual affected object.
+    this.walkChildren(value, path, { ...context, objects: countsSelf ? [candidate] : context.objects,
+      affectedMember: candidate, mentionedObject: true });
+    this.engineFeature("characteristic-layers", path, "Reevaluate the modifier on each affected object in the appropriate layer.", rules);
+    return true;
+  }
+
+  private staticRule(rule: StaticRule, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "continuous" || !context.permanentSource) return false;
+    let rules: string[];
+    const first = this.result.references.length;
+    if (rule.static === "prohibit") {
+      const prohibition = rule.prohibition;
+      if (prohibition.prohibition === "prevent-damage" && !prohibition.by && !prohibition.to) {
+        rules = ["101.2", "615.12"];
+      } else if (prohibition.prohibition === "activate" && prohibition.abilities.ref === "each" &&
+          prohibition.abilities.filter.cls === "ability" && prohibition.abilities.filter.abilityKind === "activated" &&
+          prohibition.abilities.filter.abilitySource?.ref === "each" && !prohibition.who && !prohibition.when) {
+        rules = ["101.2", "602.1c", "611.3"];
+      } else if (prohibition.prohibition === "cast" && prohibition.who.player === "each-opponent" &&
+          prohibition.what.ref === "each" && prohibition.what.filter.cls === "spell" &&
+          prohibition.when?.during === "turn" && prohibition.when.whose.player === "you") {
+        rules = ["101.2", "102.3", "601.3", "611.3"];
+      } else return false;
+      this.walk(prohibition, child(path, "prohibition"), context);
+    } else if (rule.static === "untap-during-step") {
+      const owner = rule.step.owner;
+      if (!isDeepStrictEqual(owner, { player: "filtered", base: { player: "each-player" }, filter: { otherThan: { player: "you" } } }) ||
+          !["self", "this", "all", "each"].includes(rule.what.ref)) return false;
+      rules = ["102.1", "502.3", "611.3a"];
+      const at = `${path}/step/owner`;
+      const others = this.node({ id: this.id(at, "other-players"), path: at, node: "derived-player",
+        role: "other-players", scope: context.ability, of: context.you, rules });
+      this.bound(owner, at, others, rules);
+      this.object(rule.what, child(path, "what"), context);
+    } else {
+      if (rule.who.player !== "each-player" || rule.maximum.amount !== "fixed") return false;
+      rules = ["502.3", "611.3a"];
+      this.walkChildren(rule as unknown as Record<string, unknown>, path, context);
+    }
+    const operands = this.result.references.slice(first).flatMap(ref => ref.binding === "bound" ? [ref.target] : []);
+    this.node({ id: this.id(path, "static-rule"), path, node: "static-rule", scope: context.ability, rule, operands, rules });
+    this.engineFeature(rule.static === "prohibit" && rule.prohibition.prohibition === "prevent-damage" ? "damage-prevention" : "static-rule",
+      path, "Apply the printed prohibition or untap rule to its bound subjects as the game action is evaluated.", rules);
+    return true;
+  }
+
+  private keepUnspentMana(replacement: ReplacementInstruction, path: string, context: Context): boolean {
+    const { event, replace } = replacement;
+    if (context.barrier || !context.permanentSource || replacement.optional || replacement.condition ||
+        replacement.occurrence !== "each" || event.event !== "lose-unspent-mana" || event.who.player !== "you" ||
+        replace.replacement !== "keep-mana" || !["W", "U", "B", "R", "G", "C"].includes(replace.as.symbol)) return false;
+    const at = `${path}/event/who`;
+    this.walk(event.who, at, { ...context, phase: "replacement-match" });
+    const rules = ["106.4", "106.6", "500.5", "614.5", "614.6"];
+    this.node({ id: this.id(path, "keep-unspent-mana"), path, node: "keep-unspent-mana", scope: context.ability,
+      player: context.you, symbol: replace.as.symbol, rules });
+    this.engineFeature("keep-unspent-mana", path, "Replace the loss of the bound player's unspent mana with a change of type, preserving each mana's properties.", rules);
+    return true;
+  }
+
   /** CR 401.5: the looked-at object is queried when the permission is used.
    * A newly exposed top card is hidden until the current action finishes. */
   privateLibraryLook(permission: LookPermission, path: string, context: Context): boolean {
@@ -1394,8 +1548,13 @@ class Analyzer {
       if (instruction) context.players = combine(context.players, this.targetPlayersUnder(child(path, recipientKey), context));
     }
     const damageAmount = value.effect === "damage" && this.walkDamageAmount(value as unknown as Extract<Effect, { effect: "damage" }>, path, context);
-    for (const [entry, nested] of Object.entries(value))
-      if (!first.includes(entry) && !(damageAmount && (entry === "to" || entry === "amount"))) this.walk(nested, child(path, entry), context);
+    const tested = value.condition === "is-filter" ? this.at(child(path, "what")) : undefined;
+    for (const [entry, nested] of Object.entries(value)) {
+      if (first.includes(entry) || (damageAmount && (entry === "to" || entry === "amount"))) continue;
+      const scoped = entry === "filter" && tested?.domain === "object" && tested.cardinality === "one"
+        ? { ...context, characteristicSubject: tested.id } : context;
+      this.walk(nested, child(path, entry), scoped);
+    }
     Object.assign(context, saved);
   }
 
@@ -1484,7 +1643,15 @@ class Analyzer {
     const operands = target ? { ...context, announcementOperand: true } : context;
     const count = this.boundTargetCount(expression, context) ?? this.boundResolutionCount(expression, path, context);
     for (const [key, value] of Object.entries(expression)) {
-      if (key !== "count" || !count) this.walk(value, child(path, key), operands);
+      if (key === "filter" && isRecord(value) && Array.isArray(value.characteristicRelations) &&
+          !operands.barrier && (expression.ref === "target" || expression.ref === "each" ||
+            expression.ref === "all" || expression.ref === "filter")) {
+        const at = child(path, key);
+        const timing = operands.announcementOperand ? "stack-announcement" : context.phase;
+        const subject = this.node({ id: this.id(at, "filter-candidate"), path: at, node: "characteristic-subject",
+          scope: context.ability, role: "evaluated-candidate", timing, rules: ["601.2c", "608.2b", "608.2h"] });
+        this.walk(value, at, { ...operands, characteristicSubject: subject });
+      } else if (key !== "count" || !count) this.walk(value, child(path, key), operands);
     }
     if ("groupConstraints" in expression && expression.groupConstraints?.length) {
       this.unresolved(expression, path, "unsupported-scope", "Collective selection restrictions need a selected-group scope and legality binding; per-candidate eligibility alone is insufficient.", ["201.2b", "601.2c", "608.2d"]);
@@ -3151,8 +3318,11 @@ class Analyzer {
           this.selfGraveyardReplacement(`${path}/effect/replacement`, context);
           break;
         }
-        if (ability.effect.static === "replacement" &&
-            this.quantityReplacement(ability.effect.replacement, `${path}/effect/replacement`, context)) break;
+        if (ability.effect.static === "replacement") {
+          const at = `${path}/effect/replacement`;
+          if (this.quantityReplacement(ability.effect.replacement, at, context) ||
+              this.keepUnspentMana(ability.effect.replacement, at, context)) break;
+        }
         // "..., where X is ...": the static ability's own definition (CR 107.3c).
         if ("bindings" in ability.effect && Array.isArray(ability.effect.bindings)
           && !["entry-choice", "enters-with-counters", "enters-tapped", "as-enters"].includes(String(ability.effect.static)))

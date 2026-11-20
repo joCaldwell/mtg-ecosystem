@@ -269,3 +269,65 @@ describe("recipient-dependent damage amounts", () => {
     assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "missing-antecedent"));
   });
 });
+
+describe("characteristic comparisons and local continuous rules", () => {
+  it("tests a named target against a current matching set", () => {
+    const graph = analyze("Counter target spell if it shares a color with a creature you control.", "Instant");
+    boundCard(graph);
+    const predicate = graph.nodes.find(node => node.node === "characteristic-predicate");
+    assert.ok(predicate?.operand.kind === "matching-set");
+    assert.equal(predicate.subject, bound(graph, "/steps/0/what"));
+    assert.equal(predicate.operand.quantifier, "any");
+    assert.equal(predicate.timing, "resolution");
+  });
+
+  it("leaves a comparison with a missing subject unresolved", () => {
+    const graph = analyze("If it shares a color with a creature you control, draw a card.", "Instant");
+    assert.ok(!graph.nodes.some(node => node.node === "characteristic-predicate"));
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "missing-antecedent"));
+  });
+
+  it("tests a common name without selecting any of the lands", () => {
+    const graph = analyze("{2}, {T}: Draw a card. Activate only if you control three or more lands with the same name.", "Artifact");
+    boundCard(graph);
+    const predicate = graph.nodes.find(node => node.node === "common-name-subset");
+    assert.ok(predicate && predicate.minimum === 3);
+    assert.ok(!graph.nodes.some(node => node.node === "selection" && node.path.startsWith(predicate.path)));
+  });
+
+  it("binds a static counter multiplier to its individual affected object", () => {
+    const graph = analyze("This creature gets +1/+1 for each time counter on it.", "Creature");
+    boundCard(graph);
+    const member = graph.nodes.find(node => node.node === "characteristic-subject" && node.role === "affected-member");
+    assert.ok(member?.node === "characteristic-subject");
+    assert.equal(member.id, bound(graph, "/multiplier/on"));
+    assert.equal(member.of, bound(graph, "/effect/what"));
+  });
+
+  it("binds untap of an enchanted land relative to that land's controller", () => {
+    const graph = analyze("Enchant land\nEnchanted land has \"Untap this land during each other player's untap step.\"", "Enchantment — Aura");
+    boundCard(graph);
+    const owners = graph.nodes.find(node => node.id === bound(graph, "/step/owner"));
+    assert.ok(owners?.node === "derived-player" && owners.role === "other-players");
+    const scope = graph.nodes.find(node => node.id === owners.scope);
+    assert.ok(scope?.node === "ability" && scope.source !== graph.nodes.find(node => node.node === "source")?.id);
+    assert.equal(scope.you, owners.of);
+  });
+
+  it("binds a global prevention prohibition without making it a shield", () => {
+    const graph = analyze("Damage can't be prevented.", "Enchantment");
+    boundCard(graph);
+    assert.ok(graph.nodes.some(node => node.node === "static-rule" && node.rule.static === "prohibit"));
+    assert.deepEqual(graph.engineFeatures.map(entry => entry.feature), ["damage-prevention"]);
+  });
+
+  it("models retained mana as a change of type for the bound player", () => {
+    const graph = analyze("If you would lose unspent mana, that mana becomes black instead.", "Creature");
+    boundCard(graph);
+    const rule = graph.nodes.find(node => node.node === "keep-unspent-mana");
+    assert.ok(rule);
+    assert.equal(rule.player, bound(graph, "/replacement/event/who"));
+    assert.equal(rule.symbol, "B");
+    assert.equal(graph.fullyBound, false);
+  });
+});
