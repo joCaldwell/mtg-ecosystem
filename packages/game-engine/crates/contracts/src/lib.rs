@@ -133,6 +133,8 @@ mod draw_discard;
 pub mod equipped_trigger;
 pub mod intrinsic_keyword_blocks;
 pub mod permanent_entry;
+pub mod resolution_mana;
+pub use resolution_mana::ManaResolutionQuantity;
 pub mod predefined_tokens;
 pub use predefined_tokens::PredefinedToken;
 mod fixed_mill;
@@ -385,6 +387,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 pub enum Capability {
     ComposedOrdinarySpellV1,
     EquippedCreatureTriggerV1,
+    ResolutionManaV1,
     PredefinedArtifactTokensV1,
     FilteredStaticModifiersV1,
     PlayerGraveyardShuffleV1,
@@ -1184,6 +1187,11 @@ pub enum Instruction {
         minimum_lands_to_untap: Option<std::num::NonZeroU32>,
         source_block: u32,
     },
+    AddResolutionMana {
+        color: Color,
+        quantity: ManaResolutionQuantity,
+        source_block: u32,
+    },
     CreatePredefinedTokens {
         #[schemars(range(min = 1))]
         count: u32,
@@ -1511,7 +1519,8 @@ impl Instruction {
             Self::SearchBasicLands { source_block, .. }
             | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. }
-            | Self::CreatePredefinedTokens { source_block, .. } => *source_block,
+            | Self::CreatePredefinedTokens { source_block, .. }
+            | Self::AddResolutionMana { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. }
@@ -3238,6 +3247,7 @@ impl Definition {
         equipped_trigger::validate(self)?;
         ability_sequence::validate(self)?;
         permanent_entry::validate(self)?;
+        resolution_mana::validate(self)?;
         predefined_tokens::validate(self)?;
         attachment_modifiers::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
@@ -5580,6 +5590,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 None
             }
             Instruction::FetchBasicLand { .. } => None,
+            Instruction::AddResolutionMana { .. } => None,
             Instruction::CreatePredefinedTokens { count, .. } => {
                 if *count == 0 {
                     return Err("token count must be positive".into());
@@ -6335,6 +6346,7 @@ fn add_program_requirements_for_source_pump(
             } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
             Instruction::CreatePredefinedTokens { .. } => Capability::PredefinedArtifactTokensV1,
+            Instruction::AddResolutionMana { .. } => Capability::ResolutionManaV1,
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
                 Capability::CastSpellColorCountersV1
             }
@@ -7892,6 +7904,7 @@ pub fn catalog_schema() -> serde_json::Value {
     equipped_trigger::extend_schema(&mut schema);
     ability_sequence::extend_schema(&mut schema);
     predefined_tokens::extend_schema(&mut schema);
+    resolution_mana::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -8105,6 +8118,7 @@ mod tests {
             TargetedPhasingV1,
             ComposedOrdinarySpellV1,
             EquippedCreatureTriggerV1,
+            ResolutionManaV1,
             PredefinedArtifactTokensV1,
             FilteredStaticModifiersV1,
             CountedSelfGenericCostReductionV1,
@@ -8709,6 +8723,7 @@ mod tests {
         definitions.push(scoped_static::witness());
         definitions.push(equipped_trigger::witness());
         definitions.push(predefined_tokens::witness());
+        definitions.push(resolution_mana::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());

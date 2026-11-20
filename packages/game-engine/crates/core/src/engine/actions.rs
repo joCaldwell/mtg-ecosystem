@@ -1432,6 +1432,11 @@ impl Game {
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::GrantHandCastCascade { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
+            Instruction::AddResolutionMana {
+                color,
+                quantity,
+                source_block,
+            } => self.produce_resolution_mana(frame, color, quantity, source_block),
             Instruction::DrainOpponents {
                 amount,
                 source_block,

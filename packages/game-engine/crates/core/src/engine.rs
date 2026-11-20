@@ -56,6 +56,7 @@ mod removal;
 mod removal_information_tests;
 #[cfg(test)]
 mod removal_tests;
+mod resolution_mana;
 mod sacrifice;
 #[cfg(test)]
 mod sacrifice_tests;

@@ -126,6 +126,11 @@ before typed search; paid roots retain LKI through source-owner departure.
 
 ## Casting, costs, targets and stack
 
+Fixed mana-producing spells and exact per-permanent mana multipliers use the
+ordinary stack. Casting pays all costs before resolution. The resolving spell
+counts matching permanents once and credits its controller through a staged
+mana event. A zero count leaves the mana pool untouched.
+
 Stack projections run bottom to top. Saved announcement handles are historical
 and never bind successor incarnations; reversal restores living players' passes.
 Resolving frames retain frozen instances through supported source departure

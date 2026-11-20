@@ -115,6 +115,7 @@ mod phase1_sequences_tests;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
+mod resolution_mana;
 mod restricted_mana;
 mod reveal_land_entry;
 mod saga;
@@ -1643,6 +1644,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             types.kind,
             &archive.parser_source_sha256,
         )?,
+    };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => resolution_mana::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
     };
     let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
