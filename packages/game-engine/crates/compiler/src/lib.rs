@@ -94,6 +94,7 @@ mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
 mod saga;
+mod scoped_creature_stats;
 mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
@@ -1849,7 +1850,6 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let opening_composition = three_static_ast(&source.name, &source.oracle_text);
     let (base_cost, hybrid_mana) =
         if let Some((cost, symbols)) = color_hybrid_cost(&source.mana_cost) {
-            // Keep source binding exact until a family binds other ability blocks alongside hybrid.
             if let Some(expected) = &opening_composition {
                 if *expected != decode::<serde_json::Value>(result.abilities.get(), "abilities")? {
                     return Err(unsupported(
@@ -1857,16 +1857,37 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "controller composition does not match source",
                     ));
                 }
-            } else if !source.oracle_text.is_empty() || !abilities.is_empty() {
-                return Err(unsupported(
-                    "source.mana_cost",
-                    "hybrid ability composition is unsupported",
-                ));
-            }
-            if opening_composition.is_none() {
+            } else if source.oracle_text.is_empty() && abilities.is_empty() {
                 bindings::Bindings::new(&r.oracle_identity, &shape).validate(
                     &binding,
                     "hybrid cost requires the exact printed face binding",
+                )?;
+            } else {
+                let path = "source.mana_cost";
+                if kind != CardKind::Creature {
+                    return Err(unsupported(
+                        path,
+                        "hybrid ability composition is unsupported",
+                    ));
+                }
+                let keyword_blocks = |text: &str| {
+                    hybrid_intrinsic_keywords(&source.mana_cost, text, result.abilities.get())
+                        .map_err(|message| unsupported(path, message))
+                };
+                let printed = keyword_blocks(&source.oracle_text)?;
+                if keyword_blocks(&labels.blocks.join("\n"))? != printed {
+                    return Err(unsupported(
+                        path,
+                        "hybrid keyword labels differ from the source",
+                    ));
+                }
+                basic_landwalk::bind_intrinsic_keywords(
+                    &r.oracle_identity,
+                    &shape,
+                    &binding,
+                    &printed,
+                    path,
+                    "requires complete intrinsic hybrid creature bindings",
                 )?;
             }
             (cost, symbols)
@@ -2044,7 +2065,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             effect, block, &result, &shape, &binding, kind,
                         )? {
                             Some(ability) => ability,
-                            None => lower_static(effect, source_block(block)?)?,
+                            None => match scoped_creature_stats::lower(
+                                effect,
+                                block,
+                                &result,
+                                &shape,
+                                &binding,
+                                &definition.oracle_id,
+                                kind,
+                            )? {
+                                Some(ability) => ability,
+                                None => lower_static(effect, source_block(block)?)?,
+                            },
                         };
                         definition.static_abilities.push(ability);
                     }
