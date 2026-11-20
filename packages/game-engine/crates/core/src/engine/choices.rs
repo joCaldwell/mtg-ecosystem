@@ -1121,6 +1121,126 @@ mod fixed_target_mode_tests {
         answer, object, pay_and_resolve, pay_to_priority, prepared, recover, request,
     };
     #[test]
+    fn paid_repeated_modes_resolve_all_five_printed_effects_and_preserve_duplicate_targets() {
+        let result = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!(
+                "../../../../tests/fixtures/ramos/164651c5-b831-4070-8491-16d30ac8395b.json"
+            ),
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("{result:?}")
+        };
+        let mut p = prepared(
+            &[
+                ("Forest", true),
+                ("Plains", false),
+                ("Island", false),
+                ("Swamp", false),
+                ("Mountain", false),
+                ("Forest", false),
+                ("Forest", false),
+                ("Forest", false),
+                ("Grizzly Bears", false),
+                ("Short Sword", false),
+                ("Forest", false),
+                ("Island", false),
+            ],
+            false,
+        );
+        p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        let seat = PlayerId(1);
+        for n in [10, 11] {
+            p.config.cards[n].owner = seat;
+            p.config.cards[n].controller = seat;
+        }
+        p.config.cards[10].zone = Zone::Graveyard { owner: seat };
+        p.config.cards[11].zone = Zone::Library { owner: seat };
+        let c = Arc::make_mut(&mut p.catalog);
+        c.definitions.push(*definition);
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        p.catalog_digest = digest(&*p.catalog).unwrap();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::with_trace(p, TraceMode::Detailed);
+        request(&mut g, 1);
+        let spell = object(&g, 0).card;
+        let bear = object(&g, 8);
+        let sword = object(&g, 9);
+        answer(&mut g, 1, Response::Cast { card: spell });
+        let offered = request(&mut g, 1);
+        assert!(matches!(
+            offered,
+            Request::Modes {
+                allow_repeat: true,
+                exactly: Some(5),
+                ..
+            }
+        ));
+        let mut repeated = g.fork();
+        answer(&mut repeated, 1, Response::ModeSubset { modes: vec![3; 5] });
+        for _ in 0..5 {
+            answer(
+                &mut repeated,
+                1,
+                Response::EntityTargets {
+                    entities: vec![TargetEntity::Player { player: seat }],
+                },
+            );
+        }
+        pay_and_resolve(&mut repeated, 1, vec![]);
+        assert_eq!(repeated.state.rules.players[1].life, 30.into());
+        recover(&repeated);
+        answer(
+            &mut g,
+            1,
+            Response::ModeSubset {
+                modes: vec![4, 3, 2, 1, 0],
+            },
+        );
+        answer(
+            &mut g,
+            1,
+            Response::Targets {
+                objects: vec![bear],
+            },
+        );
+        for _ in 0..2 {
+            answer(
+                &mut g,
+                1,
+                Response::PlayerTargets {
+                    players: vec![seat],
+                },
+            );
+        }
+        answer(
+            &mut g,
+            1,
+            Response::EntityTargets {
+                entities: vec![TargetEntity::Player { player: seat }],
+            },
+        );
+        answer(
+            &mut g,
+            1,
+            Response::Targets {
+                objects: vec![sword],
+            },
+        );
+        pay_and_resolve(&mut g, 1, vec![]);
+        assert!(g.current(bear).unwrap().phased_out.is_some());
+        assert_eq!(g.zone(object(&g, 11)), Some(Zone::Hand { owner: seat }));
+        assert_eq!(g.zone(object(&g, 10)), Some(Zone::Exile));
+        assert_eq!(g.state.rules.players[1].life, 38.into());
+        assert!(matches!(
+            g.zone(object(&g, 9)),
+            Some(Zone::Graveyard { .. })
+        ));
+        recover(&g);
+    }
+
+    #[test]
     fn paid_mixed_target_modes_place_counters_then_shuffle_opposing_graveyard_and_replay() {
         let result = mtg_compiler::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
