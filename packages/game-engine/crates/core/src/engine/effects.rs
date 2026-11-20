@@ -1034,7 +1034,7 @@ impl Game {
             return None;
         };
         self.current(object).ok().filter(|o| {
-            o.present_on_battlefield() && self.printed_protection_from_everything(object.card)
+            o.present_on_battlefield() && self.printed_protection_from_everything(object)
         })
     }
 
@@ -3077,10 +3077,10 @@ impl Game {
             let (after, prevented) = match &a.effect {
                 EffectKey::IntrinsicProtectionFromEverything { source } => {
                     // The recipient may since have departed. The original
-                    // occurrence binds its incarnation; printed identity is
-                    // immutable and restore replays the accepted inputs.
+                    // occurrence binds its incarnation and retained copiable
+                    // identity. Restore replays the accepted inputs.
                     if d.recipient != (DamageRecipient::Creature { object: *source })
-                        || !self.printed_protection_from_everything(source.card)
+                        || !self.printed_protection_from_everything(*source)
                         || a.qualification.is_some()
                         || a.budget_before.is_some()
                         || a.budget_after.is_some()

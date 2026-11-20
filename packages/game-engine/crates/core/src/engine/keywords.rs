@@ -43,8 +43,8 @@ impl Game {
         source.colors.iter().any(|color| *color != Color::C)
     }
 
-    pub(super) fn printed_protection_from_everything(&self, card: CardId) -> bool {
-        self.definition(card).is_ok_and(|d| {
+    pub(super) fn printed_protection_from_everything(&self, object: ObjectId) -> bool {
+        self.copiable_definition(object).is_ok_and(|d| {
             d.keywords
                 .contains(&KeywordAbility::ProtectionFromEverything)
         })
@@ -55,7 +55,7 @@ impl Game {
         // the battlefield. Only the separate each-color grant tests color.
         self.current(target)
             .is_ok_and(|o| o.present_on_battlefield())
-            && (self.printed_protection_from_everything(target.card)
+            && (self.printed_protection_from_everything(target)
                 || (!self.state.rules.effects.is_empty()
                     && Self::has_color(source)
                     && self.has_keyword(target, KeywordAbility::ProtectionFromEachColor)))

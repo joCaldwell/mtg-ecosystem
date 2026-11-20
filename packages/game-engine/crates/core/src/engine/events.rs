@@ -2372,7 +2372,7 @@ impl Game {
                 // private application; the batch/rule-step owns full rollback.
                 let (attachment_timestamp, next) = self.next_attachment_allocation()?;
                 let EventOutcome::Moved { movement } =
-                    self.apply_move(*object, Zone::Battlefield, None, false, before, entry)?
+                    self.apply_move(*object, Zone::Battlefield, None, false, before, authority)?
                 else {
                     return Err("attached entry movement invariant".into());
                 };
