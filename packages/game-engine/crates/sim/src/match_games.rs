@@ -118,25 +118,43 @@ impl Strategy<'_> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
-            PlayerRequest::CounterPlacementEffect { .. } => {
-                return Err("counter placement replacement choices outside this policy".into());
+            PlayerRequest::CounterPlacementEffect { candidates, .. } => {
+                PlayerResponse::CounterPlacementEffect {
+                    effect: candidates
+                        .first()
+                        .ok_or("empty counter replacement choices")?
+                        .effect
+                        .clone(),
+                }
             }
-
             PlayerRequest::HandCast { candidates, .. } => candidates
                 .first()
                 .cloned()
                 .map(|card| PlayerResponse::Cast { card })
                 .unwrap_or(PlayerResponse::Pass),
-            PlayerRequest::HandReturn { .. }
-            | PlayerRequest::LibraryOrder { .. }
-            | PlayerRequest::LibrarySelect { .. }
-            | PlayerRequest::Scry { .. }
-            | PlayerRequest::Surveil { .. } => {
-                return Err("scry outside this policy admission".into());
-            }
+            PlayerRequest::HandReturn {
+                candidates, count, ..
+            } => PlayerResponse::HandReturn {
+                objects: candidates.iter().rev().take(*count).cloned().collect(),
+            },
+            PlayerRequest::LibraryOrder { candidates, .. } => PlayerResponse::LibraryOrder {
+                objects: candidates.clone(),
+            },
+            PlayerRequest::LibrarySelect { candidates, .. } => PlayerResponse::LibrarySelect {
+                hand: candidates.first().cloned().into_iter().collect(),
+                remainder: candidates.iter().skip(1).cloned().collect(),
+            },
+            PlayerRequest::Scry { candidates, .. } => PlayerResponse::Scry {
+                top: candidates.clone(),
+                bottom: vec![],
+            },
+            PlayerRequest::Surveil { candidates, .. } => PlayerResponse::Surveil {
+                top: candidates.clone(),
+                graveyard: vec![],
+            },
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
             PlayerRequest::AdditionalCosts { .. } => {
-                return Err("optional casting costs outside this completion policy".into());
+                PlayerResponse::AdditionalCosts { selected: vec![] }
             }
             PlayerRequest::HybridCost { symbols, .. } => PlayerResponse::HybridCost {
                 colors: symbols.iter().map(|s| s.colors[0]).collect(),
@@ -166,15 +184,25 @@ impl Strategy<'_> {
                     .or_else(|| colors.first().copied())
                     .ok_or("empty mana colors")?,
             },
-            PlayerRequest::CascadeLandEntry { .. } => {
-                return Err("cascade land entry outside this policy admission".into());
+            PlayerRequest::CascadeLandEntry { candidates, .. } => {
+                PlayerResponse::CascadeLandEntry {
+                    object: candidates.first().cloned(),
+                }
             }
-            PlayerRequest::Hideaway { .. } | PlayerRequest::PlayHideawayLinked { .. } => {
-                return Err("hideaway choices outside this policy admission".into());
+            PlayerRequest::Hideaway { candidates, .. } => PlayerResponse::Hideaway {
+                object: candidates
+                    .first()
+                    .cloned()
+                    .ok_or("empty hideaway selection")?,
+            },
+            PlayerRequest::PlayHideawayLinked { candidates, .. } => {
+                PlayerResponse::PlayHideawayLinked {
+                    object: candidates.first().cloned(),
+                }
             }
-            PlayerRequest::ChooseOpponent { .. } => {
-                return Err("demonstrate choice outside this policy admission".into());
-            }
+            PlayerRequest::ChooseOpponent { candidates, .. } => PlayerResponse::ChooseOpponent {
+                opponent: *candidates.first().ok_or("empty opponent selection")?,
+            },
             PlayerRequest::SearchLandBattlefield { candidates, .. } => {
                 PlayerResponse::SearchLandBattlefield {
                     object: candidates
@@ -209,8 +237,10 @@ impl Strategy<'_> {
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
             }
-            PlayerRequest::OpeningPlacement { .. } => {
-                PlayerResponse::OpeningPlacement { object: None }
+            PlayerRequest::OpeningPlacement { candidates, .. } => {
+                PlayerResponse::OpeningPlacement {
+                    object: candidates.first().cloned(),
+                }
             }
             PlayerRequest::Mulligan {
                 mulligans_taken,

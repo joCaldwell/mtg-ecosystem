@@ -3346,3 +3346,27 @@ mod compound_protection_policy_tests;
 
 #[path = "collar_policy_tests.rs"]
 mod collar_policy_tests;
+
+#[test]
+fn match_policy_partitions_only_offered_library_handles() {
+    let catalog = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut strategy = strategy(&catalog);
+    let mut obs = observation(wipe_tests::view(&catalog));
+    let handles: Vec<_> = ["looked-a", "looked-b", "looked-c"]
+        .into_iter()
+        .map(|s| ObjectHandle(s.into()))
+        .collect();
+    obs.decision = Some(PlayerRequest::LibrarySelect {
+        token: mtg_core::DecisionToken("looked".into()),
+        player: obs.view.viewer,
+        candidates: handles.clone(),
+        remainder: mtg_contracts::LibraryRemainder::Graveyard,
+    });
+    assert_eq!(
+        strategy.choose(&obs).unwrap(),
+        PlayerResponse::LibrarySelect {
+            hand: handles[..1].to_vec(),
+            remainder: handles[1..].to_vec(),
+        }
+    );
+}
