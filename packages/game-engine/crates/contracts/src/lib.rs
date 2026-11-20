@@ -4080,6 +4080,7 @@ impl Definition {
                         | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }
                 )
                 && a.effect != StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
+                && source_combat_restrictions::restriction(&a.effect).is_none()
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
