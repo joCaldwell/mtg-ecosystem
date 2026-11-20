@@ -23,7 +23,7 @@ fn prepared(rows: &[Row]) -> Prepared {
     prepared_with_sources(rows, &[])
 }
 
-fn prepared_with_sources(rows: &[Row], extras: &[&str]) -> Prepared {
+pub(super) fn prepared_with_sources(rows: &[Row], extras: &[&str]) -> Prepared {
     let mut catalog = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))

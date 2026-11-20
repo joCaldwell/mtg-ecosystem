@@ -26,6 +26,7 @@ pub mod catalog;
 mod colored_library_search;
 mod combat_hand_cast;
 mod commander_modal_keyword;
+mod composed_spell;
 mod controlled_creature_spell_copy;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -219,6 +220,8 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    #[serde(skip)]
+    ComposedSpell(SpellProgram),
     Chapter {
         chapters: Vec<u32>,
         effects: Vec<serde_json::Value>,
@@ -1571,7 +1574,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let permanent_union =
         creature_planeswalker_return::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let has_linked_hideaway = linked_hideaway::validate(&source, &shape, &result, &binding)?;
-    let abilities = if has_linked_hideaway {
+    let composition =
+        composed_spell::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?;
+    let abilities = if let Some(program) = composition {
+        vec![Ability::ComposedSpell(program)]
+    } else if has_linked_hideaway {
         (0..4).map(|_| Ability::LinkedHideaway).collect()
     } else if permanent_union.is_some() {
         vec![Ability::CreaturePlaneswalkerReturn]
@@ -2461,6 +2468,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             )?;
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
+                if let Ability::ComposedSpell(composition) = ability {
+                    program = composition.clone();
+                    continue;
+                }
                 if let Ability::Demonstrate = ability {
                     let source_block = source_block(block)?;
                     definition.triggered.push(TriggeredAbility {
