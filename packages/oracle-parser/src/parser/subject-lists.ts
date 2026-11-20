@@ -4,7 +4,7 @@
 // control gain hexproof". Every subject receives the same modification at
 // once (CR 608.2c, 611.2c); players and objects stay separate recipients
 // (109.1, 113.1). https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Amount, Effect, GainedAbility, ObjectRef, PlayerRef, SignedAmount, StaticEffect, StaticModifier } from "../ast.ts";
+import type { Amount, Effect, GainedAbility, ObjectRef, PlayerRef, Sentence, SignedAmount, StaticEffect, StaticModifier } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
 import { splitsSharedScope } from "./shared-scope.ts";
 
@@ -41,6 +41,50 @@ export interface SubjectListGrammar {
   parsePlayerRef(c: Cursor): PlayerRef | null;
   parsePtModifier(c: Cursor): { power: SignedAmount; toughness: SignedAmount } | null;
   parseGainedAbilities(c: Cursor): GainedAbility[] | null;
+}
+
+/** A successful optional self-copy of another target creature establishes
+ * the copy and original as distinct recipients. Their common P/T and haste
+ * effect expires at end of turn, while the attack requirement applies at
+ * every declaration that turn (CR 508.1d, 608.2c, 611.2c). */
+export function parseCopyPairFollowup(
+  c: Cursor, previous: Sentence, g: Pick<SubjectListGrammar, "parseObjectRef" | "parsePtModifier">,
+): Sentence | null {
+  const sourceRef = (what: ObjectRef) => what.ref === "self" || (what.ref === "this" && what.noun === "creature");
+  const copy = previous.steps[0];
+  if (previous.condition || previous.otherwise || previous.steps.length !== 1 || copy?.effect !== "become"
+    || copy.optional !== true || copy.decidedBy || copy.forEach || copy.forEachVote || !sourceRef(copy.what)) return null;
+  const original = copy.spec.copyOf;
+  if (original?.ref !== "target" || original.count.amount !== "fixed" || original.count.value !== 1 || original.upTo
+    || original.filter.other !== true || original.filter.types?.length !== 1 || original.filter.types[0] !== "creature"
+    || original.filter.control !== "you" || Object.keys(original.filter).length !== 3) return null;
+  return c.attempt(c => {
+    if (!c.words("if", "you", "do") || !c.punct(",")) return null;
+    const source = g.parseObjectRef(c);
+    if (!source || !sourceRef(source) || c.word("and") === null || !c.words("that", "creature", "each", "get")) return null;
+    const pt = g.parsePtModifier(c);
+    if (!pt || pt.power.amount.amount !== "fixed" || pt.toughness.amount.amount !== "fixed"
+      || !c.words("and", "gain", "haste", "until", "end", "of", "turn", "and", "attack", "this", "turn", "if", "able")) return null;
+    c.punct(".");
+    if (!c.done()) return null;
+    const pair: ObjectRef[] = [source, { ref: "that", filter: { types: ["creature"] } }];
+    return {
+      condition: { condition: "you-do" }, conditionKind: "if",
+      steps: [
+        { effect: "simultaneous", steps: pair.map((what): Effect => ({
+          effect: "pump", what, ...pt, duration: { duration: "end-of-turn" },
+        })) },
+        { effect: "simultaneous", steps: pair.map((what): Effect => ({
+          effect: "gain-abilities", what, abilities: [{ gained: "keyword", keyword: { keyword: "haste" } }],
+          duration: { duration: "end-of-turn" },
+        })) },
+        { effect: "simultaneous", steps: pair.map((what): Effect => ({
+          effect: "combat-rule", what, rule: { rule: "attack-requirement", frequency: "each-combat" },
+          duration: { duration: "this-turn" },
+        })) },
+      ],
+    };
+  });
 }
 
 /** Two or more subjects joined by "and", an optional floating "each" (the

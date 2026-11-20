@@ -10,7 +10,7 @@ import { Cursor } from "./cursor.ts";
 import type { EffectContext } from "./effects.ts";
 import { parseTrigger, parseTriggerLimit } from "./triggers.ts";
 import { parseActivationRules } from "./restrictions.ts";
-import { parseComparison, parseCondition, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { parseComparison, parseCondition, parseCounterSpec, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
 import { parseReflexiveOutcome } from "./event-outcomes.ts";
 import { parseTurnLinkedTrigger } from "./temporal.ts";
 import { isCopyRetargetContinuation, prepareStackCopyInput, type StackCopyInputProof } from "./stack-copy.ts";
@@ -173,6 +173,34 @@ function parseDelayedTrigger(c: Cursor): DelayedHeader | null {
   });
 }
 
+/** CR 603.7b, 608.3, 614.1c: a cast creates a replacement for the
+ * watched spell's own move onto the battlefield. The "this turn" window
+ * restricts the cast, even if that spell resolves next turn. */
+function parseFollowingCastEntryReplacement(c: Cursor, header: DelayedHeader): Effect | null {
+  return c.attempt(c => {
+    const { trigger } = header;
+    if (trigger.trigger !== "cast" || trigger.who.player !== "you" || "ref" in trigger.what ||
+      trigger.what.cls !== "spell" || trigger.what.types?.length !== 1 || trigger.what.types[0] !== "creature" ||
+      trigger.what.anyOf || trigger.what.allOf || header.occurrence !== "next" || !header.nextOnly ||
+      header.duration?.duration !== "this-turn" ||
+      !c.words("that", "creature", "enters", "with") || !c.word("a", "an") || !c.word("additional")) return null;
+    const counter = parseCounterSpec(c);
+    if (!counter || !c.words("counter", "on", "it")) return null;
+    c.punct(".");
+    if (!c.done()) return null;
+    return { effect: "create-delayed-trigger", ...header, targets: "delayed-ability",
+      effects: [{ steps: [{ effect: "create-replacement", replacement: {
+        event: { event: "move-zone", from: { zone: "stack" }, to: { zone: "battlefield" }, resolving: true,
+          what: { ref: "trigger-event-object", event: "cast" } },
+        occurrence: "next",
+        replace: { replacement: "entry-modifiers", modifiers: {
+          counters: [{ count: { amount: "fixed", value: 1 }, counter, additional: true }],
+        } },
+      } }] }],
+    };
+  });
+}
+
 /** Prefixes own their body and explicitly dependent subsequent sentences.
  * Ambiguous remaining scope is rejected. A callback keeps this module free of a
  * runtime cycle with effects.ts; only the nested body's context is mutable. */
@@ -219,6 +247,8 @@ export function parseDelayedPrefix(c: Cursor, ctx: EffectContext, parseBody: Bod
 
     const header = parseDelayedTrigger(c);
     if (!header || !c.punct(",")) return null;
+    const entry = parseFollowingCastEntryReplacement(c, header);
+    if (entry) return [entry];
     // An intervening if has trigger-time and resolution-time semantics
     // (CR 603.4), unlike an ordinary conditional instruction in the body.
     const condition = c.attempt(c => {

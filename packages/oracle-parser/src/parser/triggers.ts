@@ -5,6 +5,7 @@ import type { Comparison, ObjectFilter, ObjectRef, PhaseName, PlayerRef, Trigger
 import { Cursor } from "./cursor.ts";
 import { isPluralPlayerRef, parseAbilityHead, parseAmount, parseCount, parseComparison, parseFilter, parseObjectRef, parsePlayerRef, parsePossessiveObject, parsePossessivePlayer, parseZoneRef } from "./refs.ts";
 import { parseDiceTrigger } from "./dice.ts";
+import { parseChosenColorRef } from "./choices.ts";
 import { parseTriggerGate } from "./trigger-gates.ts";
 import { parseCounterChangeTrigger } from "./counter-events.ts";
 import { parsePlayerActionEvent, parsePlayerDamagedEvent, parseStateTrigger } from "./trigger-actions.ts";
@@ -253,7 +254,8 @@ function parsePlayerAttack(c: Cursor): Trigger | null {
       if (who.player === "you" && c.words("your", "commander"))
         return { trigger: "player-attacks", who, per: "attacker", ...(whom ? { whom } : {}), with: { commander: true, own: "you" } };
       if (c.word("a", "an") !== null) per = "attacker";
-      else {
+      // "Attacks with creatures" states the whole declaration (CR 508.3d).
+      else if (!c.isWord("creatures")) {
         const bound = c.words("at", "least") ? "ge" : c.words("at", "most") ? "le" : null;
         const value = parseComparison(c);
         if (!value) return null;
@@ -266,6 +268,12 @@ function parsePlayerAttack(c: Cursor): Trigger | null {
     if (who.player === "you" && !whom && !parties && !withFilter) return { trigger: "you-attack" };
     return { trigger: "player-attacks", who, per, ...(whom ? { whom } : {}), ...attacked, ...(withFilter ? { with: withFilter } : {}), ...(count ? { count } : {}), ...(totalPower ? { totalPower } : {}) };
   });
+}
+
+function isStackObjectFilter(filter: ObjectFilter): boolean {
+  if (filter.cls === "spell" || filter.cls === "ability") return !filter.zone;
+  const alternatives = filter.allOf?.length === 1 ? filter.allOf[0].anyOf : undefined;
+  return filter.cls === undefined && !filter.zone && !!alternatives?.length && alternatives.every(isStackObjectFilter);
 }
 
 /** CR 109.2: an unqualified creature/artifact/etc description denotes a
@@ -286,12 +294,30 @@ function isPermanentReference(what: ObjectRef): boolean {
   return permanent(what.filter);
 }
 
+/** CR 701.18a–b: this coordination spells out both kinds of card play.
+ * The official Japanese printing puts the origin before both actions:
+ * https://mtg-jp.com/products/card-gallery/0000296/523439/ */
+function parsePlayLandOrCastOutsideHand(c: Cursor): Trigger | null {
+  return c.attempt(c => {
+    if (!c.word("when", "whenever") || !c.words("you", "play", "a", "land", "or", "cast", "a", "spell")) return null;
+    const notFrom = parseExcludedOrigin(c);
+    if (notFrom?.zone !== "hand" || notFrom.owner !== "your" || c.isWord("or", "for", "during", "on", "while")) return null;
+    const who = { player: "you" } as const;
+    return { trigger: "any-of", events: [
+      { trigger: "plays", who, what: { types: ["land"] }, notFrom },
+      { trigger: "cast", who, what: { cls: "spell" }, notFrom },
+    ] };
+  });
+}
+
 /** "you play a land or cast a spell", "you cast a black spell or a Swamp
  * you control enters": an "or" left over after one complete event starts a
  * further complete event of the same introduced clause. It either repeats
  * the first event's player subject or has its own subject (CR 603.2). */
 function parseSingleTrigger(c: Cursor): Trigger | null {
   return c.attempt((c): Trigger | null => {
+    const playOutsideHand = parsePlayLandOrCastOutsideHand(c);
+    if (playOutsideHand) return playOutsideHand;
     const start = c.pos;
     const complete = parseSingleEvent(c);
     const first = complete ?? parseEventBeforeAlternative(c);
@@ -316,8 +342,8 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
           const alternative = new Cursor(tokens);
           const event = parseSingleEvent(alternative);
           if (!event || alternative.pos <= 1 + prefix.length) continue;
-          // "you play a land or cast a spell from anywhere other than your
-          // hand": the excluded origin may qualify both actions.
+          // Outside a proven coordination, an excluded origin after an
+          // alternative without its own subject may qualify both actions.
           if (prefix.length && "notFrom" in event) return c.fail("unambiguous origin scope for alternative events");
           c.pos += alternative.pos - prefix.length + separator - 1;
           return event;
@@ -333,7 +359,7 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
     // alternative or to all of them; that scope is not guessed.
     if (c.isWord("for", "during", "on", "while")) return c.fail("unambiguous qualifier scope for alternative events");
     // Likewise one trailing "from anywhere other than …" after alternatives
-    // that state no origin of their own ("play a land or cast a spell from …").
+    // that state no origin of their own.
     const last = events.at(-1)!;
     if (last.trigger === "cast" && last.notFrom && events.slice(0, -1).some(event => !("from" in event && event.from) && !("notFrom" in event && event.notFrom)))
       return c.fail("unambiguous origin scope for alternative events");
@@ -362,6 +388,19 @@ function parseEventBeforeAlternative(c: Cursor): Trigger | null {
   return null;
 }
 
+/** CR 605.1b: an ability of a matching land caused actual mana addition.
+ * No {T} activation, mana ability, or tapped land is implied by the words. */
+function parseAddsManaFromAbility(c: Cursor): Trigger | null {
+  return c.attempt(c => {
+    if (!c.word("a") || !c.possessive("land") || !c.words("ability", "causes", "you", "to", "add", "one", "or", "more", "mana", "of"))
+      return null;
+    const color = parseChosenColorRef(c, parseFilter);
+    return color && { trigger: "adds-mana-from-ability", who: { player: "you" },
+      abilitySource: { ref: "filter", filter: { types: ["land"] }, count: { amount: "fixed", value: 1 } },
+      color, quantity: { op: "ge", value: { amount: "fixed", value: 1 } } };
+  });
+}
+
 function parseSingleEvent(c: Cursor): Trigger | null {
   return c.attempt((c): Trigger | null => {
     const dice = parseDiceTrigger(c, { parseAmount, parseCount, parsePlayerRef });
@@ -370,7 +409,7 @@ function parseSingleEvent(c: Cursor): Trigger | null {
     const opener = c.word("when", "whenever", "at");
     if (opener === null) return null;
     if (at || opener === "at") return parsePhaseTrigger(c);
-    const caused = parseCausedEvent(c, parseSingleEvent) ?? parseGameEvent(c);
+    const caused = parseAddsManaFromAbility(c) ?? parseCausedEvent(c, parseSingleEvent) ?? parseGameEvent(c);
     if (caused) return caused;
     const counters = parseCounterChangeTrigger(c);
     if (counters) return counters;
@@ -707,6 +746,14 @@ function parseObjectEvent(c: Cursor, subject: ObjectRef): Trigger | null {
       return { trigger: "leaves", what: subject };
     }
     if (c.word("dies", "die") !== null) return { trigger: "dies", what: subject };
+    // CR 405.2: the event is the stack placement itself. This includes
+    // abilities and spell copies, besides spells newly cast.
+    const stackPlacement = c.attempt(c => {
+      if (subject.ref !== "filter" || !isStackObjectFilter(subject.filter) ||
+          c.word("is", "are") === null || !c.words("put", "onto", "the", "stack")) return null;
+      return { trigger: "put-into-zone" as const, what: subject, to: { zone: "stack" as const } };
+    });
+    if (stackPlacement) return stackPlacement;
     if (c.attempt((c) => (c.word("is", "are") !== null && c.words("put", "into") ? true : null))) {
       const to = parseZoneRef(c);
       if (to && to.zone !== "graveyard" && to.zone !== "battlefield" && to.zone !== "stack" && !to.position) {
@@ -902,6 +949,9 @@ function parseObjectEvent(c: Cursor, subject: ObjectRef): Trigger | null {
       }
       return { trigger: "deals-damage", what: subject, combat: kind === "noncombat" ? false : combat || undefined, to, ...(amount ? { amount } : {}) };
     }
+    const chosenMana = c.attempt(c => c.words("is", "tapped", "for", "mana", "of")
+      ? parseChosenColorRef(c, parseFilter) : null);
+    if (chosenMana) return { trigger: "taps-for-mana", what: subject, producingChosenColor: chosenMana };
     if (c.attempt((c) => (c.words("is", "tapped", "for", "mana") ? true : null)))
       return { trigger: "taps-for-mana", what: subject };
     const producing = c.attempt(c => c.words("is", "tapped", "for") ? c.symbol() : null);
