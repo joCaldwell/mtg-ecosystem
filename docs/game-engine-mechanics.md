@@ -211,32 +211,30 @@ costs, activations and triggers reject. Blockers retain status through EndCombat
 | --- | --- |
 | Ordinary tap (`TapPermanentV1`) | Instant/sorcery, one creature target, optional mandatory draw-one rider |
 | Artifact tap activation (`ActivatedTapPermanentV1`) | Battlefield artifact, finite mana plus tap-source cost, one tap instruction, artifact/creature/land target union; no sacrifice/modes/triggers/extra effects |
+| Creature tap activation (`ActivatedCreatureTapV1`) | Fixed mana plus source tap, one unfiltered creature target |
 | Cast-entry land untap (`UntapControllerLandsV1`) | Paid creature entry. Simultaneously untap the trigger controller’s currently tapped lands, including multitype lands. |
 | Ordinary untap (`UntapPermanentV1`) | One ordinary nonmodal instant/sorcery, one unqualified permanent target and instruction; no additional costs/qualifiers/extra instructions |
 | Tap-source creature untap (`TapSourceUntapCreatureV1`) | Battlefield creature, pure tap-source cost, instant-timed stack, one mandatory creature-filter target at slot zero and one untap instruction |
 | Tap-source destruction | Separately validated creature activation and tapped-creature target; preserve cost/readiness and ordinary destruction guards |
 | Owner-hand return | Explicit supported ordinary spell or separately fenced activated permanent-return program; source departure never rebinds the target |
 
-Already tapped/untapped is a legal target; produce no false second status event.
-Tap/untap does not itself remove combat membership. Self-targeting tap/untap
-abilities still pay tap first. Paid activations survive source departure.
-Fixed-mana creature abilities support self-pump, life gain, creature damage and
-artifact-or-enchantment destruction. Cast-entry untap can compose with them.
+Tap/untap allows already-matching status without a second event, preserves combat
+membership, and pays source tap first. Paid activations survive source departure.
+Fixed-mana creature activations pump, gain life, deal creature damage, or destroy
+an artifact or enchantment. Cast-entry untap composes with them.
+Fixed self-attack pumps modify the declared incarnation until cleanup.
 
 <a id="combat-damage-and-state-based-actions"></a>
 
 ## Combat, damage and life
 
-Attacker/blocker declarations and damage are typed atomic events. Readiness uses
-continuous control stamped at turn entry, reset on control/incarnation change.
-Multiple blockers have no damage-assignment order in the pinned rules. Preserve
-blocked status after blocker departure and blocking status after attacker departure.
-Skip blocker/damage steps only when no attackers were declared; blocking lasts
-through EndCombat priority until combat ends (CR 509.1g/511.3), independently of
-damage links. First/double strike have distinct participant sets; trample assignment, deathtouch
-lethal assignment, actual dealt damage and prevention are different facts.
-Vigilance, flying/reach, haste, defender, menace, hexproof/shroud, lifelink and
-other admitted keywords use common predicates, never card text in the runtime.
+Attackers, blockers and damage commit atomically. Readiness stamps continuous control
+at turn entry and resets on control/incarnation change. Blockers have no damage
+assignment order. Blocked and blocking status survive counterpart departure until
+combat ends (CR 509.1g/511.3). Skip blocker/damage steps only when none attacked.
+First and double strike have distinct participant sets. Trample and deathtouch
+assignments, dealt damage and prevention remain distinct. Admitted keywords use
+shared predicates.
 
 Validate simultaneous damage before life/history writes. Assignment stays distinct
 from current or latest-departure
@@ -265,11 +263,13 @@ implied by this family.
 
 ## Movement, sacrifice and board-wide effects
 
-Destroy respects indestructible before movement/replacement. Exile, bounce,
-sacrifice, zero toughness, legend moves and departures are distinct movement
-paths. Removal filters cover admitted type unions, exclusions, controllers and
-statuses. All additional types count (CR 205.2b): positive type lists are alternatives,
-exclusions reject any matching type; sacrifice subtype lists are conjunctive.
+Indestructible takes precedence over destruction. A paid regeneration shield
+replaces destruction when permitted, tapping its source, clearing damage, and
+removing it from combat. The affected controller orders competing exile. Exile,
+bounce, sacrifice, zero toughness, legend moves and departure remain distinct.
+Removal filters use all types (CR 205.2b), controllers and statuses. Positive type
+lists are alternatives, exclusions reject any match, and sacrifice subtype lists
+are conjunctive.
 
 Compensation uses the exact target's current or last relevant public appearance,
 not its successor: controller, power and mana value can differ from ownership.
