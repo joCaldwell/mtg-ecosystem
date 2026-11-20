@@ -5898,7 +5898,9 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "if":{"anyOf":[history,cast_mana_value_sweep::spell_schema()]},"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":"cast_history_v1"}}}}}
     }));
-    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
+    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":{"anyOf":[
+        self_condition,{"const":hand_cast_cascade::hand_cast_cascade_ability()}
+    ]}}}}]});
     let requirements = [
         Capability::CascadeV1,
         Capability::ResolutionCastV1,
