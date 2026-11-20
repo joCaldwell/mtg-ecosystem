@@ -32,6 +32,9 @@ impl Game {
                     .iter()
                     .filter_map(|subtype| basic_land_color(subtype)),
             );
+            if self.has_granted_land_mana(object.id)? {
+                output[seat].extend(Self::granted_land_mana_colors());
+            }
             for ability in &definition.mana_abilities {
                 if ability.production == ManaProduction::OpponentLandColors {
                     has_dynamic_land[seat] = true;
