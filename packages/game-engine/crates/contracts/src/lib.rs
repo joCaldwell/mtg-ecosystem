@@ -1,6 +1,7 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
+mod cascade_land_entry;
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -275,6 +276,7 @@ pub enum Capability {
     ResolutionCastV1,
     CascadeV1,
     StaticSpellCascadeGrantV1,
+    CascadeLandEntryV1,
     CastHistoryV1,
     RandomBottomV1,
     CastTriggerV1,
@@ -1359,6 +1361,11 @@ pub enum StaticEffect {
         eligibility: SpellCascadeEligibility,
         program: SpellProgram,
     },
+    /// CR 109.5/110.2a/608.2d/702.85b: this battlefield source's controller
+    /// may put one of their resolving cascade's still-exiled lands onto the
+    /// battlefield tapped before the cascade cast decision.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    CascadeLandEntry,
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
     /// its enchanted permanent; this is not a frozen invocation recipient.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -2565,6 +2572,7 @@ impl Definition {
             }
             let static_capability = match a.effect {
                 StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
+                StaticEffect::CascadeLandEntry => Capability::CascadeLandEntryV1,
                 StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
@@ -2621,6 +2629,7 @@ impl Definition {
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
         conditional_lands::validate_definition(self)?;
+        cascade_land_entry::validate_definition(self)?;
         let has_distinct_permanent_colors = distinct_permanent_colors::validate_definition(self)?;
         // Every occurrence retains its own u32 ability index, including repeated
         // keywords in one source block (CR 702.85c). No per-card instance cap.
@@ -3627,6 +3636,7 @@ impl Definition {
             !matches!(
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
+                    | StaticEffect::CascadeLandEntry
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
@@ -6838,6 +6848,7 @@ pub fn catalog_schema() -> serde_json::Value {
     pain_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
+    cascade_land_entry::extend_schema(&mut schema);
     counter_spell_controller_mill::extend_schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
     announced_x_draw::extend_schema(&mut schema);
@@ -7029,6 +7040,7 @@ mod tests {
             ResolutionCastV1,
             CascadeV1,
             StaticSpellCascadeGrantV1,
+            CascadeLandEntryV1,
             CastHistoryV1,
             RandomBottomV1,
             NormalLayoutV1,
@@ -7564,6 +7576,7 @@ mod tests {
             KeywordAbility::Indestructible,
         ]));
         definitions.push(controller_library::witness());
+        definitions.push(cascade_land_entry::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());

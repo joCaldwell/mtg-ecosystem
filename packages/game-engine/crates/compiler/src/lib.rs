@@ -13,6 +13,7 @@ mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
 mod bindings;
+mod cascade_land_entry;
 mod cast_entry;
 mod cast_origin;
 mod cast_payer_draw;
@@ -1104,6 +1105,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    AsCascade {
+        controller: serde_json::Value,
+        choice: serde_json::Value,
+    },
     CastSpellAbilities {
         scope: serde_json::Value,
         abilities: Vec<serde_json::Value>,
@@ -1532,6 +1537,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    cascade_land_entry::validate(&abilities, &result, &shape, &binding, &source)?;
     let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
     let mut counted_artifact_modes =
         artifact_modal::bind(&result, &shape, &binding, &r.oracle_identity)?;
@@ -4488,6 +4494,13 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if matches!(effect, SourceStaticEffect::AsCascade { .. }) {
+        // The complete source and occurrence graph were checked before lowering.
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::CascadeLandEntry,
+        });
+    }
     if let Some(entry) = conditional_lands::lower(effect)? {
         return Ok(entry);
     }
