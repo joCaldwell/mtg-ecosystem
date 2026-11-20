@@ -31,6 +31,7 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 mod controlled_creature_spell_copy;
+mod creative_technique;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -287,6 +288,8 @@ pub enum Capability {
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
     CascadeV1,
+    RevealAndCastV1,
+    DemonstrateV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
     CastHistoryV1,
@@ -767,6 +770,15 @@ pub enum Instruction {
         threshold: CascadeThreshold,
         source_block: u32,
     },
+    /// Shuffle, reveal through the first nonland, exile it, random-bottom the
+    /// remaining revealed cards, then optionally cast the exile successor for free.
+    RevealAndCast {
+        source_block: u32,
+    },
+    /// CR 702.144a: optional self-copy followed by a chosen opponent's copy.
+    Demonstrate {
+        source_block: u32,
+    },
     DrawControllerCards {
         count: Quantity,
         source_block: u32,
@@ -1208,6 +1220,8 @@ impl Instruction {
     pub fn source_block(&self) -> u32 {
         match self {
             Self::Cascade { source_block, .. }
+            | Self::RevealAndCast { source_block }
+            | Self::Demonstrate { source_block }
             | Self::SearchBasicLandsSplit { source_block, .. }
             | Self::SearchColoredLibrary { source_block, .. }
             | Self::SearchTypedLands { source_block, .. }
@@ -1751,7 +1765,7 @@ pub enum CascadeThreshold {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
-    /// CR 702.85a: functions on the casting spell itself, on the stack.
+    /// CR 702.85a and 702.144a: functions on the casting spell itself, on the stack.
     SelfSpellCast,
     /// One occurrence per damaged player and simultaneous combat-damage event.
     GroupedDamageDealt {
@@ -2541,7 +2555,11 @@ impl Definition {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
-                TriggerCondition::SelfSpellCast => Capability::CascadeV1,
+                TriggerCondition::SelfSpellCast
+                    if is_canonical_cascade_program(&ability.program) =>
+                {
+                    Capability::CascadeV1
+                }
                 TriggerCondition::SpellCast {
                     spell: TypePredicate::SpellColor { .. },
                     ..
@@ -2549,7 +2567,9 @@ impl Definition {
                     set.insert(Capability::CastColorPredicateV1);
                     Capability::CastTriggerV1
                 }
-                TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
+                TriggerCondition::SelfSpellCast | TriggerCondition::SpellCast { .. } => {
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::SpellCastWithOrigin { .. } => {
                     set.insert(Capability::CastOriginTriggerV1);
                     Capability::CastTriggerV1
@@ -2694,6 +2714,7 @@ impl Definition {
         targeted_game_loss::validate_definition(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
+        creative_technique::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -3543,9 +3564,10 @@ impl Definition {
                     || p.resolution != SpellResolution::Instructions
                     || !p.targets.is_empty()
                     || !p.modes.is_empty()
-                    || !is_canonical_cascade_program(p)
+                    || !(is_canonical_cascade_program(p)
+                        || creative_technique::is_demonstrate_program(p))
                 {
-                    return Err("unsupported self-cast cascade shape".into());
+                    return Err("unsupported self-cast trigger shape".into());
                 }
                 validate_instruction_program(p)?;
                 continue;
@@ -4828,6 +4850,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 None
             }
             Instruction::Cascade { .. }
+            | Instruction::Demonstrate { .. }
+            | Instruction::RevealAndCast { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
@@ -5358,7 +5382,10 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         ) {
             set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
-        if matches!(instruction, Instruction::Cascade { .. }) {
+        if matches!(
+            instruction,
+            Instruction::Cascade { .. } | Instruction::RevealAndCast { .. }
+        ) {
             set.insert(Capability::ResolutionCastV1);
             set.insert(Capability::RandomBottomV1);
         }
@@ -5386,6 +5413,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::RemoveIndestructibleV1
             }
             Instruction::Cascade { .. } => Capability::CascadeV1,
+            Instruction::RevealAndCast { .. } => Capability::RevealAndCastV1,
+            Instruction::Demonstrate { .. } => Capability::DemonstrateV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
                 ..
@@ -5782,7 +5811,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "instructions":{"items":{"not":cascade}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}
     }});
     schema["$defs"]["TriggeredAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
-        "if":self_condition,"then":ability,
+        "if":self_condition,"then":{"anyOf":[ability,creative_technique::demonstrate_trigger_schema()]},
         "else":{"properties":{"functioning_zone":{"const":"battlefield"},"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}
     }));
     let grant_effect = serde_json::json!({"type":"object","required":["grant_spell_cascade"]});
@@ -5820,12 +5849,9 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "if":{"anyOf":[history,cast_mana_value_sweep::spell_schema()]},"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":"cast_history_v1"}}}}}
     }));
-    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
-    let requirements = [
-        Capability::CascadeV1,
-        Capability::ResolutionCastV1,
-        Capability::RandomBottomV1,
-    ];
+    let cascade_trigger = serde_json::json!({"allOf":[self_condition,ability]});
+    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":cascade_trigger}}}]});
+    let requirements = [Capability::ResolutionCastV1, Capability::RandomBottomV1];
     let yes: Vec<_> = requirements
         .iter()
         .map(|cap| serde_json::json!({"contains":{"const":cap}}))
@@ -5836,7 +5862,13 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         .collect();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),
-        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
+        serde_json::json!({"if":present,
+            "then":{"properties":{"capabilities":{"contains":{"const":Capability::CascadeV1}}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CascadeV1}}}}}
+        }),
+        serde_json::json!({"if":{"anyOf":[present,creative_technique::reveal_spell_schema()]},
+            "then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}
+        })
     ]);
 }
 fn extend_multitype_token_schema(schema: &mut serde_json::Value) {
@@ -6934,6 +6966,7 @@ pub fn catalog_schema() -> serde_json::Value {
     targeted_game_loss::extend_schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
+    creative_technique::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -7126,6 +7159,8 @@ mod tests {
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
             CascadeV1,
+            RevealAndCastV1,
+            DemonstrateV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             CastHistoryV1,
@@ -7693,6 +7728,7 @@ mod tests {
         definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
         definitions.push(controlled_creature_spell_copy::witness());
+        definitions.push(creative_technique::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
