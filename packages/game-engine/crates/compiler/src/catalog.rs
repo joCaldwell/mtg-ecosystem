@@ -793,23 +793,20 @@ mod guard_tests {
         );
     }
     #[test]
-    fn one_catalog_can_validate_records_from_both_accepted_archives() {
+    fn one_catalog_can_validate_records_from_multiple_accepted_archives() {
         let p: FixtureProvenance =
             strict_read(&embedded_file(Path::new("provenance.json")).unwrap()).unwrap();
         let records = accepted_archives()
             .unwrap()
             .iter()
-            .map(|a| {
-                format!(
-                    "../{}",
-                    p.records
-                        .iter()
-                        .find(|r| r.archive == a.manifest_file)
-                        .unwrap()
-                        .file
-                )
+            .filter_map(|a| {
+                p.records
+                    .iter()
+                    .find(|r| r.archive == a.manifest_file)
+                    .map(|row| format!("../{}", row.file))
             })
             .collect::<Vec<_>>();
+        assert!(records.len() >= 2);
         let raw = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":records,"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
         let (_, c) = build_with(Path::new("catalogs/mixed.json"), |path| {
             if path == Path::new("catalogs/mixed.json") {
