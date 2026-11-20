@@ -123,7 +123,7 @@ impl Game {
                 .get(&o.id.card)
                 .ok_or("missing hideaway card owner")?
                 .owner;
-            let producer = self.definition(link.source.card)?.triggered.iter().any(|ability| {
+            let producer = self.copiable_definition(link.source)?.triggered.iter().any(|ability| {
                 ability.condition == TriggerCondition::SelfEntersBattlefield
                     && matches!(ability.program.instructions.as_slice(),
                         [Instruction::Hideaway { source_block, .. }] if *source_block == link.source_block)
@@ -167,7 +167,7 @@ impl Game {
         };
         let source = frame.spell.source;
         let ability = self
-            .definition(source.card)?
+            .copiable_definition(source)?
             .triggered
             .get(*index as usize)
             .ok_or("missing hideaway trigger")?;
