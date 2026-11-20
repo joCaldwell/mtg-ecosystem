@@ -9,25 +9,32 @@ pub(super) fn deserialize_power<'de, D: serde::Deserializer<'de>>(
     CreaturePowerFilter::deserialize(deserializer).map(Some)
 }
 
-fn has_power(p: &SpellProgram) -> bool {
+fn uses_restricted_operand(p: &SpellProgram) -> bool {
     p.targets
         .iter()
         .any(|t| t.filter.as_ref().is_some_and(|f| f.power.is_some()))
-        || p.modes.iter().any(|m| has_power(&m.program))
+        || p.instructions
+            .iter()
+            .any(|i| matches!(i, Instruction::DistributePlusOneCounters { .. }))
+        || p.modes.iter().any(|m| uses_restricted_operand(&m.program))
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
-    const INVALID: &str = "a power-filtered target requires one ordinary creature removal spell";
-    if d.activated.iter().any(|a| has_power(&a.program))
-        || d.triggered.iter().any(|a| has_power(&a.program))
+    const INVALID: &str = "unsupported power-filtered removal or divided-counter spell";
+    if d.activated
+        .iter()
+        .any(|a| uses_restricted_operand(&a.program))
+        || d.triggered
+            .iter()
+            .any(|a| uses_restricted_operand(&a.program))
         || d.static_abilities.iter().any(|a| {
             matches!(&a.effect,
-            StaticEffect::GrantSpellCascade { program, .. } if has_power(program))
+            StaticEffect::GrantSpellCascade { program, .. } if uses_restricted_operand(program))
         })
     {
         return Err(INVALID.into());
     }
-    let Some(p) = d.spell.as_ref().filter(|p| has_power(p)) else {
+    let Some(p) = d.spell.as_ref().filter(|p| uses_restricted_operand(p)) else {
         return Ok(());
     };
     let c = &d.characteristics;
@@ -53,7 +60,16 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
         || p.timing != timing
-        || !p.modes.is_empty()
+    {
+        return Err(INVALID.into());
+    }
+    if c.kind == CardKind::Instant
+        && !p.modes.is_empty()
+        && *p == divided_plus_one_counters_modal_program()
+    {
+        return Ok(());
+    }
+    if !p.modes.is_empty()
         || p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         || !matches!(p.targets.as_slice(), [t] if t.slot == 0 && t.selection_id == "line:0:1"
@@ -83,11 +99,19 @@ pub(super) fn extend_schema(schema: &mut Value) {
     use Capability::*;
     let filter = json!({"type":"object","required":["power"]});
     let target = json!({"required":["filter"],"properties":{"filter":filter}});
-    let has = json!({"type":"object","required":["targets"],"properties":{"targets":{"contains":target}}});
-    let no_power = json!({"properties":{"program":{"not":has}}});
+    let power_target = json!({"type":"object","required":["targets"],"properties":{"targets":{"contains":target}}});
+    let has = json!({"type":"object","anyOf":[power_target,{"required":["instructions"],"properties":{
+        "instructions":{"contains":{"properties":{"op":{"const":"distribute_plus_one_counters"}}}}
+    }}]});
+    let free_child =
+        json!({"properties":{"program":{"$ref":"#/$defs/PowerAndDivisionFreeProgram"}}});
+    schema["$defs"]["PowerAndDivisionFreeProgram"] =
+        json!({"not":has,"properties":{"modes":{"items":free_child}}});
+    let modal = json!({"$ref":"#/$defs/DividedPlusOneCountersModalProgram"});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
-        "properties":{"modes":{"items":no_power}},
-        "if":has,"then":{"properties":{
+        "anyOf":[modal,{"properties":{"modes":{"items":free_child}}}],
+        "if":has,"then":{"anyOf":[{"$ref":"#/$defs/DividedCountersExileMode"},
+            {"$ref":"#/$defs/DividedCountersDistributionMode"},{"properties":{
             "resolution":{"const":"instructions"},"functioning_zone":{"const":"stack"},"modes":{"maxItems":0},
             "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
@@ -100,7 +124,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "op":{"enum":["destroy_permanent","exile_permanent"]},"source_block":{"const":0},
                 "target_slot":{"const":0},"optional":{"const":false},"regeneration_forbidden":{"const":false}
             }}}
-        }}
+        }}]}
     }));
     let closure = |timing, cast| {
         let caps = [
@@ -113,12 +137,17 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "capabilities":{"uniqueItems":true,"minItems":caps.len(),"maxItems":caps.len(),"items":{"enum":caps}}
         }})
     };
+    let caps = divided_plus_one_counters::CAPABILITIES;
+    let standalone = json!({"properties":{"spell":{"properties":{"modes":{"maxItems":0},
+        "targets":{"minItems":1,"items":{"properties":{"selection_id":{"const":"line:0:1"}}}}}}},
+        "if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
+        "then":closure(SpellTiming::Instant,CastInstantV1),"else":closure(SpellTiming::MainPhase,CastSorceryV1)});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{
-            "activated":{"items":no_power},"triggered":{"items":no_power},
-            "static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":no_power}}}}}
+            "activated":{"items":free_child},"triggered":{"items":free_child},
+            "static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":free_child}}}}}
         },
-        "if":{"required":["spell"],"properties":{"spell":has}},
+        "if":{"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/PowerAndDivisionFreeProgram"}}}},
         "then":{
             "properties":{
                 "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"basic":{"const":false},
@@ -127,10 +156,12 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"keywords":{"maxItems":0},
                 "static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0}
             },
-            "if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
-            "then":closure(SpellTiming::Instant,CastInstantV1),"else":closure(SpellTiming::MainPhase,CastSorceryV1)
+            "if":{"properties":{"spell":modal}},
+            "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}},
+                "capabilities":{"uniqueItems":true,"minItems":caps.len(),"maxItems":caps.len(),"items":{"enum":caps}}}},
+            "else":standalone
         },
-        "else":{"properties":{"capabilities":{"not":{"contains":{"const":PowerFilteredRemovalV1}}}}}
+        "else":{"properties":{"capabilities":{"not":{"contains":{"enum":[PowerFilteredRemovalV1,DividedPlusOneCountersV1]}}}}}
     }));
 }
 

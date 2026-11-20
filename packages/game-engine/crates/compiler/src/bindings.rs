@@ -68,10 +68,36 @@ impl<'a> Bindings<'a> {
         expression: &Value,
         selection: &str,
     ) -> String {
+        let id = self.target_selection(scope, path, expression, selection, "one");
+        self.reference(path, expression, &id, "601.2c");
+        id
+    }
+
+    pub(super) fn target_with_unresolved_count(
+        &mut self,
+        scope: &str,
+        path: &str,
+        expression: &Value,
+        selection: &str,
+    ) {
+        let id = self.target_selection(scope, path, expression, selection, "unknown");
+        self.references.push(
+            json!({"path":path,"expression":expression,"binding":"unresolved",
+            "rules":["601.2c"],"code":"unresolved-dependency","candidates":[id]}),
+        );
+    }
+
+    fn target_selection(
+        &mut self,
+        scope: &str,
+        path: &str,
+        expression: &Value,
+        selection: &str,
+        cardinality: &str,
+    ) -> String {
         let id = format!("{scope}/targets/{}", selection.replace(':', "%3A"));
         self.nodes.push(json!({"id":id,"path":path,"node":"selection","scope":scope,"expression":expression,
-            "cardinality":"one","timing":"stack-announcement","selection":"target","rules":["601.2c"]}));
-        self.reference(path, expression, &id, "601.2c");
+            "cardinality":cardinality,"timing":"stack-announcement","selection":"target","rules":["601.2c"]}));
         id
     }
 
@@ -127,13 +153,22 @@ impl<'a> Bindings<'a> {
     /// Archive v1 can report a scope gap even when every emitted reference is bound.
     /// Callers must independently bind the missing operand from the executable source.
     pub(super) fn with_scope_diagnostic(self, diagnostic: Value) -> Value {
+        self.with_diagnostics(vec![diagnostic])
+    }
+
+    pub(super) fn with_diagnostics(self, diagnostics: Vec<Value>) -> Value {
         let count = self.references.len();
+        let unresolved = self
+            .references
+            .iter()
+            .filter(|r| r["binding"] == "unresolved")
+            .count();
         json!({
             "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,
             "identity":self.identity, "rules":{"edition":RULES_EDITION,
                 "url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
-            "nodes":self.nodes,"references":self.references,"diagnostics":[diagnostic],
-            "counts":{"obligations":count,"bound":count,"unresolved":0},
+            "nodes":self.nodes,"references":self.references,"diagnostics":diagnostics,
+            "counts":{"obligations":count,"bound":count-unresolved,"unresolved":unresolved},
             "referencesBound":false,"fullyBound":false,"engineFeatures":[]
         })
     }

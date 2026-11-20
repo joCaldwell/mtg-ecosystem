@@ -31,6 +31,7 @@ pub mod coverage;
 mod creature_entry_return;
 mod diagnostics;
 mod distinct_permanent_colors;
+mod divided_plus_one_counters;
 mod draw_discard;
 #[cfg(test)]
 mod draw_discard_tests;
@@ -179,6 +180,8 @@ enum Ability {
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
+    #[serde(skip)]
+    DividedPlusOneCountersModal,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1412,9 +1415,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = match counter_unless_generic::lower(&shape, &result, &binding)? {
-        Some(ability) => vec![ability],
-        None => read_abilities(&canonical_abilities)?,
+    let abilities = if divided_plus_one_counters::validate(&shape, &result, &binding)? {
+        vec![Ability::DividedPlusOneCountersModal]
+    } else {
+        match counter_unless_generic::lower(&shape, &result, &binding)? {
+            Some(ability) => vec![ability],
+            None => read_abilities(&canonical_abilities)?,
+        }
     };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -2071,6 +2078,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     labels.statics.push(source_block(block)?);
                     definition.static_abilities.push(a);
+                    continue;
+                }
+                if let Ability::DividedPlusOneCountersModal = ability {
+                    program = divided_plus_one_counters_modal_program();
                     continue;
                 }
                 if let Ability::CounterUnlessGeneric { generic } = ability {

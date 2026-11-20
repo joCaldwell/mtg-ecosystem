@@ -69,12 +69,14 @@ mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
 mod creature_entry_return;
+mod divided_plus_one_counters;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
 mod power_filtered_removal;
+pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -372,6 +374,7 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    DividedPlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
     GraveyardBattlefieldReturnV1,
@@ -876,6 +879,14 @@ pub enum Instruction {
     PutSourcePlusOneCountersForCastColors {
         source_block: u32,
     },
+    /// CR 601.2c–d. Slot zero is one variable target occurrence. Announce its
+    /// distinct objects and positive shares summing to count before paying costs.
+    DistributePlusOneCounters {
+        count: Quantity,
+        minimum_targets: u32,
+        maximum_targets: u32,
+        source_block: u32,
+    },
     PutPlusOneCounters {
         on: CounterRecipient,
         amount: Quantity,
@@ -1127,7 +1138,8 @@ impl Instruction {
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
             Self::SearchBasicLands { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
-            Self::PutPlusOneCounters { source_block, .. } => *source_block,
+            Self::DistributePlusOneCounters { source_block, .. }
+            | Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
@@ -4579,6 +4591,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
+            Instruction::DistributePlusOneCounters { .. } => {
+                Some((0, TargetDomain::BattlefieldCreature))
+            }
             Instruction::PutPlusOneCounters { on, amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("counter amount must be positive".into());
@@ -4961,11 +4976,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     if !program.optional_additional_costs.is_empty() {
         set.insert(Capability::OptionalAdditionalManaCostV1);
     }
-    if program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::PutSourcePlusOneCountersForCastColors { .. }))
-    {
+    if program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            Instruction::PutSourcePlusOneCountersForCastColors { .. }
+                | Instruction::DistributePlusOneCounters { .. }
+        )
+    }) {
         set.insert(Capability::PlusOneCountersV1);
     }
     if has_permanent_owner_hand(program) {
@@ -5158,6 +5175,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
                 Capability::CastSpellColorCountersV1
             }
+            Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantKeywords { .. } => {
                 if temporary_permanent_keyword_program(program).is_some() {
@@ -6622,6 +6640,7 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
@@ -6862,6 +6881,7 @@ mod tests {
             CreatureTokensV1,
             MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
+            DividedPlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
             GraveyardBattlefieldReturnV1,
@@ -7204,6 +7224,7 @@ mod tests {
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
         definitions.push(power_filtered_removal::witness());
+        definitions.push(divided_plus_one_counters::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
