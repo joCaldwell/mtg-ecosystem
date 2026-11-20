@@ -84,7 +84,9 @@ fn strict_seekable_matches_original_typed_reader_at_every_fragment_and_nonzero_o
         );
     }
     let bytes = format!("{GOOD} \n\t").into_bytes();
-    let (_, proof) = pass::<Row>(&mut Cursor::new(&bytes)).unwrap();
+    let (_, proof) =
+        strict_read_seekable_verified::<Row, _>(&mut Cursor::new(&bytes), bytes.len() as u64)
+            .unwrap();
     assert_eq!(proof.bytes, bytes.len() as u64);
     assert_eq!(proof.sha256, sha256(&bytes));
 }
@@ -164,6 +166,7 @@ fn strict_seekable_read_seek_count_and_eof_errors_never_return_a_typed_value() {
     let mut checked = CheckedRead {
         source: Cursor::new(b"x"),
         bytes: u64::MAX,
+        max_bytes: u64::MAX,
         sha256: Sha256Sink::new(),
     };
     assert!(
@@ -183,6 +186,7 @@ fn strict_seekable_read_seek_count_and_eof_errors_never_return_a_typed_value() {
     let mut invalid = CheckedRead {
         source: InvalidRead,
         bytes: 0,
+        max_bytes: u64::MAX,
         sha256: Sha256Sink::new(),
     };
     assert!(
@@ -216,4 +220,17 @@ fn strict_seekable_read_seek_count_and_eof_errors_never_return_a_typed_value() {
             .unwrap_err()
             .contains("original position")
     );
+}
+
+#[test]
+fn stage1d_verified_reader_checks_the_limit_in_both_passes() {
+    let bound = GOOD.len() as u64;
+    let oversized = format!("{GOOD} ");
+    let read = |source: &mut Fragmented| {
+        strict_read_seekable_verified::<Row, _>(source, bound).unwrap_err()
+    };
+    assert!(read(&mut Fragmented::new(oversized.as_bytes(), BUFFER)).contains("byte limit"));
+    let mut changed = Fragmented::new(GOOD.as_bytes(), BUFFER);
+    changed.change_to = Some(oversized.into_bytes());
+    assert!(read(&mut changed).contains("byte limit"));
 }

@@ -155,8 +155,9 @@ mod power_entry_draw;
 pub use greatest_power::{greatest_power_ast, greatest_power_programs, greatest_power_source};
 mod power_filtered_removal;
 pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
+pub mod bulk_catalog;
 mod strict_io;
-pub use strict_io::strict_read_seekable;
+pub use strict_io::{JsonByteProof, strict_read_seekable, strict_read_seekable_verified};
 mod unlimited_hand_size;
 
 /// The sole active Card IR schema accepted and emitted by the engine.

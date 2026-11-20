@@ -4,18 +4,28 @@ use std::io::{self, BufReader, Read, Seek, SeekFrom};
 
 const BUFFER: usize = 64 * 1024;
 
-#[derive(Debug, PartialEq, Eq)]
-struct RawProof {
-    bytes: u64,
-    sha256: String,
+/// Raw bytes consumed by both matching decoding passes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JsonByteProof {
+    pub bytes: u64,
+    pub sha256: String,
 }
 struct CheckedRead<R> {
     source: R,
     bytes: u64,
+    max_bytes: u64,
     sha256: Sha256Sink,
 }
 impl<R: Read> Read for CheckedRead<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        // Read at most one byte beyond the bound to distinguish EOF from
+        // trailing whitespace (or another value) after a maximum-sized JSON.
+        let remaining = self.max_bytes.saturating_sub(self.bytes);
+        let limit = buffer
+            .len()
+            .min(usize::try_from(remaining.saturating_add(1)).unwrap_or(usize::MAX));
+        let buffer = &mut buffer[..limit];
         let count = loop {
             match self.source.read(buffer) {
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
@@ -30,14 +40,21 @@ impl<R: Read> Read for CheckedRead<R> {
             .bytes
             .checked_add(count64)
             .ok_or_else(|| io::Error::other("JSON byte count overflow"))?;
+        if self.bytes > self.max_bytes {
+            return Err(io::Error::other("JSON byte limit exceeded"));
+        }
         self.sha256.update(&buffer[..count]);
         Ok(count)
     }
 }
-fn pass<T: de::DeserializeOwned>(source: &mut impl Read) -> Result<(T, RawProof), String> {
+fn pass<T: de::DeserializeOwned>(
+    source: &mut impl Read,
+    max_bytes: u64,
+) -> Result<(T, JsonByteProof), String> {
     let checked = CheckedRead {
         source,
         bytes: 0,
+        max_bytes,
         sha256: Sha256Sink::new(),
     };
     let mut buffered = BufReader::with_capacity(BUFFER, checked);
@@ -55,7 +72,7 @@ fn pass<T: de::DeserializeOwned>(source: &mut impl Read) -> Result<(T, RawProof)
     let checked = buffered.into_inner();
     Ok((
         value,
-        RawProof {
+        JsonByteProof {
             bytes: checked.bytes,
             sha256: checked.sha256.finalize_hex(),
         },
@@ -70,10 +87,18 @@ fn pass<T: de::DeserializeOwned>(source: &mut impl Read) -> Result<(T, RawProof)
 pub fn strict_read_seekable<T: de::DeserializeOwned, R: Read + Seek>(
     source: &mut R,
 ) -> Result<T, String> {
+    strict_read_seekable_verified(source, u64::MAX).map(|(typed, _)| typed)
+}
+
+/// As above, with a hard raw-byte bound on each pass and matching byte proof.
+pub fn strict_read_seekable_verified<T: de::DeserializeOwned, R: Read + Seek>(
+    source: &mut R,
+    max_bytes: u64,
+) -> Result<(T, JsonByteProof), String> {
     let start = source
         .stream_position()
         .map_err(|error| error.to_string())?;
-    let (_, scanned) = pass::<UniqueJson>(source)?;
+    let (_, scanned) = pass::<UniqueJson>(source, max_bytes)?;
     if source
         .seek(SeekFrom::Start(start))
         .map_err(|error| error.to_string())?
@@ -81,11 +106,11 @@ pub fn strict_read_seekable<T: de::DeserializeOwned, R: Read + Seek>(
     {
         return Err("JSON reader failed to return to its original position".into());
     }
-    let (typed, decoded) = pass::<T>(source)?;
+    let (typed, decoded) = pass::<T>(source, max_bytes)?;
     if scanned != decoded {
         return Err("JSON input changed between duplicate scan and typed decode".into());
     }
-    Ok(typed)
+    Ok((typed, decoded))
 }
 
 #[cfg(test)]

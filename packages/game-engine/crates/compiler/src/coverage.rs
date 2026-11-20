@@ -1,5 +1,6 @@
 //! Reproducible whole-archive intake measurement; no header substitution.
-use crate::{CompileResult, compile};
+use crate::{CompileResult, compile_result, lower};
+use mtg_contracts::bulk_catalog::BulkStatus;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -149,18 +150,55 @@ fn escape_tsv(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
-fn archive_exclusion(row: &Value) -> Option<(&'static str, String)> {
+fn archive_exclusion(row: &Value) -> Option<String> {
     // Excluded archive records have no faces, binding or AST. They are valid
     // archive rows but were never parsed, including one Commander-legal row.
     (row["status"] == "excluded").then(|| {
-        (
-            "unparsed",
-            format!(
-                "archive_excluded:{}",
-                row["reason"].as_str().unwrap_or("missing_reason")
-            ),
+        format!(
+            "archive_excluded:{}",
+            row["reason"].as_str().unwrap_or("missing_reason")
         )
     })
+}
+
+pub(crate) enum RecordAssessment {
+    Definition(Definition),
+    Gap { status: BulkStatus, reason: String },
+}
+
+pub(crate) fn assess_record(
+    accepted: &AcceptedArchive,
+    raw: &str,
+    row: &Value,
+) -> RecordAssessment {
+    let gap = |status, reason| RecordAssessment::Gap { status, reason };
+    if let Some(reason) = archive_exclusion(row) {
+        return gap(BulkStatus::Unparsed, reason);
+    }
+    let ast = &row["faces"][0]["result"]["abilities"];
+    match compile_result(lower(accepted, raw)) {
+        CompileResult::Lowered { definition } => {
+            let mut singleton = Catalog {
+                schema_version: CURRENT_IR_VERSION,
+                rules_edition: RULES_EDITION.into(),
+                rules_sha256: RULES_SHA256.into(),
+                definitions: vec![*definition],
+            };
+            match singleton.validate() {
+                Ok(()) => RecordAssessment::Definition(singleton.definitions.pop().unwrap()),
+                Err(e) => gap(BulkStatus::Invalid, reason_code("ir", &e, ast)),
+            }
+        }
+        CompileResult::Unsupported { path, reason: _ } if path == "status" => {
+            gap(BulkStatus::Unparsed, "status:unparsed".into())
+        }
+        CompileResult::Unsupported { path, reason } => {
+            gap(BulkStatus::Unsupported, reason_code(&path, &reason, ast))
+        }
+        CompileResult::Invalid { path, reason } => {
+            gap(BulkStatus::Invalid, reason_code(&path, &reason, ast))
+        }
+    }
 }
 
 pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageError> {
@@ -229,32 +267,12 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
                 reason: "missing source.legalities.commander".into(),
             })?
             == "legal";
-        let ast = &row["faces"][0]["result"]["abilities"];
-        let (status, reason) = if let Some(excluded) = archive_exclusion(&row) {
-            excluded
-        } else {
-            match compile(header, raw) {
-                CompileResult::Lowered { definition } => match (Catalog {
-                    schema_version: mtg_contracts::CURRENT_IR_VERSION,
-                    rules_edition: RULES_EDITION.into(),
-                    rules_sha256: RULES_SHA256.into(),
-                    definitions: vec![*definition],
-                })
-                .validate()
-                {
-                    Ok(()) => ("lowered_validated", String::new()),
-                    Err(e) => ("invalid", reason_code("ir", &e, ast)),
-                },
-                CompileResult::Unsupported { path, reason: _ } if path == "status" => {
-                    ("unparsed", "status:unparsed".into())
-                }
-                CompileResult::Unsupported { path, reason } => {
-                    ("unsupported", reason_code(&path, &reason, ast))
-                }
-                CompileResult::Invalid { path, reason } => {
-                    ("invalid", reason_code(&path, &reason, ast))
-                }
+        let result = assess_record(accepted, raw, &row);
+        let (status, reason) = match result {
+            RecordAssessment::Definition(_) => {
+                (BulkStatus::LoweredValidated.as_str(), String::new())
             }
+            RecordAssessment::Gap { status, reason } => (status.as_str(), reason),
         };
         summary.total += 1;
         if legal {
@@ -403,10 +421,7 @@ mod tests {
         let row = serde_json::json!({"status":"excluded", "reason":"no-eligible-paper-printing"});
         assert_eq!(
             archive_exclusion(&row),
-            Some((
-                "unparsed",
-                "archive_excluded:no-eligible-paper-printing".into()
-            ))
+            Some("archive_excluded:no-eligible-paper-printing".into())
         );
         assert_eq!(
             archive_exclusion(&serde_json::json!({"status":"parsed"})),

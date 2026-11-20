@@ -17,6 +17,7 @@ mod announced_x_effects_tests;
 mod basic_landwalk;
 mod bestow;
 mod bindings;
+pub mod bulk;
 mod cascade_land_entry;
 mod cast_entry;
 mod cast_mana_value_sweep;
@@ -1438,7 +1439,15 @@ fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
 }
 
 pub fn compile(manifest: &str, record: &str) -> CompileResult {
-    match lower(manifest, record) {
+    compile_result(
+        accepted_manifest(manifest)
+            .map_err(|e| invalid("manifest", e))
+            .and_then(|archive| lower(archive, record)),
+    )
+}
+
+fn compile_result(result: Result<Definition, Failure>) -> CompileResult {
+    match result {
         Ok(definition) => CompileResult::Lowered {
             definition: Box::new(definition),
         },
@@ -1452,8 +1461,7 @@ pub fn compile(manifest: &str, record: &str) -> CompileResult {
         },
     }
 }
-fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
-    let archive = accepted_manifest(manifest).map_err(|e| invalid("manifest", e))?;
+fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
     let r: Record = decode(record, "record")?;
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
