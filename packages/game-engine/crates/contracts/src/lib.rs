@@ -1,6 +1,10 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
+mod granted_land_mana;
+pub use granted_land_mana::{
+    granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
+};
 mod controller_land_types;
 pub use controller_land_types::controller_land_type_ast;
 mod colored_library_search;
@@ -317,6 +321,7 @@ pub enum Capability {
     ConditionalBasicLandEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
+    ControllerLandGrantedManaV1,
     ControllerLandBasicTypesV1,
     FlashV1,
     CastArtifactV1,
@@ -1364,6 +1369,7 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    GrantControllerLandsAnyColorMana,
     GrantControllerLandsAllBasicTypes,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
     /// grants one independent cascade to this controller's qualifying cast.
@@ -2589,6 +2595,9 @@ impl Definition {
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
+                StaticEffect::GrantControllerLandsAnyColorMana => {
+                    Capability::ControllerLandGrantedManaV1
+                }
                 StaticEffect::GrantControllerLandsAllBasicTypes => {
                     Capability::ControllerLandBasicTypesV1
                 }
@@ -3052,6 +3061,7 @@ impl Definition {
         commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        granted_land_mana::validate_definition(self)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3646,6 +3656,7 @@ impl Definition {
             !matches!(
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
+                    | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
@@ -6881,6 +6892,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    granted_land_mana::extend_schema(&mut schema);
     keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
@@ -7201,6 +7213,7 @@ mod tests {
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
+            ControllerLandGrantedManaV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
@@ -7886,6 +7899,12 @@ mod tests {
         grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
         grant.capabilities = grant.requirements();
         definitions.push(grant);
+        let artifact = definitions
+            .iter()
+            .find(|d| d.name == "Sol Ring")
+            .unwrap()
+            .clone();
+        definitions.push(granted_land_mana::witness(artifact));
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")

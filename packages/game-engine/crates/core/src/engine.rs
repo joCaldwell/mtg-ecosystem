@@ -349,6 +349,7 @@ mod casting_foundation_tests;
 mod controller_land_type_tests;
 #[cfg(test)]
 mod distinct_permanent_colors_tests;
+mod granted_land_mana;
 mod hand_return;
 mod intrinsic_mana;
 mod library_order;
@@ -640,19 +641,6 @@ impl Prepared {
             d.capabilities
                 .contains(&Capability::ControllerLandBasicTypesV1)
         })
-    }
-    fn colored_search_formats(&self) -> bool {
-        self.catalog
-            .definitions
-            .iter()
-            .any(|d| d.capabilities.contains(&Capability::ColoredLibrarySearchV1))
-    }
-    fn work_format(&self) -> u32 {
-        if self.colored_search_formats() {
-            35
-        } else {
-            34
-        }
     }
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
@@ -1165,6 +1153,7 @@ enum Frame {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "ability", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaAbilityIdentity {
+    GrantedLandTap { color: Color },
     Intrinsic { color: Color },
     Printed { index: u32 },
 }
@@ -2554,6 +2543,13 @@ impl Game {
                 }
             }
         }
+        if self.has_granted_land_mana(object)? {
+            for color in Self::granted_land_mana_colors() {
+                if !colors.contains(&color) {
+                    colors.push(color);
+                }
+            }
+        }
         Ok(colors)
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
@@ -3142,11 +3138,7 @@ impl Game {
                         self.play_land(input.player, input.decision_id, card)?;
                     }
                     Response::ActivateMana { object } => {
-                        if self.is_permanent_mana(object) {
-                            self.begin_permanent_mana(&input, object, Frame::Priority)?;
-                        } else {
-                            self.begin_intrinsic_mana(&input, object, Frame::Priority)?;
-                        }
+                        self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
                     Response::Cast { card } => {
                         self.announce_priority_spell(input.player, card)?;
@@ -3450,11 +3442,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: if self.prepared.colored_search_formats() {
-                61
-            } else {
-                60
-            },
+            snapshot_version: 61,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3496,12 +3484,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version
-            != (if prepared.colored_search_formats() {
-                61
-            } else {
-                60
-            })
+        if s.snapshot_version != 61
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

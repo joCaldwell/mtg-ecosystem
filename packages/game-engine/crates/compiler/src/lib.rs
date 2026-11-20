@@ -84,6 +84,7 @@ mod controller_land_types;
 mod cycling;
 #[cfg(test)]
 mod cycling_tests;
+mod granted_land_mana;
 mod targeted_counted_draw;
 mod targeted_discard;
 #[cfg(test)]
@@ -1542,6 +1543,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let (color_stats, color_mana) =
         distinct_permanent_colors::lower(&abilities, &result, &binding, &source)?
             .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
+    let granted_mana = granted_land_mana::lower(&source, &shape, &result, &binding)?;
+    let grants_land_mana = granted_mana.is_some();
     let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let set_exile = set_exile::lower(&shape, &result, &binding, &r.oracle_identity)?;
@@ -1682,6 +1685,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .flatten()
         .chain(opponent_land_mana)
         .chain(color_mana)
+        .chain(granted_mana)
         .collect();
     labels
         .mana
@@ -1770,7 +1774,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     modes: vec![],
                 });
             }
-            let remaining_abilities = if let Some(stats) = color_stats {
+            let remaining_abilities = if grants_land_mana {
+                labels.statics.push(0);
+                definition
+                    .static_abilities
+                    .push(mtg_contracts::granted_land_mana_static());
+                &[]
+            } else if let Some(stats) = color_stats {
                 // The complete family consumed the static and activated blocks.
                 labels.statics.push(1);
                 definition.static_abilities.push(stats);
