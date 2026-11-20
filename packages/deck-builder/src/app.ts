@@ -21,7 +21,7 @@ import { databaseGate } from "./auth-database.ts";
 import { consentHtml, consentScript } from "./consent.ts";
 import { createHostedAuth, type HostedAuth } from "./auth.ts";
 import { accountInfo, chooseHandle, createInvite, adminInfo, exportAccount, deleteAccount, connectedClients, disconnectClient } from "./accounts.ts";
-import { createRateLimiter, RateLimitError } from "./ratelimit.ts";
+import { createRateLimiter, LIMITS, RateLimitError } from "./ratelimit.ts";
 import { clientIp, securityHeaders } from "./mode.ts";
 import { allowedRequest, getMode, localActor, publicOrigin, type Mode } from "./mode.ts";
 import { createToken, listTokens, revokeToken } from "./tokens.ts";
@@ -709,7 +709,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
         logging.actor(sessionActor);
         const providers = [process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET ? "discord" : null, process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? "google" : null].filter(Boolean);
         if (mode === "hosted" && !sessionActor) rateLimit("unauthenticated",clientIp(req));
-        return json(200,{mode,providers,backdrop:visitBackdrop(db),legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,user:sessionActor ? accountInfo(db,sessionActor) : null});
+        return json(200,{mode,providers,backdrop:visitBackdrop(db),legal:auth?.legal ?? null,invites_required:auth?.invitesRequired ?? true,
+          user:sessionActor ? accountInfo(db,sessionActor) : null,
+          ...(mode === "hosted" && sessionActor ? { ui_request_budget: { count: LIMITS.ui.count, window_ms: LIMITS.ui.window } } : {}),
+        });
       }
       if (mode === "hosted" && req.method === "GET" && url.pathname === "/consent.js") {
         res.writeHead(200,{"Content-Type":"text/javascript"}); return void res.end(consentScript);
@@ -800,7 +803,10 @@ export function createApp(db: Database, opts: AppOptions = {}) {
     } catch (e: any) {
       logging.error(e);
       if (res.headersSent) return void res.end();
-      if (e instanceof RateLimitError) res.setHeader("Retry-After",String(e.retryAfter));
+      if (e instanceof RateLimitError) {
+        res.setHeader("Retry-After",String(e.retryAfter));
+        if (e.kind === "ui") res.setHeader("X-Multiverse-UI-Limit","1");
+      }
       if (e instanceof AppError) return json(e.status, { error: e.message });
       json(500, { error: "Internal error" });
     }

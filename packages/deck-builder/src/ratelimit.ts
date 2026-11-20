@@ -17,8 +17,14 @@ export const LIMITS = {
   demo: { count: 10, window: 60_000 }, // sample deck creation: one transaction resolving ~80 cards (§11.3)
 } as const;
 export class RateLimitError extends AppError {
-  retryAfter: number;
-  constructor(retryAfter: number) { super(`Slow down; retry in ${retryAfter} seconds`, 429); this.retryAfter = retryAfter; }
+  readonly retryAfter: number;
+  readonly kind: keyof typeof LIMITS;
+
+  constructor(retryAfter: number, kind: keyof typeof LIMITS) {
+    super(`Slow down; retry in ${retryAfter} seconds`, 429);
+    this.retryAfter = retryAfter;
+    this.kind = kind;
+  }
 }
 export function createRateLimiter(now = Date.now) {
   type Kind=keyof typeof LIMITS;
@@ -35,7 +41,7 @@ export function createRateLimiter(now = Date.now) {
     group.delete(id);
     if(group.size>=4096)group.delete(group.keys().next().value!);
     group.set(id,hits);
-    if(hits.length>=rule.count)throw new RateLimitError(Math.max(1,Math.ceil((hits[0]+rule.window-time)/1000)));
+    if(hits.length>=rule.count)throw new RateLimitError(Math.max(1,Math.ceil((hits[0]+rule.window-time)/1000)),kind);
     hits.push(time);
   };
 }

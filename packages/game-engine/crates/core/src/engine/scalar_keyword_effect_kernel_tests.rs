@@ -94,6 +94,7 @@ fn resolving_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
     let effect = ResolvedEffect {
         id: EffectId(g.state.rules.next_effect_id),
         origin: EffectOrigin {
+            activated_ability: None,
             mode: None,
             stack_id: frame.spell.id,
             source: frame.spell.source,

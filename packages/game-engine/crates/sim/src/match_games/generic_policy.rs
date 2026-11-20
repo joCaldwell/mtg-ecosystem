@@ -1481,6 +1481,7 @@ impl Strategy<'_> {
             TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
                 self.stack_target(v, t, None).is_some()
             }
+            TargetDomain::PlayerOrPlaneswalker => !v.live_turn_order.is_empty(),
             TargetDomain::AnyPlayer
             | TargetDomain::OpponentPlayer
             | TargetDomain::AnyDamageTarget => v.live_turn_order.iter().any(|p| *p != v.viewer),

@@ -228,7 +228,7 @@ fn direct_projection(game: &Game, viewer: PlayerId) -> Observation {
     view.objects
         .sort_by(|left, right| left.handle.0.cmp(&right.handle.0));
     Observation {
-        observation_version: 33,
+        observation_version: 34,
         decision_context: game
             .permitted_decision_context(viewer, game.request_header(viewer).unwrap().as_ref()),
         view,
@@ -788,6 +788,7 @@ mod diagnostic {
                 domain.state.rules.effects.push(ResolvedEffect {
                     id: EffectId(index as u64),
                     origin: EffectOrigin {
+                        activated_ability: None,
                         mode: None,
                         stack_id: StackId(u32::try_from(index).unwrap()),
                         source,

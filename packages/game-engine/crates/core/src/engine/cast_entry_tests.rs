@@ -171,3 +171,75 @@ fn paid_entry_untaps_only_the_trigger_controllers_current_tapped_lands() {
     );
     assert!(game.current(opposed).unwrap().tapped);
 }
+
+#[test]
+fn fixed_mana_creature_activations_pay_announce_and_resolve() {
+    let source = include_str!("../../../../tests/fixtures/synthetic-fixed-activations.json");
+    let prepared = prepared_with_sources(
+        &[
+            ("Mist Basin Surveyor", 0, 0, true),
+            ("Forest", 0, 0, false),
+            ("Forest", 0, 0, false),
+            ("Forest", 0, 0, false),
+            ("Grizzly Bears", 1, 1, false),
+            ("Sol Ring", 1, 1, false),
+        ],
+        &[source],
+    );
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    cast(&mut game, 1, 0, vec![]);
+    let actor = object(&game, 0);
+    let bear = object(&game, 4);
+    let artifact = object(&game, 5);
+    for (ability, target) in [(0, None), (1, Some(bear)), (2, Some(artifact))] {
+        answer(
+            &mut game,
+            1,
+            Response::ActivateAbility {
+                object: actor,
+                ability,
+            },
+        );
+        if let Some(target) = target {
+            let r = request(&mut game, 1);
+            let Request::Targets { candidates, .. } = &r else {
+                panic!("object announcement")
+            };
+            assert!(candidates.contains(&target));
+            assert!(!candidates.contains(&object(&game, 1)));
+            recover(&game);
+            answer(
+                &mut game,
+                1,
+                Response::Targets {
+                    objects: vec![target],
+                },
+            );
+        }
+        assert!(matches!(request(&mut game, 1), Request::Mana { .. }));
+        fund(&mut game, 1, "Forest", 1);
+        answer(&mut game, 1, Response::FinishMana { undo_mana: false });
+        answer(
+            &mut game,
+            1,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::G, 1.into())]),
+            },
+        );
+        assert!(matches!(request(&mut game, 1), Request::Priority { .. }));
+        assert_eq!(
+            game.top().unwrap().paid.as_ref(),
+            Some(&game.top().unwrap().total_cost)
+        );
+        recover(&game);
+        resolve(&mut game, 1, |_| {});
+    }
+    assert_eq!(game.state.rules.players[0].life, 44.into());
+    for id in [4, 5] {
+        assert_eq!(
+            game.zone(object(&game, id)),
+            Some(Zone::Graveyard { owner: PlayerId(1) })
+        );
+    }
+    recover(&game);
+}

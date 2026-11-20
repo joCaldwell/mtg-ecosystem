@@ -32,6 +32,7 @@ fn seed(
     g.state.rules.effects.push(ResolvedEffect {
         id,
         origin: EffectOrigin {
+            activated_ability: None,
             mode,
             stack_id: StackId(0),
             source,

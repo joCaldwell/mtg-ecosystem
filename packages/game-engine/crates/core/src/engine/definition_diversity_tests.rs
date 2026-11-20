@@ -195,6 +195,7 @@ fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payl
             target_handles,
             id: EffectId(u64::try_from(index).unwrap()),
             origin: EffectOrigin {
+                activated_ability: None,
                 mode: None,
                 stack_id: StackId(u32::try_from(index).unwrap()),
                 source,

@@ -217,6 +217,9 @@ impl Game {
                     Frame::StackTargets { cast }
                 }
                 Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
+                Some(TargetDomain::PlayerOrPlaneswalker) => {
+                    return Err("player-or-planeswalker requires an activated mode".into());
+                }
                 Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer) => {
                     Frame::PlayerTargets { cast }
                 }

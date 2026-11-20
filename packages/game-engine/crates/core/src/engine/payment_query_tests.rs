@@ -54,7 +54,7 @@ fn mana_window_is_caster_only_and_has_no_priority_recipient() {
     let (_, game) = payment_game();
     let before = game.state_digest().unwrap();
     let own = observation(&game, PlayerId(0));
-    assert_eq!(own.observation_version, 33);
+    assert_eq!(own.observation_version, 34);
     assert_eq!(own.view.priority, None);
     let Some(PlayerRequest::Mana { player, cost, .. }) = own.decision else {
         panic!("expected player mana request")

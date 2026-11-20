@@ -32,19 +32,23 @@ function install(fetcher: typeof fetch) {
   };
 }
 
-test('account-scoped SDK reads retain account authentication; standalone still omits cookies', async () => {
-  for (const scoped of [true, false]) {
+test('account-scoped config and SDK reads use host transport if supplied; standalone omits cookies', async () => {
+  for (const mode of ['hosted', 'hosted-injected', 'standalone'] as const) {
+    const scoped = mode !== 'standalone', injected = mode === 'hosted-injected';
     const prefix = scoped ? `/api/games/${identity.match_id}/native` : '';
     const seen: string[] = [];
     let session: ReturnType<typeof browserCommandSession>;
-    const restore = install(async (input, init) => {
+    const requestFetch: typeof fetch = async (input, init) => {
       const url = new URL(String(input));
       assert.equal(url.origin, origin);
       assert.ok(url.pathname.startsWith(`${prefix}/`));
       seen.push(url.pathname);
       assert.equal(init?.credentials, scoped ? 'same-origin' : 'omit');
       const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-      if (url.pathname.endsWith('/client-config.json')) return json({ client_config_version: 1, server_origin: origin });
+      if (url.pathname.endsWith('/client-config.json')) {
+        assert.equal(new Headers(init?.headers).get('Authorization'), null);
+        return json({ client_config_version: 1, server_origin: origin });
+      }
       assert.equal(new Headers(init?.headers).get('Authorization'), `Bearer ${'a'.repeat(64)}`);
       if (url.pathname.endsWith('/manifest')) return json({ ...identity, profile: opening.profile, decks: [deck, deck, deck, deck], starting_player: 0, catalog });
       if (url.pathname.endsWith('/presentation')) return json({}, 404);
@@ -54,8 +58,9 @@ test('account-scoped SDK reads retain account authentication; standalone still o
         return json({ protocol_version: 1, next: opening.resume.next, entries: [], has_more: false });
       }
       throw new Error('Unexpected SDK route');
-    });
-    session = browserCommandSession('4'.repeat(64), scoped ? { endpoint: prefix } : undefined);
+    };
+    const restore = install(injected ? async () => assert.fail('Hosted request bypassed its transport') : requestFetch);
+    session = browserCommandSession('4'.repeat(64), scoped ? { endpoint: prefix, ...(injected ? { requestFetch } : {}) } : undefined);
     try {
       await session.join(file());
       assert.deepEqual(seen.map(path => path.slice(prefix.length)), ['/client-config.json', `/v1/matches/${identity.match_id}/manifest`, `/v1/matches/${identity.match_id}/presentation`, `/v1/matches/${identity.match_id}/resume`, `/v1/matches/${identity.match_id}/events`]);

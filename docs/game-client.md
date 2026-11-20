@@ -17,9 +17,9 @@ source-dependent choices. The [decision inventory](../packages/game/fixtures/dec
 records request coverage. Priority and mana windows use bounded action discovery
 and submit named beginnings only when their scope and meaning are supplied.
 
-Full games and integrated launch remain qualification gates. Exact deck admission,
-private provisioning/recovery and three separately owned automated seats are
-implemented. The default launcher stays disabled, and unsupported automation pauses.
+One exact foundations release passed [hosted completion](game-client-evidence.md#hosted-completion).
+Launch requires deck admission, private provisioning and three owned automated
+seats. Unsupported automation pauses.
 The owner-scoped record confirms pauses and results after shutdown. A retained
 table can be read-only while the host independently resolves any pending command.
 
@@ -61,9 +61,10 @@ last Observation/token across lifecycle-only pages. A changed generation/seat/
 identity invalidates all asynchronous completions, drafts and effects before I/O.
 Reads use bounded backoff/retry; 429 responses may extend the wait using an
 authorization-local `Retry-After` hint, capped at 60 seconds and aborted on stop.
-Only a successful stream read after that cooldown renews the rate-limit retry
-budget; hintless collision loops remain bounded. A failed/partial response body is uncertainty,
-not a successful response. Reauthorize/verify manifests before recovery.
+Only a successful stream read after cooldown renews the rate-limit retry budget.
+Hintless collisions stay bounded. Failed or partial bodies remain uncertain.
+Recovery verifies manifest and metadata, retaining completed stages across hinted
+429s within the same authorization.
 
 ## Durable command journal
 
@@ -250,12 +251,12 @@ old-generation cancellation is ignored. Late completions cannot relabel themselv
 with the latest generation. Immutable snapshots omit token/cursor/credential;
 handles/scope/beginnings remain private in-memory facts, never URL/log/storage data.
 
-Local ceilings: page 16, work 250/call, 32 charged attempts, 8,000 units, 256 aggregate
-entries, 131,072 aggregate UTF-8 response bytes, absolute 20-second chain, four-second
-operations, 100 ms inter-page wait. Limits may only decrease. At most two total retries
-for HTTP 429/explicit quota, with one-second wait and full charged budgets. Other
-transport/protocol failures retain uncertainty. At most one extra cancellation
-attempt per retired intent, four seconds, no work/budget replenishment.
+Local ceilings are 16/page, 250 work/call, 32 charged attempts, 8,000 units, 256
+entries, 131,072 aggregate UTF-8 response bytes, 20 seconds/chain and four
+seconds/operation. Inter-page wait is 100 ms. Limits only decrease. At most two
+fully charged retries for HTTP 429/explicit quota wait one second each. Other
+transport/protocol failures retain uncertainty. One extra cancellation may wait
+for cooldown within four seconds. It never replenishes work or budget.
 
 ReadSession captures original CommandContext/query context/scope before discovery,
 associates only that returned query generation, and requires its issued draft,
