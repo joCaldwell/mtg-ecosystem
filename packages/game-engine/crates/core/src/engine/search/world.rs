@@ -378,6 +378,7 @@ impl SampleBuildWork {
                     attachment_timestamp: None,
                     keyword_timestamp: None,
                     plus_one_counters: Quantity::zero(),
+                    lore_counters: Quantity::zero(),
                     deathtouch_damage: false,
                     id: object,
                     zone: row.zone,
@@ -503,6 +504,9 @@ impl RootHandleMap {
     }
     pub fn response(&self, response: &PlayerResponse) -> Result<PlayerResponse, String> {
         Ok(match response {
+            PlayerResponse::Bestow { card } => PlayerResponse::Bestow {
+                card: self.object(card)?,
+            },
             PlayerResponse::Cast { card } => PlayerResponse::Cast {
                 card: self.object(card)?,
             },

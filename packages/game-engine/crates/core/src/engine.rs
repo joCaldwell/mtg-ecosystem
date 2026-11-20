@@ -405,7 +405,9 @@ mod legend;
 mod scenarios;
 mod targeted_loss;
 pub use combat::*;
+mod saga;
 mod turns;
+pub use saga::{DelayedChapterRegistration, LoreChange};
 pub use turns::*;
 mod events;
 mod trace;
@@ -954,6 +956,8 @@ struct Object {
     keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    lore_counters: Quantity,
     marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     deathtouch_damage: bool,
@@ -1390,6 +1394,9 @@ pub enum Response {
     },
     ActivateMana {
         object: ObjectId,
+    },
+    Bestow {
+        card: CardId,
     },
     Cast {
         card: CardId,
@@ -2259,6 +2266,7 @@ pub enum EventOutcome {
     },
     TurnTransitioned {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lore: Vec<LoreChange>,
         phased_in: Vec<ObjectId>,
         previous: TurnState,
         current: TurnState,
@@ -2295,6 +2303,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    DelayedChapterRegistered {
+        issuer: StackId,
+    },
     Demonstrated {
         first: spell_copy::CopyIdentity,
         opponent: Option<spell_copy::CopyIdentity>,
@@ -2584,6 +2595,7 @@ impl Game {
                         attachment_timestamp: None,
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
+                        lore_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         attack_ready: c.zone == Zone::Battlefield,
@@ -2607,6 +2619,7 @@ impl Game {
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(MatchState::new),
                 effects: vec![],
+                delayed_chapters: vec![],
                 next_effect_id: 0,
                 next_damage_transaction_id: 0,
                 pending_triggers: vec![],
@@ -2844,11 +2857,21 @@ impl Game {
     fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
         let definition = self.definition(stack.source.card)?;
         match &stack.kind {
+            StackKind::Spell
+                if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow) =>
+            {
+                mtg_contracts::bestow_alternative(definition)
+                    .map(|(_, program)| program)
+                    .ok_or_else(|| "missing bestow cast program".to_owned())
+            }
             StackKind::Spell => definition
                 .spell
                 .as_ref()
                 .ok_or_else(|| "missing spell program".to_string()),
             StackKind::Triggered { ability, .. } => match *ability {
+                EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                    self.delayed_chapter_program(stack.source, chapter)
+                }
                 EffectiveTriggerAbility::Intrinsic { index } => definition
                     .triggered
                     .get(index as usize)
@@ -3244,6 +3267,9 @@ impl Game {
             {
                 Ok(())
             }
+            (Frame::Priority, Response::Bestow { card }) if self.state.rules.priority == player => {
+                self.validate_priority_bestow(player, *card)
+            }
             (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
                 self.validate_priority_spell_cast(player, *card)
             }
@@ -3471,6 +3497,9 @@ impl Game {
                     Response::ActivateMana { object } => {
                         self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
+                    Response::Bestow { card } => {
+                        self.announce_priority_bestow(input.player, card)?
+                    }
                     Response::Cast { card } => {
                         self.announce_priority_spell(input.player, card)?;
                     }
@@ -3574,7 +3603,14 @@ impl Game {
                     .is_some_and(|check| !check.passed())
                     || (!frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l))
                 {
-                    self.finish_spell(&stack, false)?;
+                    if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                        && frame.condition_check.is_none()
+                        && frame.legal_targets == [false]
+                    {
+                        self.complete_spell(&stack, true, true)?;
+                    } else {
+                        self.finish_spell(&stack, false)?;
+                    }
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
                         Instruction::OfferHandCastWithoutManaCost { .. } => {
@@ -3684,6 +3720,14 @@ impl Game {
         Ok(())
     }
     fn finish_spell(&mut self, stack: &StackInstance, resolved: bool) -> Result<(), String> {
+        self.complete_spell(stack, resolved, false)
+    }
+    fn complete_spell(
+        &mut self,
+        stack: &StackInstance,
+        resolved: bool,
+        bestow_fallback: bool,
+    ) -> Result<(), String> {
         if !stack.kind.is_spell() {
             return self.finish_ability(stack, resolved);
         }
@@ -3709,7 +3753,9 @@ impl Game {
                     Zone::Graveyard { owner }
                 };
             if destination == Zone::Battlefield
-                && self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"]
+                && !bestow_fallback
+                && (stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                    || self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"])
             {
                 self.finish_spell_aura_entry(
                     stack.source,
@@ -3801,7 +3847,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 69,
+            snapshot_version: 70,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3843,7 +3889,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 69
+        if s.snapshot_version != 70
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

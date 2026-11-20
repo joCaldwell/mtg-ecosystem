@@ -244,13 +244,33 @@ impl Game {
         }
         Ok(())
     }
+    pub(super) fn structural_characteristics(
+        &self,
+        object: ObjectId,
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let definition = self.definition(object.card)?;
+        let bestowed = self.current(object).is_ok_and(|o| match o.zone {
+            Zone::Battlefield => {
+                o.attached_to.is_some() && mtg_contracts::bestow_alternative(definition).is_some()
+            }
+            Zone::Stack => self.is_bestowed_spell(object),
+            _ => false,
+        });
+        if bestowed {
+            Ok(std::borrow::Cow::Owned(
+                self.proposed_cast_characteristics(object.card, true)?,
+            ))
+        } else {
+            Ok(std::borrow::Cow::Borrowed(&definition.characteristics))
+        }
+    }
     // CR 105.2, 611.3, 613.1b/e: battlefield membership and control
     // have already been reconciled before the color layer is evaluated.
     pub(super) fn color_layer(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        let base = &self.definition(object.card)?.characteristics;
+        let base = self.structural_characteristics(object)?;
         if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
             let target = self.current(object)?;
             if target.present_on_battlefield() {
@@ -270,14 +290,14 @@ impl Game {
                                 && a.functioning_zone == FunctioningZone::Battlefield
                         })
                     {
-                        let mut effective = base.clone();
+                        let mut effective = base.into_owned();
                         effective.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
                         return Ok(std::borrow::Cow::Owned(effective));
                     }
                 }
             }
         }
-        Ok(std::borrow::Cow::Borrowed(base))
+        Ok(base)
     }
 
     pub(super) fn permanent_colors(
@@ -1313,14 +1333,8 @@ impl Game {
     ) -> Result<EventOutcome, String> {
         match event {
             ProposedEvent::CreateEffect { effect } => {
-                if self.state.rules.effects.len() >= self.effect_limit() {
-                    return Err(self.capacity_error(RuleFault::EffectCapacityExceeded {
-                        capacity: self.effect_limit(),
-                        requested: self.state.rules.effects.len() + 1,
-                    }));
-                }
+                self.reserve_effect_slot()?;
                 if effect.id != EffectId(self.state.rules.next_effect_id)
-                    || self.state.rules.effects.len() >= self.effect_limit()
                     || effect.expires_in_cleanup_of_turn != self.state.rules.turn.number
                     || effect.origin.controller.0 >= 4
                     || effect.origin.source_handles.len() != 4
@@ -1644,6 +1658,7 @@ impl Game {
             } => self.apply_damage_allocation(*transaction, effect, allocations),
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
+                self.state.rules.delayed_chapters.clear();
                 let expired = self
                     .state
                     .rules
@@ -2143,6 +2158,11 @@ pub struct VisibleEffectSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VisibleEffect {
+    DelayedChapter {
+        origin: VisibleEffectSource,
+        chapter: u32,
+        expires_in_cleanup_of_turn: u64,
+    },
     ProtectControllerUntilNextTurn {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2511,10 +2531,32 @@ impl Game {
         })
     }
     pub(super) fn visible_effects(&self, viewer: PlayerId) -> Result<Vec<VisibleEffect>, String> {
-        self.live_effect_keys()
+        let mut effects = self
+            .live_effect_keys()
             .iter()
             .map(|key| self.visible_effect(viewer, key))
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        for row in &self.state.rules.delayed_chapters {
+            let source = row.issuer.source;
+            let announced = row
+                .source_handles()?
+                .get(viewer.0 as usize)
+                .ok_or("missing delayed source reference")?
+                .clone();
+            effects.push(VisibleEffect::DelayedChapter {
+                origin: VisibleEffectSource {
+                    source: VisibleTarget {
+                        announced,
+                        current: self.handle_for(viewer, source).ok(),
+                    },
+                    oracle_id: self.definition(source.card)?.oracle_id.clone(),
+                    controller: row.issuer.controller,
+                },
+                chapter: row.chapter()?,
+                expires_in_cleanup_of_turn: row.turn,
+            });
+        }
+        Ok(effects)
     }
     pub(super) fn visible_damage_effect_candidate(
         &self,
@@ -2658,7 +2700,15 @@ impl Game {
         zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
-        let mut base = self.definition(source.card)?.characteristics.clone();
+        // Historical appearances may precede detachment of this same incarnation.
+        let mut base = if matches!(zone, Zone::Stack | Zone::Battlefield)
+            && c.subtypes == ["Aura"]
+            && mtg_contracts::bestow_alternative(self.definition(source.card)?).is_some()
+        {
+            self.proposed_cast_characteristics(source.card, true)?
+        } else {
+            self.definition(source.card)?.characteristics.clone()
+        };
         if base.power.is_some() != c.power.is_some()
             || base.toughness.is_some() != c.toughness.is_some()
         {
