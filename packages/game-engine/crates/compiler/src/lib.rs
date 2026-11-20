@@ -19,8 +19,8 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
-mod combat_hand_cast;
 mod colored_library_search;
+mod combat_hand_cast;
 mod commander_modal_keyword;
 mod controller_counted_draw;
 #[cfg(test)]
