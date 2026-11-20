@@ -2027,6 +2027,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    CounterPlacements {
+        actual: Vec<EventOutcome>,
+    },
     CounterPrevented {
         target: StackId,
     },
@@ -2407,6 +2410,7 @@ impl Game {
                 .saturating_add(self.cascade_charge())
                 .saturating_add(self.mana_continuation_charge())
                 .saturating_add(self.land_entry_charge())
+                .saturating_add(self.counter_placement_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
