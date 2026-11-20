@@ -1230,7 +1230,12 @@ impl Strategy<'_> {
                 }
             }
     }
-    fn wipe_amount(&self, v: &PermittedView, amount: &WipeAmount, x: &Quantity) -> Option<Quantity> {
+    fn wipe_amount(
+        &self,
+        v: &PermittedView,
+        amount: &WipeAmount,
+        x: &Quantity,
+    ) -> Option<Quantity> {
         Some(match amount {
             WipeAmount::Fixed { value } => value.clone(),
             WipeAmount::AnnouncedX => x.clone(),
