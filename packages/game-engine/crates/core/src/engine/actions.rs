@@ -224,6 +224,59 @@ impl Game {
         }
     }
     pub(super) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
+        if entry.mode_subset.is_some() {
+            let Ok(program) = self.program_for(entry) else {
+                return vec![];
+            };
+            let mut legal = vec![];
+            for (slot, target) in program.targets.iter().enumerate() {
+                match target.domain {
+                    TargetDomain::PlayerGraveyardCards { .. } => {
+                        if let Some((TargetEntity::Player { player }, cards)) =
+                            entry.entity_targets.split_first()
+                        {
+                            legal.extend(cards.iter().map(|target|
+                                matches!(target, TargetEntity::Object { object } if self.current(*object).is_ok_and(|o| self.player_graveyard_card(o,*player)))
+                            ));
+                        }
+                    }
+                    TargetDomain::AnyPlayer
+                        if matches!(program.targets.get(slot + 1).map(|t|t.domain),
+                        Some(TargetDomain::PlayerGraveyardCards {owner_slot,..}) if owner_slot as usize==slot) =>
+                    {
+                        legal.push(matches!(entry.entity_targets.first(),Some(TargetEntity::Player{player}) if self.player_target_legal(entry,slot,*player)));
+                    }
+                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
+                        let index = self.selected_storage_index(entry, slot, |d| {
+                            matches!(d, TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
+                        });
+                        legal.push(
+                            index
+                                .and_then(|i| entry.player_targets.get(i))
+                                .is_some_and(|p| self.player_target_legal(entry, slot, *p)),
+                        );
+                    }
+                    TargetDomain::StackSpell
+                    | TargetDomain::ControlledCreatureSpell
+                    | TargetDomain::StackActivatedOrTriggeredAbility => {
+                        legal.push(self.bound_stack_target(entry, slot).is_some_and(|id| {
+                            self.eligible_stack_targets_for(
+                                target,
+                                entry.controller,
+                                Some(entry.id),
+                            )
+                            .contains(id)
+                        }));
+                    }
+                    _ => {
+                        legal.push(self.bound_object_target(entry, slot).is_some_and(|id| {
+                            self.object_target_legal_for(entry, *id, Some(target))
+                        }))
+                    }
+                }
+            }
+            return legal;
+        }
         if !entry.entity_targets.is_empty() {
             entry
                 .entity_targets
