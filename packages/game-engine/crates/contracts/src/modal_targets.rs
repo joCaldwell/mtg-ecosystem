@@ -124,6 +124,9 @@ impl ModeCount {
     pub fn for_root(root: &SpellProgram) -> Option<Self> {
         match root.resolution {
             SpellResolution::ChooseModes { exactly } => Some(Self::Exactly(exactly)),
+            SpellResolution::ChooseRepeatedModes { exactly } => {
+                Some(Self::ExactlyWithRepetition(exactly))
+            }
             SpellResolution::OneOrMoreModes => Some(Self::OneOrMore),
             _ => None,
         }

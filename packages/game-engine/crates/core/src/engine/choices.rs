@@ -630,8 +630,10 @@ impl Game {
             decision_id: self.state.rules.revision,
             player: top.controller,
             one_or_more: root.resolution == SpellResolution::OneOrMoreModes,
+            allow_repeat: matches!(root.resolution, SpellResolution::ChooseRepeatedModes { .. }),
             exactly: match root.resolution {
-                SpellResolution::ChooseModes { exactly } => Some(exactly),
+                SpellResolution::ChooseModes { exactly }
+                | SpellResolution::ChooseRepeatedModes { exactly } => Some(exactly),
                 _ => None,
             },
             candidates,
@@ -646,7 +648,7 @@ impl Game {
         else {
             return Err("no mode choice".into());
         };
-        if matches!(self.root_program_for(self.top()?)?.resolution,SpellResolution::ChooseModes{exactly} if exactly!=1)
+        if matches!(self.root_program_for(self.top()?)?.resolution,SpellResolution::ChooseModes{exactly} | SpellResolution::ChooseRepeatedModes{exactly} if exactly!=1)
             || p != player
             || !candidates.contains(&mode)
         {

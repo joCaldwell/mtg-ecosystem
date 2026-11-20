@@ -1618,6 +1618,7 @@ pub enum SpellTiming {
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
     ChooseModes { exactly: u32 },
+    ChooseRepeatedModes { exactly: u32 },
     OneOrMoreModes,
     Instructions,
     Permanent,
