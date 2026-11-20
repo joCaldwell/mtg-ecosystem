@@ -31,19 +31,25 @@ impl CounterDivision {
         })
     }
 
-    fn accepts(&self, objects: &[ObjectId]) -> bool {
+    fn allows_count(&self, count: usize) -> bool {
         self.count == Quantity::from(2)
             && self.minimum_targets == 1
             && self.maximum_targets == 2
-            && match objects {
-                [_] => true,
-                [first, second] => first != second,
-                _ => false,
-            }
+            && matches!(count, 1 | 2)
+    }
+
+    fn accepts(&self, objects: &[ObjectId]) -> bool {
+        self.allows_count(objects.len()) && !matches!(objects, [first, second] if first == second)
     }
 }
 
 impl Game {
+    pub(super) fn object_target_number_valid(program: &SpellProgram, count: usize) -> bool {
+        CounterDivision::offered_by(program).map_or(count == program.targets.len(), |offer| {
+            offer.allows_count(count)
+        })
+    }
+
     pub(super) fn object_target_count_valid(program: &SpellProgram, objects: &[ObjectId]) -> bool {
         CounterDivision::offered_by(program)
             .map_or(objects.len() == program.targets.len(), |offer| {

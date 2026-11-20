@@ -858,7 +858,10 @@ impl Game {
                         )
                         | (Frame::Discard { .. }, PlayerResponse::Discard { .. }) => true,
                         (Frame::Targets { .. }, PlayerResponse::Targets { objects }) => {
-                            objects.len() == self.program().map_err(invalid)?.targets.len()
+                            Self::object_target_number_valid(
+                                self.program().map_err(invalid)?,
+                                objects.len(),
+                            )
                         }
                         (
                             Frame::Priority,
