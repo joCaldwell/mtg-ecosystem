@@ -78,6 +78,7 @@ pub use controlled_phasing::controller_window_instructions;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
+mod land_entry_gain_life;
 mod set_exile;
 pub use set_exile::{SetExileClause, set_exile_modes};
 mod hand_cast;
@@ -480,6 +481,7 @@ pub enum Capability {
     PowerFilteredCreatureEntryV1,
     CreatureEntryReturnV1,
     EntryGraveyardExileV1,
+    LandEntryGainLifeV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -2734,6 +2736,9 @@ impl Definition {
             }
             add_program_requirements(&mut set, &ability.program);
         }
+        if land_entry_gain_life::present(self) {
+            set.insert(Capability::LandEntryGainLifeV1);
+        }
         for ability in &self.triggered {
             if ability.death_filter.is_some()
                 || (ability.condition == TriggerCondition::SelfDies
@@ -2969,6 +2974,7 @@ impl Definition {
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
+        land_entry_gain_life::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
@@ -3717,6 +3723,7 @@ impl Definition {
                             && (self
                                 .capabilities
                                 .contains(&Capability::EntryGraveyardExileV1)
+                                || self.capabilities.contains(&Capability::LandEntryGainLifeV1)
                                 || self.capabilities.contains(&Capability::HideawayV1)))
                 }),
             }
@@ -7406,6 +7413,7 @@ pub fn catalog_schema() -> serde_json::Value {
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
+    land_entry_gain_life::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
@@ -7674,6 +7682,7 @@ mod tests {
             PowerFilteredCreatureEntryV1,
             CreatureEntryReturnV1,
             EntryGraveyardExileV1,
+            LandEntryGainLifeV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -8174,6 +8183,7 @@ mod tests {
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
+        definitions.push(land_entry_gain_life::witness());
         definitions.push(saga::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());

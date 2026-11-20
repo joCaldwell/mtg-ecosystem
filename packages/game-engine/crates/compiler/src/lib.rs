@@ -64,6 +64,7 @@ mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
 mod keyword_removal_wipe;
+mod land_entry_gain_life;
 mod library_order;
 #[cfg(test)]
 mod library_order_tests;
@@ -2858,6 +2859,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
+    land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
@@ -5663,6 +5665,9 @@ fn lower_trigger(
     if let Some(ability) =
         entry_graveyard_exile::lower_trigger(trigger, effects, intervening, block)
     {
+        return Ok(ability);
+    }
+    if let Some(ability) = land_entry_gain_life::lower(trigger, effects, intervening, block)? {
         return Ok(ability);
     }
     if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {
