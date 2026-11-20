@@ -38,6 +38,7 @@ mod entry_copy;
 mod saga;
 pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
 mod fixed_creature_activation;
+pub mod fixed_creature_damage;
 pub use fixed_creature_activation::{
     FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
     has_fixed_creature_activation,
@@ -3368,6 +3369,7 @@ impl Definition {
             return Err("invalid source/AST provenance".into());
         }
         creature_planeswalker_return::validate(self)?;
+        fixed_creature_damage::validate(self)?;
         modal_targets::validate_definition(self)?;
         graveyard_shuffle::validate_definition(self)?;
         graveyard_battlefield_return::validate_definition(self)?;
@@ -5301,7 +5303,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     Some(
                         domain @ (TargetDomain::AnyDamageTarget
                         | TargetDomain::OpponentPlayer
-                        | TargetDomain::PlayerOrPlaneswalker),
+                        | TargetDomain::PlayerOrPlaneswalker
+                        | TargetDomain::BattlefieldCreature),
                     ) => Some((*target_slot, domain)),
                     _ => return Err("unbound fixed damage target".into()),
                 }

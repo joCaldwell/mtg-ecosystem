@@ -51,6 +51,7 @@ mod draw_land_allowance;
 mod each_player_draw;
 mod entry_copy;
 mod entry_graveyard_exile;
+mod fixed_creature_damage;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
@@ -1765,6 +1766,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     let kind = types.kind;
+    let fixed_creature_damage =
+        fixed_creature_damage::lower(&shape, &result, &binding, &r.oracle_identity)?;
     // CR118.6/118.6a: no mana cost is distinct from a printed {0}. Until the
     // IR represents absence explicitly, reject nonland sources rather than
     // granting ordinary casting or silently treating a free hit as cost zero.
@@ -1879,6 +1882,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if fixed_creature_damage.is_some() => {
+            definition.spell = fixed_creature_damage;
+        }
         CardKind::Sorcery | CardKind::Instant if permanent_union.is_some() => {
             definition.spell = permanent_union;
         }

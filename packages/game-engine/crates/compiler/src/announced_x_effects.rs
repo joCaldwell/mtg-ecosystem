@@ -109,7 +109,7 @@ fn bind_effects(graph: &mut Bindings<'_>, base: &str, effects: &Value) {
     }
 }
 
-fn bind_step(graph: &mut Bindings<'_>, path: &str, step: &Value) {
+pub(super) fn bind_step(graph: &mut Bindings<'_>, path: &str, step: &Value) {
     let op = step["effect"].as_str().unwrap();
     let scope = graph.id(BASE, "ability");
     let mut inputs = vec![];
