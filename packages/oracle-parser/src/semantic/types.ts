@@ -38,15 +38,22 @@ export type BindingNode = NodeBase & (
   /** One resolving cascade whose controller matches the static ability's "you". */
   | { node: "cascade-occurrence"; scope: string; controllerMatches: string }
   | { node: "cascade-exiled-pool"; occurrence: string }
+  /** One printed hideaway instance on one permanent incarnation. Copied
+   * triggers can add more than one card to the same linked pool (CR 607.3). */
+  | { node: "hideaway-exiled-pool"; keyword: string; source: string; key: "source-incarnation";
+      libraryOwner: string; lookCount: number; exile: "one-face-down"; remainder: "bottom-random";
+      lookPermission: "controller-of-exiling-permanent"; membership: "still-in-exile"; cardinality: "many" }
+  | { node: "total-power-condition"; scope: string; creatures: string; timing: "resolution";
+      comparison: { op: "ge"; value: { amount: "fixed"; value: number } } }
   /** One grant created per resolution that applies as each later eligible spell is cast. */
   | { node: "cast-keyword-grant"; scope: string; created: "resolution"; duration: "this-turn"; keyword: "cascade" }
   | { node: "future-cast-spells"; grant: string; caster: string; from: { zone: "hand"; owner: string };
       timing: "as-cast"; cardinality: "many" }
   | { node: "runtime-player"; scope: string; role: "static-source-controller" | "activator" | "spell-controller" | "trigger-controller" | "prospective-caster"
-      | "special-action-player" | "targeting-player" | "card-owner" | "entering-controller" }
+      | "special-action-player" | "targeting-player" | "card-owner" | "entering-controller" | "replacement-source-controller-or-owner" }
   /** One keyword instance of this ability line, with the kinds of ability it
    * represents (CR 702); `you` is the player its printed parameters refer to. */
-  | { node: "keyword-ability"; scope: string; keyword: string; abilities: KeywordAbilityKind[]; you: string }
+  | { node: "keyword-ability"; scope: string; keyword: string; abilities: KeywordAbilityKind[]; you: string; protectionFrom?: "everything" }
   /** "opponents" and "other-players" are the players relative to `of` (a "you");
    * "defending" is the player the attacking creature `of` attacks (CR 508.5). */
   | { node: "derived-player"; scope: string; role: "owner" | "controller" | "opponents" | "other-players" | "defending"; of: string }
@@ -62,7 +69,7 @@ export type BindingNode = NodeBase & (
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
   | { node: "event"; scope: string; operation: string; inputs: string[]; availability: "when-performed";
-      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true;
+      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true; condition?: string;
       /** A resolution choice exists only when this preceding result was produced. */
       requiresResult?: string }
   /** "If you do" / "If you don't": the optional instruction at path `decision`
@@ -81,6 +88,12 @@ export type BindingNode = NodeBase & (
    * alternative trigger event ("blocks or becomes blocked by a creature",
    * CR 603.2). */
   | { node: "alternatives"; scope: string; of: string[] }
+  /** The would-be move of the source before applying any replacement (CR 400.6). */
+  | { node: "zone-change-proposal"; scope: string; object: string; from: "anywhere"; to: { zone: "graveyard"; owner: string } }
+  /** Reveal in the original zone, then move into the specified library and
+   * shuffle it. The shuffle still occurs if the library move is redirected (CR 701.24c). */
+  | { node: "reveal-and-shuffle-replacement"; scope: string; replaces: string; occurrence: "each";
+      reveal: { actor: string; object: string }; shuffleInto: { actor: string; object: string; library: { zone: "library"; owner: string } } }
   | { node: "event-result"; event: string; result: "objects" | "quantity" | "player"; cardinality: BindingCardinality;
       description?: ObjectFilter;
       /** The stopping match belongs to this scan's processed pool, if found. */
@@ -118,6 +131,8 @@ export interface BindingDiagnostic {
 
 /** A rules-engine capability a card needs that is not reference binding: its
  * references resolve, but executing it needs the engine to provide this.
+ * - protection-from-everything: enforce all protections against all sources (CR 702.16j).
+ * - graveyard-reveal-and-shuffle: replace the proposed move with a reveal and a move-and-shuffle (CR 400.6, 614.6, 701.24c).
  * - event-history: a record of what happened ("if you attacked this turn",
  *   "if this spell was cast from a graveyard", "life you gained this turn"),
  *   including the spell a permanent was (CR 400.7d, 608.2i).
@@ -130,8 +145,9 @@ export interface BindingDiagnostic {
  * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f).
  * - demonstrate: cast-triggered copies for the caster and chosen opponent (CR 702.144a).
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
-export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast";
+export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
+  | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
+  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
