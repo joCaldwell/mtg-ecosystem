@@ -553,6 +553,43 @@ impl Game {
         })
     }
 
+    fn modal_spell_grants_keyword(definition: &Definition, keyword: &KeywordAbility) -> bool {
+        let Some(root) = definition
+            .spell
+            .as_ref()
+            .filter(|p| mtg_contracts::akromas_will_program(p))
+        else {
+            return false;
+        };
+        root.modes.iter().flat_map(|mode| &mode.program.instructions).any(|instruction| {
+            matches!(instruction, Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(keyword))
+        })
+    }
+
+    fn set_keyword_program_authorized(
+        &self,
+        origin: &EffectOrigin,
+        selected: &SpellProgram,
+    ) -> bool {
+        // Ordinary grants keep their existing vocabulary. Only the complete
+        // recognized spell can authorize a modal set grant.
+        let Some(mode) = origin.mode else {
+            return temporary_set_keyword_program(selected).is_some();
+        };
+        origin.activated_ability.is_none()
+            && self
+                .definition(origin.source.card)
+                .ok()
+                .and_then(|definition| definition.spell.as_ref())
+                .is_some_and(|root| {
+                    mtg_contracts::akromas_will_program(root)
+                        && root
+                            .modes
+                            .get(mode as usize)
+                            .is_some_and(|m| &m.program == selected)
+                })
+    }
+
     fn permanent_keyword_type_allowed(program: &SpellProgram, c: &Characteristics) -> bool {
         temporary_permanent_keyword_program(program).is_some()
             && !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
@@ -821,6 +858,22 @@ impl Game {
         }
         Ok(appearance)
     }
+    // CR 702.16e,h/616.1. Every matching color prevents the full occurrence.
+    // The admitted protections have no secondary effects, so one grant needs
+    // only one candidate even for multicolored damage. Its normal ordering
+    // with finite shields and replacement effects still matters. Prepared
+    // source characteristics capture the exact source (including departure
+    // LKI). Color is invariant across all admitted continuous effects.
+    fn grant_prevents_damage(
+        targets: &[ObjectId],
+        keywords: &[KeywordAbility],
+        damage: &PreparedDamage,
+    ) -> bool {
+        matches!(damage.recipient, DamageRecipient::Creature { object } if targets.contains(&object))
+            && keywords.contains(&KeywordAbility::ProtectionFromEachColor)
+            && Self::has_color(&damage.source.characteristics)
+    }
+
     fn application(
         &self,
         tx: &DamageTransaction,
@@ -881,6 +934,11 @@ impl Game {
                 .ok_or("missing resolved effect")?
                 .kind
             {
+                ResolvedEffectKind::GrantKeywordsSet {
+                    targets, keywords, ..
+                } if Self::grant_prevents_damage(targets, keywords, d) => {
+                    (Quantity::zero(), d.amount.clone(), None, None)
+                }
                 ResolvedEffectKind::PreventCombatDamage if tx.kind == DamageKind::Combat => {
                     (Quantity::zero(), d.amount.clone(), None, None)
                 }
@@ -1175,11 +1233,14 @@ impl Game {
                             keywords: grants,
                         },
                     ) => {
-                        temporary_set_keyword_program(self.program_for(&frame.spell)?).is_some()
+                        (effect.origin.mode.is_none() || frame.spell.kind.is_spell())
+                            && self.set_keyword_program_authorized(
+                                &effect.origin,
+                                self.program_for(&frame.spell)?,
+                            )
                             && *targets == self.objects_in_set(set, frame.spell.controller)
                             && modifier == applied_modifier
                             && keywords == grants
-                            && supported_temporary_keywords(grants)
                             && *source_block == effect.origin.source_block
                     }
                     (
@@ -1615,10 +1676,9 @@ impl Game {
                         // CR 611.2c: membership was captured at creation. Current
                         // controllers/attack status cannot authenticate past eligibility;
                         // restore's input replay proves the complete ordered capture.
-                        temporary_set_keyword_program(program).is_some()
+                        self.set_keyword_program_authorized(&e.origin, program)
                             && modifier == applied_modifier
                             && keywords == grants
-                            && supported_temporary_keywords(grants)
                             && *source_block == e.origin.source_block
                             && self.valid_set_effect_targets(e, targets, Some(set))
                     }
@@ -1836,6 +1896,7 @@ pub enum DamageEffectKind {
     DoubleDamage,
     PreventCombatDamage,
     PreventNextDamage,
+    ProtectionFromEachColor,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -2212,7 +2273,6 @@ impl Game {
             .iter()
             .find(|d| d.id == pair.damage)
             .ok_or("missing damage occurrence")?;
-        let origin = self.effect_origin_view(viewer, &pair.effect)?;
         let kind = match pair.effect {
             EffectKey::Static { .. } => DamageEffectKind::DoubleDamage,
             EffectKey::Resolved { id } => match self
@@ -2224,10 +2284,31 @@ impl Game {
                 .ok_or("missing applicable effect")?
                 .kind
             {
+                ResolvedEffectKind::GrantKeywordsSet { .. } => {
+                    DamageEffectKind::ProtectionFromEachColor
+                }
                 ResolvedEffectKind::PreventCombatDamage => DamageEffectKind::PreventCombatDamage,
                 ResolvedEffectKind::PreventNextDamage { .. } => DamageEffectKind::PreventNextDamage,
                 _ => return Err("non-damage effect in choice".into()),
             },
+        };
+        // The grant supplies the durable effect handle. The creature that
+        // actually has protection is the source of this prevention ability.
+        let origin = if kind == DamageEffectKind::ProtectionFromEachColor {
+            let DamageRecipient::Creature { object } = d.recipient else {
+                return Err("protection requires a creature recipient".into());
+            };
+            let handle = self.handle_for(viewer, object)?;
+            VisibleEffectSource {
+                source: VisibleTarget {
+                    announced: handle.clone(),
+                    current: Some(handle),
+                },
+                oracle_id: self.definition(object.card)?.oracle_id.clone(),
+                controller: self.current(object)?.controller,
+            }
+        } else {
+            self.effect_origin_view(viewer, &pair.effect)?
         };
         let allocation_required = self.needs_allocation(tx, &pair.effect);
         Ok(VisibleDamageEffectCandidate {
@@ -2467,6 +2548,7 @@ impl Game {
                                             program.instructions.iter().any(|instruction| matches!(instruction,
                                                 Instruction::GrantKeywords { keywords, .. }
                                                 | Instruction::GrantKeywordsSet { keywords, .. } if keywords.contains(k))))
+                                        || Self::modal_spell_grants_keyword(definition, k)
                                         || definition.activated.iter()
                                             .filter_map(mtg_contracts::sacrifice_source_creature_set_keyword_ability)
                                             .any(|program| program.keywords.contains(k))))
@@ -2706,6 +2788,14 @@ impl Game {
                         .find(|e| e.id == *id)
                         .ok_or("missing applied resolved effect")?;
                     match &e.kind {
+                        ResolvedEffectKind::GrantKeywordsSet {
+                            targets, keywords, ..
+                        } if a.budget_before.is_none()
+                            && a.budget_after.is_none()
+                            && Self::grant_prevents_damage(targets, keywords, d) =>
+                        {
+                            (Quantity::zero(), a.before.clone())
+                        }
                         ResolvedEffectKind::PreventCombatDamage
                             if tx.kind == DamageKind::Combat
                                 && a.budget_before.is_none()

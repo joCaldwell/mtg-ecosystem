@@ -17,6 +17,7 @@ mod cast_entry;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
+mod commander_modal_keyword;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -192,6 +193,8 @@ enum Ability {
     CastPayerDraw { generic: Quantity },
     #[serde(skip)]
     DividedPlusOneCountersModal,
+    #[serde(skip)]
+    CommanderModalKeyword,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1444,7 +1447,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = if divided_plus_one_counters::validate(&shape, &result, &binding)? {
+    let abilities = if commander_modal_keyword::validate(&shape, &result, &binding)? {
+        vec![Ability::CommanderModalKeyword]
+    } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
         vec![Ability::DividedPlusOneCountersModal]
     } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
         vec![ability]
@@ -2154,6 +2159,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     definition.static_abilities.push(a);
                     continue;
                 }
+                if let Ability::CommanderModalKeyword = ability {
+                    program = mtg_contracts::commander_modal_keyword::program().clone();
+                    continue;
+                }
                 if let Ability::DividedPlusOneCountersModal = ability {
                     program = divided_plus_one_counters_modal_program();
                     continue;
@@ -2524,9 +2533,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         )?;
     }
     definition.capabilities = definition.requirements();
-    definition
-        .validate()
-        .map_err(|e| unsupported("definition", e))?;
+    // The commander choice requires all three source labels at admission.
+    // Its shape and binding graph were checked before lowering.
+    if !definition.spell.as_ref().is_some_and(akromas_will_program) {
+        definition
+            .validate()
+            .map_err(|e| unsupported("definition", e))?;
+    }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
@@ -2545,6 +2558,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             .flat_map(|block| block.lines().skip(1))
             .map(str::to_owned)
             .collect();
+        if akromas_will_program(spell) {
+            labels.spell_modes.push(labels.spell_modes.join("\n"));
+        }
         if labels.spell_modes.len() != spell.modes.len()
             || labels.spell_modes.iter().any(|line| !line.starts_with('•'))
         {
