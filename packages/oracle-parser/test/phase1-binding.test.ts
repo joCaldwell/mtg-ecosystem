@@ -1357,3 +1357,40 @@ describe("history and linked outcomes", () => {
     assert.ok(!graph.nodes.some(node => node.node === "card-copy"));
   });
 });
+
+describe("stack-copy alternatives and exile successors", () => {
+  it("selects one copy count and applies retargeting to the produced copies", () => {
+    const graph = analyze("Copy target instant or sorcery spell you control. If this spell was cast from a graveyard, "
+      + "copy that spell twice instead. You may choose new targets for the copies.", "Instant");
+    boundCard(graph);
+    const copy = graph.nodes.find(node => node.node === "conditional-copy-count");
+    assert.deepEqual(copy?.counts, { original: 1, replacement: 2 });
+    assert.equal(copy?.subject, bound(graph, "/instead/0/what"));
+    assert.ok(graph.nodes.some(node => node.node === "stack-instruction" &&
+      node.action.kind === "choose-new-targets" && node.action.copyEvent === copy?.event));
+  });
+
+  it("does not make a later detached retarget act before an unrelated instruction", () => {
+    const graph = analyze("Copy target instant or sorcery spell you control. If this spell was cast from a graveyard, "
+      + "copy that spell twice instead. Draw a card. You may choose new targets for the copies.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "stack-instruction" && node.action.kind === "choose-new-targets"));
+  });
+
+  it("uses the exiled original spell card for the suspend check and grant", () => {
+    const graph = analyze("Whenever you cast your second spell each turn, copy it, then exile the spell you cast "
+      + "with four time counters on it. If it doesn't have suspend, it gains suspend.", "Creature");
+    boundCard(graph);
+    const exiled = bound(graph, "/condition/of/what");
+    assert.equal(exiled, bound(graph, "/effects/1/steps/0/what"));
+    assert.ok(graph.nodes.some(node => node.id === exiled && node.node === "event-result" && node.identity === "zone-successors"));
+    assert.notEqual(exiled, bound(graph, "/effects/0/steps/0/what"));
+  });
+
+  it("does not find a prior stack-trigger exile through an intervening draw", () => {
+    const graph = analyze("Whenever you cast your second spell each turn, copy it, then exile the spell you cast "
+      + "with four time counters on it. Draw a card. If it doesn't have suspend, it gains suspend.", "Creature");
+    const suspension = graph.references.find(reference => reference.path.endsWith("/condition/of/what"));
+    assert.ok(suspension?.binding === "unresolved");
+  });
+});

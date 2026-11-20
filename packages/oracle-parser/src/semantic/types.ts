@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, CharacteristicRelation, ChosenValueRef, Color, Cost, Effect, EntryCopy, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, StaticEffect, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
+import type { Amount, CascadeExiledCards, Condition, CharacteristicRelation, ChosenValueRef, Color, Cost, Effect, EntryCopy, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, StaticEffect, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -151,6 +151,8 @@ export type BindingNode = NodeBase & (
       action: { kind: "copy"; event: string; count: number; retarget: boolean }
         | { kind: "change-targets"; scope: "all" | "one" | "any" }
         | { kind: "choose-new-targets"; timing: "resolution" | "copy-creation"; copyEvent?: string } }
+  | { node: "conditional-copy-count"; scope: string; event: string; subject: string; condition: Condition;
+      counts: { original: number; replacement: number } }
   | { node: "alternate-target-copy"; scope: string; event: string; subject: string; caster: string;
       targetPolicy: NonNullable<Extract<Effect, { effect: "copy-stack-object" }>["fixedTargets"]> }
   | { node: "per-player-copies"; scope: string; event: string; subject: string; group: string; member: string;
