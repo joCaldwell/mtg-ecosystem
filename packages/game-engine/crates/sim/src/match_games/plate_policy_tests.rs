@@ -156,6 +156,7 @@ fn plate_policy_announced_fallback_is_separate_from_initiation_and_buffs_preserv
     );
     let h = v.objects[1].handle.clone();
     v.stack.push(VisibleStackEntry {
+        bestowed: false,
         hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,

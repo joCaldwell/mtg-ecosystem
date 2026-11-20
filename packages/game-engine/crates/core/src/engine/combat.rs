@@ -629,7 +629,7 @@ impl Game {
             .filter(|o| o.present_on_battlefield() && o.deathtouch_damage)
             .map(|o| o.id)
             .collect::<Vec<_>>();
-        let mut occurrences = vec![];
+        let mut occurrences = self.completed_sagas()?;
         for o in self
             .state
             .rules

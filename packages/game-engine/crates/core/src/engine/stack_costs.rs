@@ -440,7 +440,16 @@ impl Game {
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
         self.validate_hand_cast_child(entry)?;
-        if entry.alternative_cost.is_some()
+        if entry.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+            && (!entry.kind.is_spell()
+                || mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_none()
+                || (!self.is_spell_copy(entry)
+                    && (entry.hand_cast_permission.is_some()
+                        || !matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller))))
+        {
+            return Err("invalid bestow casting authority".into());
+        }
+        if entry.alternative_cost == Some(cascade::AlternativeCost::WithoutManaCost)
             && (!entry.kind.is_spell()
                 || (!self.is_spell_copy(entry)
                     && entry.cast_from != Zone::Exile

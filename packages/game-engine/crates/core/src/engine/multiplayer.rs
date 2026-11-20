@@ -466,6 +466,10 @@ impl Game {
         if !self.state.rules.simultaneous_losses && self.finish_if_ended()? {
             return Ok(());
         }
+        self.state
+            .rules
+            .delayed_chapters
+            .retain(|registration| registration.issuer.controller != player);
         self.revalidate_mana_departure()?;
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame

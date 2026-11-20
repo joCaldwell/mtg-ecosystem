@@ -52,7 +52,10 @@ impl Game {
         target: CardId,
     ) -> Result<bool, String> {
         let definition = self.definition(source)?;
-        let target_characteristics = &self.definition(target)?.characteristics;
+        let target_characteristics = match self.state.rules.objects.get(&target) {
+            Some(o) => self.structural_characteristics(o.id)?,
+            None => std::borrow::Cow::Borrowed(&self.definition(target)?.characteristics),
+        };
         if definition
             .static_abilities
             .iter()
@@ -61,12 +64,13 @@ impl Game {
             // Validate the whole narrow source: a malformed control Aura must
             // not fall back to the legacy creature-only attachment family.
             Ok(mtg_contracts::aura_control_domain(definition)
-                .is_some_and(|domain| domain.accepts(target_characteristics)))
-        } else if definition
-            .characteristics
-            .subtypes
-            .iter()
-            .any(|s| s == "Equipment" || s == "Aura")
+                .is_some_and(|domain| domain.accepts(&target_characteristics)))
+        } else if mtg_contracts::bestow_alternative(definition).is_some()
+            || definition
+                .characteristics
+                .subtypes
+                .iter()
+                .any(|s| s == "Equipment" || s == "Aura")
         {
             Ok(target_characteristics.has_type(CardKind::Creature))
         } else {
@@ -109,11 +113,13 @@ impl Game {
                 || !self.is_live(o.controller)
                 || o.id == target
                 || !self
-                    .definition(o.id.card)?
-                    .characteristics
+                    .structural_characteristics(o.id)?
                     .subtypes
                     .iter()
                     .any(|s| s == "Equipment" || s == "Aura")
+                || (o.present_on_battlefield()
+                    && mtg_contracts::bestow_alternative(self.definition(o.id.card)?).is_some()
+                    && self.zone(target) != Some(Zone::Battlefield))
                 || !known_target
                 || !self.attachment_target_type_valid(o.id.card, target.card)?
             {
@@ -127,8 +133,8 @@ impl Game {
         self.current(object)
             .is_ok_and(|o| o.present_on_battlefield())
             && self
-                .definition(object.card)
-                .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
+                .structural_characteristics(object)
+                .is_ok_and(|d| d.kind == CardKind::Creature)
     }
     pub(super) fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
         self.timestamped_static_modifications(target)
@@ -315,6 +321,34 @@ impl Game {
                 }
             }
     }
+    // CR 701.3d/702.103f: host departure ends bestow in the movement
+    // itself. A phased-out Aura instead checks its host on phase-in (702.103g).
+    pub(super) fn detach_bestowed_from(&mut self, host: ObjectId) -> Result<(), String> {
+        let mut detached = Vec::new();
+        for o in self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.present_on_battlefield() && o.attached_to == Some(host))
+        {
+            if mtg_contracts::bestow_alternative(self.definition(o.id.card)?).is_some() {
+                detached.push(o.id.card);
+            }
+        }
+        for card in detached {
+            let o = self
+                .state
+                .rules
+                .objects
+                .get_mut(&card)
+                .ok_or("missing bestowed permanent")?;
+            o.attached_to = None;
+            o.attachment_timestamp = None;
+        }
+        Ok(())
+    }
+
     pub(super) fn attachment_sbas(
         &self,
         occurrences: &mut Vec<ProposedEvent>,
@@ -339,14 +373,24 @@ impl Game {
                 }
                 None => false,
             };
-            if subtypes == &["Aura"] && !legal {
+            if legal {
+                continue;
+            }
+            if o.attached_to.is_some()
+                && mtg_contracts::bestow_alternative(self.definition(o.id.card)?).is_some()
+            {
+                occurrences.push(ProposedEvent::Attach {
+                    object: o.id,
+                    target: None,
+                });
+            } else if subtypes == &["Aura"] {
                 occurrences.push(ProposedEvent::Move {
                     object: o.id,
                     destination: Zone::Graveyard {
                         owner: self.state.rules.cards[&o.id.card].owner,
                     },
                 });
-            } else if subtypes == &["Equipment"] && o.attached_to.is_some() && !legal {
+            } else if subtypes == &["Equipment"] && o.attached_to.is_some() {
                 occurrences.push(ProposedEvent::Attach {
                     object: o.id,
                     target: None,
