@@ -13,7 +13,7 @@ impl Game {
         for object in self.state.rules.objects.values() {
             // Event and departure boundaries reconcile layer-2 control before
             // payment or queries. Frozen losing owners are virtually absent.
-            if object.zone != Zone::Battlefield
+            if !object.present_on_battlefield()
                 || !self.is_live(object.controller)
                 || !self.is_live(self.state.rules.cards[&object.id.card].owner)
             {
