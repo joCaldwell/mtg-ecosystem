@@ -4,7 +4,11 @@ use mtg_contracts::bulk_catalog::BulkStatus;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -50,6 +54,28 @@ pub struct CoverageSummary {
     pub lowered_validated_percent: f64,
     pub statuses: BTreeMap<String, usize>,
     pub reasons: Vec<ReasonCount>,
+    /// Present only for a selected-row run. Counts and records then cover the
+    /// matched rows only; whole-archive runs omit the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection: Option<CoverageSelection>,
+}
+/// Identity of an Oracle-ID selection. `oracle_ids_sha256` hashes the sorted,
+/// distinct IDs, each followed by `\n`.
+#[derive(Debug, Serialize)]
+pub struct CoverageSelection {
+    pub oracle_ids_sha256: String,
+    pub requested: usize,
+    pub matched: usize,
+    pub missing: Vec<String>,
+}
+impl CoverageSelection {
+    pub fn ids_sha256(ids: &BTreeSet<String>) -> String {
+        sha256(
+            ids.iter()
+                .fold(String::new(), |out, id| out + id + "\n")
+                .as_bytes(),
+        )
+    }
 }
 /// Machine codes do not contain serde line/column numbers or expected-variant
 /// lists. Unknown discriminants retain their AST tag; other boundaries retain
@@ -202,6 +228,42 @@ pub(crate) fn assess_record(
 }
 
 pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageError> {
+    coverage_selected(archive, out, None)
+}
+
+/// First `oracleIdentity` value in a row without parsing it. JSON escapes
+/// quotes inside strings, so the pattern only matches an object key; escaped
+/// values fall back to a full parse. Selected rows are re-checked strictly.
+fn row_identity(raw: &str) -> Option<std::borrow::Cow<'_, str>> {
+    const KEY: &str = "\"oracleIdentity\"";
+    let quick = raw.find(KEY).and_then(|at| {
+        let rest = raw[at + KEY.len()..].trim_start().strip_prefix(':')?;
+        let rest = rest.trim_start().strip_prefix('"')?;
+        let id = &rest[..rest.find('"')?];
+        (!id.contains('\\')).then_some(id)
+    });
+    if quick.is_some() {
+        return quick.map(Into::into);
+    }
+    #[derive(Deserialize)]
+    struct RowIdentity {
+        #[serde(rename = "oracleIdentity")]
+        oracle_identity: Option<String>,
+    }
+    serde_json::from_str::<RowIdentity>(raw)
+        .ok()?
+        .oracle_identity
+        .map(Into::into)
+}
+
+/// Assess only rows whose `oracleIdentity` is selected. The whole archive is
+/// still hashed against its accepted manifest, so accepted bytes are pinned;
+/// unselected rows are neither lowered nor strictly re-read.
+pub fn coverage_selected(
+    archive: &Path,
+    out: &Path,
+    only: Option<&BTreeSet<String>>,
+) -> Result<CoverageSummary, CoverageError> {
     let bytes = fs::read(archive).map_err(io)?;
     let text = std::str::from_utf8(&bytes).map_err(|e| CoverageError::InvalidRecord {
         line: 1,
@@ -234,10 +296,17 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
             .map(|s| (s.to_owned(), 0))
             .collect(),
         reasons: vec![],
+        selection: None,
     };
+    let mut matched = BTreeSet::new();
     let mut reasons: BTreeMap<(String, String), (usize, Vec<String>)> = BTreeMap::new();
     let mut tsv = String::from("oracle_id\tname\tstatus\treason\n");
     for (i, raw) in text.lines().skip(1).enumerate() {
+        let selected = match (only, row_identity(raw)) {
+            (None, _) => None,
+            (Some(only), Some(id)) if only.contains(id.as_ref()) => Some(id),
+            (Some(_), _) => continue,
+        };
         let row: Value = strict_read(raw).map_err(|reason| CoverageError::InvalidRecord {
             line: i + 2,
             reason,
@@ -254,6 +323,14 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
                 line: i + 2,
                 reason: "missing oracleIdentity".into(),
             })?;
+        if let Some(selected) = selected
+            && (selected != id || !matched.insert(id.to_owned()))
+        {
+            return Err(CoverageError::InvalidRecord {
+                line: i + 2,
+                reason: "selected oracleIdentity is not the unique top-level key".into(),
+            });
+        }
         let name = row["source"]["name"]
             .as_str()
             .ok_or_else(|| CoverageError::InvalidRecord {
@@ -292,6 +369,14 @@ pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageE
             escape_tsv(name),
             escape_tsv(&reason)
         ));
+    }
+    if let Some(only) = only {
+        summary.selection = Some(CoverageSelection {
+            oracle_ids_sha256: CoverageSelection::ids_sha256(only),
+            requested: only.len(),
+            matched: matched.len(),
+            missing: only.difference(&matched).cloned().collect(),
+        });
     }
     summary.lowered_validated_percent = if summary.commander_legal == 0 {
         0.0
@@ -414,6 +499,18 @@ mod tests {
         assert!(!out.join("records.tsv").exists());
         assert_eq!(fs::read_to_string(out.join("notes")).unwrap(), "keep");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn row_identity_matches_keys_not_escaped_text() {
+        let row =
+            r#"{"recordType":"card","text":"\"oracleIdentity\":\"x\"","oracleIdentity" : "a-1"}"#;
+        assert_eq!(row_identity(row).as_deref(), Some("a-1"));
+        let escaped = r#"{"oracleIdentity":"a\u002d1"}"#;
+        assert_eq!(row_identity(escaped).as_deref(), Some("a-1"));
+        assert_eq!(row_identity(r#"{"recordType":"card"}"#), None);
+        let ids: BTreeSet<String> = ["b".into(), "a".into()].into();
+        assert_eq!(CoverageSelection::ids_sha256(&ids), sha256(b"a\nb\n"));
     }
 
     #[test]
