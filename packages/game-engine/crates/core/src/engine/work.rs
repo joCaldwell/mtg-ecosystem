@@ -572,7 +572,11 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 40,
+                    observation_version: if self.prepared.includes_opening_placement() {
+                        41
+                    } else {
+                        40
+                    },
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -800,6 +804,7 @@ impl Game {
                                 && top.len().checked_add(bottom.len()) == Some(looked.len())
                         }
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
+                        (Frame::Setup, PlayerResponse::OpeningPlacement { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
                         }
@@ -1091,7 +1096,11 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 40,
+                            observation_version: if self.prepared.includes_opening_placement() {
+                                41
+                            } else {
+                                40
+                            },
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1146,7 +1155,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 36,
+            work_version: self.prepared.work_version(),
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1155,7 +1164,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 36
+        if saved.work_version != self.prepared.work_version()
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

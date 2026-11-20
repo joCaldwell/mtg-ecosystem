@@ -634,6 +634,20 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn includes_opening_placement(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::OpeningPlacementV1))
+    }
+    fn work_version(&self) -> u32 {
+        if self.includes_opening_placement() {
+            37
+        } else {
+            36
+        }
+    }
+
     // Existing reviewed catalogs keep their exact private snapshot envelope.
     // The headless land-type family can retain new unpaid selection frames.
     fn has_land_type_grant(&self) -> bool {
@@ -1160,6 +1174,9 @@ pub enum ManaAbilityIdentity {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    OpeningPlacement {
+        object: Option<ObjectId>,
+    },
     AdditionalCosts {
         selected: Vec<String>,
     },
@@ -1311,6 +1328,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    OpeningPlacement {
+        player: PlayerId,
+        decision_id: u64,
+        candidates: Vec<ObjectId>,
+    },
     AdditionalCosts {
         decision_id: u64,
         player: PlayerId,
@@ -1561,6 +1583,7 @@ impl Request {
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
+            | Self::OpeningPlacement { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
             | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
@@ -1604,6 +1627,7 @@ impl Request {
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
+            | Self::OpeningPlacement { player, .. }
             | Self::BottomOpening { player, .. }
             | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
@@ -3456,7 +3480,11 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 63,
+            snapshot_version: if self.prepared.includes_opening_placement() {
+                64
+            } else {
+                63
+            },
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3498,7 +3526,12 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 63
+        if s.snapshot_version
+            != (if prepared.includes_opening_placement() {
+                64
+            } else {
+                63
+            })
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

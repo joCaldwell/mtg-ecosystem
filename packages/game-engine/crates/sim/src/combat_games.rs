@@ -98,7 +98,9 @@ impl Policy {
             | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request unsupported by this completion policy".into());
             }
-            PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+            PlayerRequest::OpeningPlacement { .. }
+            | PlayerRequest::Mulligan { .. }
+            | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
             }
             PlayerRequest::Modes { .. }

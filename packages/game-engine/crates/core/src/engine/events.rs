@@ -992,7 +992,9 @@ impl Game {
                             libraries.insert(*player);
                             objects.extend(bottom);
                         }
-                        SetupAction::Declare { .. } | SetupAction::Finish => {}
+                        SetupAction::PassOpeningActions { .. }
+                        | SetupAction::Declare { .. }
+                        | SetupAction::Finish => {}
                     }
                 }
                 ProposedEvent::CreateEffect { effect } => {
@@ -1432,6 +1434,33 @@ impl Game {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
+        if cause == BatchCause::Setup
+            && let EventGroup::Occurrence {
+                proposed:
+                    ProposedEvent::Move {
+                        object,
+                        destination,
+                    },
+            } = &group
+        {
+            let input = self
+                .state
+                .rules
+                .pending
+                .as_ref()
+                .ok_or("missing opening placement authority")?;
+            if *destination != Zone::Battlefield
+                || input.response
+                    != (Response::OpeningPlacement {
+                        object: Some(*object),
+                    })
+            {
+                return Err(
+                    "opening placement move does not match selected hand incarnation".into(),
+                );
+            }
+            self.validate_setup_response(input.player, &input.response)?;
+        }
         let entry = self.prepare_entry_batch(&cause, &group)?;
         let mut events = vec![];
         {

@@ -304,7 +304,9 @@ pub(super) fn choose(
             }
             PlayerResponse::DamageAllocation { allocations }
         }
-        PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+        PlayerRequest::OpeningPlacement { .. }
+        | PlayerRequest::Mulligan { .. }
+        | PlayerRequest::BottomOpening { .. } => {
             return Err("sample rollout unexpectedly entered opening setup".into());
         }
     })

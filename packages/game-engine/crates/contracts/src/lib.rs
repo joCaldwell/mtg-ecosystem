@@ -6,6 +6,8 @@ mod granted_land_mana;
 pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
+mod opening_placement;
+pub use opening_placement::{opening_placement_ability, opening_placement_ast};
 mod controller_land_types;
 pub use controller_land_types::controller_land_type_ast;
 mod colored_library_search;
@@ -282,6 +284,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    OpeningPlacementV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
@@ -1379,6 +1382,7 @@ pub enum HandSizeScope {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
     GrantControllerLandsAnyColorMana,
+    MayBeginOnBattlefield,
     GrantControllerLandsAllBasicTypes,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
     /// grants one independent cascade to this controller's qualifying cast.
@@ -2613,6 +2617,7 @@ impl Definition {
                 StaticEffect::GrantControllerLandsAnyColorMana => {
                     Capability::ControllerLandGrantedManaV1
                 }
+                StaticEffect::MayBeginOnBattlefield => Capability::OpeningPlacementV1,
                 StaticEffect::GrantControllerLandsAllBasicTypes => {
                     Capability::ControllerLandBasicTypesV1
                 }
@@ -2958,6 +2963,7 @@ impl Definition {
         }
         // Sacrifice programs admit enchantment programs and creature statics.
         // Other programs retain their narrower kind constraints.
+        opening_placement::validate(self)?;
         controller_land_types::validate(self)?;
         let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
         let wipes = self.capabilities.contains(&Capability::BoardWipesV1);
@@ -3706,7 +3712,9 @@ impl Definition {
             return Err("static damage replacement requires a supported enchantment".into());
         }
         if self.static_abilities.iter().any(|a| {
-            if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
+            if a.effect == StaticEffect::MayBeginOnBattlefield {
+                a.functioning_zone != FunctioningZone::Hand
+            } else if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
                 a.functioning_zone != FunctioningZone::Stack
             } else if matches!(
                 a.effect,
@@ -6964,6 +6972,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}}}
     }));
     colored_library_search::extend_schema(&mut schema);
+    opening_placement::schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7245,6 +7254,7 @@ mod tests {
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
             ControllerLandGrantedManaV1,
+            OpeningPlacementV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
@@ -7982,6 +7992,42 @@ mod tests {
         colored.triggered.clear();
         colored.capabilities = colored.requirements();
         definitions.push(colored);
+        let mut pregame = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Enchantment
+                    && d.characteristics.subtypes.is_empty()
+                    && d.activated.is_empty()
+                    && d.triggered.is_empty()
+                    && d.keywords.is_empty()
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-opening-placement.json"
+        ))
+        .unwrap();
+        let raw = &record["source"];
+        pregame.name = raw["name"].as_str().unwrap().into();
+        pregame.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+        pregame.provenance.printing_id = raw["id"].as_str().unwrap().into();
+        pregame.provenance.source_json = canonical(raw).unwrap();
+        pregame.provenance.source_sha256 = sha256(pregame.provenance.source_json.as_bytes());
+        pregame.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        pregame.provenance.ast_sha256 =
+            sha256(format!("[{}]", pregame.provenance.abilities_json).as_bytes());
+        pregame.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        pregame.characteristics.mana_cost = ManaCost {
+            generic: 2.into(),
+            colored: vec![Color::G],
+        };
+        pregame.characteristics.colors = vec![Color::G];
+        pregame.characteristics.color_identity = vec![Color::G];
+        pregame.source_labels = None;
+        pregame.static_abilities = vec![opening_placement_ability()];
+        pregame.capabilities = pregame.requirements();
+        definitions.push(pregame);
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

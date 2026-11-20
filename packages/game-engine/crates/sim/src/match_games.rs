@@ -195,6 +195,9 @@ impl Strategy<'_> {
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
             }
+            PlayerRequest::OpeningPlacement { .. } => {
+                PlayerResponse::OpeningPlacement { object: None }
+            }
             PlayerRequest::Mulligan {
                 mulligans_taken,
                 can_mulligan,
