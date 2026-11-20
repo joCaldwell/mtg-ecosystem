@@ -14,6 +14,48 @@ fn contains(p: &SpellProgram) -> bool {
     }) || p.modes.iter().any(|m| contains(&m.program))
 }
 
+fn controller_window_program() -> Vec<Instruction> {
+    vec![
+        Instruction::FreezeControllerLifeUntilNextTurn { source_block: 0 },
+        Instruction::ProtectControllerUntilNextTurn { source_block: 0 },
+        Instruction::PhaseOutControllerPermanents { source_block: 0 },
+        Instruction::ExileResolvingSpell { source_block: 1 },
+    ]
+}
+
+const WINDOW: &str =
+    "Until your next turn, your life total can't change and you gain protection from everything.";
+const PHASE: &str = "All permanents you control phase out.";
+
+fn controller_window_source(name: &str, text: &str, ast: &Value) -> Option<Vec<String>> {
+    let (status, terminal) = text.split_once('\n')?;
+    if terminal != format!("Exile {name}.") {
+        return None;
+    }
+    let line = format!("{WINDOW} {PHASE}");
+    let suffix = status.strip_prefix(&line)?;
+    // CR 207.2a: a single terminal parenthetical on the phasing sentence is reminder text.
+    if !suffix.is_empty()
+        && !suffix
+            .strip_prefix(" (")
+            .and_then(|s| s.strip_suffix(')'))
+            .is_some_and(|s| !s.is_empty() && !s.contains(['(', ')']))
+    {
+        return None;
+    }
+    let rules=["cant-gain-life","cant-lose-life"].map(|rule|json!({"effect":"player-rule","rule":{"who":{"player":"you"},"rule":rule},"duration":{"duration":"your-next-turn"}}));
+    let expected = json!([{"kind":"spell","effects":[{"steps":[{"effect":"simultaneous","steps":rules},{"effect":"player-gain-abilities","who":{"player":"you"},"abilities":[{"gained":"keyword","keyword":{"keyword":"protection","from":[{"scope":"everything"}]}}],"duration":{"duration":"your-next-turn"}}]},{"steps":[{"effect":"phase-out","what":{"ref":"all","filter":{"cls":"permanent","control":"you"}}}]}]},{"kind":"spell","effects":[{"steps":[{"effect":"exile","what":{"ref":"self"}}]}]}]);
+    (ast == &expected).then(|| vec![line, "Exile ~.".into()])
+}
+
+pub fn controller_window_instructions(
+    name: &str,
+    text: &str,
+    ast: &Value,
+) -> Option<Vec<Instruction>> {
+    controller_window_source(name, text, ast).map(|_| controller_window_program())
+}
+
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let fail = || "phasing requires the complete ordinary controller spell".to_string();
     if d.activated.iter().any(|a|contains(&a.program)) || d.triggered.iter().any(|a|contains(&a.program))
@@ -97,8 +139,13 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let Some(p) = &d.spell else {
         return Err(fail());
     };
-    if text != clause
-        || ast != expected
+    let window = controller_window_source(&d.name, text, &ast);
+    let instructions = if window.is_some() {
+        controller_window_program()
+    } else {
+        vec![instruction]
+    };
+    if (window.is_none() && (text != clause || ast != expected))
         || source["type_line"] != kind
         || source["layout"] != "normal"
         || source["id"] != d.provenance.printing_id
@@ -123,15 +170,17 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         || !p.modes.is_empty()
         || p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
-        || p.instructions.as_slice() != [instruction]
+        || p.instructions != instructions
         || d.source_labels.as_ref().is_some_and(|l| {
             *l != SourceLabels {
-                text: clause.into(),
-                blocks: vec![if clause == self_exile {
-                    "Exile ~.".into()
-                } else {
-                    clause.into()
-                }],
+                text: text.into(),
+                blocks: window.clone().unwrap_or_else(|| {
+                    vec![if clause == self_exile {
+                        "Exile ~.".into()
+                    } else {
+                        clause.into()
+                    }]
+                }),
                 ..Default::default()
             }
         })
@@ -173,7 +222,11 @@ pub(super) fn schema(s: &mut Value) {
         let free = json!({"$ref":format!("#/$defs/{free_name}")});
         s["$defs"][free_name] = json!({"properties":{"instructions":{"not":{"contains":op}},"modes":{"items":{"properties":{"program":free}}}}});
         let shape = json!({"required":["spell","capabilities"],"properties":{"capabilities":cap,"spell":{"type":"object","properties":{"instructions":{"minItems":1,"maxItems":1,"items":{"allOf":[op,{"properties":{"source_block":{"const":0}}}]}},"resolution":{"const":"instructions"},"functioning_zone":{"const":"stack"},"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0}}});
-        s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}},{"properties":{"provenance":{"properties":{"source_json":{"pattern":pattern}}}}}]},"then":shape}));
+        let mut composed = shape.clone();
+        composed["properties"]["spell"]["properties"]["instructions"] =
+            json!({"const":controller_window_program()});
+        composed["properties"]["capabilities"] = json!({"allOf":([Capability::ControllerLifeFreezeV1,Capability::ControllerProtectionUntilNextTurnV1,Capability::ControlledPermanentPhasingV1,Capability::ExileResolvingSpellV1].map(|c|json!({"contains":{"const":c}})))});
+        s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}},{"properties":{"provenance":{"properties":{"source_json":{"pattern":pattern}}}}}]},"then":{"anyOf":[shape,composed]}}));
     }
 }
 

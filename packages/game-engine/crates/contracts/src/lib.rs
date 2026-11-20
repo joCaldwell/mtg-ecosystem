@@ -47,6 +47,7 @@ pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
 mod artifact_modal;
 mod controlled_phasing;
+pub use controlled_phasing::controller_window_instructions;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;

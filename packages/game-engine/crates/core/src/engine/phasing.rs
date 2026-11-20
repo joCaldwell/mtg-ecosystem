@@ -419,6 +419,61 @@ mod tests {
     }
 
     #[test]
+    fn paid_controller_window_compiles_phases_prevents_and_exiles_its_stack_source() {
+        use crate::engine::equipped_indestructible_tests::{cast, recover, request};
+        let raw = include_str!(
+            "../../../../tests/fixtures/ramos/0d4ecdb1-ec90-497f-a7a4-1c68092b8757.json"
+        );
+        let compiled = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            raw,
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+            panic!("{compiled:?}")
+        };
+        let mut p = prepared(
+            &[
+                ("Plains", true),
+                ("Plains", false),
+                ("Plains", false),
+                ("Plains", false),
+                ("Forest", false),
+            ],
+            false,
+        );
+        p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        p.config.cards[4].owner = PlayerId(1);
+        p.config.cards[4].controller = PlayerId(1);
+        let catalog = Arc::make_mut(&mut p.catalog);
+        catalog.definitions.push(*definition);
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog.validate().unwrap();
+        p.catalog_digest = digest(&*p.catalog).unwrap();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut game = Game::with_trace(p, TraceMode::Detailed);
+        request(&mut game, 1);
+        cast(&mut game, 1, 0, vec![]);
+        assert_eq!(game.current(object(&game, 0)).unwrap().zone, Zone::Exile);
+        assert!(game.player_protected(PlayerId(0)));
+        assert!(
+            game.visible_player(PlayerId(0))
+                .unwrap()
+                .life_frozen_until_next_turn
+        );
+        for i in 1..=3 {
+            assert!(game.current(object(&game, i)).unwrap().phased_out.is_some());
+        }
+        assert!(
+            game.current(object(&game, 4))
+                .unwrap()
+                .present_on_battlefield()
+        );
+        recover(&game);
+    }
+
+    #[test]
     fn paid_self_exile_moves_the_exact_spell_on_completion() {
         use crate::engine::equipped_indestructible_tests::{cast, recover, request};
         let mut game = synthetic_game(Some(include_str!(
