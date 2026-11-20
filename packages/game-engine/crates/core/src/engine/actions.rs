@@ -22,6 +22,12 @@ pub(super) enum StackKind {
     },
 }
 impl StackKind {
+    pub(super) fn activated_index(&self) -> Option<u32> {
+        match self {
+            Self::Activated { ability, .. } => Some(*ability),
+            _ => None,
+        }
+    }
     pub(super) fn event_player(&self) -> Result<Option<PlayerId>, String> {
         match self {
             Self::Triggered {
@@ -131,9 +137,11 @@ impl Game {
         }
         match program.targets.first().map(|target| target.domain) {
             None => true,
-            Some(TargetDomain::AnyDamageTarget | TargetDomain::AnyPlayer) => {
-                !self.live_players().is_empty()
-            }
+            Some(
+                TargetDomain::AnyDamageTarget
+                | TargetDomain::AnyPlayer
+                | TargetDomain::PlayerOrPlaneswalker,
+            ) => !self.live_players().is_empty(),
             Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
             Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
                 !self
@@ -693,7 +701,11 @@ impl Game {
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
                     .player_targets = players;
-                self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                if cast.origin == AnnouncementOrigin::Activated {
+                    self.continue_activation_after_targets(cast, input.decision_id)?;
+                } else {
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
                 if let ResolutionChoice::HandReturn {
@@ -1003,9 +1015,11 @@ impl Game {
                 )
             }
             i @ (Instruction::UntapControllerLands { .. }
+            | Instruction::ExileTargetGraveyard { .. }
             | Instruction::MoveSet { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
@@ -1041,6 +1055,11 @@ impl Game {
             | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
+            Instruction::DistributePlusOneCounters { source_block, .. } => {
+                let allocations = self.allocated_counter_targets(&frame)?;
+                let cause = Self::staple_cause(&frame, source_block);
+                self.begin_counter_placements(frame, allocations, cause)
+            }
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
@@ -1709,14 +1728,14 @@ impl Game {
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
-            || self.bound_target_count(entry) != program.targets.len()
+            || !self.announced_target_count_valid(program, entry)
             || entry.paid.as_ref() != Some(&entry.total_cost)
             // Immediate loss and completion of its activated ability share one
             // atomic rule step. There is no post-loss resolving continuation.
             || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)
             || frame.cursor as usize > program.instructions.len()
             || frame.outcomes.len() != frame.cursor as usize
-            || frame.legal_targets.len() != program.targets.len()
+            || frame.legal_targets.len() != self.bound_target_count(entry)
         {
             return Err("snapshot resolving invocation invariant".into());
         }

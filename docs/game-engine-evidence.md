@@ -233,4 +233,7 @@ boundaries: `generated/ramos/mana-successor-dev/integration.json`.
 Shared lowering `4a896793`:54/31/0,43/30,IR1, `generated/ramos/shared-lowering/integration.json`.
 Reviewed union `ec659db7`:55/30/0,45/30,IR1, `generated/ramos/pr55-main93/audit/results.json`.
 Death sweep `93755057`:56/29/0, `generated/ramos/destruction-main94/`.
-`4e4db6ca`:58/27/0, `generated/ramos/cast-loss-main102/`. Deck/consumer admission remains open.
+`4e4db6ca`:58/27/0, `generated/ramos/cast-loss-main102/`.
+Activations `c3ef4bd0`:61/24/0,55/33, `generated/ramos/activated-composition/`.
+Sweeps `44618fda`:64/21/0,58/36/32, IR1, `generated/ramos/sweep-compositions-main111/`.
+Deck/consumer admission remains open.

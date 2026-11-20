@@ -915,6 +915,7 @@ impl Game {
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
+                        keyword_timestamp: r.source.keyword_timestamp,
                         id: r.source.object,
                         controller: r.source.controller,
                         default_controller: r.source.default_controller,

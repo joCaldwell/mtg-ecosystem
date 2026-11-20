@@ -159,6 +159,7 @@ fn plate_policy_announced_fallback_is_separate_from_initiation_and_buffs_preserv
         selected_additional_costs: None,
         x: None,
         mana_value: None,
+        selected_modes: vec![],
         mode: None,
         triggered: None,
         entity_targets: vec![],
@@ -190,6 +191,7 @@ fn plate_policy_announced_fallback_is_separate_from_initiation_and_buffs_preserv
         token: mtg_core::DecisionToken("equip-choice".into()),
         player: v.viewer,
         occurrences: p.targets.clone(),
+        counter_division: None,
         candidates: vec![other.clone()],
     });
     assert_eq!(

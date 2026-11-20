@@ -12,7 +12,7 @@ fn fail() -> Failure {
     )
 }
 
-fn flying_binding(graph: &mut Bindings<'_>, base: &str) {
+pub(super) fn flying_binding(graph: &mut Bindings<'_>, base: &str) {
     graph.ability(base, "keywords", "static-source-controller");
     let path = format!("{base}/keywords/0");
     let scope = graph.id(base, "ability");

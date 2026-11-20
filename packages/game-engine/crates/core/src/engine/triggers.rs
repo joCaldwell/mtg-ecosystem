@@ -1247,6 +1247,7 @@ impl Game {
                         death_controller: trigger.death_controller,
                         sacrificed: None,
                         sacrificed_set: vec![],
+                        mode_subset: None,
                         mode: None,
                         effect_source_handles: vec![],
                         source_facts: Some(trigger.source_facts.clone()),
@@ -1500,7 +1501,8 @@ impl Game {
                 && (fact.controller != controller || fact.owner != controller))
             || (matches!(
                 definition.condition,
-                TriggerCondition::SpellCastWithOrigin { .. }
+                TriggerCondition::SelfEntersBattlefield
+                    | TriggerCondition::SpellCastWithOrigin { .. }
             ) && fact.controller != controller)
             || handles.len() != 4
         {

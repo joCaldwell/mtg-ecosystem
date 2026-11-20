@@ -41,15 +41,13 @@ Native rejection stays distinct from process failure and stale deck revision.
 To select the actual local lifecycle bridge, additionally configure
 `MULTIVERSE_NATIVE_LIFECYCLE_DIRECTORY` (absolute private 0700 directory) and
 `MULTIVERSE_NATIVE_HUMAN_ORIGIN` (the exact numeric loopback HTTP product origin).
-`mtg-server lifecycle-profile commander-foundations-v1` reports actual native pins
-and its reviewed public pod. Retain that exact executable and private directory.
-The bridge owns one offline registry/server per game, at most two concurrent
-matches, and three separate seat consumers. Native lifecycle proof is separate
-from browser qualification. Its finite foundations pass/draw
-policy pauses explicitly on unsupported requests; attachments have no automated
-launch qualification. No shared hot registry, remote HTTPS bootstrap or whole-
-profile play is claimed. Browser qualification remains false in the default
-entrypoint, so Start game stays disabled pending separate parent session proof.
+`mtg-server lifecycle-profile commander-foundations-v1` reports pins and the
+reviewed pod. Retain the executable and private directory. The bridge owns one
+offline registry/server and three seat consumers per game, with two concurrent
+matches at most. The finite pass/draw policy pauses on unsupported requests.
+Start game requires the approved foundations release and native deck admission.
+Shared registries, remote HTTPS bootstrap, automated attachments and whole-profile
+play are outside this qualification.
 
 ## Verification
 

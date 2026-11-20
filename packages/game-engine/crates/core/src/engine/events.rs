@@ -98,6 +98,8 @@ pub enum EventGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectBefore {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -253,6 +255,23 @@ enum FactKey {
     Effects,
     PendingTriggers,
 }
+// Ephemeral proof from validating a complete root group against the prior
+// state. Raw occurrence application receives no authority.
+#[derive(Clone, Copy)]
+enum BatchAuthority<'a> {
+    Ordinary,
+    LandEntry(&'a PreparedEntryAuthority),
+    CounterReplacement,
+    PlaceCounters,
+}
+impl<'a> BatchAuthority<'a> {
+    fn entry(self) -> Option<&'a PreparedEntryAuthority> {
+        match self {
+            Self::LandEntry(proof) => Some(proof),
+            _ => None,
+        }
+    }
+}
 fn independent_footprints(
     footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
 ) -> bool {
@@ -385,6 +404,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             (keys.clone(), keys)
         }
         ProposedEvent::PutPlusOneCounters { object, .. } => {
+            // The complete, pure placement group is authorized once against
+            // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
@@ -691,7 +712,6 @@ fn collect<'a>(
                     matches!(
                         e,
                         ProposedEvent::Setup { .. }
-                            | ProposedEvent::PutPlusOneCounters { .. }
                             | ProposedEvent::ApplyCounterPlacementEffect { .. }
                             | ProposedEvent::EnterAttached { .. }
                             | ProposedEvent::AllocateDamageEffect { .. }
@@ -788,7 +808,7 @@ impl Game {
             &[],
             before.clone(),
             &mut occurrences,
-            None,
+            BatchAuthority::Ordinary,
         )?;
         // Only this exact BF -> exile movement cannot match any currently
         // supported dies/ETB trigger. General movement still uses apply_group.
@@ -993,7 +1013,8 @@ impl Game {
                         stack.insert(effect.origin.stack_id);
                     }
                     match &effect.kind {
-                        ResolvedEffectKind::PumpSet { targets, .. }
+                        ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
+                        | ResolvedEffectKind::PumpSet { targets, .. }
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
@@ -1292,6 +1313,7 @@ impl Game {
             .map(|object| {
                 let o = self.current(object)?;
                 Ok(ObjectBefore {
+                    keyword_timestamp: o.keyword_timestamp,
                     keywords: { self.current_keywords(object) },
                     deathtouch_damage: o.deathtouch_damage,
                     object,
@@ -1500,6 +1522,31 @@ impl Game {
                 return Err("invalid targeted loss batch".into());
             }
         }
+        let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
+        let authority = if placing
+            || events.iter().any(|e| {
+                matches!(
+                    e,
+                    ProposedEvent::PutPlusOneCounters { .. }
+                        | ProposedEvent::ApplyCounterPlacementEffect { .. }
+                )
+            }) {
+            self.authorize_counter_batch(&cause, &group)?;
+            if matches!(
+                &group,
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::ApplyCounterPlacementEffect { .. }
+                }
+            ) {
+                BatchAuthority::CounterReplacement
+            } else {
+                BatchAuthority::PlaceCounters
+            }
+        } else {
+            entry
+                .as_ref()
+                .map_or(BatchAuthority::Ordinary, BatchAuthority::LandEntry)
+        };
         let before = if matches!(&group, EventGroup::Ordered { .. }) {
             self.facts_with_entry_counts(&events, &BTreeMap::new())?
         } else {
@@ -1510,10 +1557,10 @@ impl Game {
         if self.in_rule_step {
             // The enclosing rule-step staging owns rollback. No intermediate
             // state is observable, and every failed batch aborts that step.
-            return self.apply_batch(cause, group, before, batch_id, next_batch, entry.as_ref());
+            return self.apply_batch(cause, group, before, batch_id, next_batch, authority);
         }
         let mut staged = self.fork();
-        match staged.apply_batch(cause, group, before, batch_id, next_batch, entry.as_ref()) {
+        match staged.apply_batch(cause, group, before, batch_id, next_batch, authority) {
             Ok(result) => {
                 self.state = staged.state;
                 self.trace = staged.trace;
@@ -1533,7 +1580,7 @@ impl Game {
         before: PreEventFacts,
         batch_id: u64,
         next_batch: u64,
-        entry: Option<&PreparedEntryAuthority>,
+        authority: BatchAuthority<'_>,
     ) -> Result<CommittedBatch, String> {
         self.state.rules.next_batch_id = next_batch;
         let mut occurrences = vec![];
@@ -1543,7 +1590,7 @@ impl Game {
             &mut vec![],
             &mut occurrences,
             Some(&before),
-            entry,
+            authority,
         )?;
         let result = CommittedBatch {
             batch_id,
@@ -1556,6 +1603,11 @@ impl Game {
         self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(result.clone()),
         })?;
+        if matches!(authority, BatchAuthority::PlaceCounters) {
+            // Consume the complete placement with the writes. A second batch
+            // with the same recipients and cause has no remaining authority.
+            self.finish_counter_batch(&result)?;
+        }
         self.state_token = Arc::new(());
         Ok(result)
     }
@@ -1566,7 +1618,7 @@ impl Game {
         path: &mut Vec<u32>,
         out: &mut Vec<OccurrenceResult>,
         prepared: Option<&PreEventFacts>,
-        entry: Option<&PreparedEntryAuthority>,
+        authority: BatchAuthority<'_>,
     ) -> Result<(), String> {
         match group {
             EventGroup::Occurrence { proposed } => {
@@ -1576,7 +1628,7 @@ impl Game {
                     Some(before) => before.clone(),
                     None => self.facts(&[proposed])?,
                 };
-                self.apply_leaf(proposed, batch, path, before, out, entry)?;
+                self.apply_leaf(proposed, batch, path, before, out, authority)?;
                 if changes_control_inputs(proposed) {
                     self.reconcile_controllers()?;
                 }
@@ -1587,7 +1639,7 @@ impl Game {
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_group(child, (batch, cause), path, out, None, entry)?;
+                    self.apply_group(child, (batch, cause), path, out, None, authority)?;
                     path.pop();
                 }
             }
@@ -1608,7 +1660,7 @@ impl Game {
                     let before = common.facts_with_entry_counts(&[event], &entry_counts)?;
                     let mut validation = common.fork();
                     if let Err(error) =
-                        validation.apply_prepared_occurrence(event, Some(&before), entry)
+                        validation.apply_prepared_occurrence(event, Some(&before), authority)
                     {
                         // The validation branch is discarded, but its typed
                         // resource failure must reach the enclosing atomic
@@ -1620,7 +1672,7 @@ impl Game {
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_leaf(event, batch, path, before, out, entry)?;
+                    self.apply_leaf(event, batch, path, before, out, authority)?;
                     path.pop();
                 }
                 // CR 603.10a, 702.15c/702.2e: simultaneous departures use
@@ -1654,9 +1706,9 @@ impl Game {
         path: &[u32],
         before: PreEventFacts,
         out: &mut Vec<OccurrenceResult>,
-        entry: Option<&PreparedEntryAuthority>,
+        authority: BatchAuthority<'_>,
     ) -> Result<(), String> {
-        let actual = self.apply_prepared_occurrence(proposed, Some(&before), entry)?;
+        let actual = self.apply_prepared_occurrence(proposed, Some(&before), authority)?;
         // Keep the pre-existing native flat trace as a compatibility view.
         let event = match &actual {
             EventOutcome::LeftGame { object, owner } => Event::ObjectLeftGame {
@@ -1931,6 +1983,8 @@ impl Game {
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
+                keyword_timestamp: (*destination == Zone::Battlefield)
+                    .then_some(self.state.rules.next_batch_id),
                 plus_one_counters: Quantity::zero(),
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
@@ -2007,14 +2061,15 @@ impl Game {
         ) {
             return Err("targeted loss requires an authorized instruction batch".into());
         }
-        self.apply_prepared_occurrence(proposed, before, None)
+        self.apply_prepared_occurrence(proposed, before, BatchAuthority::Ordinary)
     }
     fn apply_prepared_occurrence(
         &mut self,
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
-        entry: Option<&PreparedEntryAuthority>,
+        authority: BatchAuthority<'_>,
     ) -> Result<EventOutcome, String> {
+        let entry = authority.entry();
         let actual = match proposed {
             ProposedEvent::RevealSearchLands { player, objects } => {
                 if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, split: true, maximum: 2, .. }, .. } if p == *player)
@@ -2168,6 +2223,9 @@ impl Game {
                 if previous != *target {
                     o.attached_to = *target;
                     o.attachment_timestamp = allocation.map(|(timestamp, _)| timestamp);
+                    if target.is_some() {
+                        o.keyword_timestamp = Some(self.state.rules.next_batch_id);
+                    }
                     if let Some((_, next)) = allocation {
                         self.state.rules.next_attachment_timestamp = next;
                     }
@@ -2230,9 +2288,35 @@ impl Game {
             ProposedEvent::ShuffleLibraryWord { player, index } => {
                 self.apply_search_shuffle_word(*player, *index)?
             }
-            event @ (ProposedEvent::ApplyCounterPlacementEffect { .. }
-            | ProposedEvent::CreateCreatureTokens { .. }
-            | ProposedEvent::PutPlusOneCounters { .. }
+            ProposedEvent::ApplyCounterPlacementEffect { effect } => {
+                if !matches!(authority, BatchAuthority::CounterReplacement) {
+                    return Err("counter replacement requires transaction authority".into());
+                }
+                self.apply_counter_placement_effect(effect)?
+            }
+            ProposedEvent::PutPlusOneCounters { object, amount } => {
+                if !matches!(authority, BatchAuthority::PlaceCounters) {
+                    return Err("counter placement requires complete batch authority".into());
+                }
+                if !self.is_battlefield_creature(*object) || *amount <= Quantity::zero() {
+                    return Err("invalid counter placement".into());
+                }
+                let o = self
+                    .state
+                    .rules
+                    .objects
+                    .get_mut(&object.card)
+                    .ok_or("missing counter recipient")?;
+                let previous = o.plus_one_counters.clone();
+                o.plus_one_counters.add(amount);
+                EventOutcome::PlusOneCountersPlaced {
+                    object: *object,
+                    amount: amount.clone(),
+                    previous,
+                    current: o.plus_one_counters.clone(),
+                }
+            }
+            event @ (ProposedEvent::CreateCreatureTokens { .. }
             | ProposedEvent::CeaseToken { .. }) => self.apply_token_event(event)?,
             ProposedEvent::Setup { action } => EventOutcome::Setup {
                 actual: self.apply_setup_action(action)?,

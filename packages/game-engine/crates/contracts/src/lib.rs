@@ -9,6 +9,11 @@ pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_entry;
+mod fixed_creature_activation;
+pub use fixed_creature_activation::{
+    FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
+    has_fixed_creature_activation,
+};
 mod cast_origin;
 mod cast_payer_draw;
 pub use cast_payer_draw::cast_payer_draw_trigger;
@@ -36,13 +41,18 @@ pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
+mod artifact_modal;
 mod controlled_phasing;
 mod counter_unless_generic;
 mod each_player_draw;
+mod entry_graveyard_exile;
+mod set_exile;
+pub use set_exile::{SetExileClause, set_exile_modes};
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
 mod targeted_game_loss;
+pub use artifact_modal::BoundArtifactMode;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
 mod controller_library;
@@ -55,8 +65,10 @@ mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
+mod keyword_removal_wipe;
 mod library_selection;
 mod nonland_exile_life;
+pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wipe_source};
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
@@ -78,12 +90,14 @@ mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
 mod creature_entry_return;
+mod divided_plus_one_counters;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
 mod power_filtered_removal;
+pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -174,6 +188,19 @@ pub struct ManaCost {
     pub generic: Quantity,
     pub colored: Vec<Color>,
 }
+impl ManaCost {
+    fn printed_fixed_cost(&self) -> String {
+        let mut text = String::new();
+        if self.generic != Quantity::zero() || self.colored.is_empty() {
+            text.push_str(&format!("{{{}}}", self.generic));
+        }
+        for color in &self.colored {
+            text.push_str(&format!("{{{color:?}}}"));
+        }
+        text
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -347,6 +374,8 @@ pub enum Capability {
     HandActivationV1,
     DiscardSourceCostV1,
     AnyDamageTargetV1,
+    RemoveIndestructibleV1,
+    PlayerOrPlaneswalkerTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
     LifeGainV1,
@@ -357,10 +386,12 @@ pub enum Capability {
     OtherCreatureEntersBattlefieldV1,
     PowerFilteredCreatureEntryV1,
     CreatureEntryReturnV1,
+    EntryGraveyardExileV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
     ModalChoiceV1,
+    NonemptyModeSubsetV1,
     DefenderV1,
     FlyingV1,
     ReachV1,
@@ -385,6 +416,7 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    DividedPlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
     GraveyardBattlefieldReturnV1,
@@ -443,6 +475,7 @@ pub enum TargetDomain {
     /// CR 115.4: creatures, players, planeswalkers and battles. The closed
     /// scenario admits only creature/player inhabitants, not a narrower domain.
     AnyDamageTarget,
+    PlayerOrPlaneswalker,
     AnyPlayer,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -494,6 +527,8 @@ pub enum ObjectSet {
     NonlandPermanents,
     OpponentNonlandPermanents,
     Enchantments,
+    Artifacts,
+    GraveyardCards,
     AttackingCreatures,
     OpponentCreatures,
     FlyingCreatures,
@@ -757,6 +792,9 @@ pub enum Instruction {
         action: SetMove,
         source_block: u32,
     },
+    RemoveOpponentNonlandIndestructible {
+        source_block: u32,
+    },
     DestroySet {
         set: ObjectSet,
         /// CR 701.19c: a prohibition keeps regeneration replacement effects
@@ -893,6 +931,14 @@ pub enum Instruction {
     PutSourcePlusOneCountersForCastColors {
         source_block: u32,
     },
+    /// CR 601.2c–d. Slot zero is one variable target occurrence. Announce its
+    /// distinct objects and positive shares summing to count before paying costs.
+    DistributePlusOneCounters {
+        count: Quantity,
+        minimum_targets: u32,
+        maximum_targets: u32,
+        source_block: u32,
+    },
     PutPlusOneCounters {
         on: CounterRecipient,
         amount: Quantity,
@@ -933,6 +979,10 @@ pub enum Instruction {
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
         amount: Quantity,
         duration: Duration,
+        source_block: u32,
+    },
+    ExileTargetGraveyard {
+        target_slot: u32,
         source_block: u32,
     },
     ReturnEntryTargetCreature {
@@ -1135,6 +1185,7 @@ impl Instruction {
             | Self::MillCards { source_block, .. } => *source_block,
             Self::PhaseOutControllerPermanents { source_block }
             | Self::MoveSet { source_block, .. } => *source_block,
+            Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1161,13 +1212,15 @@ impl Instruction {
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
             Self::SearchBasicLands { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
-            Self::PutPlusOneCounters { source_block, .. } => *source_block,
+            Self::DistributePlusOneCounters { source_block, .. }
+            | Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
-            Self::ReturnEntryTargetCreature { source_block, .. }
+            Self::ExileTargetGraveyard { source_block, .. }
+            | Self::ReturnEntryTargetCreature { source_block, .. }
             | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
@@ -1448,6 +1501,7 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
+    OneOrMoreModes,
     Instructions,
     Permanent,
 }
@@ -1509,11 +1563,40 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
             ],
         ) => {
             target.slot == 0
-                && target.domain == TargetDomain::AnyDamageTarget
+                && matches!(
+                    target.domain,
+                    TargetDomain::AnyDamageTarget | TargetDomain::PlayerOrPlaneswalker
+                )
                 && target.stage == EvaluationStage::Announcement
                 && target.chooser == Chooser::Controller
                 && target.filter.is_none()
                 && *amount > Quantity::zero()
+        }
+        (
+            [],
+            [
+                Instruction::GainLife {
+                    recipient: LifeRecipient::Controller,
+                    amount,
+                    ..
+                },
+            ],
+        ) => *amount > Quantity::zero(),
+        (
+            [t],
+            [
+                Instruction::ModifyPowerToughness {
+                    target_slot: 0,
+                    duration: Duration::UntilEndOfTurn,
+                    ..
+                },
+            ],
+        ) => {
+            t.slot == 0
+                && t.domain == TargetDomain::BattlefieldCreature
+                && t.stage == EvaluationStage::Announcement
+                && t.chooser == Chooser::Controller
+                && t.filter.is_none()
         }
         _ => false,
     }
@@ -2529,7 +2612,8 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
-        cast_entry::validate_source(self)?;
+        let fixed_activations = fixed_creature_activation::validate(self)?;
+        cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
         conditional_lands::validate_definition(self)?;
@@ -2544,6 +2628,8 @@ impl Definition {
         announced_x_draw::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
+        artifact_modal::validate(self)?;
+        set_exile::validate(self)?;
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
@@ -2558,6 +2644,7 @@ impl Definition {
         power_entry_draw::validate_definition(self)?;
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
+        entry_graveyard_exile::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -2936,6 +3023,7 @@ impl Definition {
         own_graveyard_card_return::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
@@ -3035,7 +3123,9 @@ impl Definition {
                     || p.additional_sacrifice.is_some()
                     || !p.optional_additional_costs.is_empty()
                     || if p.modes.is_empty() {
-                        !p.targets.is_empty() || !fixed_artifact_sacrifice_effect(p)
+                        !p.targets.is_empty()
+                            || !matches!(p.instructions.as_slice(), [Instruction::DrawCards { .. }])
+                            || !fixed_artifact_sacrifice_effect(p)
                     } else {
                         u32::try_from(p.modes.len()).is_err()
                             || !p
@@ -3047,6 +3137,10 @@ impl Definition {
                     return Err("unsupported fixed artifact sacrifice activation".into());
                 }
                 validate_instruction_program(p)?;
+                continue;
+            }
+            // Each complete cost, target and instruction was reconstructed from its printed block.
+            if fixed_activations {
                 continue;
             }
             if ability.functioning_zone == FunctioningZone::Hand
@@ -3260,10 +3354,13 @@ impl Definition {
                     .triggered
                     .iter()
                     .all(|a| a.condition == TriggerCondition::SelfSpellCast),
-                CardKind::Land => self
-                    .triggered
-                    .iter()
-                    .all(|a| a.condition == TriggerCondition::SelfBecomesTapped),
+                CardKind::Land => self.triggered.iter().all(|a| {
+                    a.condition == TriggerCondition::SelfBecomesTapped
+                        || (a.condition == TriggerCondition::SelfEntersBattlefield
+                            && self
+                                .capabilities
+                                .contains(&Capability::EntryGraveyardExileV1))
+                }),
             }
         {
             return Err(
@@ -3489,6 +3586,7 @@ impl Definition {
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnOwnGraveyardCardToHand { .. }
+                            | Instruction::ExileTargetGraveyard { .. }
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
@@ -3754,7 +3852,10 @@ impl Definition {
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
                     || p.timing != cast_timing
-                    || p.resolution != SpellResolution::Instructions
+                    || !matches!(
+                        p.resolution,
+                        SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                    )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
                     return Err("invalid spell functioning zone or empty program".into());
@@ -4331,7 +4432,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         if p.modes.len() < 2
             || !p.targets.is_empty()
             || !p.instructions.is_empty()
-            || p.resolution != SpellResolution::Instructions
+            || !matches!(
+                p.resolution,
+                SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+            )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
         }
@@ -4340,7 +4444,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             if !child.modes.is_empty()
                 || child.timing != p.timing
                 || child.functioning_zone != p.functioning_zone
-                || child.resolution != p.resolution
+                || child.resolution != SpellResolution::Instructions
                 || child.instructions.is_empty()
             {
                 return Err("nested, empty, or inconsistent modal program".into());
@@ -4430,6 +4534,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         let binding = match instruction {
             Instruction::PhaseOutControllerPermanents { .. }
             | Instruction::MoveSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -4525,6 +4630,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     return Err("optional destroy requires a triggered program".into());
                 }
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
+            }
+            Instruction::ExileTargetGraveyard { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::AnyPlayer))
             }
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
             | Instruction::ExilePermanent { target_slot, .. }
@@ -4644,6 +4752,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
+            Instruction::DistributePlusOneCounters { .. } => {
+                Some((0, TargetDomain::BattlefieldCreature))
+            }
             Instruction::PutPlusOneCounters { on, amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("counter amount must be positive".into());
@@ -4751,7 +4862,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 match p.targets.get(*target_slot as usize).map(|t| t.domain) {
                     Some(
-                        domain @ (TargetDomain::AnyDamageTarget | TargetDomain::OpponentPlayer),
+                        domain @ (TargetDomain::AnyDamageTarget
+                        | TargetDomain::OpponentPlayer
+                        | TargetDomain::PlayerOrPlaneswalker),
                     ) => Some((*target_slot, domain)),
                     _ => return Err("unbound fixed damage target".into()),
                 }
@@ -5029,11 +5142,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     if !program.optional_additional_costs.is_empty() {
         set.insert(Capability::OptionalAdditionalManaCostV1);
     }
-    if program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::PutSourcePlusOneCountersForCastColors { .. }))
-    {
+    if program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            Instruction::PutSourcePlusOneCountersForCastColors { .. }
+                | Instruction::DistributePlusOneCounters { .. }
+        )
+    }) {
         set.insert(Capability::PlusOneCountersV1);
     }
     if has_permanent_owner_hand(program) {
@@ -5059,6 +5174,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if program.resolution == SpellResolution::OneOrMoreModes {
+            set.insert(Capability::NonemptyModeSubsetV1);
+        }
         for mode in &program.modes {
             add_program_requirements(set, &mode.program);
         }
@@ -5090,6 +5208,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
             TargetDomain::AnyDamageTarget => Capability::AnyDamageTargetV1,
+            TargetDomain::PlayerOrPlaneswalker => Capability::PlayerOrPlaneswalkerTargetV1,
             TargetDomain::AnyPlayer => Capability::AnyPlayerTargetV1,
         });
     }
@@ -5171,6 +5290,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PhaseOutControllerPermanents { .. } => {
                 Capability::ControlledPermanentPhasingV1
             }
+            Instruction::RemoveOpponentNonlandIndestructible { .. } => {
+                Capability::RemoveIndestructibleV1
+            }
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -5236,6 +5358,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
                 Capability::CastSpellColorCountersV1
             }
+            Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantKeywords { .. } => {
                 if temporary_permanent_keyword_program(program).is_some() {
@@ -5247,6 +5370,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
+            Instruction::ExileTargetGraveyard { .. } => Capability::EntryGraveyardExileV1,
             Instruction::ReturnEntryTargetCreature { .. } => Capability::CreatureEntryReturnV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
@@ -5372,9 +5496,22 @@ impl Catalog {
         {
             return Err("unsupported IR version or rules snapshot".into());
         }
+        let targets_union = self.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::PlayerOrPlaneswalkerTargetV1)
+        });
         let mut ids = BTreeSet::new();
         for d in &self.definitions {
             d.validate()?;
+            if targets_union
+                && std::iter::once(d.characteristics.kind)
+                    .chain(d.characteristics.additional_types.iter().copied())
+                    .any(artifact_modal::requires_planeswalker_target_support)
+            {
+                return Err(
+                    "planeswalker objects require executable loyalty and damage rules".into(),
+                );
+            }
             if d.triggered.iter().any(|a| {
                 a.program
                     .instructions
@@ -5481,12 +5618,19 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
         "items":{"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}}}});
     let damage = json!({"properties":{
         "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
-            "slot":{"const":0},"domain":{"const":"any_damage_target"},"stage":{"const":"announcement"},
+            "slot":{"const":0},"domain":{"enum":["any_damage_target","player_or_planeswalker"]},"stage":{"const":"announcement"},
             "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"minLength":1}}}},
         "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
             "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}}}
     }});
-    let child = json!({"anyOf":[draw,damage],"properties":{
+    let life = json!({"properties":{"targets":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":{
+        "properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},"amount":{"pattern":"^[1-9][0-9]*$"}}}}}});
+    let pump = json!({"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+        "slot":{"const":0},"domain":{"const":"battlefield_creature"},"stage":{"const":"announcement"},
+        "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"pattern":"^line:(0|[1-9][0-9]*):1$"}}}},
+        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"modify_power_toughness"},
+        "target_slot":{"const":0},"duration":{"const":"until_end_of_turn"}}}}}});
+    let child = json!({"anyOf":[draw,damage,life,pump],"properties":{
         "modes":{"maxItems":0},"timing":{"const":"instant"},
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}
     }});
@@ -5504,6 +5648,20 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
             "else":draw
         }
     }}});
+    let narrow_target = json!({"required":["domain"],"properties":{"domain":{"const":TargetDomain::PlayerOrPlaneswalker}}});
+    let free = json!({"$ref":"#/$defs/PlayerOrPlaneswalkerFreeProgram"});
+    schema["$defs"]["PlayerOrPlaneswalkerFreeProgram"] = json!({"properties":{
+        "targets":{"items":{"not":narrow_target}},"modes":{"items":{"properties":{"program":free}}}
+    }});
+    let has_union = json!({"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],
+        "properties":{"program":{"not":free}}}}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "properties":{"spell":{"if":{"type":"object"},"then":free},"triggered":{"items":{"properties":{"program":free}}},
+            "activated":{"items":{"if":{"not":counted},"then":{"properties":{"program":free}}}}},
+        "if":has_union,"then":{"properties":{"capabilities":{"allOf":[{"contains":{"const":Capability::PlayerOrPlaneswalkerTargetV1}},
+            {"contains":{"const":Capability::FixedArtifactSacrificeCostV1}},{"contains":{"const":Capability::NoncombatDamageV1}}]}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::PlayerOrPlaneswalkerTargetV1}}}}}
+    }));
     let contains_cap = json!({"contains":{"const":Capability::FixedArtifactSacrificeCostV1}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"activated":{"items":ability}},
@@ -5752,7 +5910,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
             "targets":{"maxItems":0},"instructions":{"maxItems":0},
-            "resolution":{"const":"instructions"},
+            "resolution":{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},
             "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
                 "modes":{"maxItems":0},"instructions":{"minItems":1},
                 "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
@@ -6669,6 +6827,7 @@ pub fn catalog_schema() -> serde_json::Value {
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     targeted_discard::extend_schema(&mut schema);
+    set_exile::extend_schema(&mut schema);
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
@@ -6683,10 +6842,12 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
+    fixed_creature_activation::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -6706,8 +6867,10 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
+    entry_graveyard_exile::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     schema
 }
@@ -6903,6 +7066,8 @@ mod tests {
             HandActivationV1,
             DiscardSourceCostV1,
             AnyDamageTargetV1,
+            PlayerOrPlaneswalkerTargetV1,
+            RemoveIndestructibleV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
             LifeGainV1,
@@ -6913,6 +7078,7 @@ mod tests {
             OtherCreatureEntersBattlefieldV1,
             PowerFilteredCreatureEntryV1,
             CreatureEntryReturnV1,
+            EntryGraveyardExileV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -6923,6 +7089,7 @@ mod tests {
             SelfDiesV1,
             InterveningIfV1,
             ModalChoiceV1,
+            NonemptyModeSubsetV1,
             DefenderV1,
             FlyingV1,
             ReachV1,
@@ -6947,6 +7114,7 @@ mod tests {
             CreatureTokensV1,
             MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
+            DividedPlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
             GraveyardBattlefieldReturnV1,
@@ -7067,6 +7235,52 @@ mod tests {
             token.toughness = 7.into();
         }
         creator.capabilities = creator.requirements();
+        let mut menu = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Sorcery
+                    && !d.x_mana_cost
+                    && d.keywords.is_empty()
+                    && d.triggered.is_empty()
+                    && d.static_abilities.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-open-mode-catalog.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        menu.source_labels = None;
+        assert_eq!(source["mana_cost"], "{0}");
+        menu.characteristics.mana_cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![],
+        };
+        menu.name = source["name"].as_str().unwrap().into();
+        menu.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        menu.provenance.printing_id = source["id"].as_str().unwrap().into();
+        menu.provenance.source_json = canonical(source).unwrap();
+        menu.provenance.source_sha256 = sha256(menu.provenance.source_json.as_bytes());
+        menu.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        menu.provenance.ast_sha256 =
+            sha256(format!("[{}]", menu.provenance.abilities_json).as_bytes());
+        let timing = if source["type_line"] == "Sorcery" {
+            menu.characteristics.kind = CardKind::Sorcery;
+            SpellTiming::MainPhase
+        } else {
+            menu.characteristics.kind = CardKind::Instant;
+            SpellTiming::Instant
+        };
+        menu.spell = Some(
+            set_exile_modes(source["oracle_text"].as_str().unwrap(), timing)
+                .unwrap()
+                .2,
+        );
+        menu.capabilities = menu.requirements();
+        definitions.push(menu);
         definitions.push(creator);
         // Synthetic complete typed control; exact frozen source is compiled
         // independently in compiler::ramos_m4e_tests.
@@ -7102,6 +7316,18 @@ mod tests {
                 optional_additional_costs: vec![],
             },
         });
+        multi.capabilities = multi.requirements();
+        definitions.push(multi.clone());
+        let text = "Sacrifice three artifacts: Choose one —\n• ~ deals 2 damage to target player or planeswalker.\n• Draw a card.";
+        let bound = BoundArtifactMode::parse(text, 0, 0).unwrap();
+        multi.name = "Synthetic Boundary Reader".into();
+        multi.activated = vec![bound.ability];
+        multi.provenance.abilities_json = canonical(&[bound.ast]).unwrap();
+        multi.provenance.ast_sha256 =
+            sha256(format!("[{}]", multi.provenance.abilities_json).as_bytes());
+        multi.provenance.source_json=canonical(&serde_json::json!({"name":multi.name,"oracle_id":multi.oracle_id,"id":multi.provenance.printing_id,
+            "oracle_text":text.replace('~',&multi.name)})).unwrap();
+        multi.provenance.source_sha256 = sha256(multi.provenance.source_json.as_bytes());
         multi.capabilities = multi.requirements();
         definitions.push(multi);
         let mut permanent_grant = counted.clone();
@@ -7332,7 +7558,9 @@ mod tests {
         definitions.push(power_entry_draw::witness());
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
+        definitions.push(divided_plus_one_counters::witness());
         definitions.push(creature_entry_return::witness());
+        definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
@@ -7574,6 +7802,12 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
+        let sweep = definitions
+            .iter()
+            .find(|d| d.name == "Planar Cleansing")
+            .unwrap()
+            .clone();
+        definitions.push(keyword_removal_wipe::witness(sweep));
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

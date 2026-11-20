@@ -13,13 +13,22 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.present_on_battlefield())
             .filter(|o| {
+                if *set == ObjectSet::GraveyardCards {
+                    return matches!(o.zone, Zone::Graveyard { .. })
+                        && !self.state.rules.tokens.contains_key(&o.id.card);
+                }
+                if !o.present_on_battlefield() {
+                    return false;
+                }
+
                 let Ok(d) = self.definition(o.id.card) else {
                     return false;
                 };
                 let creature = d.characteristics.kind == CardKind::Creature;
                 match set {
+                    ObjectSet::GraveyardCards => false,
+                    ObjectSet::Artifacts => d.characteristics.has_type(CardKind::Artifact),
                     ObjectSet::Creatures => creature,
                     ObjectSet::NonlandPermanents => !d.characteristics.has_type(CardKind::Land),
                     ObjectSet::OpponentNonlandPermanents => {
@@ -111,7 +120,14 @@ impl Game {
             }
             return self.continue_board_return(frame, objects, remaining, vec![], block);
         }
-        self.commit_board_moves(frame, objects, action, vec![], block)
+        self.commit_board_moves(
+            frame,
+            objects,
+            action,
+            vec![],
+            block,
+            set == ObjectSet::GraveyardCards,
+        )
     }
     fn commit_board_moves(
         &mut self,
@@ -120,11 +136,19 @@ impl Game {
         action: SetMove,
         choices: Vec<(ObjectId, bool)>,
         block: u32,
+        from_graveyards: bool,
     ) -> Result<(), String> {
-        let mut destroyed_creatures = 0;
         let occurrences = objects
             .into_iter()
-            .filter(|o| self.current(*o).is_ok_and(|o| o.present_on_battlefield()))
+            .filter(|o| {
+                self.current(*o).is_ok_and(|o| {
+                    if from_graveyards {
+                        matches!(o.zone, Zone::Graveyard { .. })
+                    } else {
+                        o.present_on_battlefield()
+                    }
+                })
+            })
             .map(|object| {
                 let owner = self.state.rules.cards[&object.card].owner;
                 match action {
@@ -144,6 +168,16 @@ impl Game {
                 }
             })
             .collect::<Vec<_>>();
+        self.commit_set_moves(frame, occurrences, action, block)
+    }
+    fn commit_set_moves(
+        &mut self,
+        frame: Resolving,
+        occurrences: Vec<ProposedEvent>,
+        action: SetMove,
+        block: u32,
+    ) -> Result<(), String> {
+        let mut destroyed_creatures = 0;
         let mut movements = vec![];
         if !occurrences.is_empty() {
             let batch = self.commit_batch(
@@ -200,7 +234,7 @@ impl Game {
             };
             Ok(())
         } else {
-            self.commit_board_moves(frame, objects, SetMove::Hand, choices, source_block)
+            self.commit_board_moves(frame, objects, SetMove::Hand, choices, source_block, false)
         }
     }
     pub(super) fn validate_board_return(
@@ -294,7 +328,8 @@ impl Game {
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
         };
         let targets = match &kind {
-            ResolvedEffectKind::PumpSet { targets, .. }
+            ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
+            | ResolvedEffectKind::PumpSet { targets, .. }
             | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
             | ResolvedEffectKind::ExileDamaged { targets } => targets,
             _ => return Err("not set effect".into()),
@@ -307,6 +342,7 @@ impl Game {
             target_handles,
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
+                activated_ability: frame.spell.kind.activated_index(),
                 mode: frame.spell.mode,
                 stack_id: frame.spell.id,
                 source: frame.spell.source,
@@ -337,6 +373,40 @@ impl Game {
         i: Instruction,
     ) -> Result<(), String> {
         match i {
+            Instruction::ExileTargetGraveyard {
+                target_slot,
+                source_block,
+            } => {
+                // CR 400.7, 603.3d, 608.2b/h: the player was targeted at placement.
+                // Determine the cards from that player's graveyard at resolution.
+                let slot = target_slot as usize;
+                let player = *frame
+                    .spell
+                    .player_targets
+                    .get(slot)
+                    .ok_or("missing graveyard player target")?;
+                if frame.legal_targets.get(slot) != Some(&true) || !self.is_live(player) {
+                    return self.finish_instruction(
+                        frame,
+                        InstructionOutcome::PlayerActionSkipped { player },
+                    );
+                }
+                let occurrences = self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| {
+                        o.zone == (Zone::Graveyard { owner: player })
+                            && !self.state.rules.tokens.contains_key(&o.id.card)
+                    })
+                    .map(|o| ProposedEvent::Move {
+                        object: o.id,
+                        destination: Zone::Exile,
+                    })
+                    .collect();
+                self.commit_set_moves(frame, occurrences, SetMove::Exile, source_block)
+            }
             Instruction::UntapControllerLands { source_block } => {
                 let mut occurrences = Vec::new();
                 for object in self.state.rules.objects.values() {
@@ -369,7 +439,7 @@ impl Game {
                 regeneration_forbidden,
                 source_block,
             } => match (&set, regeneration_forbidden) {
-                (ObjectSet::OpponentNonlandPermanents, false)
+                (ObjectSet::OpponentNonlandPermanents | ObjectSet::NonlandPermanents, false)
                 | (ObjectSet::NonlandPermanents, true) => {
                     // CR 701.19c: the prohibition skips regeneration replacement.
                     // The admitted event kernel has no regeneration replacement,
@@ -378,6 +448,23 @@ impl Game {
                 }
                 _ => Err("unsupported set destruction or regeneration policy".into()),
             },
+            Instruction::RemoveOpponentNonlandIndestructible { source_block } => {
+                let targets = self.objects_in_set(
+                    &ObjectSet::OpponentNonlandPermanents,
+                    frame.spell.controller,
+                );
+                let timestamp = self
+                    .state
+                    .rules
+                    .next_batch_id
+                    .checked_add(1)
+                    .ok_or("batch ID resource limit")?;
+                self.create_set_effect(
+                    frame,
+                    ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp },
+                    source_block,
+                )
+            }
             Instruction::PumpSet {
                 set,
                 power,
@@ -513,6 +600,9 @@ impl Game {
             && targets.iter().all(|o| {
                 self.state.rules.cards.contains_key(&o.card)
                     && self.definition(o.card).is_ok_and(|d| match set {
+                        Some(ObjectSet::OpponentNonlandPermanents) => {
+                            !d.characteristics.has_type(CardKind::Land)
+                        }
                         Some(ObjectSet::ControllerPermanents) => matches!(
                             d.characteristics.kind,
                             CardKind::Creature

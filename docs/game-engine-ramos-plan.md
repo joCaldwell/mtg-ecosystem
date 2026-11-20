@@ -30,7 +30,7 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-`4e4db6ca` compiles **58/85 definitions**, with 27 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`44618fda` compiles **64/85 definitions**, with 21 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
@@ -46,14 +46,13 @@ unspent-mana replacement and private choices.
 
 ### M6 Complete card advantage and flexible choices
 
-Complete Whirlwind, Rhystic payments, distributed Abzan
-counters, Quandrix choose-two/graveyard targets, Conflux colored
-search. Urban Evolution has a focused land-permission witness.
+Whirlwind, Rhystic, Abzan and Urban Evolution have focused witnesses.
+Complete Quandrix choose-two/graveyard targets and Conflux colored search.
 
 ### M7 Complete protection and board interaction
 
 Anguished Unmaking, Void Rend, Ruinous Ultimatum and Avacyn have focused witnesses.
-Death-trigger destruction has a paid witness. Complete Exterminatus, Farewell and Akroma's Will.
+Death-trigger destruction, Exterminatus and Farewell have paid witnesses. Complete Akroma's Will.
 
 ### M8 Add spell and permanent copies
 
@@ -69,7 +68,7 @@ attachment transitions and Thunder's lore/chapters/final sacrifice.
 ### M10 Complete phasing and remaining effects
 
 Complete Teferi's Protection, Coalition's repeated modes, Progenitus replacement,
-Archangel hand casting, Zacama activation composition and Breya's token/payment composition.
+and Archangel hand casting. Zacama and Breya have paid witnesses.
 
 ### M11 Qualify the exact deck and host it
 

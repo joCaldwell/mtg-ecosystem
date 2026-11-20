@@ -32,13 +32,13 @@ async function bounded<T>(signal: AbortSignal, operation: (signal: AbortSignal) 
 
 /** Command-enabled composition requires the explicitly qualified SDK build
  * identity. The app separately gates reviewed opening-hand interactions. */
-export function browserCommandSession(protocolSchemaHash: string, options?: { readonly endpoint: string }): ReadSession<File> {
+export function browserCommandSession(protocolSchemaHash: string, options?: { readonly endpoint: string; readonly requestFetch?: typeof fetch }): ReadSession<File> {
   if (!/^[0-9a-f]{64}$/.test(protocolSchemaHash)) throw new SessionFailure('incompatible');
   if (options && !/^\/api\/games\/[a-f0-9]{1,64}\/native$/.test(options.endpoint)) throw new SessionFailure('incompatible');
-  return makeBrowserSession(protocolSchemaHash, options?.endpoint);
+  return makeBrowserSession(protocolSchemaHash, options?.endpoint, options?.requestFetch);
 }
 export function browserReadSession(): ReadSession<File> { return makeBrowserSession(); }
-function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): ReadSession<File> {
+function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string, requestFetch?: typeof fetch): ReadSession<File> {
   const effects: SessionEffects<File> = {
     cancellation() { const abort = new AbortController(); return { signal: abort.signal, abort: () => abort.abort() }; },
     acquire: acquireSeat, wait, classify,
@@ -59,7 +59,7 @@ function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): Rea
       const sessionFetch: typeof fetch = async (input, init) => {
         const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
         if (endpoint && (url.origin !== origin || !url.pathname.startsWith(`${endpoint}/`))) throw new SessionFailure('incompatible');
-        const response = await fetch(input, endpoint ? { ...init, credentials: 'same-origin' } : init);
+        const response = await (requestFetch ?? fetch)(input, endpoint ? { ...init, credentials: 'same-origin' } : init);
         if (response.status === 429) {
           const delay = retryAfterMilliseconds(response.headers.get('Retry-After'));
           if (delay !== null) retryNotBefore = Math.max(retryNotBefore, performance.now() + delay);
@@ -71,7 +71,7 @@ function makeBrowserSession(protocolSchemaHash?: string, endpoint?: string): Rea
       // bootstrap/config value can select a fetch target. Hosted origins retain
       // an explicit gate until that separate transport contract is qualified.
       const config = await bounded(signal, deadline => readClientConfig(origin, { signal: deadline,
-        ...(endpoint ? { fetch: (_input, init) => fetch(`${baseURL}/client-config.json`, { ...init, credentials: 'same-origin' }) } : {}),
+        ...(endpoint ? { fetch: (_input, init) => sessionFetch(`${baseURL}/client-config.json`, init) } : {}),
       }));
       if (signal.aborted) throw new SessionFailure('disconnected');
       // Both producer/parser contracts require the explicit SocketAddr spelling,

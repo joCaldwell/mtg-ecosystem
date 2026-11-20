@@ -27,8 +27,15 @@ function text(value: any): string {
 function rig() {
   const slots: any[] = [], reads: ReturnType<typeof deferred>[] = [], grants: ReturnType<typeof deferred>[] = [];
   const timers = new Map<number, { at: number; run: () => void }>();
-  let cursor = 0, now = 0, nextTimer = 0, cleanup: (() => void) | undefined;
-  let dependencies: unknown[] | undefined, pendingEffect: (() => (() => void)) | undefined;
+  type Cleanup = () => void;
+  const effects = new Map<number, { deps: unknown[]; cleanup?: Cleanup }>();
+  const pending = new Map<number, () => Cleanup | void>();
+  const budget: ("start" | "release")[] = [];
+  let cursor = 0, now = 0, nextTimer = 0;
+  const startRequestBudget = () => {
+    budget.push("start");
+    return () => { budget.push("release"); };
+  };
   class ApiError extends Error {
     status: number;
     constructor(status: number) { super("Fixture API error"); this.status = status; }
@@ -40,8 +47,13 @@ function rig() {
       if (!(slot in slots)) slots[slot] = initial;
       return [slots[slot], (next: any) => { slots[slot] = typeof next === "function" ? next(slots[slot]) : next; }];
     },
-    useEffect(effect: () => (() => void), deps: unknown[]) {
-      if (!dependencies || deps.some((value, index) => value !== dependencies![index])) { dependencies = deps; pendingEffect = effect; }
+    useEffect(effect: () => Cleanup | void, deps: unknown[]) {
+      const slot = cursor++;
+      const previous = effects.get(slot);
+      if (!previous || deps.length !== previous.deps.length || deps.some((value, index) => !Object.is(value, previous.deps[index]))) {
+        effects.set(slot, { ...previous, deps });
+        pending.set(slot, effect);
+      }
     },
   };
   const exported: Record<string, any> = {};
@@ -68,20 +80,32 @@ function rig() {
     cursor = 0;
     const view = exported.LiveGamePage({ gameId, host: {
       api: { getGame() { const d = deferred(); reads.push(d); return d.promise; }, humanGameSeat() { const d = deferred(); grants.push(d); return d.promise; } }, ApiError,
-      backHref: "/play", ui: Object.fromEntries(["Button", "ButtonLink", "ErrorNote", "Loading"].map(key => [key, key])),
+      backHref: "/play", startRequestBudget, ui: Object.fromEntries(["Button", "ButtonLink", "ErrorNote", "Loading"].map(key => [key, key])),
     } });
-    if (pendingEffect) { const effect = pendingEffect; pendingEffect = undefined; cleanup?.(); cleanup = effect(); }
+    for (const [slot, effect] of pending) {
+      const state = effects.get(slot)!;
+      state.cleanup?.();
+      const cleanup = effect();
+      if (cleanup) state.cleanup = cleanup;
+      else delete state.cleanup;
+    }
+    pending.clear();
     return view;
   };
   render();
-  return { reads, grants, render, ApiError,
+  return { reads, grants, render, ApiError, budget,
     status(state: string, outcome: unknown = null) { return { game: { id: gameId, state, outcome, pause: state === "paused" ? "human_timeout" : null } }; },
     nextPoll() {
       const entry = [...timers].sort((a, b) => a[1].at - b[1].at)[0];
       assert.ok(entry, "Expected a scheduled status read");
       timers.delete(entry[0]); now = entry[1].at; entry[1].run();
     },
-    stop() { cleanup?.(); }, timers,
+    stop() {
+      for (const state of effects.values()) {
+        state.cleanup?.();
+        delete state.cleanup;
+      }
+    }, timers,
   };
 }
 
@@ -96,11 +120,13 @@ test("paused status, late grant, then active status offers retry and reacquires 
     assert.ok(retry, "Discarded grants must expose a retry once active");
     retry.props.onClick(); r.render();
     assert.equal(r.grants.length, 2);
+    assert.deepEqual(r.budget, ["start"], "Retry keeps the same mounted request budget");
     r.reads[2]!.resolve(r.status("active")); r.grants[1]!.resolve({ bootstrap_file: "{}" }); await flush();
     const session = elements(r.render()).find(node => node.type === "GameSession");
     assert.ok(session?.props.bootstrapFile instanceof File);
     assert.equal(session.props.interactive, true);
   } finally { r.stop(); }
+  assert.deepEqual(r.budget, ["start", "release"], "Unmount releases the request budget once");
 });
 
 test("account denial fences a late successful grant and exposes no game session", async () => {

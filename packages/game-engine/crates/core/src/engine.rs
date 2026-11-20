@@ -34,6 +34,8 @@ mod activated_spell_counter_tests;
 mod each_player_draw;
 mod group_discard;
 #[cfg(test)]
+mod keyword_removal_wipe_tests;
+#[cfg(test)]
 mod nonland_exile_life_tests;
 #[cfg(test)]
 mod opponent_nonland_destroy_tests;
@@ -332,6 +334,8 @@ pub use history::History;
 mod recovery;
 pub use recovery::SnapshotVerifier;
 mod actions;
+mod divided_counters;
+pub use divided_counters::CounterDivision;
 mod cascade;
 #[cfg(test)]
 mod cascade_tests;
@@ -627,6 +631,13 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn phased_formats(&self) -> bool {
+        self.catalog.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::ControlledPermanentPhasingV1)
+        })
+    }
+
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
         let profile_digest = pod
@@ -879,6 +890,8 @@ struct Object {
     attached_to: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachment_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
     marked_damage: Quantity,
@@ -915,6 +928,8 @@ struct StackInstance {
     sacrificed_set: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode_subset: Option<choices::BoundModeSubset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     effect_source_handles: Vec<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1197,6 +1212,9 @@ pub enum Response {
     DamageAllocation {
         allocations: Vec<(DamageId, Quantity)>,
     },
+    ModeSubset {
+        modes: Vec<u32>,
+    },
     Modes {
         mode: u32,
     },
@@ -1382,6 +1400,8 @@ pub enum Request {
     Modes {
         decision_id: u64,
         player: PlayerId,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        one_or_more: bool,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {
@@ -1486,6 +1506,8 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         occurrences: Vec<TargetSpec>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        counter_division: Option<CounterDivision>,
         candidates: Vec<ObjectId>,
     },
 }
@@ -2041,6 +2063,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    CounterPlacements {
+        actual: Vec<EventOutcome>,
+    },
     CounterPrevented {
         target: StackId,
     },
@@ -2108,6 +2133,11 @@ pub enum Event {
         stack_id: StackId,
         player: PlayerId,
         value: Quantity,
+    },
+    ModeSubsetSelected {
+        stack_id: StackId,
+        player: PlayerId,
+        modes: Vec<u32>,
     },
     ModeSelected {
         stack_id: StackId,
@@ -2228,6 +2258,7 @@ pub struct SnapshotWriteInfo {
     pub state_sha256: String,
 }
 pub struct Game {
+    phased_formats: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     state: State,
@@ -2300,6 +2331,7 @@ impl Game {
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
+                        keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
@@ -2383,6 +2415,7 @@ impl Game {
             },
         };
         let mut game = Self {
+            phased_formats: prepared.phased_formats(),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2404,6 +2437,7 @@ impl Game {
     }
     pub fn fork(&self) -> Self {
         Self {
+            phased_formats: self.phased_formats,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
@@ -2422,6 +2456,7 @@ impl Game {
                 .saturating_add(self.cascade_charge())
                 .saturating_add(self.mana_continuation_charge())
                 .saturating_add(self.land_entry_charge())
+                .saturating_add(self.counter_placement_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
@@ -2543,7 +2578,11 @@ impl Game {
     fn program(&self) -> Result<&SpellProgram, String> {
         self.program_for(self.top()?)
     }
-    fn program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
+    fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
+        if let Some(plan) = &stack.mode_subset {
+            return plan.program(self.root_program_for(stack)?);
+        }
+
         self.selected_program(self.root_program_for(stack)?, stack.mode)
     }
     fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
@@ -2638,6 +2677,7 @@ impl Game {
                     decision_id: self.state.rules.revision,
                     player: self.top()?.controller,
                     occurrences: self.program()?.targets.clone(),
+                    counter_division: None,
                     candidates: self
                         .state
                         .rules
@@ -2725,6 +2765,7 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
+                counter_division: CounterDivision::offered_by(self.program()?),
                 candidates: self
                     .state
                     .rules
@@ -2797,6 +2838,11 @@ impl Game {
             (&self.state.rules.frame, response)
         {
             return self.validate_damage_allocation(player, allocations);
+        }
+        if let (Frame::Modes { .. }, Response::ModeSubset { modes }) =
+            (&self.state.rules.frame, response)
+        {
+            return self.authorize_mode_subset(player, modes).map(|_| ());
         }
         if let (Frame::Modes { .. }, Response::Modes { mode }) = (&self.state.rules.frame, response)
         {
@@ -2880,7 +2926,7 @@ impl Game {
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     )
-                }) || objects.len() != self.program()?.targets.len()
+                }) || !Self::object_target_count_valid(self.program()?, objects)
                     || objects
                         .iter()
                         .any(|o| !self.object_target_legal(self.top().unwrap(), *o))
@@ -3110,16 +3156,17 @@ impl Game {
                 top.targets = objects;
                 top.announced_targets = announced;
                 let entry = self.top()?;
-                let tap_only = match &entry.kind {
+                let immediate_cost = match &entry.kind {
                     StackKind::Activated { ability, .. } => {
-                        self.definition(entry.source.card)?.activated[*ability as usize].cost
-                            == ActivationCost::TapSource
+                        matches!(
+                            self.definition(entry.source.card)?.activated[*ability as usize].cost,
+                            ActivationCost::TapSource | ActivationCost::SacrificePermanent { .. }
+                        )
                     }
                     _ => false,
                 };
-                if tap_only {
-                    // CR602.2b/601.2c,h: target announcement precedes tap
-                    // payment; a tap-only cost grants no mana payment window.
+                if immediate_cost {
+                    // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
                     self.state.rules.frame = self.announcement_mana_frame(cast)?;
@@ -3368,7 +3415,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 54,
+            snapshot_version: if self.phased_formats { 60 } else { 58 },
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3410,7 +3457,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 54
+        if s.snapshot_version != if prepared.phased_formats() { 60 } else { 58 }
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3419,6 +3466,7 @@ impl Game {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
         let game = Self {
+            phased_formats: prepared.phased_formats(),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
@@ -3556,7 +3604,7 @@ impl Game {
                 return Err("snapshot stack identity invariant".into());
             }
             self.validate_stack_bindings(stack)?;
-            let n = self.program_for(stack)?.targets.len();
+            let program = self.program_for(stack)?;
             if stack.announced_targets.len() != 4
                 || stack
                     .announced_targets
@@ -3585,7 +3633,7 @@ impl Game {
                     Frame::Finished { .. } | Frame::Fault { .. }
                 ) && stack.paid.is_none()));
             if !incomplete_top
-                && (self.bound_target_count(stack) != n
+                && (!self.announced_target_count_valid(program, stack)
                     || stack.paid.as_ref() != Some(&stack.total_cost))
             {
                 return Err("snapshot completed lower/top cast invariant".into());

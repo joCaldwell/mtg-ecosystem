@@ -128,6 +128,7 @@ impl Game {
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
+            keyword_timestamp: o.keyword_timestamp,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,
             object,
@@ -191,7 +192,12 @@ impl Game {
     ) -> Vec<PlayerId> {
         self.live_players()
             .into_iter()
-            .filter(|p| domain == TargetDomain::AnyPlayer || *p != controller)
+            .filter(|p| {
+                matches!(
+                    domain,
+                    TargetDomain::AnyPlayer | TargetDomain::PlayerOrPlaneswalker
+                ) || *p != controller
+            })
             .collect()
     }
     pub(super) fn player_target_legal(
@@ -204,7 +210,9 @@ impl Game {
             p.targets.get(slot).is_some_and(|spec| {
                 matches!(
                     spec.domain,
-                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer
+                    TargetDomain::AnyPlayer
+                        | TargetDomain::OpponentPlayer
+                        | TargetDomain::PlayerOrPlaneswalker
                 ) && self
                     .eligible_players(spec.domain, entry.controller)
                     .contains(&player)
@@ -311,6 +319,10 @@ impl Game {
                     return Ok(());
                 }
                 ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    return Ok(());
+                }
+                ActivationCost::Composite { costs } if costs.mana.is_some() => {
                     self.state.rules.frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
@@ -468,6 +480,16 @@ impl Game {
                 .entity_targets
                 .get(index)
                 .ok_or("missing damage binding")?,
+            Some(TargetDomain::PlayerOrPlaneswalker) => {
+                let player = *spell
+                    .player_targets
+                    .get(index)
+                    .ok_or("missing player-or-planeswalker damage target")?;
+                if player.0 >= 4 {
+                    return Err("unknown target player".into());
+                }
+                TargetEntity::Player { player }
+            }
             Some(TargetDomain::OpponentPlayer) => {
                 let player = *spell
                     .player_targets

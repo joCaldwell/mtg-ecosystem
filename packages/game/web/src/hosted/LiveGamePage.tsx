@@ -23,6 +23,7 @@ export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrows
   const [attempt, setAttempt] = useState(0);
   const [grant, setGrant] = useState<Grant | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
+  useEffect(() => host.startRequestBudget?.(), [gameId, host.startRequestBudget]);
   useEffect(() => {
     let current = true, grantAllowed = true, revoked = false;
     let statusRequest: AbortController | undefined;
@@ -68,7 +69,11 @@ export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrows
     }).catch(() => {
       if (current && !revoked) setGrant({ gameId, attempt, error: "This game session is unavailable. Return to saved games to resume it, or try again." });
     }).finally(() => clearTimeout(timer));
-    return () => { current = false; clearTimeout(timer); clearTimeout(nextStatus); controller.abort(); statusRequest?.abort(); };
+    return () => {
+      current = false;
+      clearTimeout(timer); clearTimeout(nextStatus);
+      controller.abort(); statusRequest?.abort();
+    };
   }, [gameId, attempt]);
   const current = grant?.gameId === gameId && grant.attempt === attempt ? grant : null;
   const record = saved?.gameId === gameId && saved.attempt === attempt ? saved : null;
@@ -78,7 +83,8 @@ export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrows
     <header className={styles.header}><h1>Game</h1><ButtonLink href={host.backHref}>Back to Play</ButtonLink></header>
     {inactive && <section className={current?.file ? styles.notice : styles.summary} aria-labelledby="saved-game-status"><h2 id="saved-game-status">{game.state === "completed" ? "Game complete" : game.state === "provisioning" ? "Preparing game" : game.state === "paused" ? "Game paused" : "Game interrupted"}</h2><p className={styles.stateDetail} role="status">{savedStatus(game)}</p></section>}
     {record?.error && <div className={styles.notice}><ErrorNote>{record.error}</ErrorNote></div>}
-    {current?.file ? <div className={styles.workspace}><GameSession gameId={gameId} bootstrapFile={current.file} headingLevel={2} interactive={!inactive && record?.denied !== true} /></div>
+    {current?.file ? <div className={styles.workspace}><GameSession gameId={gameId} bootstrapFile={current.file} headingLevel={2} interactive={!inactive && record?.denied !== true}
+      {...(host.requestFetch ? { requestFetch: host.requestFetch } : {})} /></div>
       : inactive ? null
       : <div className={styles.notice}>
         {current?.error && <ErrorNote>{current.error}</ErrorNote>}

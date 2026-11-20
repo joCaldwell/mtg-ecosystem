@@ -1194,6 +1194,9 @@ impl Strategy<'_> {
             .or_else(|| candidates.first().cloned())
     }
     fn in_set(&self, v: &PermittedView, o: &VisibleObject, set: &ObjectSet) -> bool {
+        if *set == ObjectSet::GraveyardCards {
+            return matches!(o.zone, Zone::Graveyard { .. }) && o.token.is_none();
+        }
         let Some(c) = &o.characteristics else {
             return false;
         };
@@ -1212,6 +1215,8 @@ impl Strategy<'_> {
                         })
                         && !c.has_type(CardKind::Land)
                 }
+                ObjectSet::GraveyardCards => false,
+                ObjectSet::Artifacts => c.has_type(CardKind::Artifact),
                 ObjectSet::Enchantments => c.has_type(CardKind::Enchantment),
                 ObjectSet::AttackingCreatures => v.combat.iter().any(|a| a.attacker == o.handle),
                 ObjectSet::OpponentCreatures => {
@@ -1481,6 +1486,7 @@ impl Strategy<'_> {
             TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
                 self.stack_target(v, t, None).is_some()
             }
+            TargetDomain::PlayerOrPlaneswalker => !v.live_turn_order.is_empty(),
             TargetDomain::AnyPlayer
             | TargetDomain::OpponentPlayer
             | TargetDomain::AnyDamageTarget => v.live_turn_order.iter().any(|p| *p != v.viewer),

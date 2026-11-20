@@ -77,6 +77,7 @@ mod reactive_tests {
                 selected_additional_costs: None,
                 x: None,
                 mana_value: None,
+                selected_modes: vec![],
                 mode: None,
                 triggered: None,
                 entity_targets: vec![],
@@ -245,6 +246,7 @@ mod wipe_tests {
                 selected_additional_costs: None,
                 x,
                 mana_value: mv,
+                selected_modes: vec![],
                 mode: None,
                 triggered: None,
                 entity_targets: vec![],
@@ -486,6 +488,7 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
         selected_additional_costs: None,
         x: None,
         mana_value: None,
+        selected_modes: vec![],
         mode: None,
         triggered: None,
         entity_targets: vec![],
@@ -1469,6 +1472,7 @@ mod blocking_target_policy_tests {
                 token: mtg_core::DecisionToken("blocking-payload".into()),
                 player: viewer,
                 occurrences: p.targets.clone(),
+                counter_division: None,
                 candidates: offered,
             });
             let before = canonical(&o).unwrap();
@@ -1598,6 +1602,7 @@ mod reactive_tapped_destroy_tests {
             token: mtg_core::DecisionToken("tapped-destroy-payload".into()),
             player: o.view.viewer,
             occurrences: d.spell.as_ref().unwrap().targets.clone(),
+            counter_division: None,
             candidates: vec![
                 ObjectHandle("Goliath Sphinx".into()),
                 ObjectHandle("Storm Crow".into()),
@@ -1789,6 +1794,7 @@ mod defensive_untap_policy_tests {
             token: mtg_core::DecisionToken("defensive-untap-payload".into()),
             player: o.view.viewer,
             occurrences: p.targets.clone(),
+            counter_division: None,
             candidates: vec![
                 ObjectHandle("Goliath Sphinx".into()),
                 ObjectHandle("Storm Crow".into()),
@@ -2117,6 +2123,7 @@ mod permanent_owner_hand_policy_tests {
                 token: mtg_core::DecisionToken("permanent-bounce-payload".into()),
                 player: o.view.viewer,
                 occurrences: p.targets.clone(),
+                counter_division: None,
                 candidates: vec![ObjectHandle("Grizzly Bears".into()), selected.clone()],
             });
             let before = canonical(&o).unwrap();
@@ -2303,6 +2310,7 @@ mod activated_permanent_tap_policy_tests {
             selected_additional_costs: None,
             x: None,
             mana_value: None,
+            selected_modes: vec![],
             mode: None,
             triggered: None,
             entity_targets: vec![],
@@ -2328,6 +2336,7 @@ mod activated_permanent_tap_policy_tests {
             token: mtg_core::DecisionToken("activated-tap-payload".into()),
             player: o.view.viewer,
             occurrences: p.targets.clone(),
+            counter_division: None,
             candidates: vec![
                 ObjectHandle("enemy-icy".into()),
                 ObjectHandle("own-defender".into()),
@@ -2478,6 +2487,7 @@ mod activated_headless_policy_tests {
             selected_additional_costs: None,
             x: None,
             mana_value: None,
+            selected_modes: vec![],
             mode: None,
             triggered: None,
             entity_targets: vec![],
@@ -2589,6 +2599,7 @@ mod activated_headless_policy_tests {
             token: mtg_core::DecisionToken("royal-payload".into()),
             player: o.view.viewer,
             occurrences: p.targets.clone(),
+            counter_division: None,
             candidates: vec![
                 ObjectHandle("own-tapped".into()),
                 ObjectHandle("enemy-tapped".into()),
@@ -2841,6 +2852,7 @@ mod temporal_adept_policy_tests {
                 selected_additional_costs: None,
                 x: None,
                 mana_value: None,
+                selected_modes: vec![],
                 mode: None,
                 triggered: None,
                 entity_targets: vec![],
@@ -2866,6 +2878,7 @@ mod temporal_adept_policy_tests {
                 token: mtg_core::DecisionToken("temporal-payload".into()),
                 player: o.view.viewer,
                 occurrences: p.targets.clone(),
+                counter_division: None,
                 candidates: vec![
                     ObjectHandle("own-bears".into()),
                     ObjectHandle("enemy-return-target".into()),
@@ -3177,6 +3190,7 @@ fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_ba
             token: mtg_core::DecisionToken("public-announced".into()),
             player: viewer,
             occurrences: p.targets.clone(),
+            counter_division: None,
             candidates: vec![h.clone()],
         });
         assert_eq!(

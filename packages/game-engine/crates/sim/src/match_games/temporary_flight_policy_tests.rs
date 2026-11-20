@@ -153,6 +153,7 @@ fn temporary_flight_policy_announced_targets_retain_mandatory_legal_fallback() {
         token: mtg_core::DecisionToken("flight".into()),
         player: viewer,
         occurrences: p.targets.clone(),
+        counter_division: None,
         candidates: vec![h.clone()],
     });
     assert_eq!(

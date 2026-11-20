@@ -10,7 +10,7 @@ fn contains_untap(p: &SpellProgram) -> bool {
         || p.modes.iter().any(|mode| contains_untap(&mode.program))
 }
 
-pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
+pub(super) fn validate_source(d: &Definition, fixed_activations: bool) -> Result<(), String> {
     let gated = d
         .triggered
         .iter()
@@ -34,10 +34,11 @@ pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
     let [trigger] = d.triggered.as_slice() else {
         return Err(error.into());
     };
+    let block = u32::from(fixed_activations && !d.keywords.is_empty());
     let who = json!({"player":"you"});
     let draw = json!({"effect":"draw","who":who,"amount":{"amount":"fixed","value":1}});
     let (action, effect) = match trigger.program.instructions.as_slice() {
-        [Instruction::OptionalDrawCards { source_block: 0 }] => {
+        [Instruction::OptionalDrawCards { source_block }] if *source_block == block => {
             let mut draw = draw;
             draw["optional"] = json!(true);
             ("you may draw a card.", draw)
@@ -46,22 +47,34 @@ pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
             Instruction::DrawCards {
                 recipient: None,
                 count,
-                source_block: 0,
+                source_block,
             },
-        ] if *count == Quantity::from(1) => ("draw a card.", draw),
-        [Instruction::UntapControllerLands { source_block: 0 }] => (
+        ] if *source_block == block && *count == Quantity::from(1) => ("draw a card.", draw),
+        [Instruction::UntapControllerLands { source_block }] if *source_block == block => (
             "untap all lands you control.",
             json!({"effect":"untap","what":{"ref":"all","filter":{"types":["land"],"control":"you"}}}),
         ),
         _ => return Err(error.into()),
     };
     let abilities: Value = strict_read(&d.provenance.abilities_json)?;
+    let line = text.lines().nth(block as usize);
+    let entry_line = |name: &str| format!("When {name} enters, if you cast it, {action}");
+    let printed = line == Some(entry_line(&d.name).as_str())
+        || (fixed_activations
+            && d.name
+                .split_once(',')
+                .is_some_and(|(short, _)| line == Some(entry_line(short).as_str())));
     if !gated
         || source["id"] != d.provenance.printing_id
         || source["name"] != d.name
         || source["oracle_id"] != d.oracle_id
-        || text != format!("When {} enters, if you cast it, {action}", d.name)
+        || !printed
+        || text.lines().count() != block as usize + 1 + d.activated.len()
         || d.source_labels.as_ref().is_some_and(|labels| {
+            if fixed_activations {
+                return labels.blocks.get(block as usize)
+                    != Some(&format!("When ~ enters, if you cast it, {action}"));
+            }
             labels
                 != &SourceLabels {
                     text: text.into(),
@@ -70,17 +83,20 @@ pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
                     ..Default::default()
                 }
         })
-        || !d.keywords.is_empty()
-        || !d.activated.is_empty()
+        || (!fixed_activations && !d.keywords.is_empty())
+        || (!fixed_activations && !d.activated.is_empty())
         || !d.mana_abilities.is_empty()
         || !d.static_abilities.is_empty()
         || d.intrinsic_zone.is_some()
         || !trigger.program.targets.is_empty()
         || trigger.death_filter.is_some()
         || abilities
-            != json!([{"kind":"triggered","trigger":{"trigger":"enters","what":{"ref":"self"}},
+            .as_array()
+            .is_none_or(|a| a.len() != block as usize + 1 + d.activated.len())
+        || abilities[block as usize]
+            != json!({"kind":"triggered","trigger":{"trigger":"enters","what":{"ref":"self"}},
             "condition":{"condition":"was-cast","what":{"ref":"it"},"by":who},
-            "effects":[{"steps":[effect]}]}])
+            "effects":[{"steps":[effect]}]})
     {
         return Err(error.into());
     }
@@ -100,22 +116,32 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "then":{"properties":{"triggered":{"items":{"required":["intervening_if"],"properties":{
             "intervening_if":{"const":InterveningCondition::SourceCastByController}
         }}}, "capabilities":{"contains":{"const":Capability::UntapControllerLandsV1}},
-        "source_labels":{"properties":{"blocks":{"const":[format!("When ~ enters, if you cast it, {}", "untap all lands you control.")]},
-            "triggered":{"const":[0]},"activated":{"maxItems":0},"statics":{"maxItems":0},"mana":{"maxItems":0},"spell_modes":{"maxItems":0}}}}},
+        "source_labels":{"properties":{"blocks":{"contains":{"const":format!("When ~ enters, if you cast it, {}", "untap all lands you control.")}},
+            "triggered":{"enum":[[0],[1]]},"statics":{"maxItems":0},"mana":{"maxItems":0},"spell_modes":{"maxItems":0}}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::UntapControllerLandsV1}}}}}
     }));
+    let block_shape = |block: u32| {
+        json!({"properties":{
+            "triggered":{"items":{"properties":{"program":{"properties":{"instructions":{"items":{"properties":{"source_block":{"const":block}}}}}}}}},
+            "source_labels":{"properties":{"triggered":{"const":[block]}}}
+        }})
+    };
     let condition = json!({"required":["intervening_if"],"properties":{
         "intervening_if":{"const":InterveningCondition::SourceCastByController}
     }});
-    let instruction_shapes = json!([
-        [Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0
-        }],
-        [Instruction::OptionalDrawCards { source_block: 0 }],
-        [Instruction::UntapControllerLands { source_block: 0 }]
-    ]);
+    let instruction_shapes = (0..=1)
+        .flat_map(|source_block| {
+            [
+                vec![Instruction::DrawCards {
+                    recipient: None,
+                    count: 1.into(),
+                    source_block,
+                }],
+                vec![Instruction::OptionalDrawCards { source_block }],
+                vec![Instruction::UntapControllerLands { source_block }],
+            ]
+        })
+        .collect::<Vec<_>>();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[
             {"required":["triggered"],"properties":{"triggered":{"contains":condition}}},
@@ -123,7 +149,14 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "pattern":r#""oracle_text"\s*:\s*"[^"]*, if you cast it,"#
             }}}}}
         ]},
-        "then":{"required":["triggered"],"properties":{
+        "then":{"required":["triggered"],"allOf":[{
+            "if":{"required":["keywords"],"properties":{"keywords":{"minItems":1}}},
+            "then":{"required":["activated"],"properties":{"activated":{"minItems":1}},"allOf":[block_shape(1)]},
+            "else":block_shape(0)
+        },{
+            "if":{"not":{"required":["activated"],"properties":{"activated":{"minItems":1}}}},
+            "then":{"properties":{"source_labels":{"properties":{"activated":{"maxItems":0},"blocks":{"maxItems":1}}}}}
+        }],"properties":{
             "triggered":{"minItems":1,"maxItems":1,"items":{"required":["intervening_if"],"properties":{
                 "intervening_if":{"const":InterveningCondition::SourceCastByController},
                 "condition":{"const":TriggerCondition::SelfEntersBattlefield},
@@ -133,7 +166,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                     "optional_additional_costs":{"maxItems":0},"instructions":{"enum":instruction_shapes}
                 }}
             }}},
-            "keywords":{"maxItems":0},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
+            "keywords":{"uniqueItems":true,"items":{"enum":["flying","reach","trample","vigilance"]}},"activated":{"items":{"$ref":"#/$defs/FixedCreatureActivation"}},"mana_abilities":{"maxItems":0},
             "static_abilities":{"maxItems":0},"intrinsic_zone":{"type":"null"},
             "characteristics":{"properties":{"kind":{"const":CardKind::Creature}}},
             "capabilities":{"allOf":[{"contains":{"const":Capability::CastEntryConditionV1}},

@@ -718,3 +718,302 @@ fn fixed_artifact_modal_activation_announces_child_before_root_payment() {
         recover(&g);
     }
 }
+
+#[test]
+fn counted_artifact_compiled_modes_freeze_target_then_pay_root_set() {
+    let header = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    let raw = include_str!("../../../../tests/fixtures/synthetic-counted-artifact-modal.json");
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(header, raw)
+    else {
+        panic!("synthetic artifact")
+    };
+    let mut p = prepared(&[
+        ("Sol Ring", 0, 0, false),
+        ("Sol Ring", 1, 0, false),
+        ("Alpha Myr", 2, 0, false),
+        ("Grizzly Bears", 3, 3, false),
+        ("Mountain", 0, 0, false),
+        ("Mountain", 0, 0, false),
+        ("Mountain", 0, 0, false),
+        ("Mountain", 0, 0, false),
+    ]);
+    let catalog = Arc::make_mut(&mut p.catalog);
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    for mode in [0, 1, 4] {
+        let mut g = Game::with_trace(p.clone(), TraceMode::Detailed);
+        let [dial, ring, myr, bear] = [0, 1, 2, 3].map(|x| object(&g, x));
+        answer(
+            &mut g,
+            1,
+            Response::ActivateAbility {
+                object: dial,
+                ability: 0,
+            },
+        );
+        answer(&mut g, 1, Response::Modes { mode });
+        if mode == 1 {
+            recover(&g);
+            answer(
+                &mut g,
+                1,
+                Response::Targets {
+                    objects: vec![bear],
+                },
+            );
+        }
+        if mode == 4 {
+            let r = request(&mut g, 1);
+            assert!(
+                matches!(&r,Request::PlayerTargets{occurrences,candidates,..} if occurrences[0].domain==TargetDomain::PlayerOrPlaneswalker && candidates==&g.live_players())
+            );
+            reject(
+                &mut g,
+                r.player(),
+                r.decision_id(),
+                Response::Targets {
+                    objects: vec![bear],
+                },
+            );
+            reject(
+                &mut g,
+                r.player(),
+                r.decision_id(),
+                Response::EntityTargets {
+                    entities: vec![TargetEntity::Object { object: bear }],
+                },
+            );
+            recover(&g);
+            answer(
+                &mut g,
+                1,
+                Response::PlayerTargets {
+                    players: vec![PlayerId(0)],
+                },
+            );
+        }
+        for land in 4..8 {
+            let land = object(&g, land);
+            answer(&mut g, 1, Response::ActivateMana { object: land });
+        }
+        answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+        answer(
+            &mut g,
+            1,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::R, 4.into())]),
+            },
+        );
+        for candidate in [dial, ring, myr] {
+            answer(&mut g, 1, Response::SacrificeCost { object: candidate });
+        }
+        assert!(matches!(request(&mut g, 1), Request::Priority { .. }));
+        recover(&g);
+        settle(&mut g, 1);
+        if mode == 0 {
+            assert_eq!(g.state.rules.players[0].life, 48.into());
+        } else if mode == 4 {
+            assert_eq!(g.state.rules.players[0].life, 34.into());
+        } else {
+            assert_eq!(g.characteristics(bear).unwrap().power, Some(4.into()));
+        }
+        recover(&g);
+    }
+}
+
+#[test]
+fn fixed_set_exile_moves_one_zone_batch_and_preserves_commander_choice() {
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    for (n, raw) in include_str!("../../../../tests/fixtures/synthetic-set-exile.jsonl")
+        .lines()
+        .enumerate()
+    {
+        let parsed = mtg_compiler::compile(manifest, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = parsed else {
+            panic!("{parsed:?}")
+        };
+        let mut p = prepared(&[
+            ("Grizzly Bears", 0, 0, true),
+            ("Sol Ring", 0, 0, false),
+            ("Alpha Myr", 1, 1, false),
+            ("Grizzly Bears", 2, 2, false),
+            ("Isamaru, Hound of Konda", 1, 1, false),
+            ("Sol Ring", 2, 2, false),
+            ("Alpha Myr", 2, 2, true),
+        ]);
+        p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        for id in [4usize, 5] {
+            p.config.cards[id].zone = Zone::Graveyard {
+                owner: p.config.cards[id].owner,
+            };
+        }
+        p.config.commanders = vec![CardId(4)];
+        let catalog = Arc::make_mut(&mut p.catalog);
+        catalog.definitions.push(*definition);
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog.validate().unwrap();
+        p.catalog_digest = digest(catalog).unwrap();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::with_trace(p, TraceMode::Detailed);
+        answer(&mut g, 1, Response::Cast { card: CardId(0) });
+        answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+        g.complete_test_mana();
+        let targets = if n == 0 {
+            vec![CardId(1), CardId(2)]
+        } else {
+            vec![CardId(4), CardId(5)]
+        };
+        let mut chose = false;
+        loop {
+            let r = request(&mut g, 1);
+            match r {
+                Request::CommanderReturn { .. } => {
+                    assert!(n != 0 && !chose);
+                    recover(&g);
+                    assert_eq!(g.state.rules.objects[&CardId(4)].zone, Zone::Exile);
+                    answer(&mut g, 1, Response::CommanderReturn { to_command: true });
+                    chose = true;
+                }
+                Request::Priority { .. } if g.state.rules.stack.is_empty() => break,
+                Request::Priority { .. } => answer(&mut g, 1, Response::Pass),
+                other => panic!("{other:?}"),
+            }
+        }
+        let moved: Vec<_> = g
+            .events()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Committed {
+                    actual: EventOutcome::Moved { movement },
+                    ..
+                } if movement.destination == Zone::Exile => Some(movement.previous.card),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(moved, targets);
+        assert_eq!(chose, n != 0);
+        assert_eq!(g.state.rules.objects[&CardId(3)].zone, Zone::Battlefield);
+        assert_eq!(
+            g.state.rules.objects[&CardId(6)].zone,
+            Zone::Hand { owner: PlayerId(2) }
+        );
+        if chose {
+            assert_eq!(
+                g.state.rules.objects[&CardId(4)].zone,
+                Zone::Command { owner: PlayerId(1) }
+            );
+        }
+        recover(&g);
+    }
+}
+
+#[test]
+fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
+    let raw =
+        include_str!("../../../../tests/fixtures/ramos/4eb813fd-2d5a-4b02-8193-662681ef4e7d.json");
+    let parsed = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        raw,
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = parsed else {
+        panic!("{parsed:?}")
+    };
+    let mut p = prepared(&[
+        ("Grizzly Bears", 0, 0, true),
+        ("Grizzly Bears", 1, 1, false),
+        ("Sol Ring", 2, 2, false),
+        ("Plains", 0, 0, false),
+        ("Plains", 0, 0, false),
+        ("Sol Ring", 0, 0, false),
+        ("Sol Ring", 0, 0, false),
+    ]);
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    answer(&mut g, 1, Response::Cast { card: CardId(0) });
+    let r = request(&mut g, 1);
+    assert!(matches!(&r,Request::Modes{one_or_more:true,candidates,..} if candidates==&[0,1,2,3]));
+    for modes in [vec![], vec![1, 1], vec![4]] {
+        assert!(
+            g.respond(r.player(), r.decision_id(), Response::ModeSubset { modes })
+                .is_err()
+        );
+    }
+    recover(&g);
+    answer(&mut g, 1, Response::ModeSubset { modes: vec![1, 0] });
+    assert!(matches!(request(&mut g, 1), Request::Mana { .. }));
+    let plan = g.top().unwrap().mode_subset.as_ref().unwrap();
+    assert_eq!(plan.indices, [0, 1]);
+    recover(&g);
+    let mut bad = g.fork();
+    bad.state
+        .rules
+        .stack
+        .last_mut()
+        .unwrap()
+        .mode_subset
+        .as_mut()
+        .unwrap()
+        .indices
+        .reverse();
+    assert!(Game::restore(bad.prepared.as_ref().clone(), &bad.snapshot().unwrap()).is_err());
+    for id in 3..=6 {
+        let object = object(&g, id);
+        answer(&mut g, 1, Response::ActivateMana { object });
+    }
+    answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        1,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::W, 2.into()), (Color::C, 4.into())]),
+        },
+    );
+    loop {
+        let request = request(&mut g, 1);
+        if g.state.rules.stack.is_empty() {
+            break;
+        }
+        assert!(matches!(request, Request::Priority { .. }));
+        answer(&mut g, 1, Response::Pass);
+    }
+    let moved = g
+        .trace()
+        .records
+        .iter()
+        .filter_map(|row| match &row.record {
+            EvidenceRecord::Batch { batch }
+                if matches!(batch.cause, BatchCause::Instruction { .. }) =>
+            {
+                Some(batch)
+            }
+            _ => None,
+        })
+        .flat_map(|batch| batch.occurrences.iter())
+        .filter_map(|occurrence| match &occurrence.actual {
+            EventOutcome::Moved { movement } if movement.destination == Zone::Exile => {
+                Some(movement.previous.card)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    // The spell exiles its controller's tapped mana rocks with the other
+    // artifacts before exiling the creature.
+    assert_eq!(moved, [CardId(2), CardId(5), CardId(6), CardId(1)]);
+    recover(&g);
+}

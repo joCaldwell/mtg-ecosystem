@@ -286,7 +286,9 @@ fn target_plans(
                 objects: vec![o.handle.clone()],
             })
             .collect::<Vec<_>>(),
-        TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer => players
+        TargetDomain::OpponentPlayer
+        | TargetDomain::AnyPlayer
+        | TargetDomain::PlayerOrPlaneswalker => players
             .iter()
             .map(|p| TargetPlan::Players { players: vec![*p] })
             .collect(),

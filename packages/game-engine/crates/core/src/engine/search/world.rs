@@ -374,6 +374,7 @@ impl SampleBuildWork {
                     phased_out: None,
                     attached_to: None,
                     attachment_timestamp: None,
+                    keyword_timestamp: None,
                     plus_one_counters: Quantity::zero(),
                     deathtouch_damage: false,
                     id: object,
