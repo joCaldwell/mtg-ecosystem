@@ -424,6 +424,7 @@ fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
             attacks: vec![(attacker, PlayerId(2))],
         },
     );
+    request(&mut g);
     assert!(!g.can_block(blocker, attacker));
 }
 
