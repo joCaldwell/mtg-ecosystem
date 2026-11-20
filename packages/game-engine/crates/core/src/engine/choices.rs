@@ -1172,6 +1172,18 @@ mod fixed_target_mode_tests {
         );
         assert!(matches!(request(&mut g, 1), Request::EntityTargets { .. }));
         recover(&g);
+        let mut forged = g.fork();
+        let Frame::EntityTargets { cast } = &forged.state.rules.frame else {
+            panic!("expected dependent player selection")
+        };
+        forged.state.rules.frame = Frame::Targets { cast: cast.clone() };
+        assert!(
+            Game::restore(
+                forged.prepared.as_ref().clone(),
+                &forged.snapshot().unwrap()
+            )
+            .is_err()
+        );
         for select_card in [false, true] {
             let mut branch = g.fork();
             let mut entities = vec![TargetEntity::Player { player: owner }];

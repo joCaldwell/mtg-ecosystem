@@ -4126,17 +4126,40 @@ impl Game {
                 {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
-                if matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
-                    Frame::AdditionalCosts { .. }
-                        | Frame::HybridCost { .. }
-                        | Frame::AnnounceX { .. }
-                        | Frame::Modes { .. }
-                        | Frame::EntityTargets { .. }
+                let stage = self.underlying_mana_frame(&s.rules.frame);
+                let target_stage = matches!(
+                    stage,
+                    Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
                         | Frame::PlayerTargets { .. }
                         | Frame::StackTargets { .. }
-                ) && self.bound_target_count(top) != 0
+                );
+                if target_stage && self.mixed_mode_children(top)?.is_some() {
+                    let next = self.next_mode_target(top)?.and_then(|p| p.targets.first());
+                    if !self.valid_mixed_target_receipt(top, false)?
+                        || !matches!(
+                            (stage, next.map(|t| t.domain)),
+                            (
+                                Frame::Targets { .. },
+                                Some(
+                                    TargetDomain::BattlefieldCreature
+                                        | TargetDomain::CreatureOrPlaneswalker
+                                )
+                            ) | (Frame::StackTargets { .. }, Some(TargetDomain::StackSpell))
+                                | (Frame::EntityTargets { .. }, Some(TargetDomain::AnyPlayer))
+                        )
+                    {
+                        return Err("snapshot selected-mode announcement target invariant".into());
+                    }
+                } else if (target_stage
+                    || matches!(
+                        stage,
+                        Frame::AdditionalCosts { .. }
+                            | Frame::HybridCost { .. }
+                            | Frame::AnnounceX { .. }
+                            | Frame::Modes { .. }
+                    ))
+                    && self.bound_target_count(top) != 0
                 {
                     return Err("snapshot announcement target invariant".into());
                 }
