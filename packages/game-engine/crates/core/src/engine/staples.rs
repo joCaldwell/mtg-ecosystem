@@ -238,25 +238,25 @@ impl Game {
                 .is_ok_and(|c| c.has_type(CardKind::Creature))
     }
     pub(super) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
+        let spec = self.program_for(entry).ok().and_then(|p| p.targets.first());
+        self.object_target_legal_for(entry, object, spec)
+    }
+    pub(super) fn object_target_legal_for(
+        &self,
+        entry: &StackInstance,
+        object: ObjectId,
+        spec: Option<&mtg_contracts::TargetSpec>,
+    ) -> bool {
         if !self
             .targeting_characteristics(entry)
             .is_ok_and(|source| !self.protected_from(object, source))
         {
             return false;
         }
-        match self
-            .program_for(entry)
-            .ok()
-            .and_then(|p| p.targets.first())
-            .map(|t| t.domain)
-        {
+        match spec.map(|t| t.domain) {
             Some(
                 TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
-            ) => self
-                .program_for(entry)
-                .ok()
-                .and_then(|p| p.targets.first())
-                .is_some_and(|spec| self.permanent_target_legal(object, entry.controller, spec)),
+            ) => spec.is_some_and(|t| self.permanent_target_legal(object, entry.controller, t)),
             Some(
                 domain @ (TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard),
             ) => self
