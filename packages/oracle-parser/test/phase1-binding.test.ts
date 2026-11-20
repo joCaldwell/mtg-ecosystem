@@ -1581,3 +1581,52 @@ describe("per-player action result fences", () => {
       diagnostic.path.endsWith("/who")));
   });
 });
+
+describe("source-incarnation linked copies and permissions", () => {
+  it("copies a linked imprint pool and offers a separate cast for each result", () => {
+    const graph = analyze("Imprint — When this artifact enters, you may exile an instant card with mana value 2 or less from your hand.\n"
+      + "{2}, {T}: You may copy the exiled card. If you do, you may cast the copy without paying its mana cost.", "Artifact");
+    boundCard(graph);
+    const producer = graph.nodes.find(node => node.node === "linked-exile-pool");
+    const copies = graph.nodes.find(node => node.node === "linked-card-copies");
+    const casts = graph.nodes.find(node => node.node === "cast-linked-copies");
+    assert.ok(producer && copies && casts);
+    assert.equal(copies.pool, producer.id);
+    assert.equal(copies.result, casts.copies);
+    assert.equal(casts.choice, "optional-per-copy");
+    assert.ok(graph.nodes.some(node => node.id === copies.event && node.node === "event" && node.optional));
+  });
+
+  it("does not use copies from the branch that declines the copy choice", () => {
+    const graph = analyze("Imprint — When this artifact enters, you may exile an instant card with mana value 2 or less from your hand.\n"
+      + "{2}, {T}: You may copy the exiled card. If you don't, you may cast the copy without paying its mana cost.", "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "cast-linked-copies"));
+  });
+
+  it("binds a spellcaster to the copies of qualifying cards in a self-linked pool", () => {
+    const graph = analyze("Whenever a player casts an instant or sorcery card, exile it. Then that player copies "
+      + "each instant or sorcery card exiled with this enchantment. For each copy, the player may cast the copy without paying its mana cost.",
+      "Enchantment");
+    boundCard(graph);
+    const producer = graph.nodes.find(node => node.node === "linked-exile-pool");
+    const copies = graph.nodes.find(node => node.node === "linked-card-copies");
+    const casts = graph.nodes.find(node => node.node === "cast-linked-copies");
+    assert.ok(producer && producer.rules.includes("607.1c") && copies && casts);
+    assert.equal(producer.id, copies.pool);
+    assert.notEqual(copies.eligible, copies.pool);
+    assert.equal(casts.caster, copies.caster);
+    assert.equal(casts.copies, copies.result);
+  });
+
+  it("binds the full historical pool for a self-linked permission separately from this exile", () => {
+    const graph = analyze("At the beginning of your upkeep, exile the top card of target opponent's library. "
+      + "You may play that card for as long as it remains exiled, and mana of any type can be spent to cast it. "
+      + "If you're the monarch, until end of turn, you may cast a spell from among cards exiled with this enchantment "
+      + "without paying its mana cost.", "Enchantment");
+    boundCard(graph);
+    const producer = graph.nodes.find(node => node.node === "linked-exile-pool");
+    assert.equal(bound(graph, "/permission/fromAmong"), producer?.id);
+    assert.notEqual(bound(graph, "/effects/1/steps/0/permission/what"), producer?.id);
+  });
+});

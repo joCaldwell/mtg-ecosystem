@@ -251,7 +251,7 @@ function resolutionCount(effect: Effect, path: string): Context["resolutionCount
 type StaticRule = Extract<StaticEffect, { static: "prohibit" | "untap-during-step" | "untap-step-limit" }>;
 
 type OptionalEntryCopy = EntryCopy & { model: Extract<EntryCopy["model"], { model: "choose" }>; optional: { who: PlayerRef } };
-type LinkedExileOrigin = { ability: string; path: string; imprint: boolean; rule: "607.2a" | "607.2b" };
+type LinkedExileOrigin = { ability: string; path: string; imprint: boolean; rule: "607.1c" | "607.2a" | "607.2b" };
 
 function ordinaryEntryCopy(effect: EntryCopy): effect is OptionalEntryCopy {
   const { what, model, optional, duration, changes, entryExceptions } = effect;
@@ -316,11 +316,20 @@ function linkedExileOrigin(abilities: Ability[], siblings: string): LinkedExileO
     return { ability: `${siblings}/${index}`, path: `${siblings}/${index}/effect/replacement/replace/effects/0/steps/0`,
       imprint: false, rule: "607.2b" };
   }
-  if ((ability.kind !== "activated" && ability.kind !== "triggered") || ability.effects.length !== 1) return;
-  const [sentence] = ability.effects;
+  if ((ability.kind !== "activated" && ability.kind !== "triggered") || !ability.effects.length) return;
+  const [sentence, ...later] = ability.effects;
+  if (later.length && ability.kind === "triggered" && !hasExileInstruction(later) && seeksLinkedExile(later, false) &&
+      Object.keys(sentence).length === 1 && sentence.steps.length === 1 && sentence.steps[0].effect === "exile") {
+    const exile = sentence.steps[0];
+    if (!exile.optional && !exile.forEach && !exile.forEachVote && !exile.decidedBy && !exile.faceDown &&
+        (exile.what.ref === "library-cards" || exile.what.ref === "trigger-event-object" ||
+          (exile.what.ref === "it" && ability.trigger.trigger === "cast")))
+      return { ability: `${siblings}/${index}`, path: `${siblings}/${index}/effects/0/steps/0`, imprint: false, rule: "607.1c" };
+  }
+  if (later.length) return;
   if (sentence.steps.length !== 1 || sentence.condition || sentence.otherwise || sentence.afterConditional) return;
   const [exile] = sentence.steps;
-  if (exile.effect !== "exile" || exile.forEach || exile.forEachVote || exile.decidedBy ||
+  if (exile.effect !== "exile" || exile.forEach || exile.forEachVote || exile.decidedBy || exile.faceDown ||
       (exile.what.ref !== "target" && exile.what.ref !== "filter") || objectCardinality(exile.what) !== "one") return;
   const imprint = ability.abilityWord === "Imprint";
   if (!abilities.some(entry => entry !== ability && seeksLinkedExile(entry, imprint))) return;
@@ -371,6 +380,7 @@ interface Context {
   uncertainScanOrigin?: boolean;
   uncertainRevealOrigin?: boolean;
   copiedCards?: Candidate[];
+  linkedCopies?: { path: string; result: Candidate; caster: Candidate; optional: boolean };
   uncertainCardCopyOrigin?: boolean;
   announcementMember?: string;
   targetPlayerGroup?: true;
@@ -671,7 +681,7 @@ class Analyzer {
   readonly beforeDecision = new Map<string, Pick<Context,
     "objects" | "departed" | "players" | "quantities" | "sourceMoved" | "sourceSuccessor" | "previousEffect" |
     "exileResults" | "uncertainExileOrigin" | "stackCopies" | "uncertainStackOrigin" | "scans" | "uncertainScanOrigin" | "uncertainRevealOrigin" |
-    "copiedCards" | "uncertainCardCopyOrigin" | "measuredEvents" | "uncertainMeasureOrigin" | "precedingSentence">>();
+    "copiedCards" | "linkedCopies" | "uncertainCardCopyOrigin" | "measuredEvents" | "uncertainMeasureOrigin" | "precedingSentence">>();
   /** Each face's card types, as the source's established description. */
   readonly faceTypes = new Map<string, ObjectFilter>();
   /** The latest choice from a pool in each ability, for "the rest". */
@@ -1527,7 +1537,7 @@ class Analyzer {
 
   private linkedExileFilter(filter: Record<string, unknown>, path: string, context: Context): boolean {
     const origin = context.linkedExile;
-    if (context.barrier || context.sourceMoved || !origin || context.lexicalAbilityPath === origin.ability ||
+    if (context.barrier || context.sourceMoved || !origin || (context.lexicalAbilityPath === origin.ability && origin.rule !== "607.1c") ||
         !isRecord(filter.source) || (filter.source.ref !== "self" && filter.source.ref !== "this")) return false;
     this.walkChildren(filter, path, context);
     const rules = ["400.7", origin.rule, "607.3", "607.5"];
@@ -2186,6 +2196,16 @@ class Analyzer {
   }
 
   object(expression: ObjectRef, path: string, context: Context): Candidate | undefined {
+    if (!context.barrier && !context.sourceMoved && context.linkedExile && expression.ref === "related" &&
+        expression.number === "plural" && expression.relation.relation === "linked-exile" &&
+        isDeepStrictEqual(expression.filter, { cls: "card" }) &&
+        (expression.relation.source.ref === "self" || expression.relation.source.ref === "this") &&
+        (context.linkedExile.ability !== context.lexicalAbilityPath || context.linkedExile.rule === "607.1c")) {
+      const rules = [context.linkedExile.rule, "607.2a", "607.3", "400.7"];
+      this.walk(expression.relation.source, `${path}/relation/source`, context);
+      return this.bound(expression, path, this.id(context.linkedExile.path, "linked-exile-pool"), rules);
+    }
+
     if (!context.barrier && context.boundOperand?.path === path) {
       const { candidate, rules } = context.boundOperand;
       return this.antecedent(expression, path, [candidate], objectCardinality(expression), rules);
@@ -2634,10 +2654,10 @@ class Analyzer {
   private rememberDecision(path: string, context: Context): void {
     const { objects, departed, players, quantities, sourceMoved, sourceSuccessor, previousEffect,
       exileResults, uncertainExileOrigin, stackCopies, uncertainStackOrigin, scans, uncertainScanOrigin, uncertainRevealOrigin,
-      copiedCards, uncertainCardCopyOrigin, measuredEvents, uncertainMeasureOrigin, precedingSentence } = context;
+      copiedCards, linkedCopies, uncertainCardCopyOrigin, measuredEvents, uncertainMeasureOrigin, precedingSentence } = context;
     this.beforeDecision.set(path, { objects, departed, players, quantities, sourceMoved, sourceSuccessor, previousEffect,
       exileResults, uncertainExileOrigin, stackCopies, uncertainStackOrigin, scans, uncertainScanOrigin, uncertainRevealOrigin,
-      copiedCards, uncertainCardCopyOrigin, measuredEvents, uncertainMeasureOrigin, precedingSentence });
+      copiedCards, linkedCopies, uncertainCardCopyOrigin, measuredEvents, uncertainMeasureOrigin, precedingSentence });
   }
   /** Branch contexts start from the antecedents established so far; nothing a
    * branch establishes is visible to a sibling or after the construct. */
@@ -2824,7 +2844,7 @@ class Analyzer {
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
       sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, groupChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
-      copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, targetPlayerGroup: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
+      copiedCards: undefined, linkedCopies: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, targetPlayerGroup: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined, lifeGain: undefined, resolutionPaymentX: undefined,
       linkedExile: undefined, lexicalAbilityPath: undefined, delayedSchedule: kind === "delayed-triggered",
       declaredTargets: undefined, uncertainTargetOrigin: undefined };
@@ -3791,6 +3811,72 @@ class Analyzer {
     return true;
   }
 
+  /** CR 607.3 and 707.12a. For a copied imprint trigger, the casting
+   * decision is individual even though the copy choice covers the pool.
+   * https://magic.wizards.com/en/news/feature/kaladesh-release-notes-2016-09-16 */
+  private copyLinkedCards(effect: Extract<Effect, { effect: "copy-card" }>, path: string, context: Context): boolean {
+    const origin = context.linkedExile;
+    if (context.barrier || context.phase !== "resolution" || context.sourceMoved || context.decider || context.conditional ||
+        !origin || effect.decidedBy || effect.forEach || effect.forEachVote ||
+        !isDeepStrictEqual(effect.count, { amount: "fixed", value: 1 })) return false;
+    const imprint = origin.imprint && origin.ability !== context.lexicalAbilityPath && effect.optional && effect.who.player === "you" &&
+      isDeepStrictEqual(effect.what, { ref: "related", number: "singular", filter: { cls: "card" },
+        relation: { relation: "event-result", event: "exile", scope: "contextual" } });
+    const caster = context.castActors?.caster;
+    const explicit = !effect.optional && effect.who.player === "that-player" && origin.rule === "607.1c" && caster &&
+      context.players.every(player => player.id === caster.id || this.weakPlayers.has(player.id)) &&
+      effect.what.ref === "each" && effect.what.filter.relation?.relation === "linked-exile" &&
+      (effect.what.filter.relation.source.ref === "this" || effect.what.filter.relation.source.ref === "self");
+    if (!imprint && !explicit) return false;
+
+    const pool = this.id(origin.path, "linked-exile-pool");
+    const rules = [origin.rule, "607.2a", "607.3", "704.5e", "707.12", "707.12a"];
+    const what = child(path, "what");
+    const cards = imprint ? this.bound(effect.what, what, pool, rules) : this.object(effect.what, what, context);
+    const chooser = this.player(effect.who, child(path, "who"), context);
+    if (!cards || !chooser || (explicit && chooser.id !== caster?.id)) return true;
+    if (effect.optional) {
+      this.rememberDecision(path, context);
+      context.decisions?.push(path);
+    }
+    const event = this.event(path, context, effect.effect, [chooser, cards], effect.optional ? { optional: true, decider: chooser.id } : {});
+    const result = this.eventResult(path, event, "objects", "many", "new-objects", { cls: "card" });
+    this.node({ id: this.id(path, "linked-card-copies"), path, node: "linked-card-copies", scope: context.ability,
+      pool, eligible: cards.id, event, caster: chooser.id, result: result.id, rules });
+    context.linkedCopies = { path, result, caster: chooser, optional: Boolean(effect.optional) };
+    context.uncertainCardCopyOrigin = true;
+    this.engineFeature("linked-card-copies", path,
+      "Copy each eligible card still in the source incarnation's linked exile pool.", rules);
+    return true;
+  }
+
+  private castLinkedCopies(effect: Extract<Effect, { effect: "play-card" }>, path: string, context: Context,
+    precedingEffect?: string): boolean {
+    const copy = context.linkedCopies;
+    if (context.barrier || context.phase !== "resolution" || context.decider || !copy || !effect.optional ||
+        effect.forEach || effect.forEachVote ||
+        (copy.optional ? context.linkedPath !== copy.path : precedingEffect !== copy.path) ||
+        effect.instruction.action !== "cast" || effect.instruction.what.ref !== "copy-result" ||
+        effect.instruction.what.number !== (copy.optional ? "singular" : "plural") ||
+        !isDeepStrictEqual(effect.instruction.alternativeCost, { cost: "without-mana-cost" }) ||
+        Object.keys(effect.instruction).some(key => !["action", "what", "who", "alternativeCost"].includes(key))) return false;
+    const at = child(path, "instruction");
+    const chooser = this.player(effect.instruction.who, child(at, "who"), context);
+    if (!chooser || chooser.id !== copy.caster.id) return false;
+    if (effect.decidedBy) {
+      const decider = this.player(effect.decidedBy, child(path, "decidedBy"), context);
+      if (decider?.id !== chooser.id) return false;
+    }
+    const rules = ["608.2g", "704.5e", "707.12", "707.12a"];
+    this.bound(effect.instruction.what, child(at, "what"), copy.result.id, rules);
+    const event = this.event(path, context, effect.effect, [chooser, copy.result],
+      { optional: true, decider: chooser.id, requiresResult: copy.result.id, ...(context.conditional ? { conditional: true as const } : {}) });
+    this.node({ id: this.id(path, "cast-linked-copies"), path, node: "cast-linked-copies", scope: context.ability,
+      event, copies: copy.result.id, caster: chooser.id, choice: "optional-per-copy", rules });
+    this.engineFeature("linked-card-copies", path, "Offer the same player a separate immediate cast choice for each copy.", rules);
+    return true;
+  }
+
   private copyCard(effect: Extract<Effect, { effect: "copy-card" }>, path: string, context: Context): boolean {
     if (context.barrier || context.decider || context.phase !== "resolution" || effect.forEach || effect.forEachVote ||
         effect.optional || effect.decidedBy || effect.who.player !== "you" ||
@@ -4002,7 +4088,8 @@ class Analyzer {
     if (effect.effect === "draw" && this.groupedDraw(effect, path, context)) return;
     if (effect.effect === "for-each" && this.quantifiedInstruction(effect, path, context, precedingEffect)) return;
     if (effect.effect === "scan-library" && this.libraryScan(effect, path, context)) return;
-    if (effect.effect === "copy-card" && this.copyCard(effect, path, context)) return;
+    if (effect.effect === "copy-card" && (this.copyLinkedCards(effect, path, context) || this.copyCard(effect, path, context))) return;
+    if (effect.effect === "play-card" && this.castLinkedCopies(effect, path, context, precedingEffect)) return;
     if ((effect.effect === "copy-stack-object" || effect.effect === "change-targets" ||
         effect.effect === "choose-new-targets" || effect.effect === "change-text") &&
         this.stackInstruction(effect, path, context, precedingEffect)) return;
