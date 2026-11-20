@@ -336,5 +336,16 @@
     "record_sha256": [
       "5472a36613d5d9a84db4d240c6e244a1da42ec3c5a0daa2f30613326c059ae46"
     ]
+  },
+  {
+    "manifest_file": "archive-manifest-hand-cast-cascade.json",
+    "manifest_sha256": "287400f9a9fbef90ea7ea24caa19434cd687c991421fade8d3ba4576fb1dc392",
+    "file_sha256": "1797d0c1ae2b3988e92038d42efd75aebd952c9ad259711e4e2d06d84949ecb8",
+    "parser_revision": "b6c162d97a1e84a67f97c5743e9999952d312c69",
+    "parser_source_sha256": "d11b179fe4e79869fb09c7df06297c2699040672d4431a1b27c3efd5ece1853a",
+    "corpus_sha256": "8dc0d9b035fde1f3523942581dba3e65334269d1fbc7b1b68b0d2aa18ec02986",
+    "record_sha256": [
+      "e14b03d2b0721bcdde1a106d0b2966c0713bdf963e2b3d03d10d71c3d2533904"
+    ]
   }
 ]

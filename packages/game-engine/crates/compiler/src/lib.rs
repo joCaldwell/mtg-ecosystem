@@ -49,6 +49,7 @@ mod fixed_mill;
 mod fixed_mill_tests;
 mod graveyard_battlefield_return;
 mod group_discard;
+mod hand_cast_cascade;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
@@ -200,6 +201,8 @@ enum Ability {
     DividedPlusOneCountersModal,
     #[serde(skip)]
     CommanderModalKeyword,
+    #[serde(skip)]
+    HandCastCascade,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1456,17 +1459,20 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = if commander_modal_keyword::validate(&shape, &result, &binding)? {
-        vec![Ability::CommanderModalKeyword]
-    } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
-        vec![Ability::DividedPlusOneCountersModal]
-    } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
-        vec![ability]
-    } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
-        vec![ability]
-    } else {
-        read_abilities(&canonical_abilities)?
-    };
+    let abilities =
+        if let Some(abilities) = hand_cast_cascade::lower(&source, &shape, &result, &binding)? {
+            abilities
+        } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
+            vec![Ability::CommanderModalKeyword]
+        } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
+            vec![Ability::DividedPlusOneCountersModal]
+        } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
+            vec![ability]
+        } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
+            vec![ability]
+        } else {
+            read_abilities(&canonical_abilities)?
+        };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
@@ -1800,6 +1806,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::HandCastCascade => {
+                        labels.triggered.push(source_block(block)?);
+                        definition
+                            .triggered
+                            .push(mtg_contracts::hand_cast_cascade::hand_cast_cascade_ability());
+                    }
                     Ability::CastPayerDraw { generic } => {
                         labels.triggered.push(source_block(block)?);
                         definition

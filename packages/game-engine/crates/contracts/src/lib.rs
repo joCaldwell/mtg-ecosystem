@@ -3,6 +3,7 @@ pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod cascade_land_entry;
 mod granted_land_mana;
+pub mod hand_cast_cascade;
 pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
@@ -288,6 +289,7 @@ pub enum Capability {
     CascadeV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
+    HandCastCascadeGrantV1,
     CastHistoryV1,
     CastManaValueSweepV1,
     RandomBottomV1,
@@ -759,6 +761,9 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    GrantHandCastCascade {
+        source_block: u32,
+    },
     /// CR 702.85a: threshold comes from the originating spell, never paid cost.
     Cascade {
         threshold: CascadeThreshold,
@@ -1196,7 +1201,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::Cascade { source_block, .. }
+            Self::GrantHandCastCascade { source_block }
+            | Self::Cascade { source_block, .. }
             | Self::SearchBasicLandsSplit { source_block, .. }
             | Self::SearchColoredLibrary { source_block, .. }
             | Self::SearchTypedLands { source_block, .. }
@@ -2691,6 +2697,7 @@ impl Definition {
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
+        hand_cast_cascade::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -4814,7 +4821,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::Cascade { .. }
+            Instruction::GrantHandCastCascade { .. }
+            | Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
@@ -5363,10 +5371,18 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::DrainOpponents { .. }) {
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
+        if matches!(instruction, Instruction::GrantHandCastCascade { .. }) {
+            set.extend([
+                Capability::CascadeV1,
+                Capability::ResolutionCastV1,
+                Capability::RandomBottomV1,
+            ]);
+        }
         set.insert(match instruction {
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
+            Instruction::GrantHandCastCascade { .. } => Capability::HandCastCascadeGrantV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -6952,6 +6968,7 @@ pub fn catalog_schema() -> serde_json::Value {
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
+    hand_cast_cascade::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     let grant = serde_json::json!({"required":["effect"],"properties":{"effect":{"const":StaticEffect::GrantControllerLandsAllBasicTypes}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
@@ -7106,6 +7123,7 @@ mod tests {
             CascadeV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
+            HandCastCascadeGrantV1,
             CastHistoryV1,
             CastManaValueSweepV1,
             RandomBottomV1,
@@ -7646,6 +7664,7 @@ mod tests {
         ]));
         definitions.push(controller_library::witness());
         definitions.push(cascade_land_entry::witness());
+        definitions.push(hand_cast_cascade::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
