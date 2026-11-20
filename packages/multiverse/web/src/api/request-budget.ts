@@ -2,6 +2,7 @@ export interface UiRequestBudget {
   count: number;
   window_ms: number;
 }
+import { setGameRequestDispatch } from "./transport.ts";
 
 interface RequestBudgetEffects {
   fetch: typeof fetch;
@@ -118,3 +119,5 @@ const requests = createGameRequestBudget({
 export const productFetch = requests.send;
 export const beginGameRequestBudget = requests.begin;
 export const waitForGameRequestCooldown = requests.waitForCooldown;
+
+setGameRequestDispatch(productFetch);
