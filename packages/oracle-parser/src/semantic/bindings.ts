@@ -42,6 +42,55 @@ function isRevealAndCast(ability: Extract<Ability, { kind: "spell" }>): ability 
   const { abilityWord, ...paragraph } = ability;
   return abilityWord === undefined && isDeepStrictEqual(paragraph, { kind: "spell", effects: REVEAL_AND_CAST });
 }
+// CR 607.2a: "the exiled card" in this resolution instruction refers to a
+// different printed ability. Match its entire paragraph, including the cost
+// and resolution condition, before supplying a cross-ability reference.
+const HIDEAWAY_PLAY = {
+  effect: "play-card", optional: true, instruction: {
+    who: { player: "you" }, action: "play",
+    what: { ref: "related", number: "singular", filter: { cls: "card" },
+      relation: { relation: "event-result", event: "exile", scope: "contextual" } },
+    alternativeCost: { cost: "without-mana-cost" },
+    condition: { condition: "compare", value: { amount: "attribute-sum", attribute: "power",
+      among: { ref: "each", filter: { types: ["creature"], control: "you" } } },
+      comparison: { op: "ge", value: { amount: "fixed", value: 10 } } },
+  },
+} as const satisfies Effect;
+const HIDEAWAY_FOUR = { keyword: "hideaway", amount: 4 } as const satisfies KeywordInstance;
+
+// Only these independent entry and mana paragraphs may accompany the pair.
+// A second hideaway, another exile producer or a granted ability must never
+// supply this link. Printed order is immaterial.
+function hideawayProducer(abilities: Ability[], activation: Extract<Ability, { kind: "activated" }>): number | undefined {
+  const { abilityWord, restriction, ...paragraph } = activation;
+  if (abilityWord !== undefined || restriction !== undefined || !isDeepStrictEqual(paragraph, {
+    kind: "activated", costs: [{ cost: "mana", symbols: ["G"] }, { cost: "tap-self" }],
+    effects: [{ steps: [HIDEAWAY_PLAY] }],
+  })) return undefined;
+  let producer: number | undefined;
+  for (const [index, ability] of abilities.entries()) {
+    if (ability === activation) continue;
+    if (isDeepStrictEqual(ability, { kind: "keywords", keywords: [HIDEAWAY_FOUR] }) && producer === undefined) {
+      producer = index;
+      continue;
+    }
+    if (ability.kind === "static") {
+      const { abilityWord, ...entry } = ability;
+      if (abilityWord === undefined && isDeepStrictEqual(entry, {
+        kind: "static", effect: { static: "enters-tapped", what: { ref: "this", noun: "land" } },
+      })) continue;
+    }
+    if (ability.kind === "activated") {
+      const { abilityWord, restriction, ...mana } = ability;
+      if (abilityWord === undefined && restriction === undefined && isDeepStrictEqual(mana, {
+        kind: "activated", costs: [{ cost: "tap-self" }], effects: [{ steps: [{ effect: "add-mana",
+          who: { player: "you" }, mana: { mana: "fixed", symbols: ["G"] } }] }],
+      })) continue;
+    }
+    return undefined;
+  }
+  return producer;
+}
 const SYMBOLIC_AMOUNTS = new Set(["x", "that-number", "that-much", "replacement-event-quantity"]);
 interface Candidate { id: string; cardinality: BindingCardinality; domain: "object" | "object-or-player" | "player" | "number"; description?: ObjectFilter;
   /** The departed object this one became in its new zone (CR 400.7e, 400.7j). */
@@ -832,6 +881,18 @@ class Analyzer {
     const you = this.node({ id: this.id(path, "you"), path, node: "runtime-player", scope: context.ability, role: scope.role, rules: ["109.5", ...scope.rules] });
     this.node({ id: this.id(path, "keyword"), path, node: "keyword-ability", scope: context.ability, keyword: instance.keyword,
       abilities: scope.abilities, you, rules: scope.rules });
+    if (instance.keyword === "hideaway" && context.source === this.id("/source", "object")) {
+      if (isDeepStrictEqual(instance, HIDEAWAY_FOUR)) {
+        this.node({ id: this.id(path, "pool"), path, node: "hideaway-exiled-pool",
+          keyword: this.id(path, "keyword"), source: context.source, key: "source-incarnation",
+          libraryOwner: you, lookCount: 4, exile: "one-face-down", remainder: "bottom-random",
+          lookPermission: "controller-of-exiling-permanent", membership: "still-in-exile", cardinality: "many",
+          rules: ["400.7", "406.3", "607.2a", "607.3", "702.75a"] });
+      }
+      this.engineFeature("hideaway-resolution", path,
+        "On entry, the trigger controller looks at the top N cards of their library, exiles one face down if possible and puts the rest on the bottom in random order. Track the cards exiled by this keyword on this incarnation and the granted and retained permissions to look.",
+        ["400.7", "406.3", "607.2a", "609.3", "702.75a"]);
+    }
     if (instance.keyword === "demonstrate")
       this.engineFeature("demonstrate", path,
         "On cast, the trigger controller may copy the spell. If they do, they choose an opponent who also copies it. Each may choose new targets for their own copy as it is put onto the stack.",
@@ -1302,7 +1363,7 @@ class Analyzer {
       ["608.2d", "702.85b"]);
   }
   event(path: string, context: Context, operation: string, inputs: Candidate[],
-    extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true; requiresResult?: string } = {}): string {
+    extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true; condition?: string; requiresResult?: string } = {}): string {
     return this.node({ id: this.id(path, "event"), path, node: "event", scope: context.ability,
       operation, inputs: inputs.map(input => input.id), availability: "when-performed", ...extra, rules: ["608.2c"] });
   }
@@ -1581,6 +1642,24 @@ class Analyzer {
       availability: "if-produced", identity, ...(description ? { description } : {}), ...(subsetOf ? { subsetOf } : {}),
       rules: identity === "zone-successors" ? ["400.7j"] : ["608.2h"] });
     return { id, cardinality, domain: result === "objects" ? "object" : result === "player" ? "player" : "number", description };
+  }
+  hideawayPlay(path: string, pool: string, context: Context): void {
+    const at = child(path, "instruction");
+    const { instruction } = HIDEAWAY_PLAY;
+    const controller = this.bound(instruction.who, child(at, "who"), context.you, ["109.5"]);
+    const cards = this.bound(instruction.what, child(at, "what"), pool, ["400.7", "607.2a", "607.3"]);
+    this.walk(instruction.alternativeCost, child(at, "alternativeCost"), context);
+    const conditionPath = child(at, "condition");
+    this.walk(instruction.condition, conditionPath, context);
+    const creatures = this.at(`${conditionPath}/value/among`)!;
+    const condition = this.node({ id: this.id(conditionPath, "condition"), path: conditionPath,
+      node: "total-power-condition", scope: context.ability, creatures: creatures.id,
+      comparison: instruction.condition.comparison, timing: "resolution", rules: ["608.2h"] });
+    this.event(path, context, HIDEAWAY_PLAY.effect, [cards, controller],
+      { optional: true, decider: controller.id, conditional: true, condition });
+    this.engineFeature("linked-exile-play", path,
+      "During resolution, if the activator's creatures have total power at least ten, they may play each card still in this incarnation's linked exile pool. Apply land-play limits or cast without paying its mana cost, subject to legality.",
+      ["113.7a", "305.2", "305.3", "406.3a", "607.2a", "607.3", "608.2g", "608.2h", "701.18b"]);
   }
   revealAndCast(effects: typeof REVEAL_AND_CAST, path: string, context: Context): void {
     const [shuffle, scan] = effects[0].steps;
@@ -2295,6 +2374,14 @@ class Analyzer {
           if (["sacrifice", "exile", "discard", "return", "move-zone"].includes(cost.cost)) context.departed = combine(context.departed ?? [], [selected]);
           else if (["tap-objects", "untap-objects", "exert", "reveal"].includes(cost.cost)) context.objects = combine(context.objects, [selected]);
         });
+        const producer = ability.kind === "activated" && ability.effects[0]?.steps[0]?.effect === "play-card"
+          && cardAbilities && permanentSource
+          ? hideawayProducer(cardAbilities, ability) : undefined;
+        if (producer !== undefined) {
+          const siblings = path.slice(0, path.lastIndexOf("/"));
+          this.hideawayPlay(`${path}/effects/0/steps/0`, this.id(`${siblings}/${producer}/keywords/0`, "pool"), context);
+          break;
+        }
         this.sentences(ability.effects, child(path, "effects"), context);
         break;
       }
