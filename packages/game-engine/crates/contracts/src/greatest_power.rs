@@ -171,6 +171,7 @@ pub(super) fn witness() -> Definition {
         basic: false,
         legendary: false,
         snow: false,
+        hybrid_mana: vec![],
         mana_cost: ManaCost {
             generic: 1.into(),
             colored: vec![color],

@@ -171,7 +171,7 @@ pub(super) fn lower(r: &Record, archive: &AcceptedArchive) -> Result<Option<Defi
             basic: types.basic,
             legendary: types.legendary,
             snow: types.snow,
-            hybrid_mana:vec![],
+            hybrid_mana: vec![],
             mana_cost: mana_cost(&src.mana_cost)?,
             colors: src.colors,
             color_identity: src.color_identity,
