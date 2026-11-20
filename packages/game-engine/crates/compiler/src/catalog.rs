@@ -240,12 +240,17 @@ fn build_with(
         match compile(&header, &raw) {
             CompileResult::Lowered { definition } => {
                 // Extraction metadata describes the original archive row. Only
-                // this byte-pinned failed row has a separately authenticated reparse.
+                // byte-pinned failed rows have separately authenticated replacement ASTs.
                 let (archive_ast, archive_binding) = if row.record_sha256
                     == library_top_mana::ARCHIVED_ROW
                     && definition.provenance.parser_sha256 == library_top_mana::PARSER
                 {
                     (None, library_top_mana::ARCHIVED_BINDING)
+                } else if let Some(binding) = crate::greatest_power::archived_predecessor(
+                    &row.record_sha256,
+                    &definition.provenance,
+                ) {
+                    (None, binding)
                 } else {
                     (
                         Some(definition.provenance.ast_sha256.as_str()),
