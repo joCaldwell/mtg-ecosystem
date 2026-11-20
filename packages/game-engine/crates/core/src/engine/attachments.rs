@@ -308,7 +308,7 @@ impl Game {
                     self.targetable_by(object, entry.controller)
                         && self
                             .targeting_characteristics(entry)
-                            .is_ok_and(|source| !self.protected_from(object, source))
+                            .is_ok_and(|source| !self.protected_from(object, &source))
                 }
             }
     }
@@ -323,7 +323,7 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let source = &self.definition(o.id.card)?.characteristics;
+            let source = self.color_layer(o.id)?;
             let subtypes = &source.subtypes;
             let legal = match o.attached_to {
                 Some(target) => {
@@ -332,7 +332,7 @@ impl Game {
                             .current(target)
                             .is_ok_and(|t| t.present_on_battlefield() && self.is_live(t.controller))
                         && self.attachment_target_type_valid(o.id.card, target.card)?
-                        && !self.protected_from(target, source)
+                        && !self.protected_from(target, &source)
                 }
                 None => false,
             };

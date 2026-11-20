@@ -243,13 +243,40 @@ impl Game {
         }
         Ok(())
     }
-    fn characteristics_before_power_toughness(
+    // CR 105.2, 611.3, 613.1b/e: battlefield membership and control
+    // have already been reconciled before the color layer is evaluated.
+    pub(super) fn color_layer(
         &self,
         object: ObjectId,
-    ) -> Result<&Characteristics, String> {
-        // The admitted layers leave color unchanged. Read the same earlier
-        // characteristics as full derivation, including instantiated tokens.
-        Ok(&self.definition(object.card)?.characteristics)
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let base = &self.definition(object.card)?.characteristics;
+        if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
+            let target = self.current(object)?;
+            if target.present_on_battlefield() {
+                for source in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|s| s.present_on_battlefield() && s.controller == target.controller)
+                {
+                    if self
+                        .definition(source.id.card)?
+                        .static_abilities
+                        .iter()
+                        .any(|a| {
+                            a.effect == StaticEffect::ControllerNonlandsAllColors
+                                && a.functioning_zone == FunctioningZone::Battlefield
+                        })
+                    {
+                        let mut effective = base.clone();
+                        effective.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
+                        return Ok(std::borrow::Cow::Owned(effective));
+                    }
+                }
+            }
+        }
+        Ok(std::borrow::Cow::Borrowed(base))
     }
 
     pub(super) fn permanent_colors(
@@ -267,7 +294,7 @@ impl Game {
                 }
         }) {
             colors.extend(
-                self.characteristics_before_power_toughness(permanent.id)?
+                self.color_layer(permanent.id)?
                     .colors
                     .iter()
                     .copied()
@@ -281,7 +308,7 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<Characteristics, String> {
-        let mut c = self.characteristics_before_power_toughness(object)?.clone();
+        let mut c = self.color_layer(object)?.into_owned();
         self.apply_land_subtype_grants(object, &mut c)?;
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
@@ -2606,6 +2633,14 @@ impl Game {
             && self.catalog_has_land_type_grant
         {
             Self::add_basic_land_types(&mut base);
+        }
+        // Replay authenticates which provider existed at the original capture.
+        if base.colors != c.colors
+            && self.catalog_has_nonland_color_grant
+            && zone == Zone::Battlefield
+            && !base.has_type(CardKind::Land)
+        {
+            base.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
         }
         base.power = c.power.clone();
         base.toughness = c.toughness.clone();

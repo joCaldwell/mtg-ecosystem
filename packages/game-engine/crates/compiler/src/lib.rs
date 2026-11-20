@@ -1134,6 +1134,11 @@ enum SourceStaticEffect {
         controller: serde_json::Value,
         choice: serde_json::Value,
     },
+    OpeningHandAction {
+        what: serde_json::Value,
+        who: serde_json::Value,
+        action: String,
+    },
     CastSpellAbilities {
         scope: serde_json::Value,
         abilities: Vec<serde_json::Value>,
@@ -1728,6 +1733,33 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     labels
         .mana
         .extend(mana_abilities.iter().map(|a| a.source_block));
+    let opening_composition = three_static_ast(&source.name, &source.oracle_text);
+    let (base_cost, hybrid_mana) =
+        if let Some((cost, symbols)) = color_hybrid_cost(&source.mana_cost) {
+            // Keep source binding exact until a family binds other ability blocks alongside hybrid.
+            if let Some(expected) = &opening_composition {
+                if *expected != decode::<serde_json::Value>(result.abilities.get(), "abilities")? {
+                    return Err(unsupported(
+                        "abilities",
+                        "controller composition does not match source",
+                    ));
+                }
+            } else if !source.oracle_text.is_empty() || !abilities.is_empty() {
+                return Err(unsupported(
+                    "source.mana_cost",
+                    "hybrid ability composition is unsupported",
+                ));
+            }
+            if opening_composition.is_none() {
+                bindings::Bindings::new(&r.oracle_identity, &shape).validate(
+                    &binding,
+                    "hybrid cost requires the exact printed face binding",
+                )?;
+            }
+            (cost, symbols)
+        } else {
+            (mana_cost(&source.mana_cost.replace("{X}", ""))?, vec![])
+        };
     let mut definition = Definition {
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
@@ -1740,7 +1772,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             legendary: types.legendary,
             snow: types.snow,
             subtypes: types.subtypes,
-            mana_cost: mana_cost(&source.mana_cost.replace("{X}", ""))?,
+            hybrid_mana,
+            mana_cost: base_cost,
             colors: source.colors,
             color_identity: source.color_identity,
             power,
@@ -2707,7 +2740,43 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             ));
         }
     }
-    controller_land_types::bind(&definition, &shape, &binding)?;
+    if definition
+        .capabilities
+        .contains(&Capability::OpeningPlacementV1)
+    {
+        let mut graph = bindings::Bindings::new(&definition.oracle_id, &shape);
+        let p = "/faces/0/abilities/0";
+        graph.ability(p, "static", "static-source-controller");
+        let ast = opening_composition
+            .clone()
+            .or_else(|| opening_placement_ast(&definition.name, &source.oracle_text))
+            .ok_or_else(|| unsupported("source", "incomplete opening action"))?;
+        graph.reference(
+            &format!("{p}/effect/what"),
+            &ast[0]["effect"]["what"],
+            &graph.id("/source", "object"),
+            "201.5",
+        );
+        graph.reference(
+            &format!("{p}/effect/who"),
+            &serde_json::json!({"player":"you"}),
+            &graph.id(p, "you"),
+            "109.5",
+        );
+        if opening_composition.is_some() {
+            for i in [1, 2] {
+                let ability = format!("/faces/0/abilities/{i}");
+                controller_land_types::bind_grant(&mut graph, &ability, &ast[i]["effect"]["what"]);
+            }
+        }
+        graph.validate_ordered(
+            &binding,
+            "opening placement requires owner and exact source",
+        )?;
+    }
+    if opening_composition.is_none() {
+        controller_land_types::bind(&definition, &shape, &binding)?;
+    }
     definition.source_labels = Some(labels);
     definition
         .validate()
@@ -4648,6 +4717,16 @@ fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<Static
     }
     if let SourceStaticEffect::PlayerRule { rule } = effect {
         return unlimited_hand_size::lower_rule(rule);
+    }
+    if let SourceStaticEffect::OpeningHandAction { what, who, action } = effect
+        && matches!(
+            what.get("ref").and_then(|s| s.as_str()),
+            Some("self" | "this")
+        )
+        && *who == serde_json::json!({"player":"you"})
+        && action == "begin-on-battlefield"
+    {
+        return Ok(opening_placement_ability());
     }
     if let Some(grant) = controller_land_types::lower(effect) {
         return Ok(grant);
@@ -11086,4 +11165,21 @@ fn synthetic_cast_color_uses_spell_characteristics() {
     assert!(!predicate.matches(&spell));
     spell.colors.push(Color::U);
     assert!(predicate.matches(&spell));
+}
+
+#[cfg(test)]
+#[test]
+fn hybrid_announcement_requires_the_exact_source_face_and_empty_ability_graph() {
+    let raw = include_str!("../../../tests/fixtures/synthetic-glaze-lattice.json");
+    for mutation in 0..3 {
+        let altered = tests::changed_source(raw, |r| match mutation {
+            0 => r["binding"]["nodes"][1]["manaCost"] = serde_json::json!("{W/U}{G/W}"),
+            1 => r["source"]["mana_cost"] = serde_json::json!("{G/P}{W/U}"),
+            _ => r["source"]["oracle_text"] = serde_json::json!("Draw a card."),
+        });
+        assert!(!matches!(
+            compile(fixtures::MANIFEST, &altered),
+            CompileResult::Lowered { .. }
+        ));
+    }
 }

@@ -118,7 +118,7 @@ fn game() -> Game {
 fn controller_land_types_preserve_membership_and_offer_independent_printed_costs() {
     let mut g = game();
     let snapshot: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-    assert_eq!(snapshot["snapshot_version"], 67);
+    assert_eq!(snapshot["snapshot_version"], 68);
     let land = g.object_id(CardId(0)).unwrap();
     let island = g.object_id(CardId(2)).unwrap();
     let off = g.object_id(CardId(4)).unwrap();
@@ -187,7 +187,7 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     else {
         panic!("chooser observation");
     };
-    assert_eq!(observation.observation_version, 44);
+    assert_eq!(observation.observation_version, 45);
     let Some(PlayerRequest::ChooseManaAbility {
         token,
         choices: offered,
@@ -237,7 +237,7 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     };
     let encoded = free.save_work(&work).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&encoded).unwrap();
-    assert_eq!(saved["work_version"], 40);
+    assert_eq!(saved["work_version"], 41);
     let restored = free.restore_work(&encoded).unwrap();
     let QueryResult::Complete(QueryValue::Validated(receipt)) =
         free.resume_work(restored, Budget::new(65536))
@@ -290,4 +290,84 @@ fn controller_land_types_preserve_membership_and_offer_independent_printed_costs
     assert_eq!(g.mana(PlayerId(0), Color::U), Some(1.into()));
     assert_eq!(g.state.rules.players[0].life, 39.into());
     recover(&g);
+}
+
+#[test]
+fn controlled_nonland_colors_follow_control_and_freeze_on_departure() {
+    let g = game();
+    let mut p = (*g.prepared).clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        mtg_compiler::fixtures::MANIFEST,
+        include_str!("../../../../tests/fixtures/synthetic-nonland-colors.json"),
+    ) else {
+        panic!("color grant must compile")
+    };
+    let grant_id = definition.oracle_id.clone();
+    let mut stripped = (*definition).clone();
+    stripped.static_abilities.clear();
+    stripped.capabilities = stripped.requirements();
+    assert!(stripped.validate().is_err());
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.config.cards.push(CardSetup {
+        id: CardId(5),
+        oracle_id: grant_id,
+        owner: PlayerId(1),
+        controller: PlayerId(0),
+        zone: Zone::Battlefield,
+    });
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    let land = g.object_id(CardId(0)).unwrap();
+    let enchanted = g.object_id(CardId(1)).unwrap();
+    let source = g.object_id(CardId(5)).unwrap();
+    let colors = [Color::W, Color::U, Color::B, Color::R, Color::G];
+    assert_eq!(g.characteristics(source).unwrap().colors, colors);
+    let before = g.object_before(enchanted).unwrap();
+    assert_eq!(before.characteristics.colors, colors);
+    assert_eq!(before.characteristics.color_identity, [Color::W]);
+    assert!(g.characteristics(land).unwrap().colors.is_empty());
+    assert_eq!(g.characteristics(land).unwrap().subtypes.len(), 5);
+    assert_eq!(
+        g.permanent_colors(PermanentColorScope::Controller, PlayerId(0))
+            .unwrap(),
+        BTreeSet::from(colors)
+    );
+    let mut changed = g.fork();
+    changed
+        .state
+        .rules
+        .objects
+        .get_mut(&source.card)
+        .unwrap()
+        .default_controller = PlayerId(2);
+    changed.reconcile_controllers().unwrap();
+    assert_eq!(
+        changed.characteristics(enchanted).unwrap().colors,
+        [Color::W]
+    );
+    assert_eq!(changed.characteristics(source).unwrap().colors, colors);
+    let moved = g
+        .move_object(source, Zone::Hand { owner: PlayerId(1) })
+        .unwrap();
+    assert_eq!(
+        g.characteristics(moved.successor).unwrap().colors,
+        [Color::W]
+    );
+    assert_eq!(g.characteristics(enchanted).unwrap().colors, [Color::W]);
+    g.validate_characteristic_identity(enchanted, Zone::Battlefield, &before.characteristics)
+        .unwrap();
+    assert!(
+        g.validate_characteristic_identity(
+            enchanted,
+            Zone::Hand { owner: PlayerId(1) },
+            &before.characteristics
+        )
+        .is_err()
+    );
 }

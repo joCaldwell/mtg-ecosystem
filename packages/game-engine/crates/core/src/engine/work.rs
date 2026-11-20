@@ -579,7 +579,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 44,
+                    observation_version: 45,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -822,6 +822,7 @@ impl Game {
                                 && top.len().checked_add(bottom.len()) == Some(looked.len())
                         }
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
+                        (Frame::Setup, PlayerResponse::OpeningPlacement { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
                         }
@@ -876,6 +877,7 @@ impl Game {
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
                         }
+                        (Frame::HybridCost { .. }, PlayerResponse::HybridCost { .. }) => true,
                         (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
                         (
                             Frame::Modes { .. },
@@ -1128,7 +1130,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 44,
+                            observation_version: 45,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1164,7 +1166,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 40,
+                    context_version: 41,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1183,7 +1185,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 40,
+            work_version: 41,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1192,7 +1194,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 40
+        if saved.work_version != 41
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

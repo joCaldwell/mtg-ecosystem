@@ -30,16 +30,16 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-`02b35e35` compiles **70/85 original rows**, plus three source-identical authorized reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`b9a27f44` compiles **71/85 original rows**, plus five source-identical reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
 
-Averna, Call Forth and Yidris compile through authorized reparses.
+Averna, Call Forth, Double Major, Yidris and Creative Technique use authorized reparses.
 
 ### M5 Add color and mana engines
 
-Prismatic Omen and Lantern have live mana witnesses. Complete Leyline, Selvala and Omnath.
+Omen, Lantern and Leyline have focused witnesses. Complete Selvala and Omnath.
 
 ### M6 Complete card advantage and flexible choices
 

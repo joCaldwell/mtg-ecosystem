@@ -133,6 +133,7 @@ impl Game {
         let (frame, child, announcing) = match self.underlying_mana_frame(&self.state.rules.frame) {
             Frame::HandCast { frame, child } => (frame, *child, false),
             Frame::AdditionalCosts { cast }
+            | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
             | Frame::Modes { cast }
             | Frame::Targets { cast }

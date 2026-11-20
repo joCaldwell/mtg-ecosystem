@@ -116,8 +116,7 @@ impl Game {
             o.present_on_battlefield()
                 && (!f.opponent || o.controller != controller)
                 && (!f.tapped || o.tapped)
-        }) && self.definition(object.card).is_ok_and(|d| {
-            let c = &d.characteristics;
+        }) && self.color_layer(object).is_ok_and(|c| {
             !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
                 && (f.types.is_empty() || f.types.iter().any(|k| c.has_type(*k)))
                 && !f.non_types.iter().any(|k| c.has_type(*k))
@@ -222,10 +221,7 @@ impl Game {
                         self.characteristics(object)?,
                     )
                 };
-                let mut mana_value = c.mana_cost.generic;
-                mana_value.add(&Quantity::from(
-                    i64::try_from(c.mana_cost.colored.len()).map_err(|_| "mana value overflow")?,
-                ));
+                let mut mana_value = c.printed_mana_value();
                 if t.domain == TargetDomain::StackSpell {
                     let entry = self
                         .state
