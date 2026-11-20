@@ -242,6 +242,30 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     if !uses && !source_candidate {
         return Ok(());
     }
+    let c = &d.characteristics;
+    let mut cost = String::new();
+    if c.mana_cost.generic != Quantity::zero() || c.mana_cost.colored.is_empty() {
+        cost.push_str(&format!("{{{}}}", c.mana_cost.generic));
+    }
+    for color in &c.mana_cost.colored {
+        cost.push_str(&format!("{{{color:?}}}"));
+    }
+    if src["id"] != d.provenance.printing_id
+        || src["oracle_id"] != d.oracle_id
+        || src["name"] != d.name
+        || src["layout"] != "normal"
+        || src["mana_cost"] != cost
+        || src["type_line"] != format!("{:?}", c.kind)
+        || src["colors"] != serde_json::json!(c.colors)
+        || src["color_identity"] != serde_json::json!(c.color_identity)
+        || c.basic
+        || c.legendary
+        || c.snow
+        || !c.additional_types.is_empty()
+        || !c.subtypes.is_empty()
+    {
+        return Err(fail());
+    }
     if candidate.is_none()
         || d.spell != candidate
         || d.x_mana_cost
