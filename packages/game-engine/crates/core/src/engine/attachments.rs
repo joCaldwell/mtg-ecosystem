@@ -48,14 +48,11 @@ impl Game {
     /// particular, gaining Hexproof/Shroud never ends an existing attachment.
     pub(super) fn attachment_target_type_valid(
         &self,
-        source: CardId,
-        target: CardId,
+        source: ObjectId,
+        target: ObjectId,
     ) -> Result<bool, String> {
-        let definition = self.definition(source)?;
-        let target_characteristics = match self.state.rules.objects.get(&target) {
-            Some(o) => self.structural_characteristics(o.id)?,
-            None => std::borrow::Cow::Borrowed(&self.definition(target)?.characteristics),
-        };
+        let definition = self.copiable_definition(source)?;
+        let target_characteristics = self.structural_characteristics(target)?;
         if definition
             .static_abilities
             .iter()
@@ -121,7 +118,7 @@ impl Game {
                     && mtg_contracts::bestow_alternative(self.definition(o.id.card)?).is_some()
                     && self.zone(target) != Some(Zone::Battlefield))
                 || !known_target
-                || !self.attachment_target_type_valid(o.id.card, target.card)?
+                || !self.attachment_target_type_valid(o.id, target)?
             {
                 return Err("snapshot attachment invariant".into());
             }
@@ -159,46 +156,48 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
             .flat_map(|o| {
-                self.definition(o.id.card).into_iter().flat_map(move |d| {
-                    d.static_abilities
-                        .iter()
-                        .filter_map(move |a| match &a.effect {
-                            StaticEffect::GrantOtherControlledPermanentsIndestructible
-                                if a.functioning_zone == FunctioningZone::Battlefield
-                                    && o.id != target
-                                    && o.controller == permanent.controller =>
-                            {
-                                Some((&a.effect, o.keyword_timestamp))
-                            }
-                            StaticEffect::ModifyCreatures { scope, .. }
-                                if creature
-                                    && match scope {
-                                        CreatureScope::Source => o.id == target,
-                                        CreatureScope::Controller => {
-                                            o.controller == permanent.controller
-                                        }
-                                        CreatureScope::AttackingController => {
-                                            // CR 508.1k/506.4/611.3a: attacking is
-                                            // incarnation-bound combat membership,
-                                            // independent of tapping or readiness.
-                                            o.controller == permanent.controller
-                                                && self
-                                                    .state
-                                                    .rules
-                                                    .combat
-                                                    .iter()
-                                                    .any(|attacker| attacker.attacker == target)
-                                        }
-                                        CreatureScope::Equipped | CreatureScope::Enchanted => {
-                                            o.attached_to == Some(target)
-                                        }
-                                    } =>
-                            {
-                                Some((&a.effect, o.keyword_timestamp))
-                            }
-                            _ => None,
-                        })
-                })
+                self.copiable_definition(o.id)
+                    .into_iter()
+                    .flat_map(move |d| {
+                        d.static_abilities
+                            .iter()
+                            .filter_map(move |a| match &a.effect {
+                                StaticEffect::GrantOtherControlledPermanentsIndestructible
+                                    if a.functioning_zone == FunctioningZone::Battlefield
+                                        && o.id != target
+                                        && o.controller == permanent.controller =>
+                                {
+                                    Some((&a.effect, o.keyword_timestamp))
+                                }
+                                StaticEffect::ModifyCreatures { scope, .. }
+                                    if creature
+                                        && match scope {
+                                            CreatureScope::Source => o.id == target,
+                                            CreatureScope::Controller => {
+                                                o.controller == permanent.controller
+                                            }
+                                            CreatureScope::AttackingController => {
+                                                // CR 508.1k/506.4/611.3a: attacking is
+                                                // incarnation-bound combat membership,
+                                                // independent of tapping or readiness.
+                                                o.controller == permanent.controller
+                                                    && self
+                                                        .state
+                                                        .rules
+                                                        .combat
+                                                        .iter()
+                                                        .any(|attacker| attacker.attacker == target)
+                                            }
+                                            CreatureScope::Equipped | CreatureScope::Enchanted => {
+                                                o.attached_to == Some(target)
+                                            }
+                                        } =>
+                                {
+                                    Some((&a.effect, o.keyword_timestamp))
+                                }
+                                _ => None,
+                            })
+                    })
             })
             .collect()
     }
@@ -207,7 +206,7 @@ impl Game {
             return vec![];
         }
         let mut keywords = self
-            .definition(object.card)
+            .copiable_definition(object)
             .map(|d| d.keywords.clone())
             .unwrap_or_default();
         let present = self
@@ -368,7 +367,7 @@ impl Game {
                         && self
                             .current(target)
                             .is_ok_and(|t| t.present_on_battlefield() && self.is_live(t.controller))
-                        && self.attachment_target_type_valid(o.id.card, target.card)?
+                        && self.attachment_target_type_valid(o.id, target)?
                         && !self.protected_from(target, &source)
                 }
                 None => false,

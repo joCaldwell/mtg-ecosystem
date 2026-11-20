@@ -106,6 +106,8 @@ pub(super) fn choose(
         | PlayerRequest::GraveyardReplacementOrder { .. }
         | PlayerRequest::Hideaway { .. }
         | PlayerRequest::PlayHideawayLinked { .. }
+        | PlayerRequest::EntryCopy { .. }
+        | PlayerRequest::EntryAttachment { .. }
         | PlayerRequest::SearchLandBattlefield { .. }
         | PlayerRequest::OptionalEffect { .. }
         | PlayerRequest::OptionalRecursion { .. } => {

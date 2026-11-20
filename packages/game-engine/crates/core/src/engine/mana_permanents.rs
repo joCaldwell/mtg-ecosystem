@@ -180,7 +180,7 @@ impl Game {
                 || k.turn != self.state.rules.turn.number
                 || self.current(k.source)?.zone != Zone::Battlefield
                 || self
-                    .definition(k.source.card)?
+                    .copiable_definition(k.source)?
                     .mana_abilities
                     .first()
                     .is_none_or(|a| a.restriction.is_none())
@@ -192,7 +192,7 @@ impl Game {
     }
 
     pub(super) fn is_permanent_mana(&self, object: ObjectId) -> bool {
-        self.definition(object.card)
+        self.copiable_definition(object)
             .is_ok_and(|d| !d.mana_abilities.is_empty())
     }
     pub(super) fn mana_colors(
@@ -369,7 +369,7 @@ impl Game {
             && let Ok(top) = self.top()
             && top.source == source
             && let StackKind::Activated { ability, .. } = top.kind
-            && self.definition(source.card).is_ok_and(|d| {
+            && self.copiable_definition(source).is_ok_and(|d| {
                 d.activated.get(ability as usize).is_some_and(|a| {
                     matches!(&a.cost,
                 ActivationCost::Composite { costs } if costs.tap || costs.sacrifice)
@@ -388,7 +388,7 @@ impl Game {
         if self.reserved_mana_source(source) {
             return Err("reserved permanent mana source".into());
         }
-        let definition = self.definition(source.card)?;
+        let definition = self.copiable_definition(source)?;
         if definition.mana_abilities.len() != 1 && !disjoint_pain_mana_family(definition) {
             return Err("unsupported permanent mana source".into());
         }
@@ -405,7 +405,7 @@ impl Game {
         index: u32,
     ) -> Result<(), String> {
         let o = self.current(source)?;
-        let d = self.definition(source.card)?;
+        let d = self.copiable_definition(source)?;
         let a = d
             .mana_abilities
             .get(index as usize)
@@ -434,7 +434,7 @@ impl Game {
         player: PlayerId,
         source: ObjectId,
     ) -> Result<Vec<ManaAbilityIdentity>, String> {
-        let definition = self.definition(source.card)?;
+        let definition = self.copiable_definition(source)?;
         let grant = self.has_granted_land_mana(source)?;
         let printed = definition.mana_abilities.len() == 1 || disjoint_pain_mana_family(definition);
         let mut choices: Vec<_> = self
@@ -486,7 +486,7 @@ impl Game {
                 .map(ManaSourceChoice::Intrinsic)
                 .collect()),
             ManaSourceScope::Disjoint | ManaSourceScope::PrintedDisjoint { .. } => {
-                let definition = self.definition(source.card)?;
+                let definition = self.copiable_definition(source)?;
                 if !disjoint_pain_mana_family(definition) {
                     return Err("invalid disjoint mana source".into());
                 }
@@ -557,7 +557,7 @@ impl Game {
                     self.resume_mana(resume, vec![receipt])
                 }
                 ManaAbilityIdentity::Printed { index } => {
-                    if !disjoint_pain_mana_family(self.definition(source.card)?) {
+                    if !disjoint_pain_mana_family(self.copiable_definition(source)?) {
                         return self.start_mana_ability(&input, source, None, resume);
                     }
                     let scope = ManaSourceScope::PrintedDisjoint { index };
@@ -637,7 +637,7 @@ impl Game {
                 resume: Box::new(resume),
             };
             Ok(())
-        } else if disjoint_pain_mana_family(self.definition(source.card)?) {
+        } else if disjoint_pain_mana_family(self.copiable_definition(source)?) {
             self.state.rules.frame = Frame::ManaSourceChoice {
                 player: input.player,
                 source,
@@ -659,7 +659,7 @@ impl Game {
     ) -> Result<(), String> {
         let index = branch.map_or(0, |b| b.index);
         let ability = self
-            .definition(source.card)?
+            .copiable_definition(source)?
             .mana_abilities
             .get(index as usize)
             .ok_or("missing selected mana ability")?
@@ -1085,6 +1085,7 @@ impl Game {
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
+                        battlefield_entry_turn: r.source.battlefield_entry_turn,
                         keyword_timestamp: r.source.keyword_timestamp,
                         id: r.source.object,
                         controller: r.source.controller,
@@ -1276,7 +1277,10 @@ impl Game {
             if !self.is_live(a.player)
                 || !sources.insert(a.source)
                 || a.branch.is_some()
-                || self.definition(a.source.card)?.mana_abilities.as_slice()
+                || self
+                    .copiable_definition(a.source)?
+                    .mana_abilities
+                    .as_slice()
                     != std::slice::from_ref(&a.ability)
                 || !self.mana_resume_player(&a.resume, a.player)
                 || (a.stage == ManaStage::Color) != a.paid.is_some()

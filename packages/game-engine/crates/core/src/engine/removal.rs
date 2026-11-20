@@ -30,7 +30,7 @@ impl Game {
                 ..
             } => Some(&mut progress.frame),
             Frame::LandEntry {
-                origin: EntryOrigin::Search { frame },
+                origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
                 ..
             }
             | Frame::Resolve { frame }

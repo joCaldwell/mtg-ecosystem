@@ -1221,3 +1221,6 @@ mod grant_hand_cast_cascade_tests;
 
 #[path = "hideaway_tests.rs"]
 mod hideaway_tests;
+
+#[path = "entry_copy_tests.rs"]
+mod entry_copy_tests;

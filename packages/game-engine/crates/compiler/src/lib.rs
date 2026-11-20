@@ -48,6 +48,7 @@ mod draw_discard;
 mod draw_discard_tests;
 mod draw_land_allowance;
 mod each_player_draw;
+mod entry_copy;
 mod entry_graveyard_exile;
 mod fixed_mill;
 #[cfg(test)]
@@ -1174,6 +1175,11 @@ enum SourceStaticEffect {
         costs: Vec<conditional_lands::EntryLifeCost>,
         declined: serde_json::Value,
     },
+    EntryCopy {
+        what: serde_json::Value,
+        model: serde_json::Value,
+        optional: serde_json::Value,
+    },
     EntersTapped {
         what: serde_json::Value,
         #[serde(
@@ -1605,6 +1611,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     cascade_land_entry::validate(&abilities, &result, &shape, &binding, &source)?;
+    entry_copy::validate_binding(&abilities, &source.oracle_id, &shape, &binding)?;
     let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
     let mut counted_artifact_modes =
         artifact_modal::bind(&result, &shape, &binding, &r.oracle_identity)?;
@@ -2852,15 +2859,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     definition
         .validate()
         .map_err(|e| unsupported("definition", e))?;
-    if self_graveyard_shuffle
+    if (self_graveyard_shuffle || archive.manifest_file == entry_copy::MANIFEST_FILE)
         && !archive
             .record_sha256
             .contains(&sha256(record.trim_end().as_bytes()))
     {
-        return Err(unsupported(
-            "record",
-            "self graveyard replacement requires its accepted exact archive row",
-        ));
+        if self_graveyard_shuffle {
+            return Err(unsupported(
+                "record",
+                "self graveyard replacement requires its accepted exact archive row",
+            ));
+        }
+        return Err(invalid("record", "unregistered entry-copy archive row"));
     }
     Ok(definition)
 }
@@ -4783,6 +4793,14 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if matches!(effect, SourceStaticEffect::EntryCopy { .. }) {
+        // The complete graph is checked before lowering and the complete
+        // printed source and raw AST before returning a definition.
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn,
+        });
+    }
     if matches!(effect, SourceStaticEffect::AsCascade { .. }) {
         // The complete source and occurrence graph were checked before lowering.
         return Ok(StaticAbility {

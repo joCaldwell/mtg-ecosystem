@@ -34,7 +34,7 @@ impl Game {
                 .as_ref()
                 .map(|f| (f, 1)),
             StackKind::Activated { ability, .. } => match &self
-                .definition(entry.source.card)
+                .copiable_definition(entry.source)
                 .ok()?
                 .activated
                 .get(ability as usize)?
@@ -114,7 +114,7 @@ impl Game {
         }
         let self_cost = match stack.kind {
             StackKind::Activated { ability, .. } => {
-                self.definition(stack.source.card)?.activated[ability as usize].cost
+                self.copiable_definition(stack.source)?.activated[ability as usize].cost
                     == ActivationCost::SacrificeSource
             }
             _ => false,

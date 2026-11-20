@@ -230,7 +230,7 @@ impl Game {
             .filter(|o| o.present_on_battlefield() && o.controller == land.controller)
         {
             if self
-                .definition(provider.id.card)?
+                .copiable_definition(provider.id)?
                 .static_abilities
                 .iter()
                 .any(|a| {
@@ -248,7 +248,7 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        let definition = self.definition(object.card)?;
+        let definition = self.copiable_definition(object)?;
         let bestowed = self.current(object).is_ok_and(|o| match o.zone {
             Zone::Battlefield => {
                 o.attached_to.is_some() && mtg_contracts::bestow_alternative(definition).is_some()
@@ -271,29 +271,37 @@ impl Game {
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let base = self.structural_characteristics(object)?;
+        let target = self.current(object)?;
+        if !target.present_on_battlefield() {
+            return Ok(base);
+        }
+        self.battlefield_color_layer(base, target.controller)
+    }
+
+    pub(super) fn battlefield_color_layer<'a>(
+        &self,
+        mut base: std::borrow::Cow<'a, Characteristics>,
+        controller: PlayerId,
+    ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
         if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
-            let target = self.current(object)?;
-            if target.present_on_battlefield() {
-                for source in self
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|s| s.present_on_battlefield() && s.controller == target.controller)
+            for source in self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|s| s.present_on_battlefield() && s.controller == controller)
+            {
+                if self
+                    .copiable_definition(source.id)?
+                    .static_abilities
+                    .iter()
+                    .any(|a| {
+                        a.effect == StaticEffect::ControllerNonlandsAllColors
+                            && a.functioning_zone == FunctioningZone::Battlefield
+                    })
                 {
-                    if self
-                        .definition(source.id.card)?
-                        .static_abilities
-                        .iter()
-                        .any(|a| {
-                            a.effect == StaticEffect::ControllerNonlandsAllColors
-                                && a.functioning_zone == FunctioningZone::Battlefield
-                        })
-                    {
-                        let mut effective = base.into_owned();
-                        effective.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
-                        return Ok(std::borrow::Cow::Owned(effective));
-                    }
+                    base.to_mut().colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
+                    break;
                 }
             }
         }
@@ -346,7 +354,7 @@ impl Game {
             && let Ok(o) = self.current(object)
             && o.present_on_battlefield()
         {
-            for ability in &self.definition(object.card)?.static_abilities {
+            for ability in &self.copiable_definition(object)?.static_abilities {
                 if let StaticEffect::ModifySourceByDistinctPermanentColors {
                     scope,
                     power_per_color,
@@ -374,7 +382,7 @@ impl Game {
                 .values()
                 .filter(|s| s.present_on_battlefield() && s.controller == o.controller)
             {
-                for a in &self.definition(source.id.card)?.static_abilities {
+                for a in &self.copiable_definition(source.id)?.static_abilities {
                     if let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect {
                         c.power.as_mut().ok_or("anthem creature power")?.add(power);
                         c.toughness
@@ -448,20 +456,22 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
             .flat_map(|o| {
-                self.definition(o.id.card).into_iter().flat_map(move |d| {
-                    d.static_abilities
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, a)| {
-                            matches!(a.effect,
+                self.copiable_definition(o.id)
+                    .into_iter()
+                    .flat_map(move |d| {
+                        d.static_abilities
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, a)| {
+                                matches!(a.effect,
                             StaticEffect::DoubleDamageToPermanentOrPlayer
                             | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer)
-                        })
-                        .map(move |(i, _)| EffectKey::Static {
-                            source: o.id,
-                            ability: i as u32,
-                        })
-                })
+                            })
+                            .map(move |(i, _)| EffectKey::Static {
+                                source: o.id,
+                                ability: i as u32,
+                            })
+                    })
             })
             .collect()
     }
@@ -707,7 +717,7 @@ impl Game {
         };
         origin.activated_ability.is_none()
             && self
-                .definition(origin.source.card)
+                .copiable_definition(origin.source)
                 .ok()
                 .and_then(|definition| definition.spell.as_ref())
                 .is_some_and(|root| {
@@ -737,7 +747,7 @@ impl Game {
             && (self.is_battlefield_creature(object)
                 || self.origin_programs(&effect.origin).is_ok_and(|programs| {
                     programs.into_iter().any(|program| {
-                        self.definition(object.card).is_ok_and(|d|
+                        self.copiable_definition(object).is_ok_and(|d|
                             Self::permanent_keyword_type_allowed(program, &d.characteristics))
                             && effect.origin.cursor == 0
                             && effect.origin.source_block == 0
@@ -917,7 +927,7 @@ impl Game {
             let EffectKey::Static { source, ability } = key else {
                 return false;
             };
-            self.definition(source.card).is_ok_and(|d| {
+            self.copiable_definition(source).is_ok_and(|d| {
                 d.static_abilities[*ability as usize].effect
                     == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
             })
@@ -1058,7 +1068,7 @@ impl Game {
             EffectKey::Static { source, ability } => {
                 let o = self.current(*source)?;
                 let a = self
-                    .definition(source.card)?
+                    .copiable_definition(source)?
                     .static_abilities
                     .get(*ability as usize)
                     .ok_or("missing static effect")?;
@@ -1963,11 +1973,11 @@ impl Game {
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
-                            && (self.definition(target.card)?.characteristics.kind
+                            && (self.copiable_definition(target)?.characteristics.kind
                                 == CardKind::Creature
                                 || Self::permanent_keyword_type_allowed(
                                     program,
-                                    &self.definition(target.card)?.characteristics,
+                                    &self.copiable_definition(target)?.characteristics,
                                 ))
                     }
                     (
@@ -1988,7 +1998,7 @@ impl Game {
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
-                            && self.definition(target.card)?.characteristics.kind
+                            && self.copiable_definition(target)?.characteristics.kind
                                 == CardKind::Creature
                     }
                     (
@@ -2032,7 +2042,7 @@ impl Game {
                                 TargetEntity::Object { object } => {
                                     e.target_handles.len() == 4
                                         && self.state.rules.cards.contains_key(&object.card)
-                                        && self.definition(object.card)?.characteristics.kind
+                                        && self.copiable_definition(object)?.characteristics.kind
                                             == CardKind::Creature
                                 }
                             }
@@ -2375,7 +2385,7 @@ impl Game {
                 return Err("intrinsic prevention is visible on the damage occurrence".into());
             };
             return match self
-                .definition(source.card)?
+                .copiable_definition(source)?
                 .static_abilities
                 .get(*ability as usize)
                 .ok_or("missing visible static effect")?
@@ -2692,7 +2702,7 @@ impl Game {
 }
 
 impl Game {
-    // Printed identity is immutable. P/T in a historical fact is derived at its
+    // Copiable identity is immutable within each incarnation. Historical P/T is derived at its
     // capture boundary; independent replay proves those past additive effects.
     pub(super) fn validate_characteristic_identity(
         &self,
@@ -2703,11 +2713,11 @@ impl Game {
         // Historical appearances may precede detachment of this same incarnation.
         let mut base = if matches!(zone, Zone::Stack | Zone::Battlefield)
             && c.subtypes == ["Aura"]
-            && mtg_contracts::bestow_alternative(self.definition(source.card)?).is_some()
+            && mtg_contracts::bestow_alternative(self.copiable_definition(source)?).is_some()
         {
             self.proposed_cast_characteristics(source.card, true)?
         } else {
-            self.definition(source.card)?.characteristics.clone()
+            self.copiable_definition(source)?.characteristics.clone()
         };
         if base.power.is_some() != c.power.is_some()
             || base.toughness.is_some() != c.toughness.is_some()
@@ -2822,7 +2832,7 @@ impl Game {
             let EffectKey::Static { source, ability } = key else {
                 return false;
             };
-            self.definition(source.card).is_ok_and(|d| {
+            self.copiable_definition(source).is_ok_and(|d| {
                 d.static_abilities[*ability as usize].effect
                     == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
             })
@@ -2855,7 +2865,11 @@ impl Game {
             } else if scoped_live {
                 return Err("scoped replacement missing bounded source facts".into());
             }
-            let expected_keywords = { self.definition(d.source.object.card)?.keywords.as_slice() };
+            let expected_keywords = {
+                self.copiable_definition(d.source.object)?
+                    .keywords
+                    .as_slice()
+            };
             // This bounds the vocabulary of possible LKI grants, not their
             // occurrence. Departure-invariant facts below and restore's input
             // replay still authenticate the captured historical appearance.
@@ -3077,7 +3091,7 @@ impl Game {
                 }
                 EffectKey::Static { source, ability } => {
                     let effect = self
-                        .definition(source.card)?
+                        .copiable_definition(source)?
                         .static_abilities
                         .get(*ability as usize)
                         .ok_or("unknown applied static effect")?;

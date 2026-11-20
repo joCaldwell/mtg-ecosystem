@@ -116,7 +116,7 @@ impl Game {
     pub(super) fn has_self_graveyard_replacement(&self, object: ObjectId) -> Result<bool, String> {
         self.current(object)?;
         Ok(self
-            .definition(object.card)?
+            .copiable_definition(object)?
             .static_abilities
             .iter()
             .any(|ability| matches!(ability.effect, StaticEffect::SelfGraveyardRevealShuffle)))

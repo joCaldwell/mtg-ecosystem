@@ -372,9 +372,9 @@ impl Game {
         // CR 208.4b/613.4: all currently admitted P/T changes are additive.
         // Base power is therefore this exact object's immutable definition's
         // power, including a token's retained generated definition. Future
-        // setting/CDA/copy/swap families must extend the base-stat evaluator.
+        // setting/CDA/swap families must extend the base-stat evaluator.
         let base = self
-            .definition(appearance.object.card)?
+            .copiable_definition(appearance.object)?
             .characteristics
             .power
             .as_ref();
@@ -400,7 +400,7 @@ impl Game {
         Ok((current.present_on_battlefield()
             && current.tapped
             && self
-                .definition(object.card)?
+                .copiable_definition(object)?
                 .triggered
                 .iter()
                 .any(|ability| ability.condition == TriggerCondition::SelfBecomesTapped))
@@ -583,7 +583,7 @@ impl Game {
             for witness in &witnesses {
                 if let TriggerEventWitness::Moved { movement } = witness
                     && movement.destination == Zone::Battlefield
-                    && self.saga_final_chapter(movement.successor.card)?.is_some()
+                    && self.saga_final_chapter(movement.successor)?.is_some()
                     && let Ok(entered) = self.current(movement.successor)
                 {
                     lore.push(LoreChange {
@@ -777,7 +777,7 @@ impl Game {
             .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
         {
             for (ability, definition) in observers
-                .definition(object.id.card)?
+                .copiable_definition(object.id)?
                 .triggered
                 .iter()
                 .enumerate()
@@ -901,7 +901,7 @@ impl Game {
                         let Ok(dying) = observers.current(subject) else {
                             return false;
                         };
-                        let Ok(d) = observers.definition(subject.card) else {
+                        let Ok(d) = observers.copiable_definition(subject) else {
                             return false;
                         };
                         (!f.controlled || dying.controller == object.controller)
@@ -995,7 +995,7 @@ impl Game {
                     continue;
                 }
                 for (index, descriptor) in observers
-                    .definition(object.id.card)?
+                    .copiable_definition(object.id)?
                     .static_abilities
                     .iter()
                     .enumerate()
@@ -1998,7 +1998,14 @@ impl Game {
                         condition,
                         TriggerCondition::SelfAuraToGraveyard
                             | TriggerCondition::SelfEntersBattlefield
-                    ) || self.definition(m.previous.card)?.characteristics.kind
+                    ) || self
+                        .copiable_definition(if witness.enters() {
+                            m.successor
+                        } else {
+                            m.previous
+                        })?
+                        .characteristics
+                        .kind
                         == CardKind::Creature)
             }
         };

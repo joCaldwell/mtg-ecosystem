@@ -382,6 +382,17 @@
     ]
   },
   {
+    "manifest_file": "archive-manifest-protege-entry-copy.json",
+    "manifest_sha256": "57a8e42b48647e474e0f5d670c250798467f5137efe6667c54d53ec1c2fada06",
+    "file_sha256": "e8b63300e5669872bf113bb6be2cbf6a4856b4ce7281c76bfdc8a98680a6d78b",
+    "parser_revision": "8d78ceca08eed27ff86887d4fe3832fcb0cda9b9",
+    "parser_source_sha256": "2338d2861bbcd23301ee84e90cfa23cdcbacaf365d26cca4d12bb76ece0e2ab0",
+    "corpus_sha256": "bcf1cd261d68500c57709aba5d3881ddb2c6ffa33af884c03550357391db8b56",
+    "record_sha256": [
+      "69752f161dd83c2c7b741778e6dec6067f69fa6e9a0a2c6a0c42042c91f1c034"
+    ]
+  },
+  {
     "manifest_file": "archive-manifest-progenitus-replacement.json",
     "manifest_sha256": "2e336b680c306296fc5d57d75c5b49a5f3e2b1de36cde7c6c7f2d6a7309ffe4d",
     "file_sha256": "c5fbc3e89be7b8c69fa6b4e2a74deec2509b214a2484e1200f7ef86cf7f64ab2",
