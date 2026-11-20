@@ -14,6 +14,25 @@ pub enum BasicLandType {
     Forest,
 }
 impl BasicLandType {
+    pub fn from_subtype(subtype: &str) -> Option<Self> {
+        match subtype {
+            "Plains" => Some(Self::Plains),
+            "Island" => Some(Self::Island),
+            "Swamp" => Some(Self::Swamp),
+            "Mountain" => Some(Self::Mountain),
+            "Forest" => Some(Self::Forest),
+            _ => None,
+        }
+    }
+    pub fn color(self) -> Color {
+        match self {
+            Self::Plains => Color::W,
+            Self::Island => Color::U,
+            Self::Swamp => Color::B,
+            Self::Mountain => Color::R,
+            Self::Forest => Color::G,
+        }
+    }
     pub fn subtype(self) -> &'static str {
         match self {
             Self::Plains => "Plains",

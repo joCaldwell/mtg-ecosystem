@@ -4,6 +4,16 @@
   "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
   "records": [
     {
+      "file": "6a6c5e17-6465-4a1f-9d63-8a3ce2edc522.json",
+      "oracle_id": "6a6c5e17-6465-4a1f-9d63-8a3ce2edc522",
+      "record_sha256": "cb59776e4e6e2ab2eea6a1ece9c3ba6199ea031a1c58c18c2d9a5be67ccfe220",
+      "source_sha256": "905a45def0833e28439c90e0bb065e76862a2d07cc6d113f9bc672a6d61066d2",
+      "ast_sha256": "33adc7b6a3b8b7492d82d038a9a26b477b430c8b08dfe45bf8bfadcf87169beb",
+      "binding_sha256": "b38eee08d514fff58229a82d7b9e8eb542c431d07f54d449ce3e2c360b8d5acd",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 16042
+    },
+    {
       "file": "aetherize.json",
       "oracle_id": "7c779721-cd1b-4696-9ae9-68ccc284ed2a",
       "record_sha256": "e4f3721b749cf15ed97651cd2f5de65ef7baecdf5fac250add26a48c1fe9a8ea",

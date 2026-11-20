@@ -25,6 +25,7 @@ mod color_hybrid_cost;
 pub use color_hybrid_cost::{
     ColorHybridSymbol, HybridPayment, color_hybrid_cost, hybrid_intrinsic_keywords,
 };
+mod checkland_entry;
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -409,6 +410,7 @@ pub enum Capability {
     EntersTappedV1,
     ConditionalBasicLandEntryV1,
     ConditionalOtherLandEntryV1,
+    ConditionalLandTypeEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
     UnspentManaConversionV1,
@@ -1651,6 +1653,9 @@ pub enum StaticEffect {
         comparison: LandCountComparison,
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         threshold: Quantity,
+    },
+    EntersTappedUnlessControllerLandTypes {
+        subtypes: [BasicLandType; 2],
     },
     /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
     EntersTappedUnlessPayLife {
@@ -3020,6 +3025,9 @@ impl Definition {
                 StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
                     Capability::ConditionalOtherLandEntryV1
                 }
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
+                    Capability::ConditionalLandTypeEntryV1
+                }
                 StaticEffect::ReduceSelfGenericCost { .. } => {
                     Capability::CountedSelfGenericCostReductionV1
                 }
@@ -3112,6 +3120,7 @@ impl Definition {
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
         other_land_entry::validate(self)?;
+        checkland_entry::validate(self)?;
         let land_sacrifice_draw = land_sacrifice_draw::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
@@ -4177,6 +4186,7 @@ impl Definition {
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
                     | StaticEffect::ControllerScopedCreatureStats { .. }
@@ -4315,6 +4325,7 @@ impl Definition {
                 StaticEffect::EntersTapped
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
@@ -6154,14 +6165,7 @@ fn add_program_requirements_for_source_pump(
     }
 }
 pub fn basic_land_color(subtype: &str) -> Option<Color> {
-    match subtype {
-        "Plains" => Some(Color::W),
-        "Island" => Some(Color::U),
-        "Swamp" => Some(Color::B),
-        "Mountain" => Some(Color::R),
-        "Forest" => Some(Color::G),
-        _ => None,
-    }
+    BasicLandType::from_subtype(subtype).map(BasicLandType::color)
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -7575,6 +7579,7 @@ pub fn catalog_schema() -> serde_json::Value {
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     other_land_entry::extend_schema(&mut schema);
+    checkland_entry::extend_schema(&mut schema);
     cascade_land_entry::extend_schema(&mut schema);
     entry_copy::extend_schema(&mut schema);
     counter_spell_controller_mill::extend_schema(&mut schema);
@@ -7989,6 +7994,7 @@ mod tests {
             EntersTappedV1,
             ConditionalBasicLandEntryV1,
             ConditionalOtherLandEntryV1,
+            ConditionalLandTypeEntryV1,
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,

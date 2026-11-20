@@ -23,6 +23,7 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
+mod checkland_entry;
 mod colored_library_search;
 mod combat_hand_cast;
 mod commander_modal_keyword;
@@ -2965,6 +2966,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
+    checkland_entry::validate_binding(&definition, &shape, &binding)?;
     land_sacrifice_draw::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
