@@ -10,7 +10,48 @@ pub(super) fn validate_binding(
     source: &Value,
     binding: &Value,
 ) -> Result<(), Failure> {
-    if !d.capabilities.contains(&Capability::CastEntryConditionV1) {
+    let gated = d.capabilities.contains(&Capability::CastEntryConditionV1);
+    if !gated && !has_fixed_creature_activation(d) {
+        return Ok(());
+    }
+    let mut graph = Bindings::new(&d.oracle_id, source);
+    let mut bound_fixed = false;
+    for (index, line) in source["oracle_text"]
+        .as_str()
+        .unwrap_or("")
+        .lines()
+        .enumerate()
+    {
+        let block = source_block(index)?;
+        if let Some(spec) = fixed_creature_activation(line, &d.name, block) {
+            bind_activation(&mut graph, block, &spec);
+            bound_fixed = true;
+        }
+    }
+    let keyword_block = bound_fixed && !d.keywords.is_empty();
+    if keyword_block {
+        let base = "/faces/0/abilities/0";
+        let role = "static-source-controller";
+        graph.ability(base, "keywords", role);
+        let scope = graph.id(base, "ability");
+        for (index, keyword) in d.keywords.iter().enumerate() {
+            let (word, rule) = fixed_activation_keyword(*keyword).ok_or_else(|| {
+                unsupported("keywords", "unsupported fixed activation keyword binding")
+            })?;
+            let path = format!("{base}/keywords/{index}");
+            let actor = graph.node(
+                &path,
+                "you",
+                "runtime-player",
+                json!({"scope":scope,"role":role,"rules":["109.5",rule]}),
+            );
+            graph.node(&path,"keyword","keyword-ability",json!({"scope":scope,"keyword":word,"abilities":["static"],"you":actor,"rules":[rule]}));
+        }
+    }
+    if !gated && bound_fixed {
+        return graph.validate(binding, "requires exact fixed activation roles");
+    }
+    if !gated {
         return Ok(());
     }
     // Definition validation has proved the exact printed source, raw AST,
@@ -20,8 +61,11 @@ pub(super) fn validate_binding(
         [Instruction::OptionalDrawCards { .. }]
     );
     let you = json!({"player":"you"});
-    let mut graph = Bindings::new(&d.oracle_id, source);
-    let base = "/faces/0/abilities/0";
+    let base = if keyword_block {
+        "/faces/0/abilities/1"
+    } else {
+        "/faces/0/abilities/0"
+    };
     graph.ability(base, "triggered", "trigger-controller");
     let actor = graph.id(base, "you");
     let source = graph.id("/source", "object");
@@ -71,6 +115,46 @@ pub(super) fn validate_binding(
         "message":"This condition asks about earlier events or how this object was cast; the engine keeps that record.",
         "rules":["603.4","607.2","608.2i","400.7d"]
     })], "requires the exact entry-result and caster bindings")
+}
+
+fn bind_activation(graph: &mut Bindings<'_>, block: u32, spec: &FixedCreatureActivation) {
+    let base = format!("/faces/0/abilities/{block}");
+    graph.ability(&base, "activated", "activator");
+    let scope = graph.id(&base, "ability");
+    let actor = graph.id(&base, "you");
+    let you = json!({"player":"you"});
+    graph.reference(&format!("{base}/costs/0/payer"), &you, &actor, "109.5");
+    let path = format!("{base}/effects/0/steps/0");
+    let step = &spec.ast["effects"][0]["steps"][0];
+    let operation = step["effect"]
+        .as_str()
+        .expect("constructed activation has an operation");
+    let mut inputs = Vec::new();
+    if operation == "damage" {
+        let source = graph.id("/source", "object");
+        graph.reference(&format!("{path}/source"), &step["source"], &source, "201.5");
+        inputs.push(source);
+    }
+    if let Some(target) = spec.ability.program.targets.first() {
+        let (suffix, expression) = if operation == "damage" {
+            ("to/ref", &step["to"]["ref"])
+        } else {
+            ("what", &step["what"])
+        };
+        inputs.push(graph.target(
+            &scope,
+            &format!("{path}/{suffix}"),
+            expression,
+            &target.selection_id,
+        ));
+    } else {
+        graph.reference(&format!("{path}/who"), &you, &actor, "109.5");
+        inputs.push(actor);
+    }
+    graph.node(&path,"event","event",json!({"scope":scope,"operation":operation,"inputs":inputs,"availability":"when-performed","rules":["608.2c"]}));
+    if operation != "destroy" {
+        graph.result(&path, "quantity", "measured-quantity", None);
+    }
 }
 
 #[cfg(test)]
@@ -178,4 +262,67 @@ fn land_untap_requires_the_resolution_set_and_its_trigger_controller() {
         compile(manifest, &changed),
         CompileResult::Lowered { .. }
     ));
+}
+
+#[test]
+#[cfg(test)]
+fn fixed_activations_match_paid_cost_targets_and_entry_history() {
+    let manifest = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+    let record = include_str!("../../../tests/fixtures/synthetic-fixed-activations.json");
+    let result = compile(manifest, record);
+    let CompileResult::Lowered { definition } = result else {
+        panic!("original composite source: {result:?}")
+    };
+    assert_eq!(definition.activated.len(), 3);
+    for change in [
+        "cost",
+        "target",
+        "omit",
+        "block",
+        "instruction",
+        "type_line",
+    ] {
+        let mut bad = definition.clone();
+        match change {
+            "cost" => bad.activated[0].cost = bad.activated[1].cost.clone(),
+            "target" => bad.activated[1].program.targets[0].domain = TargetDomain::AnyDamageTarget,
+            "omit" => {
+                bad.activated.remove(2);
+                bad.source_labels = None;
+            }
+            "block" => bad.source_labels.as_mut().unwrap().activated.swap(0, 1),
+            "type_line" => {
+                let mut source: Value = serde_json::from_str(&bad.provenance.source_json).unwrap();
+                source["type_line"] = json!("Artifact Creature — Scout");
+                bad.provenance.source_json = source.to_string();
+                bad.provenance.source_sha256 = sha256(bad.provenance.source_json.as_bytes());
+            }
+            _ => {
+                bad.activated[2].program.instructions =
+                    bad.activated[0].program.instructions.clone()
+            }
+        }
+        bad.capabilities = bad.requirements();
+        assert!(bad.validate().is_err(), "{change}");
+    }
+    for tail in [
+        "/costs/0/payer",
+        "/steps/0/to/ref",
+        "/steps/0/source",
+        "/steps/0/who",
+    ] {
+        let changed = crate::tests::changed_source(record, |r| {
+            let row = r["binding"]["references"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|r| r["path"].as_str().unwrap().ends_with(tail))
+                .unwrap();
+            row["target"] = json!("unbound");
+        });
+        assert!(
+            !matches!(compile(manifest, &changed), CompileResult::Lowered { .. }),
+            "{tail}"
+        );
+    }
 }

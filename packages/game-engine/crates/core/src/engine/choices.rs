@@ -355,6 +355,12 @@ impl Game {
                 Some(TargetDomain::AnyDamageTarget) => {
                     self.state.rules.frame = Frame::EntityTargets { cast }
                 }
+                Some(TargetDomain::PlayerOrPlaneswalker) => {
+                    self.state.rules.frame = Frame::PlayerTargets { cast }
+                }
+                Some(TargetDomain::BattlefieldCreature) => {
+                    self.state.rules.frame = Frame::Targets { cast }
+                }
                 None => self.continue_activation_after_targets(cast, input.decision_id)?,
                 Some(_) => return Err("unsupported activated mode target".into()),
             }
@@ -659,6 +665,17 @@ impl Game {
         origin: &EffectOrigin,
     ) -> Result<Vec<&'a SpellProgram>, String> {
         let d = self.definition(origin.source.card)?;
+        if let Some(index) = origin.activated_ability {
+            let root = &d
+                .activated
+                .get(index as usize)
+                .ok_or("missing activated effect origin")?
+                .program;
+            if origin.mode.is_some() == root.modes.is_empty() {
+                return Err("invalid activated effect mode".into());
+            }
+            return Ok(vec![self.selected_program(root, origin.mode)?]);
+        }
         if let Some(mode) = origin.mode {
             let root = d.spell.as_ref().ok_or("mode on nonspell effect origin")?;
             return Ok(vec![self.selected_program(root, Some(mode))?]);

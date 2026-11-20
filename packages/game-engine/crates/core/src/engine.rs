@@ -3088,16 +3088,17 @@ impl Game {
                 top.targets = objects;
                 top.announced_targets = announced;
                 let entry = self.top()?;
-                let tap_only = match &entry.kind {
+                let immediate_cost = match &entry.kind {
                     StackKind::Activated { ability, .. } => {
-                        self.definition(entry.source.card)?.activated[*ability as usize].cost
-                            == ActivationCost::TapSource
+                        matches!(
+                            self.definition(entry.source.card)?.activated[*ability as usize].cost,
+                            ActivationCost::TapSource | ActivationCost::SacrificePermanent { .. }
+                        )
                     }
                     _ => false,
                 };
-                if tap_only {
-                    // CR602.2b/601.2c,h: target announcement precedes tap
-                    // payment; a tap-only cost grants no mana payment window.
+                if immediate_cost {
+                    // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
                     self.state.rules.frame = self.announcement_mana_frame(cast)?;
@@ -3346,7 +3347,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 54,
+            snapshot_version: 55,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3388,7 +3389,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 54
+        if s.snapshot_version != 55
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

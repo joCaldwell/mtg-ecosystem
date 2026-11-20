@@ -1547,6 +1547,7 @@ mod tests {
                     target_handles: vec![],
                     id: EffectId(1),
                     origin: EffectOrigin {
+                        activated_ability: None,
                         mode: None,
                         stack_id: StackId(0),
                         source: target,
@@ -1599,6 +1600,7 @@ mod tests {
                     target_handles: vec![],
                     id: EffectId(2),
                     origin: EffectOrigin {
+                        activated_ability: None,
                         mode: None,
                         stack_id: StackId(0),
                         source: target,

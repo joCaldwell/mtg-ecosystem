@@ -307,6 +307,7 @@ impl Game {
             target_handles,
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
+                activated_ability: frame.spell.kind.activated_index(),
                 mode: frame.spell.mode,
                 stack_id: frame.spell.id,
                 source: frame.spell.source,

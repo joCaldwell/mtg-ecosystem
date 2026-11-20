@@ -34,6 +34,8 @@ pub enum DamageKind {
 #[serde(deny_unknown_fields)]
 pub struct EffectOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activated_ability: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<u32>,
     pub stack_id: StackId,
     pub source: ObjectId,
@@ -503,6 +505,7 @@ impl Game {
             target_handles,
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
+                activated_ability: frame.spell.kind.activated_index(),
                 mode: frame.spell.mode,
                 stack_id: frame.spell.id,
                 source: frame.spell.source,
@@ -1109,6 +1112,7 @@ impl Game {
                     return Err("effect outside resolving instruction".into());
                 };
                 if frame.spell.mode != effect.origin.mode
+                    || frame.spell.kind.activated_index() != effect.origin.activated_ability
                     || frame.spell.source != effect.origin.source
                     || frame.spell.id != effect.origin.stack_id
                     || frame.spell.controller != effect.origin.controller
