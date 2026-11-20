@@ -182,6 +182,19 @@ pub struct ManaCost {
     pub generic: Quantity,
     pub colored: Vec<Color>,
 }
+impl ManaCost {
+    fn printed_fixed_cost(&self) -> String {
+        let mut text = String::new();
+        if self.generic != Quantity::zero() || self.colored.is_empty() {
+            text.push_str(&format!("{{{}}}", self.generic));
+        }
+        for color in &self.colored {
+            text.push_str(&format!("{{{color:?}}}"));
+        }
+        text
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -7175,6 +7188,11 @@ mod tests {
         .unwrap();
         let source = &record["source"];
         menu.source_labels = None;
+        assert_eq!(source["mana_cost"], "{0}");
+        menu.characteristics.mana_cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![],
+        };
         menu.name = source["name"].as_str().unwrap().into();
         menu.oracle_id = source["oracle_id"].as_str().unwrap().into();
         menu.provenance.printing_id = source["id"].as_str().unwrap().into();

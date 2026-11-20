@@ -169,6 +169,9 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
             || source["oracle_id"] != d.oracle_id
             || source["layout"] != "normal"
             || source["type_line"] != kind
+            || source["mana_cost"] != d.characteristics.mana_cost.printed_fixed_cost()
+            || d.characteristics.basic
+            || d.characteristics.legendary
             || !d.keywords.is_empty()
             || !d.triggered.is_empty()
             || !d.activated.is_empty()
@@ -208,6 +211,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         || source["oracle_id"] != d.oracle_id
         || source["layout"] != "normal"
         || source["type_line"] != type_line
+        || source["mana_cost"] != d.characteristics.mana_cost.printed_fixed_cost()
         || ast != json!([clause.ability()])
         || d.characteristics.basic
         || d.characteristics.legendary
@@ -269,7 +273,7 @@ pub(super) fn extend_schema(s: &mut Value) {
             "optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
                 "op":{"const":"move_set"},"action":{"const":"exile"},"source_block":{"const":0},"set":{"enum":["artifacts","creatures","enchantments","graveyard_cards"]}}}}}}}}}}},
         "activated":{"maxItems":0},"triggered":{"maxItems":0},"keywords":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},
-        "characteristics":{"properties":{"kind":{"enum":["sorcery","instant"]}}},"x_mana_cost":{"const":false},
+        "characteristics":{"properties":{"kind":{"enum":["sorcery","instant"]},"legendary":{"const":false},"basic":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0},"subtypes":{"maxItems":0}}},"x_mana_cost":{"const":false},
         "capabilities":{"allOf":[{"contains":{"const":Capability::ModalChoiceV1}},{"contains":{"const":Capability::NonemptyModeSubsetV1}},{"contains":{"const":Capability::BoardWipesV1}}]}
     }},"else":{"properties":{"spell":marker_free,"capabilities":{"not":{"contains":{"const":Capability::NonemptyModeSubsetV1}}}}}}));
     def.push(json!({"if":{"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"Choose one or more —"#}}}}},"then":parent}));

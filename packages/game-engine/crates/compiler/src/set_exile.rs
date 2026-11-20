@@ -193,6 +193,10 @@ fn set_exile_modes_bind_whole_source_and_each_printed_resolution_set() {
                 .capabilities
                 .contains(&Capability::NonemptyModeSubsetV1)
         );
+        let mut wrong_cost = definition.clone();
+        wrong_cost.characteristics.mana_cost.generic.add(&1.into());
+        wrong_cost.capabilities = wrong_cost.requirements();
+        assert!(wrong_cost.validate().is_err());
         let mut wrong = definition.clone();
         wrong.spell.as_mut().unwrap().resolution = SpellResolution::Instructions;
         wrong.capabilities = wrong.requirements();
