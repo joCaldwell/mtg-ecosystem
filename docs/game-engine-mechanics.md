@@ -529,7 +529,7 @@ layout and its ordinary cast-kind capability. Permanent grants exclude creature-
 Attachments/Indestructible alongside Board Wipes and ordinary/family capabilities.
 Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
 `PumpSet` retains its existing behavior and Board Wipes capability.
-Battlefield commander control unlocks both modes of Akroma's Will.
+Controlling a commander allows both Akroma's Will modes.
 Protection bars colored damage, attachments, blockers and targeting.
 
 The instruction captures one full current ordered set and creates all properties
@@ -589,8 +589,8 @@ The cast spell remains rules source; caster and grant provenance freeze at colle
 surviving later grantor departure/control changes. Whole batches preflight IDs,
 fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
 firstness; failed proposals/payments never consume it. Nexus and Wild-Magic
-Sorcerer reuse cascade. Yidris is unsupported. Averna puts a chosen land onto
-the battlefield tapped before offering the cascade cast.
+Sorcerer reuse cascade. Yidris is unsupported. Averna enters a chosen land
+tapped before the cast offer.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,
