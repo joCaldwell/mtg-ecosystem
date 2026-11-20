@@ -324,39 +324,51 @@ impl BoundModeSubset {
                     let [instruction] = child.instructions.as_slice() else {
                         return Err("unexpected mode instructions".into());
                     };
-                    let instruction = if child.targets.is_empty() {
-                        instruction.clone()
-                    } else {
-                        let [target] = child.targets.as_slice() else {
-                            return Err("unsupported targeted occurrence group".into());
-                        };
-                        let mut target = target.clone();
-                        target.slot = u32::try_from(targets.len())
-                            .map_err(|_| "mode target capacity exceeded")?;
-                        let slot = target.slot;
-                        targets.push(target);
-                        match instruction {
+                    let offset = u32::try_from(targets.len())
+                        .map_err(|_| "mode target capacity exceeded")?;
+                    let mut instruction = instruction.clone();
+                    match (&mut instruction, child.targets.as_slice()) {
+                        (_, []) => {}
+                        (Instruction::ShufflePlayerGraveyard { .. }, _)
+                            if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() => {}
+                        (
                             Instruction::GainLife {
-                                recipient: LifeRecipient::Target { target_slot: 0 },
-                                amount,
-                                source_block,
-                            } => Instruction::GainLife {
-                                recipient: LifeRecipient::Target { target_slot: slot },
-                                amount: amount.clone(),
-                                source_block: *source_block,
+                                recipient: LifeRecipient::Target { target_slot },
+                                ..
+                            }
+                            | Instruction::LoseLife {
+                                recipient: LifeRecipient::Target { target_slot },
+                                ..
+                            }
+                            | Instruction::CounterStackObject { target_slot, .. }
+                            | Instruction::ReturnToOwnerHand { target_slot, .. }
+                            | Instruction::PutPlusOneCounters {
+                                on: CounterRecipient::Target { target_slot },
+                                ..
                             },
-                            Instruction::LoseLife {
-                                recipient: LifeRecipient::Target { target_slot: 0 },
-                                amount,
-                                source_block,
-                            } => Instruction::LoseLife {
-                                recipient: LifeRecipient::Target { target_slot: slot },
-                                amount: amount.clone(),
-                                source_block: *source_block,
-                            },
-                            _ => return Err("unsupported targeted mode effect".into()),
+                            [target],
+                        ) if *target_slot == 0 && target.slot == 0 => {
+                            *target_slot = offset;
                         }
-                    };
+                        _ => return Err("unsupported targeted mode effect".into()),
+                    }
+                    for (local, target) in child.targets.iter().enumerate() {
+                        if usize::try_from(target.slot).ok() != Some(local) {
+                            return Err("noncontiguous child target occurrence".into());
+                        }
+                        let mut target = target.clone();
+                        target.slot = offset
+                            .checked_add(target.slot)
+                            .ok_or("mode target capacity exceeded")?;
+                        if let TargetDomain::PlayerGraveyardCards { owner_slot, .. } =
+                            &mut target.domain
+                        {
+                            *owner_slot = offset
+                                .checked_add(*owner_slot)
+                                .ok_or("mode owner occurrence exceeds capacity")?;
+                        }
+                        targets.push(target);
+                    }
                     instructions.push(instruction);
                 }
                 let program = SpellProgram {
