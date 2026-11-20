@@ -647,6 +647,13 @@ impl Prepared {
             .iter()
             .any(|d| d.capabilities.contains(&Capability::ColoredLibrarySearchV1))
     }
+    fn work_format(&self) -> u32 {
+        if self.colored_search_formats() {
+            35
+        } else {
+            34
+        }
+    }
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
         let profile_digest = pod

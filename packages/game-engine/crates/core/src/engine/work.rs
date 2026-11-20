@@ -1128,11 +1128,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: if self.prepared.colored_search_formats() {
-                35
-            } else {
-                34
-            },
+            work_version: self.prepared.work_format(),
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1141,12 +1137,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version
-            != (if self.prepared.colored_search_formats() {
-                35
-            } else {
-                34
-            })
+        if saved.work_version != self.prepared.work_format()
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

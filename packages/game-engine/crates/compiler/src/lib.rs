@@ -17,8 +17,8 @@ mod cast_entry;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
-mod commander_modal_keyword;
 mod colored_library_search;
+mod commander_modal_keyword;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
