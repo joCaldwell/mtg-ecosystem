@@ -311,6 +311,7 @@ fn protege_copied_mosswort_hideaway_link_survives_source_departure() {
     let copy_hidden = object(&g, copy_candidate.card.0);
     assert_eq!(g.linked_hideaway_cards(donor, 0), [donor_hidden]);
     assert_eq!(g.linked_hideaway_cards(copy, 0), [copy_hidden]);
+    assert_eq!(g.state.rules.turn.lands_played, 1);
     assert!(g.characteristics(copy_hidden).is_err());
 
     let mut ready = false;
@@ -370,6 +371,7 @@ fn protege_copied_mosswort_hideaway_link_survives_source_departure() {
         g.zone(object(&g, copy_hidden.card.0)),
         Some(Zone::Battlefield)
     );
+    assert_eq!(g.state.rules.turn.lands_played, 1);
     assert!(g.linked_hideaway_cards(copy, 0).is_empty());
     assert_eq!(g.linked_hideaway_cards(donor, 0), [donor_hidden]);
 }

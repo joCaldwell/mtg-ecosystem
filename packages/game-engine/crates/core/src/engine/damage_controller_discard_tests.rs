@@ -861,11 +861,7 @@ fn copied_saga_delayed_effect_keeps_departed_source_identity() {
         if g.zone(successor) == Some(Zone::Graveyard { owner: controller }) {
             assert_ne!(source, successor);
             assert_ne!(announced, g.handle_for(viewer, successor).unwrap());
-            let view = g.state.knowledge.visibility[viewer.0 as usize]
-                .history
-                .last()
-                .unwrap()
-                .to_public();
+            let view = view(&g, viewer.0).view;
             assert_eq!(
                 view.effects,
                 [VisibleEffect::DelayedChapter {

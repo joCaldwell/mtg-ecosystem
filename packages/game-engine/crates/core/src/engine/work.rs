@@ -456,11 +456,11 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        let base = 4 + self.state.rules.objects.len() + self.state.rules.stack.len();
+        let live_effect_count = cache.effects(self).len();
+        let effect_count = live_effect_count + self.state.rules.delayed_chapters.len();
         if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
-            let offset = 4
-                + self.state.rules.objects.len()
-                + self.state.rules.stack.len()
-                + cache.effects(self).len();
+            let offset = base + effect_count;
             if cursor >= offset
                 && let Some(id) = cache.triggers(self).get(cursor - offset)
             {
@@ -471,13 +471,19 @@ impl Game {
             }
         }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-        let base = 4 + self.state.rules.objects.len() + self.state.rules.stack.len();
-        let effect_count = cache.effects(self).len();
         if cursor >= base && cursor < base + effect_count {
-            b.view.effects.push(
-                self.visible_effect(viewer, &cache.effects(self)[cursor - base])
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
+            let index = cursor - base;
+            let effect = if index < live_effect_count {
+                self.visible_effect(viewer, &cache.effects(self)[index])
+            } else {
+                self.visible_delayed_chapter(
+                    viewer,
+                    &self.state.rules.delayed_chapters[index - live_effect_count],
+                )
+            };
+            b.view
+                .effects
+                .push(effect.map_err(|_| QueryRejection::Invariant)?);
         }
         if let Some(
             PlayerRequest::EntryCopy { candidates, .. }

@@ -417,7 +417,10 @@ impl Game {
         // life losses; no battlefield, control or entry can change its prior facts.
         Ok(Some(PreparedEntryAuthority {
             donor: self.entry_copy_model(objects[0]),
-            from_land_play: matches!(origin, EntryOrigin::LandPlay { .. }),
+            from_land_play: matches!(
+                origin,
+                EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. }
+            ),
             player: origin.player(),
             put_by_effect,
             force_tapped,

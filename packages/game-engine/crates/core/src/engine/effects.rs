@@ -2547,26 +2547,33 @@ impl Game {
             .map(|key| self.visible_effect(viewer, key))
             .collect::<Result<Vec<_>, _>>()?;
         for row in &self.state.rules.delayed_chapters {
-            let source = row.issuer.source;
-            let announced = row
-                .source_handles()?
-                .get(viewer.0 as usize)
-                .ok_or("missing delayed source reference")?
-                .clone();
-            effects.push(VisibleEffect::DelayedChapter {
-                origin: VisibleEffectSource {
-                    source: VisibleTarget {
-                        announced,
-                        current: self.handle_for(viewer, source).ok(),
-                    },
-                    oracle_id: self.visible_ability_oracle_id(source)?.into(),
-                    controller: row.issuer.controller,
-                },
-                chapter: row.chapter()?,
-                expires_in_cleanup_of_turn: row.turn,
-            });
+            effects.push(self.visible_delayed_chapter(viewer, row)?);
         }
         Ok(effects)
+    }
+    pub(super) fn visible_delayed_chapter(
+        &self,
+        viewer: PlayerId,
+        row: &DelayedChapterRegistration,
+    ) -> Result<VisibleEffect, String> {
+        let source = row.issuer.source;
+        let announced = row
+            .source_handles()?
+            .get(viewer.0 as usize)
+            .ok_or("missing delayed source reference")?
+            .clone();
+        Ok(VisibleEffect::DelayedChapter {
+            origin: VisibleEffectSource {
+                source: VisibleTarget {
+                    announced,
+                    current: self.handle_for(viewer, source).ok(),
+                },
+                oracle_id: self.visible_ability_oracle_id(source)?.into(),
+                controller: row.issuer.controller,
+            },
+            chapter: row.chapter()?,
+            expires_in_cleanup_of_turn: row.turn,
+        })
     }
     pub(super) fn visible_damage_effect_candidate(
         &self,
