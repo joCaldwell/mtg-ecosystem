@@ -71,6 +71,7 @@ mod library_selection;
 #[cfg(test)]
 mod library_selection_tests;
 mod linked_hideaway;
+mod listed_mana;
 mod nonland_exile_life;
 mod normalization;
 mod opponent_life_drain;
@@ -82,8 +83,8 @@ mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
 mod power_filtered_removal;
-mod saga;
 mod repeated_target_modes;
+mod saga;
 mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
@@ -2247,9 +2248,25 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         restriction,
                         ..
                     } => {
-                        if let Some(mana) =
-                            lower_mana_ability(costs, effects, restriction.as_ref(), block, kind)?
-                        {
+                        let mana = listed_mana::lower(
+                            ability,
+                            block,
+                            &result.lines[block].text,
+                            &shape,
+                            &binding,
+                            &definition.oracle_id,
+                        )?;
+                        let mana = match mana {
+                            Some(mana) => Some(mana),
+                            None => lower_mana_ability(
+                                costs,
+                                effects,
+                                restriction.as_ref(),
+                                block,
+                                kind,
+                            )?,
+                        };
+                        if let Some(mana) = mana {
                             labels.mana.push(source_block(block)?);
                             definition.mana_abilities.push(mana);
                         } else {

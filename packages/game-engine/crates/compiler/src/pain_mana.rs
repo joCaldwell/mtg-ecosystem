@@ -15,7 +15,8 @@ pub(super) fn lower(
         let Ability::Activated { effects, .. } = ability else {
             return false;
         };
-        effects.iter().flat_map(|effect| &effect.steps).any(|step| {
+        let mut steps = effects.iter().flat_map(|effect| &effect.steps);
+        steps.clone().any(|step| {
             matches!(
                 step,
                 Step::AddMana {
@@ -23,7 +24,7 @@ pub(super) fn lower(
                     ..
                 }
             )
-        })
+        }) && steps.any(|step| matches!(step, Step::Damage { .. }))
     });
     if !candidate {
         return Ok(None);
@@ -50,22 +51,7 @@ pub(super) fn lower(
     let SourceMana::Choice { options } = serde_json::from_value(choice).map_err(|_| bad())? else {
         return Err(bad());
     };
-    if !(2..=5).contains(&options.len()) {
-        return Err(bad());
-    }
-    let mut colors = Vec::new();
-    for option in &options {
-        let SourceMana::Fixed { symbols } = option else {
-            return Err(bad());
-        };
-        let [color] = symbols.as_slice() else {
-            return Err(bad());
-        };
-        if *color == Color::C || colors.contains(color) {
-            return Err(bad());
-        }
-        colors.push(*color);
-    }
+    let colors = listed_mana::colors(&options).ok_or_else(bad)?;
     let amount = &abilities[1]["effects"][1]["steps"][0]["amount"];
     let number = amount["value"]
         .as_u64()
@@ -95,22 +81,7 @@ pub(super) fn lower(
     }
     // Bind the colors and amount to the complete printed clauses. The AST
     // and its line mirror must agree with the source even after rehashing.
-    let symbols = colors
-        .iter()
-        .map(|color| {
-            let value = serde_json::to_value(color).map_err(|_| bad())?;
-            Ok(format!("{{{}}}", value.as_str().ok_or_else(bad)?))
-        })
-        .collect::<Result<Vec<_>, Failure>>()?;
-    let production = if symbols.len() == 2 {
-        symbols.join(" or ")
-    } else {
-        format!(
-            "{}, or {}",
-            symbols[..symbols.len() - 1].join(", "),
-            symbols.last().ok_or_else(bad)?,
-        )
-    };
+    let production = listed_mana::printed_list(&colors);
     let text = vec![
         "{T}: Add {C}.".to_owned(),
         format!("{{T}}: Add {production}. This {noun} deals {number} damage to you."),
