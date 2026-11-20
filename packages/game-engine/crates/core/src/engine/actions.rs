@@ -1139,6 +1139,36 @@ impl Game {
                     },
                 )
             }
+            Instruction::PhaseOutTargetPermanent {
+                target_slot,
+                source_block,
+            } => {
+                let slot = target_slot as usize;
+                let target = *frame
+                    .spell
+                    .targets
+                    .get(slot)
+                    .ok_or("missing phasing target")?;
+                // CR 608.2b, 702.26b: keep resolution-start legality, but a
+                // previous mode may already have phased this incarnation out.
+                let outcome = if frame.legal_targets.get(slot) != Some(&true) {
+                    InstructionOutcome::IllegalTarget { target }
+                } else if !self
+                    .current(target)
+                    .is_ok_and(|o| o.present_on_battlefield())
+                {
+                    InstructionOutcome::ObjectNoLongerPresent { target }
+                } else {
+                    let actual = self.commit(
+                        ProposedEvent::PhaseOutTarget { object: target },
+                        Self::wipe_cause(&frame, source_block),
+                    )?;
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    }
+                };
+                self.finish_instruction(frame, outcome)
+            }
             Instruction::PhaseOutControllerPermanents { source_block } => {
                 let actual = self.commit(
                     ProposedEvent::PhaseOutControlled {
