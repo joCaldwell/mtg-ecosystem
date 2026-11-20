@@ -175,10 +175,7 @@ fn validate_fixed_cast_source(d: &Definition) -> Result<(), String> {
         .triggered
         .iter()
         .filter(|a| {
-            (has_look(&a.program)
-                && !ability_sequence::trigger(a, d.characteristics.kind)
-                && !(d.characteristics.kind == CardKind::Land
-                    && land_entry_gain_life::scry_ability(a)))
+            (has_look(&a.program) && !ability_sequence::trigger(a, d.characteristics.kind))
                 || (matches!(
                     a.condition,
                     TriggerCondition::SpellCast {
@@ -301,6 +298,9 @@ fn cast_scry_program(a: &TriggeredAbility) -> bool {
 }
 
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
+    if land_entry_scry::present(d) {
+        return land_entry_scry::validate(d);
+    }
     validate_fixed_cast_source(d)?;
     if d.activated
         .iter()
@@ -308,8 +308,6 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
         || d.triggered.iter().any(|a| {
             has_look(&a.program)
                 && !ability_sequence::trigger(a, d.characteristics.kind)
-                && !(d.characteristics.kind == CardKind::Land
-                    && land_entry_gain_life::scry_ability(a))
                 && (d.characteristics.kind != CardKind::Creature
                     || !d.characteristics.additional_types.is_empty()
                     || !cast_scry_program(a))
@@ -426,25 +424,20 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
         "required":["program"],
         "properties":{"program":{"not":{"$ref":"#/$defs/ScryFreeProgram"}}}
     });
-    let entry_scry = json!({"allOf":[cast_scry,{"properties":{"condition":{"const":"self_enters_battlefield"}}}]});
+    let entry_scry = land_entry_scry::selector();
     let scalar_trigger = json!({"$ref":"#/$defs/ScalarAbilityTrigger"});
     let scalar_activation = json!({"$ref":"#/$defs/ScalarAbilityActivation"});
-    let actual_cast = json!({"allOf":[cast_scry,{"not":{"anyOf":[entry_scry,scalar_trigger]}}]});
+    let actual_cast = json!({"allOf":[cast_scry,{"not":scalar_trigger}]});
     let has_scalar_scry = json!({"anyOf":[
         {"required":["triggered"],"properties":{"triggered":{"contains":{"allOf":[scalar_trigger,cast_scry]}}}},
         {"required":["activated"],"properties":{"activated":{"contains":{"allOf":[scalar_activation,cast_scry]}}}}
     ]});
     def.push(json!({"if":has_scalar_scry,"then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerScryV1}}}}}));
     let has_cast_scry = json!({
+        "not":entry_scry,
         "required":["triggered"],"properties":{"triggered":{"contains":actual_cast}}
     });
-    let has_entry_scry = json!({
-        "required":["characteristics","triggered"],"properties":{
-            "characteristics":{"properties":{"kind":{"const":"land"}}},
-            "triggered":{"contains":entry_scry}
-        }
-    });
-    def.push(json!({"properties":{
+    def.push(json!({"if":{"not":entry_scry},"then":{"properties":{
         "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/ScryFreeProgram"}}},scalar_activation]}},
         "triggered":{"items":{"if":actual_cast,"then":{"properties":{
             "condition":{"enum":cast_scry_conditions().collect::<Vec<_>>()},
@@ -454,11 +447,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
                 {"properties":{"timing":{"const":"instant"},"instructions":{"minItems":1,"maxItems":1}}}
             ]}
         }}}}
-    }}));
-    def.push(json!({
-        "if":{"required":["triggered"],"properties":{"triggered":{"contains":entry_scry}}},
-        "then":{"anyOf":[has_entry_scry,has_scalar_scry]}
-    }));
+    }}}));
     def.push(json!({"if":{"required":["provenance"],"properties":{"provenance":{"properties":{
         "source_json":{"pattern":r#"Whenever you cast a (white|blue|black|red|green) spell, scry ([0-9]+|[a-z-]+)\."#}
     }}}},"then":has_cast_scry}));
@@ -472,7 +461,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
         "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
         "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
         "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerScryV1}}]}
-    }},"else":{"if":{"not":{"anyOf":[has_cast_scry,has_entry_scry,has_scalar_scry]}},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}}));
+    }},"else":{"if":{"not":{"anyOf":[has_cast_scry,entry_scry,has_scalar_scry]}},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerScryV1}}}}}}}));
     def.push(json!({"if":has_scry,"then":{"allOf":[
         {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
          "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},

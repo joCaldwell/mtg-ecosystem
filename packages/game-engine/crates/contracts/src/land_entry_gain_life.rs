@@ -4,7 +4,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-const INVALID: &str = "requires complete fixed instruction, entry policy, and mana on land entry";
+const INVALID: &str = "requires complete mandatory controller life gain on land entry";
 const TAPPED_LINE: &str = "This land enters tapped.";
 const GAIN_PREFIX: &str = "When this land enters, you gain ";
 
@@ -20,18 +20,6 @@ pub(super) fn present(definition: &Definition) -> bool {
         })
 }
 
-pub(crate) fn scry_ability(a: &TriggeredAbility) -> bool {
-    a.condition == TriggerCondition::SelfEntersBattlefield
-        && matches!(
-            a.program.instructions.as_slice(),
-            [Instruction::Scry { .. }]
-        )
-}
-
-pub(super) fn scry_definition(d: &Definition) -> bool {
-    d.characteristics.kind == CardKind::Land && d.triggered.iter().any(scry_ability)
-}
-
 fn enters_tapped() -> StaticAbility {
     StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
@@ -40,17 +28,8 @@ fn enters_tapped() -> StaticAbility {
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
-    let scry = scry_definition(d);
-    if !scry && !present(d) && !d.capabilities.contains(&Capability::LandEntryGainLifeV1) {
-        if d.characteristics.kind != CardKind::Land
-            || !d
-                .provenance
-                .source_json
-                .contains("When this land enters, scry ")
-        {
-            return Ok(());
-        }
-        return Err(INVALID.into());
+    if !present(d) && !d.capabilities.contains(&Capability::LandEntryGainLifeV1) {
+        return Ok(());
     }
     let c = &d.characteristics;
     let [trigger] = d.triggered.as_slice() else {
@@ -66,21 +45,15 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     };
     let block = u32::from(tapped);
     let program = &trigger.program;
-    let (amount, source_block) = match program.instructions.as_slice() {
-        [
-            Instruction::Scry {
-                amount,
-                source_block,
-            },
-        ] if scry => (amount, source_block),
-        [
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount,
-                source_block,
-            },
-        ] if !scry => (amount, source_block),
-        _ => return Err(INVALID.into()),
+    let [
+        Instruction::GainLife {
+            recipient: LifeRecipient::Controller,
+            amount,
+            source_block,
+        },
+    ] = program.instructions.as_slice()
+    else {
+        return Err(INVALID.into());
     };
     let amount: i64 = amount
         .to_string()
@@ -151,27 +124,11 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let text = source["oracle_text"].as_str().ok_or(INVALID)?;
     let lines: Vec<_> = text.lines().collect();
     let expected_mana = format!("{{T}}: Add {printed}.");
-    let entry = lines.get(block as usize).ok_or(INVALID)?;
-    let bare = if scry {
-        if let Some((bare, reminder)) = entry.split_once(" (") {
-            if !ability_sequence::reminder_valid(reminder, &program.instructions) {
-                return Err(INVALID.into());
-            }
-            bare
-        } else {
-            entry
-        }
-    } else {
-        entry
-    };
-    let printed_amount = if scry {
-        bare.strip_prefix("When this land enters, scry ")
-            .and_then(|s| s.strip_suffix('.'))
-    } else {
-        bare.strip_prefix(GAIN_PREFIX)
-            .and_then(|s| s.strip_suffix(" life."))
-    }
-    .ok_or(INVALID)?;
+    let printed_amount = lines
+        .get(block as usize)
+        .and_then(|line| line.strip_prefix(GAIN_PREFIX))
+        .and_then(|line| line.strip_suffix(" life."))
+        .ok_or(INVALID)?;
     let production_set: BTreeSet<_> = colors.iter().copied().collect();
     let color_identity: Vec<_> = colors.iter().copied().filter(|c| *c != Color::C).collect();
     let produced_mana: Vec<Color> =
@@ -187,7 +144,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         || source["oracle_id"] != d.oracle_id
         || source["id"] != d.provenance.printing_id
         || source["mana_cost"] != ""
-        || source["keywords"] != if scry { json!(["Scry"]) } else { json!([]) }
+        || source["keywords"] != json!([])
         || source["colors"] != json!([])
         || source["color_identity"] != json!(c.color_identity)
         || produced_mana.len() != colors.len()
@@ -204,23 +161,16 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     if tapped {
         ast.push(json!({"kind":"static","effect":{"static":"enters-tapped","what":subject}}));
     }
-    let step = if scry {
-        json!({"effect":"scry","amount":{"amount":"fixed","value":amount}})
-    } else {
-        json!({"effect":"gain-life","who":you,"amount":{"amount":"fixed","value":amount}})
-    };
     ast.extend([
         json!({"kind":"triggered","trigger":{"trigger":"enters","what":subject},
-            "effects":[{"steps":[step]}]}),
+            "effects":[{"steps":[{"effect":"gain-life","who":you,"amount":{"amount":"fixed","value":amount}}]}]}),
         json!({"kind":"activated","costs":[{"cost":"tap-self"}],
             "effects":[{"steps":[{"effect":"add-mana","who":you,"mana":production}]}]}),
     ]);
-    let mut label_blocks = lines.clone();
-    label_blocks[block as usize] = bare;
     if strict_read::<Vec<Value>>(&d.provenance.abilities_json)? != ast
         || d.source_labels.as_ref().is_some_and(|labels| {
             labels.text != text
-                || labels.blocks != label_blocks
+                || labels.blocks != lines
                 || labels.mana != [block + 1]
                 || labels.triggered != [block]
                 || !labels.statics.iter().copied().eq(tapped.then_some(0))
@@ -234,39 +184,15 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    entry_schema(
-        schema,
-        "gain_life",
-        Capability::LifeGainV1,
-        Some(Capability::LandEntryGainLifeV1),
-    );
-    entry_schema(schema, "scry", Capability::ControllerScryV1, None);
-}
-
-fn entry_schema(schema: &mut Value, op: &str, primitive: Capability, legacy: Option<Capability>) {
     use Capability::*;
 
-    let capability = legacy.map(|c| json!({"contains":{"const":c}}));
-    let caps = [
-        capability.clone(),
-        Some(json!({"contains":{"const":primitive}})),
-        Some(json!({"contains":{"const":SelfEntersBattlefieldV1}})),
-        Some(json!({"contains":{"const":TriggeredAbilityV1}})),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    let mut instruction = json!({"op":{"const":op},"amount":{"pattern":"^[1-9][0-9]*$"}});
-    if legacy.is_some() {
-        instruction["recipient"] = json!({"const":"controller"});
-    }
-
+    let capability = json!({"contains":{"const":LandEntryGainLifeV1}});
     let condition = json!({
         "required":["condition","program"],
         "properties":{
             "condition":{"const":"self_enters_battlefield"},
             "program":{"required":["instructions"],"properties":{
-                "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":op}}}}
+                "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"gain_life"}}}}
             }}
         }
     });
@@ -307,12 +233,15 @@ fn entry_schema(schema: &mut Value, op: &str, primitive: Capability, legacy: Opt
             "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
             "targets":{"maxItems":0},"modes":{"maxItems":0},
             "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":instruction}}
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "op":{"const":"gain_life"},"recipient":{"const":"controller"},
+                "amount":{"pattern":"^[1-9][0-9]*$"}
+            }}}
         }}
     }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[
-            capability.map_or(json!(false), |cap| json!({"properties":{"capabilities":cap}})),
+            {"properties":{"capabilities":capability}},
             {"required":["characteristics","triggered"],"properties":{
                 "characteristics":{"properties":{"kind":{"const":"land"}}},
                 "triggered":{"contains":condition}
@@ -328,7 +257,8 @@ fn entry_schema(schema: &mut Value, op: &str, primitive: Capability, legacy: Opt
                 }},
                 "x_mana_cost":{"const":false},"intrinsic_zone":{"const":"battlefield"},"spell":{"type":"null"},
                 "activated":{"maxItems":0},"keywords":{"maxItems":0},
-                "capabilities":{"allOf":caps},
+                "capabilities":{"allOf":[capability,{"contains":{"const":LifeGainV1}},
+                    {"contains":{"const":SelfEntersBattlefieldV1}},{"contains":{"const":TriggeredAbilityV1}}]},
                 "triggered":triggered,
                 "mana_abilities":{"minItems":1,"maxItems":1,"items":{"properties":{
                     "self_damage":{"type":"null"},"restriction":{"type":"null"},

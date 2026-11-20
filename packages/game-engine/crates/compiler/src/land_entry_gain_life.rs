@@ -25,31 +25,31 @@ pub(super) fn lower(
     else {
         return Ok(None);
     };
-    let source_block = source_block(block)?;
-    if intervening.is_some() || !bindings.is_empty() {
+    let [
+        Step::GainLife {
+            who,
+            amount,
+            for_each: None,
+        },
+    ] = steps.as_slice()
+    else {
         return Ok(None);
-    }
-    let instruction = match steps.as_slice() {
-        [
-            Step::GainLife {
-                who,
-                amount,
-                for_each: None,
-            },
-        ] if who.player == "you" && who.of.is_none() && who.selection_id.is_none() => {
-            let amount =
-                fixed_positive(&serde_json::from_value(amount.clone()).map_err(|_| {
-                    unsupported("amount", "entry life gain requires a fixed amount")
-                })?)?;
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount,
-                source_block,
-            }
-        }
-        [Step::Scry { amount }] => controller_library::instruction(amount, source_block)?,
-        _ => return Ok(None),
     };
+    if intervening.is_some()
+        || !bindings.is_empty()
+        || who.player != "you"
+        || who.of.is_some()
+        || who.selection_id.is_some()
+    {
+        return Err(unsupported(
+            "abilities.trigger",
+            "entry life gain must be mandatory for the trigger controller",
+        ));
+    }
+    let amount = fixed_positive(
+        &serde_json::from_value(amount.clone())
+            .map_err(|_| unsupported("amount", "entry life gain requires a fixed amount"))?,
+    )?;
     Ok(Some(TriggeredAbility {
         functioning_zone: FunctioningZone::Battlefield,
         condition: TriggerCondition::SelfEntersBattlefield,
@@ -62,7 +62,11 @@ pub(super) fn lower(
             optional_additional_costs: vec![],
             additional_sacrifice: None,
             targets: vec![],
-            instructions: vec![instruction],
+            instructions: vec![Instruction::GainLife {
+                recipient: LifeRecipient::Controller,
+                amount,
+                source_block: source_block(block)?,
+            }],
             modes: vec![],
         },
     }))
@@ -73,18 +77,9 @@ pub(super) fn validate_binding(
     source: &Value,
     binding: &Value,
 ) -> Result<(), Failure> {
-    let scry = definition.characteristics.kind == CardKind::Land
-        && definition.triggered.iter().any(|a| {
-            a.condition == TriggerCondition::SelfEntersBattlefield
-                && matches!(
-                    a.program.instructions.as_slice(),
-                    [Instruction::Scry { .. }]
-                )
-        });
-    if !scry
-        && !definition
-            .capabilities
-            .contains(&Capability::LandEntryGainLifeV1)
+    if !definition
+        .capabilities
+        .contains(&Capability::LandEntryGainLifeV1)
     {
         return Ok(());
     }
@@ -115,27 +110,15 @@ pub(super) fn validate_binding(
         "same-objects",
         Some(&json!({"types":["land"]})),
     );
-    if scry {
-        graph.node(
-            &step,
-            "event",
-            "event",
-            json!({
-                "scope":graph.id(&root,"ability"),"operation":"scry",
-                "inputs":[],"availability":"when-performed","rules":["608.2c"]
-            }),
-        );
-    } else {
-        let controller = graph.id(&root, "you");
-        graph.reference(
-            &format!("{step}/who"),
-            &json!({"player":"you"}),
-            &controller,
-            "109.5",
-        );
-        graph.event(&root, &step, "gain-life", &controller, false);
-        graph.result(&step, "quantity", "measured-quantity", None);
-    }
+    let controller = graph.id(&root, "you");
+    graph.reference(
+        &format!("{step}/who"),
+        &json!({"player":"you"}),
+        &controller,
+        "109.5",
+    );
+    graph.event(&root, &step, "gain-life", &controller, false);
+    graph.result(&step, "quantity", "measured-quantity", None);
     listed_mana::bind_tap_mana(&mut graph, &format!("/faces/0/abilities/{}", block + 1));
     graph.validate(
         binding,

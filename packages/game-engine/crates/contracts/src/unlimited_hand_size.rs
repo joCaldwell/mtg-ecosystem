@@ -46,7 +46,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
                 | ManaProduction::OpponentLandColors
                 | ManaProduction::Choice { .. }
                 | ManaProduction::GreatestControlledPowerCombination
-                | ManaProduction::EachPermanentColor { .. } => false,
+                | ManaProduction::EachPermanentColor { .. }
+                | ManaProduction::HybridFilter { .. } => false,
             }
     });
     if !valid_kind

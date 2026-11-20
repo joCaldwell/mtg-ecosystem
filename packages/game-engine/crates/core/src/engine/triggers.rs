@@ -92,6 +92,10 @@ pub struct GroupedDamageMember {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerEventWitness {
+    ControlledLandEntered {
+        movement: Option<MoveOutcome>,
+        entrant: Box<ObjectBefore>,
+    },
     DelayedCreatureEntered {
         registration: Box<DelayedChapterRegistration>,
         movement: Option<MoveOutcome>,
@@ -156,7 +160,8 @@ pub enum TriggerEventWitness {
 impl TriggerEventWitness {
     pub fn subject(&self) -> Option<ObjectId> {
         match self {
-            Self::DelayedCreatureEntered { entrant, .. } => Some(entrant.object),
+            Self::ControlledLandEntered { entrant, .. }
+            | Self::DelayedCreatureEntered { entrant, .. } => Some(entrant.object),
             Self::LoreAdded { change } => Some(change.object),
             Self::Moved { movement: m } => Some(if m.destination == Zone::Battlefield {
                 m.successor
@@ -186,8 +191,10 @@ impl TriggerEventWitness {
         matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && matches!(m.destination, Zone::Graveyard { .. }))
     }
     fn enters(&self) -> bool {
-        matches!(self, Self::TokenEntered { .. })
-            || matches!(self, Self::Moved { movement: m } if m.destination == Zone::Battlefield && m.from != Zone::Battlefield)
+        matches!(
+            self,
+            Self::TokenEntered { .. } | Self::ControlledLandEntered { .. }
+        ) || matches!(self, Self::Moved { movement: m } if m.destination == Zone::Battlefield && m.from != Zone::Battlefield)
     }
 }
 // CR 109.5/603.3a/603.10: an ordinary trigger observes its source's
@@ -780,7 +787,7 @@ impl Game {
             _ => None,
         };
         let mut matched = vec![];
-        // Filled once per actual entry, only if a power-filtered observer exists.
+        // Filled once per actual entry, only for observers that need its characteristics.
         let mut entry_facts = None;
         for object in observers
             .state
@@ -797,7 +804,7 @@ impl Game {
                 .enumerate()
             {
                 let mut grouped_members = None;
-                let mut power_entry = None;
+                let mut entry_witness = None;
                 let mut equipped = None;
                 let matches = match &definition.condition {
                     TriggerCondition::EquippedCombatDamage | TriggerCondition::EquippedDies => {
@@ -806,6 +813,21 @@ impl Game {
                     }
                     TriggerCondition::DelayedControllerCreatureEntry => false,
                     TriggerCondition::SagaChapter {number} => matches!(&witness, TriggerEventWitness::LoreAdded{change} if change.object==object.id && change.controller==object.controller && change.crosses(*number)),
+                    TriggerCondition::ControlledLandEntersBattlefield => {
+                        if enters && entry_facts.is_none() {
+                            entry_facts = Some(observers.object_before(
+                                subject.ok_or("missing land entrant identity")?,
+                            )?);
+                        }
+                        if let Some(entrant) = &entry_facts
+                            && controlled_land_entry::matches(entrant, object.controller)
+                        {
+                            entry_witness = Some(controlled_land_entry::entry_witness(entrant, &witness)?);
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     TriggerCondition::ControlledCreatureEntersWithPower {
                         minimum_power,
                         other,
@@ -825,7 +847,7 @@ impl Game {
                                 entrant,
                             )
                         {
-                            power_entry = Some(TriggerEventWitness::CreatureEnteredWithPower {
+                            entry_witness = Some(TriggerEventWitness::CreatureEnteredWithPower {
                                 last_appearance:None,
                                 entrant: Box::new(entrant.clone()),
                                 movement: match &witness {
@@ -913,7 +935,7 @@ impl Game {
                         let matched=creature && enters && Some(object.id)!=subject;
                         if matched && matches!(definition.program.instructions.as_slice(),[Instruction::OptionalDrawForSoleGreatestEntrant{..}]) {
                             let entrant=observers.object_before(subject.ok_or("missing entrant identity")?)?;
-                            power_entry=Some(TriggerEventWitness::CreatureEnteredWithPower{entrant:Box::new(entrant.clone()),last_appearance:Some(Box::new(entrant)),movement:match &witness{TriggerEventWitness::Moved{movement}=>Some(movement.clone()),TriggerEventWitness::TokenEntered{..}=>None,_=>return Err("missing actual entry movement".into())}});
+                            entry_witness=Some(TriggerEventWitness::CreatureEnteredWithPower{entrant:Box::new(entrant.clone()),last_appearance:Some(Box::new(entrant)),movement:match &witness{TriggerEventWitness::Moved{movement}=>Some(movement.clone()),TriggerEventWitness::TokenEntered{..}=>None,_=>return Err("missing actual entry movement".into())}});
                         }
                         matched
                     }
@@ -943,7 +965,7 @@ impl Game {
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
                 {
-                    let mut matched_witness = equipped.or(power_entry).unwrap_or_else(|| witness.clone());
+                    let mut matched_witness = equipped.or(entry_witness).unwrap_or_else(|| witness.clone());
                     if let TriggerEventWitness::GroupedDamageDealt { members, .. } =
                         &mut matched_witness
                     {
@@ -1671,7 +1693,7 @@ impl Game {
         }
         Ok(())
     }
-    fn valid_creature_entry(
+    fn valid_entry_subject(
         &self,
         entrant: &ObjectBefore,
         movement: Option<&MoveOutcome>,
@@ -1767,7 +1789,7 @@ impl Game {
                     && registration.source_handles()? == handles
                     && source == issuer.source
                     && controller == issuer.controller
-                    && self.valid_creature_entry(entrant, movement.as_ref())?
+                    && self.valid_entry_subject(entrant, movement.as_ref())?
                     && entrant.controller == controller
                     && entrant.zone == Zone::Battlefield
                     && entrant.characteristics.has_type(CardKind::Creature)
@@ -1998,6 +2020,12 @@ impl Game {
                     && *at_tap == controller
                     && death_controller.is_none()
             }
+            TriggerEventWitness::ControlledLandEntered { entrant, movement } => {
+                *condition == TriggerCondition::ControlledLandEntersBattlefield
+                    && death_controller.is_none()
+                    && self.valid_entry_subject(entrant, movement.as_ref())?
+                    && controlled_land_entry::matches(entrant, controller)
+            }
             TriggerEventWitness::CreatureEnteredWithPower {
                 entrant,
                 movement,
@@ -2021,7 +2049,7 @@ impl Game {
                         return Err("invalid entrant appearance".into());
                     }
                 }
-                self.valid_creature_entry(entrant, movement.as_ref())?
+                self.valid_entry_subject(entrant, movement.as_ref())?
                     && special == last_appearance.is_some()
                     && death_controller.is_none()
                     && ((special
@@ -2048,6 +2076,7 @@ impl Game {
                         | TriggerCondition::GroupedDamageDealt { .. }
                         | TriggerCondition::EquippedCombatDamage
                         | TriggerCondition::EquippedDies
+                        | TriggerCondition::ControlledLandEntersBattlefield
                         | TriggerCondition::ControlledCreatureEntersWithPower { .. } => false,
                         TriggerCondition::SelfMoved { .. } => {
                             death_controller.is_none()

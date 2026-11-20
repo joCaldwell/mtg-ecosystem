@@ -883,3 +883,6 @@ fn listed_mana_choice_offers_only_printed_colors_and_recovers() {
     );
     assert!(g.current(object(&g, 0)).unwrap().tapped);
 }
+
+#[path = "hybrid_filter_mana_tests.rs"]
+mod hybrid_filter_mana_tests;

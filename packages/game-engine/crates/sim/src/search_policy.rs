@@ -109,6 +109,7 @@ pub(super) fn choose(
         | PlayerRequest::PlayHideawayLinked { .. }
         | PlayerRequest::EntryCopy { .. }
         | PlayerRequest::EntryAttachment { .. }
+        | PlayerRequest::EntryReveal { .. }
         | PlayerRequest::SearchLandBattlefield { .. }
         | PlayerRequest::OptionalEffect { .. }
         | PlayerRequest::OptionalRecursion { .. } => {
