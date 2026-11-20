@@ -694,9 +694,7 @@ fn paid_saga_tracks_each_chapter_and_waits_for_the_final_stack_exit() {
     panic!("final chapter did not release its Saga");
 }
 
-#[test]
-fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
-    let mut p = prepared(false, false);
+fn add_thunder_of_unity(p: &mut Prepared) -> String {
     let compiled = mtg_compiler::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"),
@@ -704,10 +702,25 @@ fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("complete frozen chapter program failed: {compiled:?}")
     };
+    let oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    oracle_id
+}
+
+#[test]
+fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
+    let mut p = prepared(false, false);
+    let oracle_id = add_thunder_of_unity(&mut p);
     let owner = PlayerId(0);
     let saga = CardId(1);
     p.config.cards[0].oracle_id = SWAMP.into();
-    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    p.config.cards[1].oracle_id = oracle_id;
     let mut add = |id: &str, zone: Zone| {
         let card = CardId(p.config.cards.len() as u32);
         p.config.cards.push(CardSetup {
@@ -725,13 +738,6 @@ fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
     for _ in 0..4 {
         add(SWAMP, Zone::Library { owner });
     }
-    let catalog = Arc::make_mut(&mut p.catalog);
-    catalog.definitions.push(*definition);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate().unwrap();
-    p.catalog_digest = digest(catalog).unwrap();
     p.profile_digest = digest(&p.config).unwrap();
     let mut g = Game::new(p);
     let pay = |g: &mut Game, card: CardId, lands: &[CardId]| {
@@ -811,6 +817,75 @@ fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
         passive(&mut g);
     }
     panic!("final Saga chapter did not leave its granted entry trigger");
+}
+
+#[test]
+fn copied_saga_delayed_effect_keeps_departed_source_identity() {
+    let mut p = prepared(false, false);
+    let saga_oracle_id = add_thunder_of_unity(&mut p);
+    let controller = PlayerId(0);
+    let viewer = PlayerId(1);
+    p.config.cards[0].oracle_id = saga_oracle_id.clone();
+    p.config.cards[1].oracle_id = ISAMARU.into();
+    p.config.cards.push(CardSetup {
+        id: CardId(p.config.cards.len() as u32),
+        oracle_id: SWAMP.into(),
+        owner: controller,
+        controller,
+        zone: Zone::Library { owner: controller },
+    });
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    let donor = g.object_id(CardId(0)).unwrap();
+    let physical = g.object_id(CardId(1)).unwrap();
+    let source = ObjectId {
+        incarnation: physical.incarnation + 1,
+        ..physical
+    };
+    // Set up the copy via the identity kernel and let its chapters resolve normally.
+    g.record_entry_copy(source, donor).unwrap();
+    assert_eq!(
+        g.move_object(physical, Zone::Battlefield)
+            .unwrap()
+            .successor,
+        source
+    );
+    g.move_object(donor, Zone::Exile).unwrap();
+    g.stabilize().unwrap();
+    settle(&mut g);
+    let announced = g.handle_for(viewer, source).unwrap();
+
+    for _ in 0..2000 {
+        settle(&mut g);
+        let successor = g.object_id(source.card).unwrap();
+        if g.zone(successor) == Some(Zone::Graveyard { owner: controller }) {
+            assert_ne!(source, successor);
+            assert_ne!(announced, g.handle_for(viewer, successor).unwrap());
+            let view = g.state.knowledge.visibility[viewer.0 as usize]
+                .history
+                .last()
+                .unwrap()
+                .to_public();
+            assert_eq!(
+                view.effects,
+                [VisibleEffect::DelayedChapter {
+                    origin: VisibleEffectSource {
+                        source: VisibleTarget {
+                            announced,
+                            current: None,
+                        },
+                        oracle_id: saga_oracle_id,
+                        controller,
+                    },
+                    chapter: 2,
+                    expires_in_cleanup_of_turn: g.state.rules.turn.number,
+                }]
+            );
+            return;
+        }
+        passive(&mut g);
+    }
+    panic!("copied Saga did not leave the battlefield after its final chapter");
 }
 
 #[test]
