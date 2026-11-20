@@ -371,6 +371,17 @@
     ]
   },
   {
+    "manifest_file": "archive-manifest-linked-hideaway.json",
+    "manifest_sha256": "043d01bd925bc26c2e732c9df369c72ab2ac9c37c0b646785aa1b3164587e7a6",
+    "file_sha256": "114f814949a6c0ddf680ac569113b15452e9a9efb025cbd79e04f58220d9fe4f",
+    "parser_revision": "2aca551f2c228827c317d21f1531c90402d6c690",
+    "parser_source_sha256": "0cd08bef4a2d3896ca42c2753ad6e1225953b5d8b718ee255b4e80e5fa73fbb5",
+    "corpus_sha256": "f5ae6f078208a5af3cba92524001630392990692c25234971a5212a04d71e9db",
+    "record_sha256": [
+      "07303361d908b89dab5da69789deac36418cc1c42c22abb3253be656f9c16458"
+    ]
+  },
+  {
     "manifest_file": "archive-manifest-progenitus-replacement.json",
     "manifest_sha256": "2e336b680c306296fc5d57d75c5b49a5f3e2b1de36cde7c6c7f2d6a7309ffe4d",
     "file_sha256": "c5fbc3e89be7b8c69fa6b4e2a74deec2509b214a2484e1200f7ef86cf7f64ab2",

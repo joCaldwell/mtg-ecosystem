@@ -35,6 +35,7 @@ mod each_player_draw;
 mod graveyard_replacement;
 mod group_discard;
 use graveyard_replacement::GraveyardReplacement;
+mod hideaway;
 #[cfg(test)]
 mod keyword_removal_wipe_tests;
 #[cfg(test)]
@@ -43,6 +44,7 @@ mod nonland_exile_life_tests;
 mod opponent_nonland_destroy_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
+use hideaway::HideawayLink;
 mod random_discard;
 mod removal;
 #[cfg(test)]
@@ -342,6 +344,8 @@ mod actions;
 mod divided_counters;
 pub use divided_counters::CounterDivision;
 mod cascade;
+mod linked_play;
+use linked_play::LinkedPlayProgress;
 mod reveal_and_cast;
 use reveal_and_cast::RevealAndCastProgress;
 mod hand_cast;
@@ -937,6 +941,8 @@ struct Card {
 #[serde(deny_unknown_fields)]
 struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    hideaway: Option<Box<HideawayLink>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     phased_out: Option<PhaseReturn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attached_to: Option<ObjectId>,
@@ -1082,6 +1088,9 @@ struct Resolving {
 enum Frame {
     GraveyardReplacement {
         transaction: Box<GraveyardReplacement>,
+    },
+    PlayHideawayLinked {
+        progress: Box<LinkedPlayProgress>,
     },
     LandEntry {
         origin: EntryOrigin,
@@ -1232,6 +1241,9 @@ pub enum ManaAbilityIdentity {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    PlayHideawayLinked {
+        object: Option<ObjectId>,
+    },
     OpeningPlacement {
         object: Option<ObjectId>,
     },
@@ -1243,6 +1255,9 @@ pub enum Response {
     },
     LibraryOrder {
         objects: Vec<ObjectId>,
+    },
+    Hideaway {
+        object: ObjectId,
     },
     LibrarySelect {
         hand: Vec<ObjectId>,
@@ -1392,6 +1407,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    PlayHideawayLinked {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
     OpeningPlacement {
         decision_id: u64,
         player: PlayerId,
@@ -1418,6 +1438,11 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
         count: usize,
+    },
+    Hideaway {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
     },
     LibrarySelect {
         decision_id: u64,
@@ -1646,9 +1671,11 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::HandCast { decision_id, .. }
+            Self::PlayHideawayLinked { decision_id, .. }
+            | Self::HandCast { decision_id, .. }
             | Self::HandReturn { decision_id, .. }
             | Self::LibraryOrder { decision_id, .. }
+            | Self::Hideaway { decision_id, .. }
             | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
@@ -1693,9 +1720,11 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::HandCast { player, .. }
+            Self::PlayHideawayLinked { player, .. }
+            | Self::HandCast { player, .. }
             | Self::HandReturn { player, .. }
             | Self::LibraryOrder { player, .. }
+            | Self::Hideaway { player, .. }
             | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
@@ -1771,6 +1800,12 @@ pub enum ProposedEvent {
         amount: Quantity,
         looked: Vec<ObjectId>,
         order: Vec<ObjectId>,
+    },
+    Hideaway {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        selected: ObjectId,
+        bottom: Vec<ObjectId>,
     },
     LibrarySelect {
         player: PlayerId,
@@ -2020,6 +2055,10 @@ pub enum EventOutcome {
         player: PlayerId,
         looked: Vec<ObjectId>,
         order: Vec<ObjectId>,
+    },
+    HiddenAway {
+        movement: MoveOutcome,
+        bottom: Vec<ObjectId>,
     },
     LibrarySelected {
         player: PlayerId,
@@ -2527,6 +2566,7 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        hideaway: None,
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
@@ -2706,7 +2746,9 @@ impl Game {
             .map(|p| p.mana.get(&color).cloned().unwrap_or_default())
     }
     pub fn characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
-        self.current(object)?;
+        if self.current(object)?.hideaway.is_some() {
+            return Err("face-down exiled card has no characteristics".into());
+        }
         self.derived_characteristics(object)
     }
     // Characteristics supply intrinsic behavior; reminder text never supplies
@@ -3023,6 +3065,9 @@ impl Game {
         }
         if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
             return self.validate_resolution_payment_response(payment, player, response);
+        }
+        if matches!(self.state.rules.frame, Frame::PlayHideawayLinked { .. }) {
+            return self.validate_linked_play_response(player, response);
         }
         if let Frame::RevealAndCast { progress } = &self.state.rules.frame {
             return self.validate_reveal_offer(progress, player, response);
@@ -3345,6 +3390,7 @@ impl Game {
                 self.graveyard_replacement_step(transaction)?
             }
             Frame::LandEntry { .. } => self.land_entry_step()?,
+            Frame::PlayHideawayLinked { progress } => self.linked_play_step(progress)?,
             Frame::RevealAndCast { progress } => self.reveal_and_cast_step(progress)?,
             Frame::HandCast { frame, child } => self.hand_cast_step(frame, child)?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
@@ -3660,7 +3706,9 @@ impl Game {
                 )?;
             }
             self.state.rules.stack.remove(index);
-        } else if self.is_live(owner) || self.state.rules.stack.iter().any(|s| s.id == stack.id) {
+        } else if self.invocation_lives(stack)
+            || self.state.rules.stack.iter().any(|s| s.id == stack.id)
+        {
             return Err("unsupported resolving-source movement".into());
         }
         self.record_event(Event::SpellCompleted {
@@ -3726,7 +3774,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 68,
+            snapshot_version: 69,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3768,7 +3816,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 68
+        if s.snapshot_version != 69
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3879,6 +3927,7 @@ impl Game {
         }
         self.validate_attachment_state()?;
         self.validate_control_state()?;
+        self.validate_hideaway_links()?;
         self.validate_tokens_state()?;
         self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;

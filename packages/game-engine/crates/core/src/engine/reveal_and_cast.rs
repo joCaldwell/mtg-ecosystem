@@ -79,6 +79,9 @@ impl RevealAndCastProgress {
 
 impl Game {
     pub(super) fn resolution_cast_request(&self) -> Result<Option<Request>, String> {
+        if matches!(self.state.rules.frame, Frame::PlayHideawayLinked { .. }) {
+            return self.linked_play_request();
+        }
         let Frame::RevealAndCast { progress } = &self.state.rules.frame else {
             return self.cascade_request();
         };

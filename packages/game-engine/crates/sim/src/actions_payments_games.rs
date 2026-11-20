@@ -229,6 +229,8 @@ impl Strategy {
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::CascadeLandEntry { .. }
             | PlayerRequest::ChooseOpponent { .. }
+            | PlayerRequest::Hideaway { .. }
+            | PlayerRequest::PlayHideawayLinked { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {

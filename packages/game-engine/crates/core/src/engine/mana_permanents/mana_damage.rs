@@ -179,6 +179,18 @@ impl Game {
                 return self.revalidate_resolution_payment_departure();
             }
             self.state.rules.passes.clear();
+            if let Frame::Mana { cast } = spell_cascade_grants::retained_effect_frame(&a.resume)
+                && let CastCompletion::Resolution {
+                    progress: CastOwner::LinkedPlay { progress, .. },
+                    ..
+                } = &cast.completion
+                && self.is_live(progress.frame.spell.controller)
+            {
+                self.state.rules.frame = Frame::PlayHideawayLinked {
+                    progress: progress.clone(),
+                };
+                return Ok(());
+            }
             self.state.rules.frame = Frame::Priority;
             return self.stabilize();
         }
