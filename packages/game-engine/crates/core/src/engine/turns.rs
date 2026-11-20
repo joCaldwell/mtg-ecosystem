@@ -245,7 +245,7 @@ impl Game {
             .filter(|o| o.present_on_battlefield() && self.is_live(o.controller))
         {
             let controlled = source.controller == player;
-            for ability in &self.definition(source.id.card)?.static_abilities {
+            for ability in &self.copiable_definition(source.id)?.static_abilities {
                 if ability.functioning_zone != FunctioningZone::Battlefield {
                     continue;
                 }

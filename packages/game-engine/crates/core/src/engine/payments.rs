@@ -235,7 +235,7 @@ impl Game {
         let cost = stack.total_cost.clone();
         if let StackKind::Activated { ability, .. } = &stack.kind
             && matches!(
-                self.definition(stack.source.card)?.activated[*ability as usize].cost,
+                self.copiable_definition(stack.source)?.activated[*ability as usize].cost,
                 ActivationCost::DiscardSource { .. }
             )
             && !self.hand_activation_source_payable(stack.controller, stack.source)
@@ -278,7 +278,7 @@ impl Game {
         // of another hand card, no effect-time discard, no early cost on failure.
         if let StackKind::Activated { ability, .. } = &stack.kind
             && matches!(
-                self.definition(stack.source.card)?.activated[*ability as usize].cost,
+                self.copiable_definition(stack.source)?.activated[*ability as usize].cost,
                 ActivationCost::DiscardSource { .. }
             )
         {
@@ -298,7 +298,7 @@ impl Game {
         }
         if let StackKind::Activated { ability, .. } = stack.kind
             && let ActivationCost::Composite { costs } =
-                self.definition(stack.source.card)?.activated[ability as usize]
+                self.copiable_definition(stack.source)?.activated[ability as usize]
                     .cost
                     .clone()
         {

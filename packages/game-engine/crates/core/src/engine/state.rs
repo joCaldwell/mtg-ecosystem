@@ -52,6 +52,8 @@ state_layout! {
         mana_ability_uses: BTreeSet<mana_permanents::ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         tokens: BTreeMap<CardId, tokens::TokenIdentity>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        entry_copies: BTreeMap<CardId, BTreeMap<u32, copiable_identity::EntryCopy>>,
         // Deterministic conservative charge for inputs and potential detailed
         // evidence, even in Off/Compact modes. Replay proves the counter.
         #[serde(default, skip_serializing_if = "stored_history::is_zero_charge")]

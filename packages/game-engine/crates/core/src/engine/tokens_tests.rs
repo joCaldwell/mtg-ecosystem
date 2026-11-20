@@ -1982,3 +1982,99 @@ fn history_budget_release_probe() {
         })
     );
 }
+
+// Exercise the identity kernel below the admission/entry-choice boundary.
+#[test]
+fn entry_copy_lineage_retains_detached_program_and_token_base() {
+    fn enter(g: &mut Game, card: u32, donor: ObjectId) -> ObjectId {
+        let previous = object(g, card);
+        let successor = ObjectId {
+            incarnation: previous.incarnation + 1,
+            ..previous
+        };
+        g.record_entry_copy(successor, donor).unwrap();
+        assert_eq!(
+            g.move_object(previous, Zone::Battlefield)
+                .unwrap()
+                .successor,
+            successor
+        );
+        successor
+    }
+
+    let owner = PlayerId(0);
+    let mut pod = prepared(&[
+        ("Isamaru, Hound of Konda", 0, true),
+        ("Attended Knight", 1, false),
+        ("Forest", 0, true),
+        ("Plains", 0, true),
+    ]);
+    pod.config.commanders = vec![CardId(0)];
+    pod.profile_digest = digest(&pod.config).unwrap();
+    let mut g = Game::new(pod);
+    reach(&mut g, TurnStep::PrecombatMain);
+    let knight = object(&g, 1);
+    let donor = g.state.rules.objects.get_mut(&knight.card).unwrap();
+    donor.plus_one_counters = 2.into();
+    donor.marked_damage = 1.into();
+    donor.tapped = true;
+    let physical = object(&g, 0);
+    let copy = enter(&mut g, 0, knight);
+    let before = g.object_before(copy).unwrap();
+    assert_eq!(before.controller, owner);
+    assert_eq!(before.characteristics.power, Some(2.into()));
+    assert_eq!(before.marked_damage, Quantity::zero());
+    assert!(!before.tapped);
+    assert_eq!(g.characteristics(knight).unwrap().power, Some(4.into()));
+    assert!(g.commander_ledger().history(copy.card).is_some());
+    assert!(!g.state.rules.tokens.contains_key(&copy.card));
+    assert_eq!(
+        g.copiable_definition(physical).unwrap().name,
+        "Isamaru, Hound of Konda"
+    );
+
+    // Remove the observer before its queued ETB creates a token. The token's
+    // creating instruction and the pending trigger must use the departed copy.
+    let hand = g.move_object(copy, Zone::Hand { owner }).unwrap().successor;
+    assert!(g.copiable_definition(hand).unwrap().triggered.is_empty());
+    assert_eq!(g.copiable_definition(copy).unwrap().name, "Attended Knight");
+    g.validate_trigger_state().unwrap();
+    g.stabilize().unwrap();
+    resolve(&mut g, &[]);
+    let soldiers = token_objects(&g);
+    assert_eq!(soldiers.len(), 1);
+    let token = soldiers[0];
+    assert_eq!(g.state.rules.tokens[&token.card].source, copy);
+    g.validate_tokens_state().unwrap();
+
+    let token_copy = enter(&mut g, 2, token);
+    let chained = enter(&mut g, 3, token_copy);
+    assert_eq!(
+        g.copiable_definition(chained).unwrap().name,
+        "Soldier Token"
+    );
+    assert_eq!(token_objects(&g), soldiers);
+    g.move_object(token, Zone::Exile).unwrap();
+    g.commit(
+        ProposedEvent::CeaseToken {
+            object: object(&g, token.card.0),
+        },
+        BatchCause::Fixture,
+    )
+    .unwrap();
+    g.move_object(token_copy, Zone::Hand { owner }).unwrap();
+    assert_eq!(
+        g.copiable_definition(chained).unwrap(),
+        g.copiable_definition(token).unwrap()
+    );
+    assert_eq!(g.entry_copy_origin(chained), Some((token_copy, token.card)));
+    assert_eq!(g.entry_copy_origin(hand), None);
+    g.validate_entry_copy_identities().unwrap();
+    // A cyclic/forged donor cannot authenticate another retained definition.
+    let mut corrupt = g.fork();
+    let mut wire = serde_json::to_value(&corrupt.state).unwrap();
+    wire["entry_copies"][chained.card.0.to_string()][chained.incarnation.to_string()]["donor"] =
+        serde_json::to_value(chained).unwrap();
+    corrupt.state = serde_json::from_value(wire).unwrap();
+    assert!(corrupt.validate_entry_copy_identities().is_err());
+}

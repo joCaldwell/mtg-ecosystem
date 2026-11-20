@@ -18,7 +18,7 @@ impl Game {
                 ability: 0,
                 source_handles,
             } => {
-                let definition = self.definition(frame.spell.source.card)?;
+                let definition = self.copiable_definition(frame.spell.source)?;
                 if !definition
                     .activated
                     .first()

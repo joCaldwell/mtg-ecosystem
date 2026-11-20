@@ -85,6 +85,7 @@ pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
 mod staples;
 pub use counter_placement::*;
 use land_entry::{EntryOrigin, PreparedEntryAuthority};
+mod copiable_identity;
 mod spell_copy;
 mod tokens;
 pub use staples::VisibleSearchLand;
@@ -2578,6 +2579,7 @@ impl Game {
             rules: RulesState {
                 mana_ability_uses: BTreeSet::new(),
                 tokens: BTreeMap::new(),
+                entry_copies: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(MatchState::new),
@@ -2752,7 +2754,7 @@ impl Game {
         let mut colors = self.intrinsic_mana_colors(object)?;
         let mixed = !colors.is_empty();
         if o.zone == Zone::Battlefield {
-            for ability in &self.definition(object.card)?.mana_abilities {
+            for ability in &self.copiable_definition(object)?.mana_abilities {
                 for color in self.mana_colors(o.controller, &ability.production)? {
                     if !mixed || !colors.contains(&color) {
                         colors.push(color);
@@ -2769,6 +2771,7 @@ impl Game {
         }
         Ok(colors)
     }
+    /// Immutable physical card or generated token definition, independent of zone copies.
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
         if let Some(token) = self.state.rules.tokens.get(&card) {
             return Ok(&token.definition);
@@ -2816,7 +2819,7 @@ impl Game {
         self.selected_program(self.root_program_for(stack)?, stack.mode)
     }
     fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
-        let definition = self.definition(stack.source.card)?;
+        let definition = self.copiable_definition(stack.source)?;
         match &stack.kind {
             StackKind::Spell => definition
                 .spell
@@ -2999,7 +3002,7 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 symbols: self
-                    .definition(self.top()?.source.card)?
+                    .copiable_definition(self.top()?.source)?
                     .characteristics
                     .hybrid_mana
                     .clone(),
@@ -3459,7 +3462,8 @@ impl Game {
                 let immediate_cost = match &entry.kind {
                     StackKind::Activated { ability, .. } => {
                         matches!(
-                            self.definition(entry.source.card)?.activated[*ability as usize].cost,
+                            self.copiable_definition(entry.source)?.activated[*ability as usize]
+                                .cost,
                             ActivationCost::TapSource | ActivationCost::SacrificePermanent { .. }
                         )
                     }
@@ -3651,7 +3655,11 @@ impl Game {
                     Zone::Graveyard { owner }
                 };
             if destination == Zone::Battlefield
-                && self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"]
+                && self
+                    .copiable_definition(stack.source)?
+                    .characteristics
+                    .subtypes
+                    == ["Aura"]
             {
                 self.finish_spell_aura_entry(
                     stack.source,
@@ -3901,6 +3909,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
+        self.validate_entry_copy_identities()?;
         self.validate_attachment_state()?;
         self.validate_control_state()?;
         self.validate_hideaway_links()?;

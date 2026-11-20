@@ -174,7 +174,7 @@ impl Game {
             if !self.control_battlefield(source.id) {
                 continue;
             }
-            let definition = self.definition(source.id.card)?;
+            let definition = self.copiable_definition(source.id)?;
             if !definition
                 .static_abilities
                 .iter()
@@ -191,7 +191,7 @@ impl Game {
             // A stale pre-SBA attachment is reachable, but supplies no grant.
             // Never follow a physical card to its successor incarnation.
             if !self.control_battlefield(target)
-                || !self.attachment_target_type_valid(source.id.card, target.card)?
+                || !self.attachment_target_type_valid(source.id, target)?
             {
                 continue;
             }
@@ -873,7 +873,7 @@ mod tests {
             let mut game = general_game(&[("Confiscate", 0, 0), (name, 1, 1)], TraceMode::Detailed);
             let target = object(&game, 1);
             assert!(
-                game.attachment_target_type_valid(CardId(0), CardId(1))
+                game.attachment_target_type_valid(object(&game, 0), target)
                     .unwrap()
             );
             attach(&mut game, 0, Some(target));

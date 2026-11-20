@@ -190,13 +190,13 @@ impl Game {
     }
     fn nonstack_mana_value(&self, object: ObjectId) -> Result<Quantity, String> {
         Ok(self
-            .definition(object.card)?
+            .copiable_definition(object)?
             .characteristics
             .printed_mana_value())
     }
     fn cascade_hit(&self, object: ObjectId, threshold: &Quantity) -> Result<bool, String> {
         Ok(!self
-            .definition(object.card)?
+            .copiable_definition(object)?
             .characteristics
             .has_type(CardKind::Land)
             && self.nonstack_mana_value(object)? < *threshold)
@@ -208,7 +208,7 @@ impl Game {
         if self.current(permission.object)?.zone != Zone::Exile
             || self.state.rules.cards[&permission.object.card].owner != permission.caster
             || self
-                .definition(permission.object.card)?
+                .copiable_definition(permission.object)?
                 .characteristics
                 .has_type(CardKind::Land)
             || match &permission.resulting_mana_value_below {
@@ -235,7 +235,7 @@ impl Game {
         {
             return Ok(false);
         }
-        let definition = self.definition(object.card)?;
+        let definition = self.copiable_definition(object)?;
         let program = definition
             .spell
             .as_ref()
@@ -295,7 +295,7 @@ impl Game {
         {
             return Ok(None);
         }
-        self.definition(object.id.card)?
+        self.copiable_definition(object.id)?
             .static_abilities
             .iter()
             .position(|a| {
@@ -325,7 +325,7 @@ impl Game {
     fn cascade_exiled_land(&self, object: ObjectId) -> Result<bool, String> {
         Ok(self.current(object).is_ok_and(|o| o.zone == Zone::Exile)
             && self
-                .definition(object.card)?
+                .copiable_definition(object)?
                 .characteristics
                 .has_type(CardKind::Land))
     }
@@ -874,7 +874,7 @@ impl Game {
         for choice in &progress.land_choices {
             if !used_providers.insert(choice.provider)
                 || !self
-                    .definition(choice.provider.card)?
+                    .copiable_definition(choice.provider)?
                     .static_abilities
                     .iter()
                     .any(|a| {
@@ -892,7 +892,7 @@ impl Game {
             if !entered_lands.insert(land)
                 || !progress.exiled.contains(&land)
                 || !self
-                    .definition(land.card)?
+                    .copiable_definition(land)?
                     .characteristics
                     .has_type(CardKind::Land)
                 || self.is_live(progress.caster())
