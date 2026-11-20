@@ -55,7 +55,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     else {
         return Err(INVALID.into());
     };
-    let amount: u32 = amount
+    let amount: i64 = amount
         .to_string()
         .parse()
         .ok()
@@ -136,7 +136,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     if lines.join("\n") != text
         || lines.len() != (block + 2) as usize
         || (tapped && lines[0] != TAPPED_LINE)
-        || !matches_fixed_amount(printed_amount, i64::from(amount))
+        || !matches_fixed_amount(printed_amount, amount)
         || lines[(block + 1) as usize] != expected_mana
         || source["type_line"] != "Land"
         || source["layout"] != "normal"
@@ -226,6 +226,19 @@ pub(super) fn extend_schema(schema: &mut Value) {
             }}
         }})
     };
+    let triggered = json!({"minItems":1,"maxItems":1,"items":{"properties":{
+        "condition":{"const":"self_enters_battlefield"},
+        "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
+        "program":{"properties":{
+            "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
+            "targets":{"maxItems":0},"modes":{"maxItems":0},
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
+            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "op":{"const":"gain_life"},"recipient":{"const":"controller"},
+                "amount":{"pattern":"^[1-9][0-9]*$"}
+            }}}
+        }}
+    }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[
             {"properties":{"capabilities":capability}},
@@ -244,19 +257,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "activated":{"maxItems":0},"keywords":{"maxItems":0},
                 "capabilities":{"allOf":[capability,{"contains":{"const":LifeGainV1}},
                     {"contains":{"const":SelfEntersBattlefieldV1}},{"contains":{"const":TriggeredAbilityV1}}]},
-                "triggered":{"minItems":1,"maxItems":1,"items":{"properties":{
-                    "condition":{"const":"self_enters_battlefield"},
-                    "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
-                    "program":{"properties":{
-                        "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-                        "targets":{"maxItems":0},"modes":{"maxItems":0},
-                        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-                        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                            "op":{"const":"gain_life"},"recipient":{"const":"controller"},
-                            "amount":{"pattern":"^[1-9][0-9]{0,9}$"}
-                        }}}
-                    }}
-                }}},
+                "triggered":triggered,
                 "mana_abilities":{"minItems":1,"maxItems":1,"items":{"properties":{
                     "self_damage":{"type":"null"},"restriction":{"type":"null"},
                     "costs":{"properties":{
