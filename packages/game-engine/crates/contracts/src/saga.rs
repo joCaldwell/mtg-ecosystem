@@ -394,7 +394,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "modifier":{"type":"object"},"keywords":{"const":["trample"]},"duration":{"const":"until_end_of_turn"}}
     })]);
     let targeted = |instructions: Value| {
-        json!({"type":"object","required":["targets","instructions","optional_additional_costs"],
+        json!({"type":"object","required":["targets","instructions"],
         "properties":{
             "targets":{"minItems":1,"maxItems":1,"items":target},"instructions":instructions,
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
