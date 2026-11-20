@@ -187,9 +187,16 @@ impl Game {
         self.validate_resolving(frame)?;
         let (target_slot, generic, _) = self.counter_payment_terms(frame)?;
         let slot = target_slot as usize;
+        let target = self
+            .state
+            .rules
+            .stack
+            .iter()
+            .find(|s| s.id == payment.target);
         if frame.spell.stack_targets.get(slot) != Some(&payment.target)
             || frame.legal_targets.get(slot) != Some(&true)
             || payment.payer.0 >= 4
+            || target.is_some_and(|entry| entry.controller != payment.payer)
             || !payment.cost.colored.is_empty()
             || &payment.cost.generic != generic
             || (payment.stage == CounterPaymentStage::Offer && !payment.receipts.is_empty())
@@ -199,12 +206,7 @@ impl Game {
         }
         if matches!(self.state.rules.frame, Frame::CounterUnless { .. })
             && (!self.is_live(payment.payer)
-                || !self
-                    .state
-                    .rules
-                    .stack
-                    .iter()
-                    .any(|s| s.id == payment.target)
+                || target.is_none()
                 || (payment.stage == CounterPaymentStage::Spend
                     && !self.can_pay(payment.payer, &payment.cost)?))
         {
