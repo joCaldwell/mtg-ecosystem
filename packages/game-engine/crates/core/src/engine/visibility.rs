@@ -923,7 +923,52 @@ impl Knowledge {
         )
     }
 }
+// Scratch for one publication. Rules are stable while the four observers'
+// handles and histories are updated. Lists preserve object-table order.
+#[derive(Default)]
+struct ProjectionIndex {
+    hand_counts: [usize; 4],
+    library_counts: [usize; 4],
+    attachments: BTreeMap<ObjectId, Vec<ObjectId>>,
+    static_sources: Vec<CardId>,
+}
+
 impl Game {
+    fn projection_index(&self) -> ProjectionIndex {
+        let mut index = ProjectionIndex::default();
+        for (&card, object) in &self.state.rules.objects {
+            match object.zone {
+                Zone::Hand { owner } => {
+                    if let Some(count) = index.hand_counts.get_mut(owner.0 as usize) {
+                        *count += 1;
+                    }
+                }
+                Zone::Library { owner } => {
+                    if let Some(count) = index.library_counts.get_mut(owner.0 as usize) {
+                        *count += 1;
+                    }
+                }
+                Zone::Battlefield => {
+                    // Phased-out attachments are still shown in the view.
+                    if let Some(host) = object.attached_to {
+                        index.attachments.entry(host).or_default().push(object.id);
+                    }
+                    if object.present_on_battlefield()
+                        && !self
+                            .copiable_definition(object.id)
+                            .is_ok_and(|definition| definition.static_abilities.is_empty())
+                    {
+                        // Keep unresolved sources so the rules layer still
+                        // decides when to skip or propagate a lookup error.
+                        index.static_sources.push(card);
+                    }
+                }
+                _ => {}
+            }
+        }
+        index
+    }
+
     pub(super) fn search_decision_token(&self, player: PlayerId) -> Result<&DecisionToken, String> {
         self.state
             .knowledge
@@ -1099,6 +1144,15 @@ impl Game {
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other
     // hands remain hidden. https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
+        if match object.zone {
+            Zone::Hand { owner } => owner == viewer,
+            Zone::Library { owner } => {
+                owner == viewer && self.library_look_visible_to(viewer, object.id)
+            }
+            _ => true,
+        } {
+            return true;
+        }
         // CR602.2a/701.20a: the validated hand-source announcement reveals
         // this incarnation until its ability leaves the stack, including the
         // unpaid mana window. A successor or another hand card never inherits
@@ -1128,13 +1182,7 @@ impl Game {
         if self.replacement_reveals(object.id) || self.land_entry_visible_to(viewer, object.id) {
             return true;
         }
-        match object.zone {
-            Zone::Hand { owner } => owner == viewer,
-            Zone::Library { owner } => {
-                owner == viewer && self.library_look_visible_to(viewer, object.id)
-            }
-            _ => true,
-        }
+        false
     }
     pub(super) fn stack_handle_for(
         &self,
@@ -1172,6 +1220,14 @@ impl Game {
             .ok_or_else(|| "stale or foreign stack handle".into())
     }
     pub(super) fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String> {
+        self.project_player(player, None)
+    }
+
+    fn project_player(
+        &self,
+        player: PlayerId,
+        index: Option<&ProjectionIndex>,
+    ) -> Result<VisiblePlayer, String> {
         let p = self
             .state
             .rules
@@ -1179,16 +1235,25 @@ impl Game {
             .get(player.0 as usize)
             .ok_or("invalid viewer")?;
         let count = |zone| {
-            u32::try_from(
-                self.state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| o.zone == zone)
-                    .count(),
-            )
-            .map_err(|_| "zone count resource limit".to_string())
+            self.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == zone)
+                .count()
         };
+        let (hand_count, library_count) = match index {
+            Some(index) => (
+                index.hand_counts[player.0 as usize],
+                index.library_counts[player.0 as usize],
+            ),
+            None => (
+                count(Zone::Hand { owner: player }),
+                count(Zone::Library { owner: player }),
+            ),
+        };
+        let checked_count =
+            |count| u32::try_from(count).map_err(|_| "zone count resource limit".to_string());
         Ok(VisiblePlayer {
             life_frozen_until_next_turn: p.life_frozen_until_next_turn,
             exile: vec![],
@@ -1204,8 +1269,8 @@ impl Game {
             status: p.status,
             life: p.life.clone(),
             mana: p.mana.clone(),
-            hand_count: count(Zone::Hand { owner: player })?,
-            library_count: count(Zone::Library { owner: player })?,
+            hand_count: checked_count(hand_count)?,
+            library_count: checked_count(library_count)?,
         })
     }
     pub(super) fn handle_for(
@@ -1241,6 +1306,15 @@ impl Game {
         if !self.visible_to(viewer, object) {
             return Ok(None);
         }
+        self.project_visible_object(viewer, object, None).map(Some)
+    }
+
+    fn project_visible_object(
+        &self,
+        viewer: PlayerId,
+        object: &Object,
+        index: Option<&ProjectionIndex>,
+    ) -> Result<VisibleObject, String> {
         let physical = self
             .state
             .rules
@@ -1248,7 +1322,7 @@ impl Game {
             .get(&object.id.card)
             .ok_or("missing object definition")?;
         if let Some(link) = &object.hideaway {
-            return Ok(Some(VisibleObject {
+            return Ok(VisibleObject {
                 copied_values: None,
                 entered_this_turn: false,
                 face_down: true,
@@ -1275,7 +1349,7 @@ impl Game {
                 attack_ready: false,
                 tapped: false,
                 phased_out: false,
-            }));
+            });
         }
         let copied_values = if self.entry_copy_origin(object.id).is_some() {
             let definition = self.copiable_definition(object.id)?;
@@ -1287,7 +1361,8 @@ impl Game {
         } else {
             None
         };
-        Ok(Some(VisibleObject {
+        let static_sources = index.map(|index| index.static_sources.as_slice());
+        Ok(VisibleObject {
             copied_values,
             face_down: false,
             exiled_by: None,
@@ -1298,24 +1373,39 @@ impl Game {
                 .filter(|t| self.current(*t).is_ok())
                 .map(|t| self.handle_for(viewer, t))
                 .transpose()?,
-            attachments: self
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
-                .map(|o| self.handle_for(viewer, o.id))
-                .collect::<Result<Vec<_>, _>>()?,
-            keywords: if self.target_is_creature(object.id)
-                || (object.zone == Zone::Battlefield
-                    && self.has_keyword(object.id, KeywordAbility::Indestructible))
-            {
-                self.current_keywords(object.id)
+            attachments: match index {
+                Some(index) => index
+                    .attachments
+                    .get(&object.id)
+                    .into_iter()
+                    .flatten()
+                    .map(|id| self.handle_for(viewer, *id))
+                    .collect::<Result<_, _>>()?,
+                None => self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
+                    .map(|o| self.handle_for(viewer, o.id))
+                    .collect::<Result<_, _>>()?,
+            },
+            keywords: if object.zone == Zone::Battlefield {
+                let keywords = self.current_keywords_with_sources(object.id, static_sources);
+                if self.target_is_creature(object.id)
+                    || keywords.contains(&KeywordAbility::Indestructible)
+                {
+                    keywords
+                } else {
+                    vec![]
+                }
             } else {
                 vec![]
             },
             restrictions: {
-                let current: Vec<_> = self.creature_restrictions(object.id).collect();
+                let current: Vec<_> = self
+                    .creature_restrictions_with_sources(object.id, static_sources)
+                    .collect();
                 [
                     CreatureRestriction::CantBeBlocked,
                     CreatureRestriction::CantAttackOrBlock,
@@ -1343,7 +1433,7 @@ impl Game {
                 .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
             plus_one_counters: object.plus_one_counters.clone(),
             lore_counters: object.lore_counters.clone(),
-            characteristics: { Some(self.characteristics(object.id)?) },
+            characteristics: Some(self.characteristics_with_sources(object.id, static_sources)?),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
@@ -1364,7 +1454,7 @@ impl Game {
             controller: object.controller,
             zone: object.zone,
             tapped: object.tapped,
-        }))
+        })
     }
     pub(super) fn visible_stack(
         &self,
@@ -2361,21 +2451,26 @@ impl Game {
         view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
     }
 
-    fn permitted_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
+    fn permitted_view(
+        &self,
+        viewer: PlayerId,
+        index: &ProjectionIndex,
+        visible: &[&Object],
+    ) -> Result<PermittedView, String> {
         let mut view = self.blank_view(viewer)?;
         view.effects = self.visible_effects(viewer)?;
         for player in 0..4 {
-            view.players.push(self.visible_player(PlayerId(player))?);
+            view.players
+                .push(self.project_player(PlayerId(player), Some(index))?);
         }
-        for object in self.state.rules.objects.values() {
-            if let Some(o) = self.visible_object(viewer, object)? {
-                if o.zone == Zone::Exile {
-                    view.players[o.owner.0 as usize]
-                        .exile
-                        .push(o.handle.clone());
-                }
-                view.objects.push(o);
+        for object in visible {
+            let object = self.project_visible_object(viewer, object, Some(index))?;
+            if object.zone == Zone::Exile {
+                view.players[object.owner.0 as usize]
+                    .exile
+                    .push(object.handle.clone());
             }
+            view.objects.push(object);
         }
         for index in 0..self.state.rules.stack.len() {
             view.stack.push(self.visible_stack(viewer, index)?);
@@ -2388,44 +2483,42 @@ impl Game {
             return Ok(());
         }
         self.refresh_effect_handles()?;
+        let projection = self.projection_index();
+        let abilities: Vec<_> = self
+            .state
+            .rules
+            .stack
+            .iter()
+            .map(|entry| entry.id)
+            .collect();
+        let triggers: Vec<_> = self
+            .state
+            .rules
+            .pending_triggers
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        let trigger_set: BTreeSet<_> = triggers.iter().copied().collect();
+        let ability_set: BTreeSet<_> = abilities.iter().copied().collect();
         for v in 0..4 {
             let viewer = PlayerId(v);
-            let mut current = self
+            let current = self
                 .state
                 .rules
                 .objects
                 .values()
                 .filter(|o| self.visible_to(viewer, o))
-                .map(|o| o.id)
                 .collect::<Vec<_>>();
-            // The chooser's newly visible library cards acquire handles in
-            // their permitted top-to-bottom order, never hidden physical-ID
-            // order. Unlooked library IDs still consume no viewer counters.
-            if let Some(looked) = self.library_looked(viewer) {
-                let ids = looked.iter().copied().collect::<BTreeSet<_>>();
-                current.retain(|id| !ids.contains(id));
-                current.splice(0..0, looked.iter().copied());
-            }
-            let current_set = current.iter().copied().collect::<BTreeSet<_>>();
+            let looked = self.library_looked(viewer).unwrap_or_default();
+            let ids = current.iter().map(|object| object.id);
+            let current_set = ids
+                .clone()
+                .chain(looked.iter().copied())
+                .collect::<BTreeSet<_>>();
             let mut k = self.state.knowledge.visibility[v as usize].clone();
             k.handles.retain_objects(&current_set);
-            let abilities = self
-                .state
-                .rules
-                .stack
-                .iter()
-                .map(|entry| entry.id)
-                .collect::<Vec<_>>();
-            let triggers = self
-                .state
-                .rules
-                .pending_triggers
-                .iter()
-                .map(|t| t.id)
-                .collect::<Vec<_>>();
-            let trigger_set = triggers.iter().copied().collect::<BTreeSet<_>>();
             k.trigger_handles.retain(|id, _| trigger_set.contains(id));
-            for id in triggers {
+            for &id in &triggers {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     k.trigger_handles.entry(id)
                 {
@@ -2440,9 +2533,8 @@ impl Game {
                     entry.insert(handle);
                 }
             }
-            let ability_set = abilities.iter().copied().collect::<BTreeSet<_>>();
             k.ability_handles.retain(|id, _| ability_set.contains(id));
-            for id in abilities {
+            for &id in &abilities {
                 if let std::collections::btree_map::Entry::Vacant(entry) =
                     k.ability_handles.entry(id)
                 {
@@ -2462,7 +2554,9 @@ impl Game {
             // consume viewer counters. Equal permitted histories retain equal
             // counters even when hidden cards/IDs differ.
             let mut known = k.handles.objects();
-            for id in current {
+            // Newly looked-at cards get handles in the permitted top-to-bottom
+            // order before any other row, irrespective of physical CardId.
+            for id in looked.iter().copied().chain(ids) {
                 if known.insert(id) {
                     let handle = k.scoped(format!("v{v}-o{}", k.next_handle));
                     k.next_handle = k
@@ -2624,7 +2718,7 @@ impl Game {
                 k.decision_key = key;
             }
             self.state.knowledge.visibility[v as usize] = k;
-            let view = self.permitted_view(viewer)?;
+            let view = self.permitted_view(viewer, &projection, &current)?;
             let history = &mut self.state.knowledge.visibility[v as usize].history;
             if !history
                 .last()

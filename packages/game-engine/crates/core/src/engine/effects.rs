@@ -217,6 +217,15 @@ impl Game {
         object: ObjectId,
         c: &mut Characteristics,
     ) -> Result<(), String> {
+        self.apply_land_subtype_grants_with_sources(object, c, None)
+    }
+
+    fn apply_land_subtype_grants_with_sources(
+        &self,
+        object: ObjectId,
+        c: &mut Characteristics,
+        sources: Option<&[CardId]>,
+    ) -> Result<(), String> {
         if !self.catalog_has_land_type_grant || !c.has_type(CardKind::Land) {
             return Ok(());
         }
@@ -225,11 +234,8 @@ impl Game {
             return Ok(());
         }
         for provider in self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| o.present_on_battlefield() && o.controller == land.controller)
+            .battlefield_static_sources(sources)
+            .filter(|o| o.controller == land.controller)
         {
             if self
                 .copiable_definition(provider.id)?
@@ -272,26 +278,40 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        self.color_layer_with_sources(object, None)
+    }
+
+    fn color_layer_with_sources(
+        &self,
+        object: ObjectId,
+        sources: Option<&[CardId]>,
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let base = self.structural_characteristics(object)?;
         let target = self.current(object)?;
         if !target.present_on_battlefield() {
             return Ok(base);
         }
-        self.battlefield_color_layer(base, target.controller)
+        self.battlefield_color_layer_with_sources(base, target.controller, sources)
     }
 
     pub(super) fn battlefield_color_layer<'a>(
         &self,
+        base: std::borrow::Cow<'a, Characteristics>,
+        controller: PlayerId,
+    ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
+        self.battlefield_color_layer_with_sources(base, controller, None)
+    }
+
+    fn battlefield_color_layer_with_sources<'a>(
+        &self,
         mut base: std::borrow::Cow<'a, Characteristics>,
         controller: PlayerId,
+        sources: Option<&[CardId]>,
     ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
         if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
             for source in self
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|s| s.present_on_battlefield() && s.controller == controller)
+                .battlefield_static_sources(sources)
+                .filter(|s| s.controller == controller)
             {
                 if self
                     .copiable_definition(source.id)?
@@ -335,12 +355,21 @@ impl Game {
         Ok(colors)
     }
 
+    #[cfg(test)]
     pub(super) fn derived_characteristics(
         &self,
         object: ObjectId,
     ) -> Result<Characteristics, String> {
-        let mut c = self.color_layer(object)?.into_owned();
-        self.apply_land_subtype_grants(object, &mut c)?;
+        self.derived_characteristics_with_sources(object, None)
+    }
+
+    pub(super) fn derived_characteristics_with_sources(
+        &self,
+        object: ObjectId,
+        sources: Option<&[CardId]>,
+    ) -> Result<Characteristics, String> {
+        let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
+        self.apply_land_subtype_grants_with_sources(object, &mut c, sources)?;
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
             if let Some(p) = c.power.as_mut() {
@@ -380,11 +409,8 @@ impl Game {
             // The scoped modifiers below only consume earlier-layer types,
             // subtypes and control. No recipient depends on another 7c bonus.
             for source in self
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|s| s.present_on_battlefield() && s.controller == o.controller)
+                .battlefield_static_sources(sources)
+                .filter(|s| s.controller == o.controller)
             {
                 for a in &self.copiable_definition(source.id)?.static_abilities {
                     let (power, toughness) = match &a.effect {
@@ -421,7 +447,7 @@ impl Game {
             }
         }
         if self.target_is_creature(object) {
-            for a in self.static_modifications(object) {
+            for a in self.static_modifications_with_sources(object, sources) {
                 if let StaticEffect::ModifyCreatures {
                     power, toughness, ..
                 } = a

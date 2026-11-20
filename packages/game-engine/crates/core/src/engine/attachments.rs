@@ -133,16 +133,48 @@ impl Game {
                 .structural_characteristics(object)
                 .is_ok_and(|d| d.kind == CardKind::Creature)
     }
+    // An indexed list is valid only for the current, unchanged rules state.
+    // Both paths preserve object-table order and exact phased-in membership.
+    pub(super) fn battlefield_static_sources<'a>(
+        &'a self,
+        sources: Option<&'a [CardId]>,
+    ) -> impl Iterator<Item = &'a Object> + 'a {
+        let objects = &self.state.rules.objects;
+        sources
+            .into_iter()
+            .flatten()
+            .filter_map(move |card| objects.get(card))
+            .chain(
+                sources
+                    .is_none()
+                    .then(|| objects.values())
+                    .into_iter()
+                    .flatten(),
+            )
+            .filter(|object| object.present_on_battlefield())
+    }
+
+    #[cfg(test)]
     pub(super) fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
-        self.timestamped_static_modifications(target)
+        self.static_modifications_with_sources(target, None)
+    }
+
+    pub(super) fn static_modifications_with_sources<'a>(
+        &'a self,
+        target: ObjectId,
+        sources: Option<&'a [CardId]>,
+    ) -> Vec<&'a StaticEffect> {
+        self.timestamped_static_modifications(target, sources)
             .into_iter()
             .map(|(effect, _)| effect)
             .collect()
     }
-    fn timestamped_static_modifications(
-        &self,
+
+    fn timestamped_static_modifications<'a>(
+        &'a self,
         target: ObjectId,
-    ) -> Vec<(&StaticEffect, Option<u64>)> {
+        sources: Option<&'a [CardId]>,
+    ) -> Vec<(&'a StaticEffect, Option<u64>)> {
         let Ok(permanent) = self.current(target) else {
             return vec![];
         };
@@ -157,11 +189,7 @@ impl Game {
             .as_ref()
             .map(|c| c.subtypes.as_slice())
             .unwrap_or_default();
-        self.state
-            .rules
-            .objects
-            .values()
-            .filter(|o| o.present_on_battlefield())
+        self.battlefield_static_sources(sources)
             .flat_map(|o| {
                 self.copiable_definition(o.id)
                     .into_iter()
@@ -226,6 +254,14 @@ impl Game {
             .collect()
     }
     pub(super) fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
+        self.current_keywords_with_sources(object, None)
+    }
+
+    pub(super) fn current_keywords_with_sources(
+        &self,
+        object: ObjectId,
+        sources: Option<&[CardId]>,
+    ) -> Vec<KeywordAbility> {
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
             return vec![];
         }
@@ -256,7 +292,7 @@ impl Game {
         if latest_removal.is_some() {
             keywords.retain(|keyword| *keyword != KeywordAbility::Indestructible);
         }
-        for (effect, timestamp) in self.timestamped_static_modifications(object) {
+        for (effect, timestamp) in self.timestamped_static_modifications(object, sources) {
             let grants: &[KeywordAbility] = match effect {
                 StaticEffect::ModifyCreatures {
                     keywords: grants, ..
@@ -325,7 +361,15 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> impl Iterator<Item = CreatureRestriction> + '_ {
-        self.static_modifications(object)
+        self.creature_restrictions_with_sources(object, None)
+    }
+
+    pub(super) fn creature_restrictions_with_sources<'a>(
+        &'a self,
+        object: ObjectId,
+        sources: Option<&'a [CardId]>,
+    ) -> impl Iterator<Item = CreatureRestriction> + 'a {
+        self.static_modifications_with_sources(object, sources)
             .into_iter()
             .filter_map(|effect| match effect {
                 StaticEffect::ModifyCreatures { restrictions, .. } => Some(restrictions),
