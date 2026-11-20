@@ -132,7 +132,10 @@ mod tests {
 }
 
 impl Game {
-    fn graveyard_legality<'a>(&self, frame: &'a Resolving) -> Result<(&'a [bool], u8), String> {
+    pub(super) fn graveyard_legality<'a>(
+        &self,
+        frame: &'a Resolving,
+    ) -> Result<(&'a [bool], u8), String> {
         let program = self.program_for(&frame.spell)?;
         if let Some(children) = self.mixed_mode_children(&frame.spell)? {
             let index = frame.cursor as usize;

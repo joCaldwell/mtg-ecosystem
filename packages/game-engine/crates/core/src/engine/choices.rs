@@ -1077,7 +1077,7 @@ impl Game {
 mod fixed_target_mode_tests {
     use super::*;
     use crate::engine::equipped_indestructible_tests::{
-        answer, object, pay_and_resolve, prepared, recover, request,
+        answer, object, pay_and_resolve, pay_to_priority, prepared, recover, request,
     };
     #[test]
     fn paid_mixed_target_modes_place_counters_then_shuffle_opposing_graveyard_and_replay() {
@@ -1103,6 +1103,8 @@ mod fixed_target_mode_tests {
         );
         let owner = PlayerId(1);
         p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        p.config.cards[4].owner = PlayerId(2);
+        p.config.cards[4].controller = PlayerId(2);
         p.config.cards[5].owner = owner;
         p.config.cards[5].controller = owner;
         p.config.cards[5].zone = Zone::Graveyard { owner };
@@ -1117,6 +1119,47 @@ mod fixed_target_mode_tests {
         let card = object(&g, 0).card;
         let creature = object(&g, 4);
         let buried = object(&g, 5);
+        let mut departed = g.fork();
+        answer(&mut departed, 1, Response::Cast { card });
+        answer(&mut departed, 1, Response::ModeSubset { modes: vec![0, 3] });
+        answer(
+            &mut departed,
+            1,
+            Response::Targets {
+                objects: vec![creature],
+            },
+        );
+        answer(
+            &mut departed,
+            1,
+            Response::EntityTargets {
+                entities: vec![TargetEntity::Player { player: owner }],
+            },
+        );
+        pay_to_priority(&mut departed, 1, vec![]);
+        departed.concede(PlayerId(2)).unwrap();
+        let mut recovered = false;
+        for _ in 0..500 {
+            if let Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::Shuffle { player, .. },
+            } = &departed.state.rules.frame
+            {
+                assert_eq!(*player, owner);
+                assert_eq!(frame.legal_targets, [false, true]);
+                recover(&departed);
+                recovered = true;
+                break;
+            }
+            match departed.advance(Budget::new(1)) {
+                Advance::Suspended { .. } => (),
+                Advance::AwaitingDecision(r @ Request::Priority { .. }) => departed
+                    .respond(r.player(), r.decision_id(), Response::Pass)
+                    .unwrap(),
+                other => panic!("expected shuffle after target departure: {other:?}"),
+            }
+        }
+        assert!(recovered, "missing shuffle continuation");
         answer(&mut g, 1, Response::Cast { card });
         answer(&mut g, 1, Response::ModeSubset { modes: vec![3, 2] });
         assert!(
