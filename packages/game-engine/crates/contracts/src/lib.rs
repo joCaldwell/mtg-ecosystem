@@ -3,6 +3,8 @@ pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod controller_land_types;
 pub use controller_land_types::controller_land_type_ast;
+mod colored_library_search;
+pub use colored_library_search::{ColoredLibrarySearch, ColoredSearchAssignment};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
