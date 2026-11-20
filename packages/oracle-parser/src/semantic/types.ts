@@ -38,6 +38,13 @@ export type BindingNode = NodeBase & (
   /** One resolving cascade whose controller matches the static ability's "you". */
   | { node: "cascade-occurrence"; scope: string; controllerMatches: string }
   | { node: "cascade-exiled-pool"; occurrence: string }
+  /** One printed hideaway instance on one permanent incarnation. Copied
+   * triggers can add more than one card to the same linked pool (CR 607.3). */
+  | { node: "hideaway-exiled-pool"; keyword: string; source: string; key: "source-incarnation";
+      libraryOwner: string; lookCount: number; exile: "one-face-down"; remainder: "bottom-random";
+      lookPermission: "controller-of-exiling-permanent"; membership: "still-in-exile"; cardinality: "many" }
+  | { node: "total-power-condition"; scope: string; creatures: string; timing: "resolution";
+      comparison: { op: "ge"; value: { amount: "fixed"; value: number } } }
   /** One grant created per resolution that applies as each later eligible spell is cast. */
   | { node: "cast-keyword-grant"; scope: string; created: "resolution"; duration: "this-turn"; keyword: "cascade" }
   | { node: "future-cast-spells"; grant: string; caster: string; from: { zone: "hand"; owner: string };
@@ -62,7 +69,7 @@ export type BindingNode = NodeBase & (
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
   | { node: "event"; scope: string; operation: string; inputs: string[]; availability: "when-performed";
-      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true;
+      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true; condition?: string;
       /** A resolution choice exists only when this preceding result was produced. */
       requiresResult?: string }
   /** "If you do" / "If you don't": the optional instruction at path `decision`
@@ -131,7 +138,7 @@ export interface BindingDiagnostic {
  * - demonstrate: cast-triggered copies for the caster and chosen opponent (CR 702.144a).
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast";
+  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
