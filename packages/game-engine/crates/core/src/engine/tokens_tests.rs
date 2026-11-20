@@ -2040,7 +2040,7 @@ fn entry_copy_lineage_retains_detached_program_and_token_base() {
     assert_eq!(g.copiable_definition(copy).unwrap().name, "Attended Knight");
     g.validate_trigger_state().unwrap();
     g.stabilize().unwrap();
-    resolve(&mut g, &[]);
+    resolve(&mut g, vec![]);
     let soldiers = token_objects(&g);
     assert_eq!(soldiers.len(), 1);
     let token = soldiers[0];
