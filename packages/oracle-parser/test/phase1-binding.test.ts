@@ -1264,6 +1264,14 @@ describe("actual outcomes across payments and players", () => {
     assert.ok(graph.references.some(reference => reference.path.endsWith("/steps/0/amount") && reference.binding === "unresolved"));
   });
 
+  it("does not use a later payment to choose announced targets", () => {
+    const graph = analyze("Whenever you gain life, you may pay {X}, where X is less than or equal "
+      + "to the amount of life you gained. If you do, tap up to X target creatures.", "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding" &&
+      diagnostic.path.endsWith("/what/count")));
+  });
+
   it("uses each permanent's former controller only for actual moves to the graveyard", () => {
     const graph = analyze("When this creature enters, you may destroy up to three target noncreature permanents. "
       + "For each permanent put into a graveyard this way, its controller creates a 3/3 green Elephant creature token.", "Creature");
@@ -1574,6 +1582,13 @@ describe("per-player action result fences", () => {
     assert.ok(!graph.nodes.some(node => node.node === "event-aggregate"));
   });
 
+  it("rejects an old scalar quantity after independent player choices", () => {
+    const graph = analyze("You gain 3 life. Each player chooses three nonland permanents they control. Draw that many cards.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.path.endsWith("/amount") &&
+      diagnostic.code === "missing-antecedent"));
+  });
+
   it("does not skip the group and reuse an earlier target player", () => {
     const graph = analyze("Target player draws a card. Any number of target players each lose 2 life. They discard a card.", "Sorcery");
     assert.equal(graph.referencesBound, false);
@@ -1769,5 +1784,55 @@ describe("entrant and departure identities in alternative triggers", () => {
       + "with lesser toughness from your graveyard to your hand.", "Creature");
     assert.equal(graph.referencesBound, false);
     assert.ok(!graph.nodes.some(node => node.node === "trigger-graveyard-view"));
+  });
+});
+
+describe("specific random outcomes and mana riders", () => {
+  it("binds the recorded roll and excludes the currently enchanted player from the random attachment", () => {
+    const graph = analyze("Enchant player\nWhenever enchanted player casts a noncreature spell, roll a d6. This Aura deals "
+      + "damage to that player equal to the result. Then attach this Aura to another one of your opponents chosen at random.",
+      "Enchantment — Aura");
+    boundCard(graph);
+    const roll = graph.nodes.find(node => node.node === "numeric-roll");
+    const choice = graph.nodes.find(node => node.node === "random-aura-attachment");
+    assert.ok(roll && choice);
+    assert.equal(roll.result, bound(graph, "/effects/1/steps/0/amount"));
+    assert.equal(choice.exclude, bound(graph, "/to/filter/otherThan"));
+    assert.equal(choice.id, bound(graph, "/effects/2/steps/0/to"));
+  });
+
+  it("does not choose one of two rolls for a bare result", () => {
+    const graph = analyze("Roll a d6. Roll a d6. You gain life equal to the result.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.equal(graph.nodes.filter(node => node.node === "numeric-roll").length, 2);
+  });
+
+  it("does not use a resolution roll to choose an announced target count", () => {
+    const graph = analyze("Roll a d6. Destroy up to X target creatures, where X is the result.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding" &&
+      diagnostic.path.endsWith("/what/count")));
+  });
+
+  it("checks each produced mana unit when it pays for a spell matching either commander", () => {
+    const graph = analyze("{T}: Add one mana of any color in your commander's color identity. When that mana is spent to cast "
+      + "a creature spell that shares a creature type with your commander, scry 1.", "Land");
+    boundCard(graph);
+    const rider = graph.nodes.find(node => node.node === "commander-mana-rider");
+    assert.ok(rider && rider.occurrence === "each-mana-produced");
+    assert.equal(rider.commanderSet, bound(graph, "/with/what"));
+    assert.ok(graph.nodes.some(node => node.id === rider.trigger && node.node === "ability" && node.abilityKind === "delayed-triggered"));
+  });
+
+  it("does not turn another player's private look into the controller's choice", () => {
+    const graph = analyze("Target player looks at the top five cards of your library. You may put a land card from among them "
+      + "onto the battlefield tapped. Put the rest on the bottom of your library in a random order.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "remainder"));
+  });
+
+  it("does not create a second announced X for kicker on an X-cost spell", () => {
+    const graph = analyze("Kicker {X}\nDraw X cards.", "Sorcery", "{X}{U}");
+    assert.equal(graph.nodes.filter(node => node.node === "announced-number").length, 1);
   });
 });

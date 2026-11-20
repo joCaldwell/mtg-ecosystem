@@ -20,7 +20,7 @@ export interface CardBindingInput {
 
 export type BindingPhase = "payment" | "resolution" | "continuous" | "trigger-match" | "replacement-match";
 export type BindingCardinality = "one" | "many" | "unknown";
-export type SymbolicAmount = Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" | "prevention-event-quantity" }>;
+export type SymbolicAmount = Extract<Amount, { amount: "x" | "that-number" | "that-much" | "replacement-event-quantity" | "prevention-event-quantity" | "dice-result" }>;
 /** `implicit` is a player relation printed inside a filter ("an opponent
  * controls", "you don't control"). */
 export type ReferenceExpression = ObjectRef | CascadeExiledCards | { ref: "affected-object" } | { ref: "those-counters" } | { recipient: "they" } | PlayerRef | SymbolicAmount
@@ -198,6 +198,11 @@ export type BindingNode = NodeBase & (
       exclude: "all-player-choices" | "own-choices"; cardinality: "many" }
   | { node: "intervening-condition-pool"; scope: string; filter: ObjectFilter; cardinality: "many";
       timing: "trigger-check-and-resolution" }
+  | { node: "commander-set"; scope: string; owner: string; cardinality: "many" }
+  | { node: "commander-mana-rider"; scope: string; manaEvent: string; commanderSet: string; trigger: string;
+      comparison: "shares-creature-type-with-any"; evaluate: "when-mana-spent-on-cast"; occurrence: "each-mana-produced" }
+  | { node: "numeric-roll"; scope: string; event: string; roller: string; sides: number; result: string; stage: "final-kept-result" }
+  | { node: "random-aura-attachment"; scope: string; event: string; aura: string; opponentOf: string; exclude: string; cardinality: "one" }
   | { node: "trigger-graveyard-view"; scope: string;
       alternatives: { kind: "dies" | "leaves" | "enters"; event: string; previous?: string; successor?: string }[];
       successorZone: "graveyard"; comparison?: NonNullable<ObjectFilter["implicitComparison"]>; information?: "before-move" }
@@ -291,7 +296,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount" | "commander-mana-rider" | "numeric-roll" | "random-aura-attachment";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
