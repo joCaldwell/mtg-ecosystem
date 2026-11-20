@@ -849,7 +849,14 @@ impl Game {
         }
         // A tucked commander can bring the physical library to all 100 owned
         // cards. The shared sampler uses that common bound, not setup's 99.
-        if library.len() > capacities::OWNED_LIMIT {
+        // A countered copy or a tucked token may share a library with all
+        // physical cards until the next SBA check (CR 704.5d/e).
+        let limit = if replacement_offset.is_some() {
+            capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize
+        } else {
+            capacities::OWNED_LIMIT
+        };
+        if library.len() > limit {
             return Err("shuffle library exceeds the physical-card sampler range".into());
         }
         let random = &mut self
@@ -861,7 +868,7 @@ impl Game {
             .random;
         let before = random.word_position;
         let word = random.word()?;
-        let selected = setup::sample_shuffle_word(word, index + 1);
+        let selected = setup::sample_bounded_word(word, index + 1);
         if let Some(j) = selected {
             library.swap(offset + index as usize, offset + j as usize);
         }

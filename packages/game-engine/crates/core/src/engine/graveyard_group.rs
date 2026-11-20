@@ -232,17 +232,21 @@ impl GraveyardGroup {
                     player,
                     object: m.object,
                     destination: Zone::Library { owner: player },
-                    previous_choices: self.prior_choices(),
+                    previous_choices: self.prior_choices(game),
                 });
             }
         }
         None
     }
 
-    pub(super) fn prior_choices(&self) -> Vec<(ObjectId, bool)> {
-        self.members
-            .iter()
-            .filter_map(|m| m.command.map(|choice| (m.object, choice)))
+    pub(super) fn prior_choices(&self, game: &Game) -> Vec<(ObjectId, bool)> {
+        game.apnap_seats()
+            .flat_map(|owner| {
+                self.members
+                    .iter()
+                    .filter(move |member| member.owner == owner)
+                    .filter_map(|member| member.command.map(|choice| (member.object, choice)))
+            })
             .collect()
     }
 
@@ -399,7 +403,12 @@ impl GraveyardGroup {
                     && self.cause == (BatchCause::Payment { stack_id:top.id, player:top.controller })
                     && Some(&self.group) == game.sacrifice_payment_group(top,&cast.sacrifices)?.as_ref()
             }
-            GroupFinish::Cleanup => self.cause == BatchCause::Cleanup && leaves.iter().all(|e| matches!(e, ProposedEvent::DiscardCard {player,..} if *player == game.state.rules.turn_owner)),
+            GroupFinish::Cleanup => {
+                self.cause == BatchCause::Cleanup && leaves.iter().all(|e| {
+                    matches!(e, ProposedEvent::Move { object, destination: Zone::Graveyard {owner} }
+                        if *owner == game.state.rules.turn_owner && game.zone(*object) == Some(Zone::Hand { owner: *owner }))
+                })
+            }
             GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(resume.as_ref(), Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..})),
         };
         if !producing {
@@ -597,6 +606,12 @@ impl Game {
                     .is_ok_and(|o| o.present_on_battlefield()),
                 ProposedEvent::StateBasedGraveyard { object, reason } => {
                     self.creature_sba_reason(*object)? == Some(*reason)
+                }
+                ProposedEvent::Move {
+                    object,
+                    destination: Zone::Graveyard { owner },
+                } if matches!(tx.finish, GroupFinish::Cleanup) => {
+                    self.is_live(*owner) && self.zone(*object) == Some(Zone::Hand { owner: *owner })
                 }
                 ProposedEvent::Move { object, .. } => {
                     aura_sbas.contains(event) || legend_moves.contains(object)
