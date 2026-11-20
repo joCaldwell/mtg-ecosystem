@@ -1709,6 +1709,9 @@ pub enum ProposedEvent {
     PhaseOutControlled {
         controller: PlayerId,
     },
+    PhaseOutTarget {
+        object: ObjectId,
+    },
     RevealSearchLands {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -1947,6 +1950,7 @@ pub enum EventOutcome {
         player: PlayerId,
     },
     PermanentsPhasedOut {
+        /// Controller of the directly phased permanents at phase-out (CR 702.26a).
         controller: PlayerId,
         members: Vec<(ObjectId, PhaseReturn)>,
     },

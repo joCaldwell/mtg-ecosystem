@@ -297,6 +297,7 @@ pub enum Capability {
     ControllerProtectionUntilNextTurnV1,
     ControllerLifeFreezeV1,
     ControlledPermanentPhasingV1,
+    TargetedPhasingV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
@@ -868,6 +869,10 @@ pub enum Instruction {
     PhaseOutControllerPermanents {
         source_block: u32,
     },
+    PhaseOutTargetPermanent {
+        target_slot: u32,
+        source_block: u32,
+    },
     MoveSet {
         set: ObjectSet,
         action: SetMove,
@@ -1286,6 +1291,7 @@ impl Instruction {
             | Self::ProtectControllerUntilNextTurn { source_block }
             | Self::FreezeControllerLifeUntilNextTurn { source_block }
             | Self::PhaseOutControllerPermanents { source_block }
+            | Self::PhaseOutTargetPermanent { source_block, .. }
             | Self::MoveSet { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
@@ -4810,6 +4816,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
             | Instruction::ExilePermanent { target_slot, .. }
+            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
             | Instruction::UntapPermanent { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
@@ -5521,6 +5528,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PhaseOutControllerPermanents { .. } => {
                 Capability::ControlledPermanentPhasingV1
             }
+            Instruction::PhaseOutTargetPermanent { .. } => Capability::TargetedPhasingV1,
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
@@ -7289,6 +7297,7 @@ mod tests {
             ControllerProtectionUntilNextTurnV1,
             ControllerLifeFreezeV1,
             ControlledPermanentPhasingV1,
+            TargetedPhasingV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,

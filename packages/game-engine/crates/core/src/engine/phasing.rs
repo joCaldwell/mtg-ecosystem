@@ -17,6 +17,12 @@ pub enum PhaseReturn {
     Indirect { attached_to: ObjectId },
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum PhaseSelection {
+    Controlled(PlayerId),
+    Target(ObjectId),
+}
+
 impl PhasingSchedule {
     pub fn return_condition(&self, object: ObjectId) -> Option<PhaseReturn> {
         self.members.get(&object).copied()
@@ -30,8 +36,25 @@ impl PhasingSchedule {
         game: &Game,
         controller: PlayerId,
     ) -> Result<Vec<ObjectId>, String> {
-        if !game.is_live(controller) {
-            return Err("phasing requires a live invocation controller".into());
+        self.phase_out(game, PhaseSelection::Controlled(controller))
+    }
+
+    pub(super) fn phase_out(
+        &mut self,
+        game: &Game,
+        selection: PhaseSelection,
+    ) -> Result<Vec<ObjectId>, String> {
+        match selection {
+            PhaseSelection::Controlled(player) if !game.is_live(player) => {
+                return Err("phasing requires a live invocation controller".into());
+            }
+            PhaseSelection::Target(id)
+                if !game.current(id)?.present_on_battlefield()
+                    || self.members.contains_key(&id) =>
+            {
+                return Err("phasing target is absent".into());
+            }
+            _ => {}
         }
         let mut direct = BTreeSet::new();
         let mut attachments = BTreeMap::<ObjectId, Vec<ObjectId>>::new();
@@ -39,7 +62,11 @@ impl PhasingSchedule {
             if o.zone != Zone::Battlefield || self.members.contains_key(&o.id) {
                 continue;
             }
-            if o.controller == controller {
+            let selected = match selection {
+                PhaseSelection::Controlled(player) => o.controller == player,
+                PhaseSelection::Target(id) => o.id == id,
+            };
+            if selected {
                 direct.insert(o.id);
             }
             if let Some(parent) = o.attached_to {
@@ -200,27 +227,37 @@ impl Game {
         Ok(())
     }
 
-    // No source may emit this transition until the remaining consumers and
-    // replay boundary accept its status. One rules operation updates the set.
-    pub(super) fn phase_out_controller_permanents(
+    pub(super) fn phase_out_permanents(
         &mut self,
-        controller: PlayerId,
-    ) -> Result<Vec<ObjectId>, String> {
+        selection: PhaseSelection,
+    ) -> Result<EventOutcome, String> {
+        let controller = match selection {
+            PhaseSelection::Controlled(controller) => controller,
+            PhaseSelection::Target(id) => self.current(id)?.controller,
+        };
         let mut schedule = self.installed_phasing();
-        let ids = schedule.phase_out_controlled(self, controller)?;
+        let ids = schedule.phase_out(self, selection)?;
         for &id in &ids {
             self.retain_source_lki(id)?;
         }
-        for &id in &ids {
+        let mut members = Vec::with_capacity(ids.len());
+        for id in ids {
+            let status = schedule
+                .return_condition(id)
+                .ok_or("missing phased status")?;
             self.state
                 .rules
                 .objects
                 .get_mut(&id.card)
                 .unwrap()
-                .phased_out = schedule.return_condition(id);
+                .phased_out = Some(status);
             self.remove_from_combat(id);
+            members.push((id, status));
         }
-        Ok(ids)
+        Ok(EventOutcome::PermanentsPhasedOut {
+            controller,
+            members,
+        })
     }
 
     pub(super) fn phase_in_for_next_untap(
@@ -615,6 +652,62 @@ mod tests {
     }
 
     #[test]
+    fn targeted_phasing_changes_only_the_selected_incarnation_and_its_attachments() {
+        let mut game = Game::with_trace(
+            prepared(
+                &[
+                    ("Darksteel Plate", false),
+                    ("Grizzly Bears", false),
+                    ("Forest", false),
+                    ("Forest", false),
+                ],
+                false,
+            ),
+            TraceMode::Detailed,
+        );
+        equip(&mut game, 1, 0, 1);
+        let plate = object(&game, 0);
+        let bear = object(&game, 1);
+        let forest = object(&game, 2);
+        let before = game.state.clone();
+        let event = ProposedEvent::PhaseOutTarget { object: bear };
+        assert!(game.commit(event.clone(), BatchCause::Fixture).is_err());
+        assert!(game.apply_occurrence(&event).is_err());
+        assert_eq!(game.state, before);
+
+        let selection = PhaseSelection::Target(bear);
+        let outcome = game.phase_out_permanents(selection).unwrap();
+        assert_eq!(
+            outcome,
+            EventOutcome::PermanentsPhasedOut {
+                controller: PlayerId(0),
+                members: vec![
+                    (plate, PhaseReturn::Indirect { attached_to: bear }),
+                    (
+                        bear,
+                        PhaseReturn::Direct {
+                            controller_at_phase_out: PlayerId(0)
+                        }
+                    ),
+                ],
+            }
+        );
+        assert!(game.current(forest).unwrap().present_on_battlefield());
+        assert!(game.phase_out_permanents(selection).is_err());
+        assert!(
+            game.phase_in_for_next_untap(PlayerId(0))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            game.phase_in_for_next_untap(PlayerId(3)).unwrap(),
+            [plate, bear]
+        );
+        assert!(game.current(bear).unwrap().present_on_battlefield());
+        assert_eq!(game.current(plate).unwrap().attached_to, Some(bear));
+    }
+
+    #[test]
     fn controlled_phasing_freezes_attachment_identity_and_return_seat_on_live_table() {
         let mut p = prepared(
             &[
@@ -675,7 +768,8 @@ mod tests {
             )
             .is_err()
         );
-        game.phase_out_controller_permanents(PlayerId(0)).unwrap();
+        game.phase_out_permanents(PhaseSelection::Controlled(PlayerId(0)))
+            .unwrap();
         assert!(!game.controlled_creatures(PlayerId(0)).contains(&bear));
         for viewer in (0..4).map(PlayerId) {
             assert!(
