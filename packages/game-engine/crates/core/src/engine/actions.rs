@@ -109,6 +109,8 @@ pub(super) enum ResolutionChoice {
         player: PlayerId,
         index: u32,
         source_block: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fetched_land: Option<MoveOutcome>,
     },
     OptionalEffect {
         player: PlayerId,

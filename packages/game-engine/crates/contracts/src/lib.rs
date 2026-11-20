@@ -59,7 +59,10 @@ pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
 mod basic_land_fetch;
+mod fetched_land_untap;
 pub use basic_land_fetch::basic_land_fetch_program;
+pub use basic_land_fetch::conditional_basic_land_fetch_program;
+pub use fetched_land_untap::{fetched_land_reference, fetched_land_untap_clause};
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
@@ -1148,6 +1151,8 @@ pub enum Instruction {
     },
     FetchBasicLand {
         force_tapped: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minimum_lands_to_untap: Option<std::num::NonZeroU32>,
         source_block: u32,
     },
     CreateCreatureTokens {

@@ -904,3 +904,6 @@ mod basic_land_fetch_tests;
 
 #[path = "same_color_mana_tests.rs"]
 mod same_color_mana_tests;
+
+#[path = "fetched_land_untap_tests.rs"]
+mod fetched_land_untap_tests;

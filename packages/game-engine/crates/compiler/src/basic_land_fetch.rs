@@ -33,7 +33,23 @@ pub(super) fn activation(
     let Some((printed_cost, printed_effect)) = card.oracle_text.split_once(": ") else {
         return Err(bad());
     };
-    let (moved, force_tapped, effects) = search_effect(printed_effect).ok_or_else(bad)?;
+    let (search, trailing) = printed_effect
+        .split_once(" Then ")
+        .map_or((printed_effect, ""), |(search, _)| {
+            (search, &printed_effect[search.len()..])
+        });
+    let (moved, force_tapped, mut effects) = search_effect(search).ok_or_else(bad)?;
+    let minimum = if trailing.is_empty() {
+        None
+    } else {
+        let (minimum, untap) =
+            fetched_land_untap::parse(trailing, &ability["effects"][1]).ok_or_else(bad)?;
+        if !force_tapped {
+            return Err(bad());
+        }
+        effects.as_array_mut().ok_or_else(bad)?.push(untap);
+        Some(minimum)
+    };
     let costs = ability["costs"].as_array().ok_or_else(bad)?;
     let noun = match card.type_line.as_str() {
         "Land" => "land",
@@ -99,11 +115,14 @@ pub(super) fn activation(
     graph.ability(root, "activated", "activator");
     bind_costs(&mut graph, root, tap_index, pay_life, &object);
     bind_search(&mut graph, root, &moved);
+    if minimum.is_some() {
+        fetched_land_untap::bind(&mut graph, root);
+    }
     graph.validate(binding, BAD)?;
     Ok(Some(ActivatedAbility {
         functioning_zone: FunctioningZone::Battlefield,
         cost,
-        program: basic_land_fetch_program(force_tapped),
+        program: conditional_basic_land_fetch_program(force_tapped, minimum),
     }))
 }
 

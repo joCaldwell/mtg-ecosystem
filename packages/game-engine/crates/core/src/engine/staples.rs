@@ -27,6 +27,7 @@ impl<'a> LandSearch<'a> {
             Instruction::FetchBasicLand {
                 force_tapped,
                 source_block,
+                ..
             } => (None, 1, false, *force_tapped, *source_block),
             Instruction::SearchBasicLandsSplit { source_block } => {
                 (None, 2, true, true, *source_block)
@@ -164,9 +165,18 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn resume_entry_search(&mut self, frame: Resolving) -> Result<(), String> {
+    pub(super) fn resume_entry_search(
+        &mut self,
+        frame: Resolving,
+        batch: &CommittedBatch,
+    ) -> Result<(), String> {
         let source_block = self.entry_search_block(&frame)?;
-        self.begin_library_shuffle(frame, source_block)
+        let player = frame.spell.controller;
+        let fetched_land = self
+            .conditional_basic_fetch_minimum(&frame)?
+            .map(|_| self.searched_basic_successor(player, batch))
+            .transpose()?;
+        self.begin_player_library_shuffle_after_search(frame, player, source_block, fetched_land)
     }
     pub(super) fn begin_library_shuffle(
         &mut self,
@@ -651,6 +661,7 @@ impl Game {
             ResolutionChoice::Shuffle {
                 index,
                 source_block,
+                fetched_land,
                 ..
             } => {
                 if index == 0 {
@@ -672,8 +683,9 @@ impl Game {
                         };
                         return Ok(());
                     }
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                    let actual =
+                        self.finish_basic_fetch_untap(&frame, source_block, fetched_land)?;
+                    return self.finish_instruction(frame, InstructionOutcome::Effect { actual });
                 }
                 let actual = self.commit(
                     ProposedEvent::ShuffleLibraryWord { player, index },
@@ -688,6 +700,7 @@ impl Game {
                         player,
                         index: if selected.is_some() { index - 1 } else { index },
                         source_block,
+                        fetched_land,
                     },
                 };
                 Ok(())
@@ -740,7 +753,7 @@ impl Game {
                     return Ok(());
                 }
                 if !objects.is_empty() {
-                    self.commit_batch(
+                    let batch = self.commit_batch(
                         Self::staple_cause(&frame, source_block),
                         EventGroup::Simultaneous {
                             occurrences: objects
@@ -749,6 +762,7 @@ impl Game {
                                 .collect(),
                         },
                     )?;
+                    return self.resume_entry_search(frame, &batch);
                 }
                 self.begin_player_library_shuffle(frame, player, source_block)
             }
@@ -1004,10 +1018,12 @@ impl Game {
                     player,
                     index,
                     source_block,
+                    fetched_land,
                 },
                 Instruction::ShufflePlayerGraveyard { source_block: b },
             ) => {
-                source_block == b
+                fetched_land.is_none()
+                    && source_block == b
                     && frame.spell.entity_targets.first()
                         == Some(&TargetEntity::Player { player: *player })
                     && self
@@ -1027,6 +1043,7 @@ impl Game {
                     player,
                     index,
                     source_block,
+                    fetched_land,
                 },
                 Instruction::SearchBasicLands {
                     source_block: b, ..
@@ -1046,6 +1063,12 @@ impl Game {
             ) => {
                 *player == frame.spell.controller
                     && source_block == b
+                    && fetched_land.as_ref().is_none_or(|movement| {
+                        self.conditional_basic_fetch_minimum(frame)
+                            .is_ok_and(|m| m.is_some())
+                            && self.valid_fetched_land_movement(*player, movement)
+                            && self.zone(movement.successor) == Some(Zone::Battlefield)
+                    })
                     && (*index as usize)
                         < self
                             .state

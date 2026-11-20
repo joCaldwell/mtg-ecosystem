@@ -59,6 +59,7 @@ mod draw_land_allowance;
 mod each_player_draw;
 mod entry_copy;
 mod entry_graveyard_exile;
+mod fetched_land_untap;
 mod fixed_color_protection;
 mod fixed_creature_damage;
 mod fixed_mill;
@@ -1613,7 +1614,19 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             &archive.parser_source_sha256,
         )?,
     };
-    let abilities = if let Some(program) = composition {
+    let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
+    let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
+        matches!(
+            activation.program.instructions.as_slice(),
+            [Instruction::FetchBasicLand {
+                minimum_lands_to_untap: Some(_),
+                ..
+            }]
+        )
+    });
+    let abilities = if has_conditional_fetch {
+        fetched_land_untap::decoded_activation(&canonical_abilities)?
+    } else if let Some(program) = composition {
         vec![Ability::ComposedSpell(program)]
     } else if has_linked_hideaway {
         (0..4).map(|_| Ability::LinkedHideaway).collect()
@@ -1730,7 +1743,6 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         }
     }
     conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
-    let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let basic_ramp_spell = basic_land_fetch::spell(&result, &shape, &binding, &source)?;
     if basic_fetch.is_none() {
         typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;

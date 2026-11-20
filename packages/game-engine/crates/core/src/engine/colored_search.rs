@@ -230,6 +230,7 @@ impl Game {
                     player,
                     index,
                     source_block,
+                    fetched_land: None,
                 },
             };
         } else {

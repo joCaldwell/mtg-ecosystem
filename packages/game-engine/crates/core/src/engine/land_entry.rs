@@ -549,7 +549,7 @@ impl Game {
             };
             return self.finish_copy_entry(frame.clone(), &batch);
         }
-        self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
+        let batch = self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
         match origin {
             EntryOrigin::LandPlay { .. } => {
                 self.state.rules.frame = Frame::Priority;
@@ -561,7 +561,7 @@ impl Game {
                 Ok(())
             }
             EntryOrigin::Copy { .. } => unreachable!(),
-            EntryOrigin::Search { frame } => self.resume_entry_search(frame),
+            EntryOrigin::Search { frame } => self.resume_entry_search(frame, &batch),
             EntryOrigin::Cascade { progress } => self.resume_cascade_land(progress, Some(first)),
         }
     }

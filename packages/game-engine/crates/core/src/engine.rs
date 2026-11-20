@@ -426,6 +426,7 @@ mod turns;
 pub use saga::{DelayedChapterRegistration, LoreChange};
 pub use turns::*;
 mod events;
+mod fetched_land_untap;
 mod trace;
 #[cfg(test)]
 mod turns_tests;

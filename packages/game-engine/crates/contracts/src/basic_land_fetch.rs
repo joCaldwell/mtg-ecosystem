@@ -2,8 +2,16 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use serde_json::{Value, json};
+use std::num::NonZeroU32;
 
 pub fn basic_land_fetch_program(force_tapped: bool) -> SpellProgram {
+    conditional_basic_land_fetch_program(force_tapped, None)
+}
+
+pub fn conditional_basic_land_fetch_program(
+    force_tapped: bool,
+    minimum_lands_to_untap: Option<NonZeroU32>,
+) -> SpellProgram {
     SpellProgram {
         additional_sacrifice: None,
         optional_additional_costs: vec![],
@@ -13,6 +21,7 @@ pub fn basic_land_fetch_program(force_tapped: bool) -> SpellProgram {
         targets: vec![],
         instructions: vec![Instruction::FetchBasicLand {
             force_tapped,
+            minimum_lands_to_untap,
             source_block: 0,
         }],
         modes: vec![],
@@ -38,8 +47,13 @@ pub(super) fn validate_definition(d: &Definition) -> Result<bool, String> {
     let [activation] = d.activated.as_slice() else {
         return Err(invalid.into());
     };
-    let [Instruction::FetchBasicLand { force_tapped, .. }] =
-        activation.program.instructions.as_slice()
+    let [
+        Instruction::FetchBasicLand {
+            force_tapped,
+            minimum_lands_to_untap,
+            ..
+        },
+    ] = activation.program.instructions.as_slice()
     else {
         return Err(invalid.into());
     };
@@ -68,11 +82,14 @@ pub(super) fn validate_definition(d: &Definition) -> Result<bool, String> {
         || !d.static_abilities.is_empty()
         || !d.keywords.is_empty()
         || activation.functioning_zone != FunctioningZone::Battlefield
-        || activation.program != basic_land_fetch_program(*force_tapped)
+        || minimum_lands_to_untap.is_some() && !*force_tapped
+        || activation.program
+            != conditional_basic_land_fetch_program(*force_tapped, *minimum_lands_to_untap)
     {
         return Err(invalid.into());
     }
-    validate_archived_activation(d, activation, *force_tapped).map_err(|_| invalid)?;
+    validate_archived_activation(d, activation, *force_tapped, *minimum_lands_to_untap)
+        .map_err(|_| invalid)?;
     Ok(true)
 }
 
@@ -80,6 +97,7 @@ fn validate_archived_activation(
     d: &Definition,
     activation: &ActivatedAbility,
     force_tapped: bool,
+    minimum_lands_to_untap: Option<NonZeroU32>,
 ) -> Result<(), String> {
     let invalid = "basic land fetch source disagrees with its cost or destination";
     let source: Value = strict_read(&d.provenance.source_json)?;
@@ -127,6 +145,16 @@ fn validate_archived_activation(
     } else {
         ", then shuffle."
     };
+    let (effect_text, trailing) = effect_text
+        .split_once(" Then ")
+        .map_or((effect_text, ""), |(search, _)| {
+            (search, &effect_text[search.len()..])
+        });
+    let untap = match minimum_lands_to_untap {
+        Some(minimum) => Some(fetched_land_untap_clause(trailing, minimum).ok_or(invalid)?),
+        None if trailing.is_empty() => None,
+        None => return Err(invalid.into()),
+    };
     let moved = effect_text
         .strip_prefix("Search your library for a basic land card, put ")
         .and_then(|text| text.strip_suffix(suffix))
@@ -141,13 +169,15 @@ fn validate_archived_activation(
     if force_tapped {
         movement["tapped"] = json!(true);
     }
-    let expected = json!([{"kind":"activated","costs":cost_ast,"effects":[{"steps":[
+    let mut effects = vec![json!({"steps":[
         {"effect":"search","who":you,"zones":{"selection":"all","of":[{"zone":"library","owner":"your"}]},
             "for":{"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},
                 "count":{"amount":"fixed","value":1}}},
         movement,
         {"effect":"shuffle","who":you,"library":{"zone":"library","owner":you}}
-    ]}]}]);
+    ]})];
+    effects.extend(untap);
+    let expected = json!([{"kind":"activated","costs":cost_ast,"effects":effects}]);
     if cost_text != expected_cost || strict_read::<Value>(&d.provenance.abilities_json)? != expected
     {
         return Err(invalid.into());
@@ -171,8 +201,10 @@ pub(super) fn extend_schema(schema: &mut Value) {
     use Capability::*;
 
     let selected = json!({"required":["activated"],"properties":{"activated":{"contains":activation_schema()}}});
-    let single =
-        json!({"allOf":[instruction_schema(),{"properties":{"source_block":{"const":0}}}]});
+    let single = json!({"allOf":[instruction_schema(),{"properties":{"source_block":{"const":0}}},
+        {"if":{"required":["minimum_lands_to_untap"],"properties":{"minimum_lands_to_untap":{"type":"integer"}}},
+         "then":{"properties":{"force_tapped":{"const":true}}}}
+    ]});
     let program = json!({"properties":{
         "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
         "targets":{"maxItems":0},"modes":{"maxItems":0},"optional_additional_costs":{"maxItems":0},
