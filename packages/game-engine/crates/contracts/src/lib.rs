@@ -2676,6 +2676,7 @@ pub fn aura_control_domain(definition: &Definition) -> Option<AuraControlDomain>
                                 ..
                             }
                         )
+                        && !attachment_modifiers::advanced(&a.effect)
                         && static_creature_modification_valid(c.kind, false, true, &a.effect)))
         })
         && p.timing == SpellTiming::MainPhase
@@ -7612,18 +7613,20 @@ pub fn catalog_schema() -> serde_json::Value {
             .unwrap()
             .into_iter()
             .filter(|keyword| {
-                static_creature_modification_valid(
-                    CardKind::Enchantment,
-                    false,
-                    true,
-                    &StaticEffect::ModifyCreatures {
-                        scope: CreatureScope::Enchanted,
-                        power: Quantity::zero(),
-                        toughness: Quantity::zero(),
-                        keywords: vec![*keyword],
-                        restrictions: vec![],
-                    },
-                )
+                let modifier = StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::Enchanted,
+                    power: Quantity::zero(),
+                    toughness: Quantity::zero(),
+                    keywords: vec![*keyword],
+                    restrictions: vec![],
+                };
+                !attachment_modifiers::advanced(&modifier)
+                    && static_creature_modification_valid(
+                        CardKind::Enchantment,
+                        false,
+                        true,
+                        &modifier,
+                    )
             })
             .collect();
     schema["$defs"]["AuraControlModifier"] = serde_json::json!({

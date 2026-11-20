@@ -279,6 +279,7 @@ fn aura_control_composition_keeps_existing_modifier_semantic_negatives() {
         (0, 0, vec![], vec![]),
         (2, 2, vec![KeywordAbility::Flash], vec![]),
         (0, 0, vec![KeywordAbility::Indestructible], vec![]),
+        (0, 0, vec![KeywordAbility::ProtectionFromBlue], vec![]),
         (
             2,
             2,
