@@ -273,6 +273,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    ControllerProtectionUntilNextTurnV1,
     ControllerLifeFreezeV1,
     ControlledPermanentPhasingV1,
     CountedSelfGenericCostReductionV1,
@@ -794,6 +795,9 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    ProtectControllerUntilNextTurn {
+        source_block: u32,
+    },
     FreezeControllerLifeUntilNextTurn {
         source_block: u32,
     },
@@ -1196,7 +1200,8 @@ impl Instruction {
             | Self::Scry { source_block, .. }
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
-            Self::FreezeControllerLifeUntilNextTurn { source_block }
+            Self::ProtectControllerUntilNextTurn { source_block }
+            | Self::FreezeControllerLifeUntilNextTurn { source_block }
             | Self::PhaseOutControllerPermanents { source_block }
             | Self::MoveSet { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
@@ -4565,7 +4570,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
     for instruction in &p.instructions {
         let binding = match instruction {
-            Instruction::FreezeControllerLifeUntilNextTurn { .. }
+            Instruction::ProtectControllerUntilNextTurn { .. }
+            | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
             | Instruction::MoveSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
@@ -5325,6 +5331,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::ProtectControllerUntilNextTurn { .. } => {
+                Capability::ControllerProtectionUntilNextTurnV1
+            }
             Instruction::FreezeControllerLifeUntilNextTurn { .. } => {
                 Capability::ControllerLifeFreezeV1
             }
@@ -7063,6 +7072,7 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            ControllerProtectionUntilNextTurnV1,
             ControllerLifeFreezeV1,
             ControlledPermanentPhasingV1,
             CountedSelfGenericCostReductionV1,
@@ -7637,6 +7647,14 @@ mod tests {
         definitions.push(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/synthetic-controller-life-freeze-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controller-protection-ir.json"
             ))
             .unwrap()
             .definitions

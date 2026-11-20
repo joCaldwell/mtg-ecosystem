@@ -192,6 +192,7 @@ impl Game {
     ) -> Vec<PlayerId> {
         self.live_players()
             .into_iter()
+            .filter(|p| self.targetable_player(*p))
             .filter(|p| {
                 matches!(
                     domain,
@@ -221,13 +222,14 @@ impl Game {
     }
     pub(super) fn entity_legal(&self, target: TargetEntity) -> bool {
         match target {
-            TargetEntity::Player { player } => self.is_live(player),
+            TargetEntity::Player { player } => self.targetable_player(player),
             TargetEntity::Object { object } => self.is_battlefield_creature(object),
         }
     }
     pub(super) fn eligible_entities(&self) -> Vec<TargetEntity> {
         self.live_players()
             .into_iter()
+            .filter(|p| self.targetable_player(*p))
             .map(|player| TargetEntity::Player { player })
             .chain(
                 self.state
@@ -796,6 +798,9 @@ impl Game {
             DamageRecipient::Player { player } => {
                 if !self.is_live(player) {
                     return Err("departed damage recipient".into());
+                }
+                if self.player_protected(player) {
+                    return Err("protection requires the damage transaction".into());
                 }
                 self.state.rules.players[player.0 as usize].lose_life(&damage.amount)
             }

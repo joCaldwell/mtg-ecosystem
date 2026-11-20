@@ -255,18 +255,13 @@ mod tests {
     use super::*;
     use crate::engine::equipped_indestructible_tests::{equip, object, prepared};
 
-    fn synthetic_game(freeze: bool) -> Game {
+    fn synthetic_game(alternate_spell: Option<&str>) -> Game {
         let mut catalog = Catalog::read(include_str!(
             "../../../../tests/fixtures/synthetic-controlled-phasing-ir.json"
         ))
         .unwrap();
-        if freeze {
-            let life = Catalog::read(include_str!(
-                "../../../../tests/fixtures/synthetic-controller-life-freeze-ir.json"
-            ))
-            .unwrap()
-            .definitions
-            .remove(0);
+        if let Some(source) = alternate_spell {
+            let life = Catalog::read(source).unwrap().definitions.remove(0);
             catalog.definitions[0] = life;
         }
         let spell = catalog.definitions[0].oracle_id.clone();
@@ -321,7 +316,9 @@ mod tests {
     #[test]
     fn paid_life_freeze_retains_damage_blocks_positive_payment_and_expires_on_next_turn() {
         use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
-        let mut g = synthetic_game(true);
+        let mut g = synthetic_game(Some(include_str!(
+            "../../../../tests/fixtures/synthetic-controller-life-freeze-ir.json"
+        )));
         request(&mut g, 1);
         cast(&mut g, 1, 0, vec![]);
         let player = PlayerId(0);
@@ -394,9 +391,42 @@ mod tests {
     }
 
     #[test]
+    fn paid_controller_protection_excludes_targets_and_recovers_until_next_turn() {
+        use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
+        let mut g = synthetic_game(Some(include_str!(
+            "../../../../tests/fixtures/synthetic-controller-protection-ir.json"
+        )));
+        let player = PlayerId(0);
+        request(&mut g, 1);
+        cast(&mut g, 1, 0, vec![]);
+        assert!(g.player_protected(player));
+        assert!(
+            !g.eligible_players(TargetDomain::AnyPlayer, PlayerId(1))
+                .contains(&player)
+        );
+        assert!(g.targetable_player(PlayerId(1)));
+        recover(&g);
+        for _ in 0..600 {
+            let r = request(&mut g, 1);
+            if !g.player_protected(player) {
+                break;
+            }
+            let response = match r {
+                Request::Priority { .. } => Response::Pass,
+                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                other => panic!("unexpected turn request {other:?}"),
+            };
+            answer(&mut g, 1, response);
+        }
+        assert!(g.targetable_player(player));
+        assert_eq!(g.state.rules.turn_owner, player);
+        recover(&g);
+    }
+
+    #[test]
     fn paid_controller_phasing_replays_status_and_normal_untap_with_stable_handles() {
         use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
-        let mut g = synthetic_game(false);
+        let mut g = synthetic_game(None);
         request(&mut g, 1);
         let land = object(&g, 1);
         let opposing = object(&g, 2);

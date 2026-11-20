@@ -6,7 +6,8 @@ fn contains(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
         matches!(
             i,
-            Instruction::PhaseOutControllerPermanents { .. }
+            Instruction::ProtectControllerUntilNextTurn { .. }
+                | Instruction::PhaseOutControllerPermanents { .. }
                 | Instruction::FreezeControllerLifeUntilNextTurn { .. }
         )
     }) || p.modes.iter().any(|m| contains(&m.program))
@@ -21,6 +22,11 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         && !d.provenance.abilities_json.contains("phase-out")
         && !d.provenance.source_json.contains("phase out")
         && !d.provenance.source_json.contains("life total can")
+        && !d
+            .provenance
+            .source_json
+            .contains("protection from everything")
+        && !d.provenance.abilities_json.contains("everything")
         && !d.provenance.abilities_json.contains("cant-lose-life")
         && !d.provenance.source_json.contains("\\u")
     {
@@ -30,6 +36,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let text = source["oracle_text"].as_str().unwrap_or("");
     let ast: Value = strict_read(&d.provenance.abilities_json)?;
     let freeze = "Until your next turn, your life total can't change.";
+    let protection = "Until your next turn, you gain protection from everything.";
     let phase = "All permanents you control phase out.";
     let (clause, expected, instruction) = if text == freeze {
         let rules=["cant-gain-life","cant-lose-life"].map(|rule|json!({"effect":"player-rule","rule":{"who":{"player":"you"},"rule":rule},"duration":{"duration":"your-next-turn"}}));
@@ -37,6 +44,12 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
             freeze,
             json!([{"kind":"spell","effects":[{"steps":[{"effect":"simultaneous","steps":rules}]}]}]),
             Instruction::FreezeControllerLifeUntilNextTurn { source_block: 0 },
+        )
+    } else if text == protection {
+        (
+            protection,
+            json!([{"kind":"spell","effects":[{"steps":[{"effect":"player-gain-abilities","who":{"player":"you"},"abilities":[{"gained":"keyword","keyword":{"keyword":"protection","from":[{"scope":"everything"}]}}],"duration":{"duration":"your-next-turn"}}]}]}]),
+            Instruction::ProtectControllerUntilNextTurn { source_block: 0 },
         )
     } else {
         (
@@ -48,7 +61,9 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     if !uses
         && !text.contains(phase)
         && !text.contains(freeze)
+        && !text.contains(protection)
         && !ast.to_string().contains("\"phase-out\"")
+        && !ast.to_string().contains("\"scope\":\"everything\"")
         && !ast.to_string().contains("cant-lose-life")
     {
         return Ok(());
@@ -122,6 +137,12 @@ pub(super) fn schema(s: &mut Value) {
             Capability::ControllerLifeFreezeV1,
             "ControllerLifeFreezeFree",
             "Until your next turn, your life total can't change",
+        ),
+        (
+            "protect_controller_until_next_turn",
+            Capability::ControllerProtectionUntilNextTurnV1,
+            "ControllerProtectFree",
+            "Until your next turn, you gain protection from everything",
         ),
     ] {
         let op = json!({"required":["op"],"properties":{"op":{"const":name}}});

@@ -638,6 +638,8 @@ impl Prepared {
             d.capabilities
                 .contains(&Capability::ControlledPermanentPhasingV1)
                 || d.capabilities.contains(&Capability::ControllerLifeFreezeV1)
+                || d.capabilities
+                    .contains(&Capability::ControllerProtectionUntilNextTurnV1)
         })
     }
 

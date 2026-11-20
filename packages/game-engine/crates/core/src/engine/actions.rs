@@ -151,12 +151,19 @@ impl Game {
         }
         match program.targets.first().map(|target| target.domain) {
             None => true,
+            Some(TargetDomain::AnyDamageTarget) => {
+                self.live_players()
+                    .into_iter()
+                    .any(|p| self.targetable_player(p))
+                    || self.state.rules.objects.values().any(|o| {
+                        self.is_battlefield_creature(o.id) && !self.protected_from(o.id, source)
+                    })
+            }
             Some(
-                TargetDomain::AnyDamageTarget
-                | TargetDomain::AnyPlayer
-                | TargetDomain::PlayerOrPlaneswalker,
-            ) => !self.live_players().is_empty(),
-            Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
+                domain @ (TargetDomain::AnyPlayer
+                | TargetDomain::PlayerOrPlaneswalker
+                | TargetDomain::OpponentPlayer),
+            ) => !self.eligible_players(domain, player).is_empty(),
             Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
                 !self
                     .eligible_stack_targets_for(&program.targets[0], None)
@@ -1095,6 +1102,7 @@ impl Game {
             }
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
+            | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),

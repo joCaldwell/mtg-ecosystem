@@ -371,7 +371,7 @@ impl Game {
         let viewer = b.view.viewer;
         if cursor < 4 {
             if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
-                && self.is_live(PlayerId(cursor as u8))
+                && self.targetable_player(PlayerId(cursor as u8))
             {
                 candidates.push(PlayerTargetEntity::Player {
                     player: PlayerId(cursor as u8),
@@ -655,7 +655,7 @@ impl Game {
                 if let Some(PlayerRequest::EntityTargets { candidates, .. }) = request {
                     let cursor_index = *cursor as usize;
                     let target = if cursor_index < 4 {
-                        self.is_live(PlayerId(cursor_index as u8))
+                        self.targetable_player(PlayerId(cursor_index as u8))
                             .then_some(TargetEntity::Player {
                                 player: PlayerId(cursor_index as u8),
                             })

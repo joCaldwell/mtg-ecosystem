@@ -1178,6 +1178,9 @@ impl Game {
                         match d.recipient {
                             DamageRecipient::Player { player } => {
                                 players.insert(player);
+                                if self.player_protected(player) {
+                                    return Err("protection requires the damage transaction".into());
+                                }
                                 if self.state.rules.commanders.history(d.source.card).is_some() {
                                     commander_damage.insert((d.source.card, player));
                                 }
@@ -2775,6 +2778,7 @@ impl Game {
                 let previous_owner = std::mem::replace(&mut self.state.rules.turn_owner, *owner);
                 self.state.rules.active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
+                    self.expire_player_protection(*owner);
                     self.state.rules.players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.state.rules.mana_ability_uses.clear();
                     self.state.rules.cast_history = [triggers::TurnCastHistory::default(); 4];
