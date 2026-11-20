@@ -121,7 +121,9 @@ function choiceCount(value: unknown): number {
 
 /** A mandatory scalar choice with an unconditional value domain. */
 function simpleChoice(effect: Effect | undefined): effect is ChoiceEffect {
-  return effect?.effect === "choose-value" && Object.keys(effect).length === 3 &&
+  return effect?.effect === "choose-value" &&
+    (Object.keys(effect).length === 3 ||
+      (Object.keys(effect).length === 4 && effect.category === "card-type" && effect.within === "permanent-types")) &&
     effect.who.player === "you" && Object.keys(effect.who).length === 1 &&
     ["color", "card-type", "creature-type", "basic-land-type", "land-type", "parity", "number"].includes(effect.category);
 }
@@ -956,6 +958,18 @@ class Analyzer {
       return;
     }
     if (value.amount === "mana-spent") {
+      const what = child(path, "what");
+      if (!context.barrier && context.phase === "resolution" && context.triggerObject?.event === "cast" &&
+          value.quantity === "total" && value.source === undefined &&
+          isDeepStrictEqual(value.what, { ref: "that", filter: { cls: "spell" } })) {
+        const rules = ["601.2f", "601.2h", "601.2i", "603.2c", "608.2i"];
+        const occurrence = context.triggerObject.candidate.id;
+        this.bound({ ref: "that", filter: { cls: "spell" } }, what, occurrence, rules);
+        this.node({ id: this.id(path, "cast-mana-paid"), path, node: "cast-mana-paid",
+          scope: context.ability, occurrence, measure: "total", rules });
+        this.engineFeature("event-history", path, "Read the actual mana spent in the one recorded cast, including additional costs.", rules);
+        return;
+      }
       const barrier = "Mana payment quantities need the exact originating spell's payment event, including additional costs and actual colors spent.";
       this.diagnostic("unsupported-scope", path, barrier, ["400.7d", "601.2f", "601.2h", "609.4b"]);
       this.walkChildren(value, path, { ...context, barrier });
@@ -2806,7 +2820,7 @@ class Analyzer {
   }
   sentences(sentences: Sentence[], path: string, context: Context): void {
     let previousDecisions: string[] = [];
-    let precedingSacrifice: string | undefined;
+    let precedingAction: { event: string; action: "sacrifice" | "discard" } | undefined;
     for (const [index, sentence] of sentences.entries()) {
       const at = child(path, index);
       const decisions: string[] = [];
@@ -2818,13 +2832,13 @@ class Analyzer {
       const condition = sentence.condition;
       const linked = condition && (condition.condition === "you-do" || condition.condition === "you-dont") && previousDecisions.length === 1
         ? previousDecisions[0] : undefined;
-      const paid = !linked && condition?.condition === "you-do" ? precedingSacrifice : undefined;
+      const paid = !linked && condition?.condition === "you-do" ? precedingAction : undefined;
       if (paid) {
         const atCondition = child(at, "condition");
-        const rules = ["118.11", "118.12", "608.2c", "701.21a"];
+        const rules = ["118.11", "118.12", "608.2c", paid.action === "sacrifice" ? "701.21a" : "701.9a"];
         this.node({ id: this.id(atCondition, "action-cost-condition"), path: atCondition, node: "action-cost-condition",
-          scope: context.ability, event: paid, action: "sacrifice", rules });
-        this.engineFeature("action-cost-condition", atCondition, "Check whether the preceding sacrifice was carried out as the cost of this instruction.", rules);
+          scope: context.ability, ...paid, rules });
+        this.engineFeature("action-cost-condition", atCondition, "Check whether the preceding action was carried out as the cost of this instruction.", rules);
       }
       if (linked && condition) this.node({ id: this.id(child(at, "condition"), "decision-link"), path: child(at, "condition"), node: "decision-link",
         scope: context.ability, condition: condition.condition as "you-do" | "you-dont", decision: linked, rules: ["608.2c", "608.2d"] });
@@ -2895,11 +2909,12 @@ class Analyzer {
       }
       previousDecisions = decisions;
       const [step] = sentence.steps;
-      const sacPath = `${at}/steps/0`;
-      precedingSacrifice = !condition && !sentence.otherwise && !sentence.afterConditional &&
-        sentence.steps.length === 1 && step.effect === "sacrifice" && !step.optional && !step.forEach && !step.forEachVote &&
-        step.who.player === "you" && !step.chosenBy && step.what.ref === "filter" && objectCardinality(step.what) === "one" &&
-        this.at(child(sacPath, "what")) ? this.id(sacPath, "event") : undefined;
+      const actionPath = `${at}/steps/0`;
+      precedingAction = !condition && !sentence.otherwise && !sentence.afterConditional &&
+        sentence.steps.length === 1 && (step.effect === "sacrifice" || step.effect === "discard") && !step.optional && !step.forEach && !step.forEachVote &&
+        step.who.player === "you" && (step.effect === "discard" || !step.chosenBy) &&
+        step.what !== "hand" && step.what.ref === "filter" && objectCardinality(step.what) === "one" && this.at(child(actionPath, "what"))
+        ? { event: this.id(actionPath, "event"), action: step.effect } : undefined;
       context.linkedPath = undefined;
       // A trailing definition may refer to a target established earlier in
       // the same sentence. Traverse it after the subjects have been bound.
@@ -3531,6 +3546,13 @@ class Analyzer {
         identity: "source-incarnation", cardinality: "many", rules });
       this.engineFeature("linked-exile-pool", path, "Record only cards exiled by this linked ability instance and still in exile.", rules);
     }
+    if (effect.effect === "become" && "copyOf" in effect.spec) {
+      const model = this.at(`${path}/spec/copyOf`);
+      if (model && model.cardinality === "one" && this.announced(model)) {
+        context.objects = combine(context.objects, [model]);
+        context.mentionedObject = true;
+      }
+    }
     if (effect.effect === "declare-target" && objects.length === 1 && this.announced(objects[0]))
       context.declaredTargets = [...(context.declaredTargets ?? []), objects[0]];
     if (effect.effect === "damage" || effect.effect === "lose-life")
@@ -3540,6 +3562,7 @@ class Analyzer {
         (preEntryChoice || (context.resolutionChoice?.path === path && context.phase === "resolution"))) {
       this.node({ id: this.id(path, "value-choice"), path, node: "value-choice", scope: context.ability,
         event, chooser: players[0].id, category: effect.category,
+        ...(effect.category === "card-type" && effect.within === "permanent-types" ? { within: effect.within } : {}),
         lifetime: preEntryChoice ? { kind: "source-incarnation", source: context.source, lookup: "current-or-last-known" } : { kind: "resolution" },
         rules: preEntryChoice ? ENTRY_CHOICE_RULES : ["607.1c", "607.2d", "608.2d"] });
       if (!preEntryChoice) context.availableChoice = context.resolutionChoice;
@@ -3755,7 +3778,17 @@ class Analyzer {
       // other creature, described alike; "that creature" is the one the event
       // that occurred established.
       const others = branches.map(({ branch }) => branch.objects.filter(candidate => !this.sourceAliases.has(candidate.id)));
-      if (!context.sourceMoved && branches.length > 1 && others.every(list => list.length === 1 && list[0].cardinality === "one")
+      if (!context.barrier && branches.length > 1 && branches.every(({ branch }) => branch.sourceSuccessor?.cardinality === "one")) {
+        // Each disjunct moves this same source to a public zone. The
+        // resulting object depends on which trigger event actually occurred.
+        const rules = ["400.7e", "603.2", "603.6c"];
+        const id = this.node({ id: this.id(path, "successors"), path, node: "alternatives", scope: context.ability,
+          of: branches.map(({ branch }) => branch.sourceSuccessor!.id), rules });
+        const successor: Candidate = { id, domain: "object", cardinality: "one", description: { cls: "card" },
+          successorOf: context.source, triggerSuccessor: true };
+        context.sourceSuccessor = successor;
+        context.objects = [successor];
+      } else if (!context.sourceMoved && branches.length > 1 && others.every(list => list.length === 1 && list[0].cardinality === "one")
         && others.every(list => JSON.stringify(list[0].description) === JSON.stringify(others[0][0].description))) {
         const id = this.node({ id: this.id(path, "alternatives"), path, node: "alternatives", scope: context.ability, of: others.map(list => list[0].id), rules: ["603.2"] });
         context.objects = [{ id, cardinality: "one", domain: "object", description: others[0][0].description }];
@@ -3855,7 +3888,9 @@ class Analyzer {
     // how many objects the event had.
     else if ("grouping" in trigger && trigger.grouping === "one-or-more" && eventObject)
       context.quantities = [this.eventResult(child(path, "count"), event, "quantity", "one", "measured-quantity")];
-    if (["dies", "leaves", "leaves-zone", "put-into-graveyard", "enters-or-leaves", "enters-or-dies"].includes(trigger.trigger)) {
+    const publicDeparture = trigger.trigger === "put-into-zone" &&
+      isDeepStrictEqual(trigger.from, { zone: "battlefield" }) && trigger.to.zone === "exile";
+    if (publicDeparture || ["dies", "leaves", "leaves-zone", "put-into-graveyard", "enters-or-leaves", "enters-or-dies"].includes(trigger.trigger)) {
       if (objects.some(object => object.id === context.source)) context.sourceMoved = true;
       // The moved object is a new object (CR 400.7). The ability can find the
       // object it became in the public zone it first went to (CR 400.7e,
@@ -4196,6 +4231,7 @@ class Analyzer {
           : node.node === "recipient-member" || node.node === "instruction-member" ? this.invalidNodes.has(node.group)
           : node.node === "characteristic-subject" && node.of ? this.invalidNodes.has(node.of)
           : node.node === "event-result" || node.node === "linked-exile-pool" ? this.invalidNodes.has(node.event)
+          : node.node === "alternatives" ? node.of.some(id => this.invalidNodes.has(id))
           : node.node === "derived-player" ? this.invalidNodes.has(node.of)
           : node.node === "selection" || node.node === "defined-number"
             ? this.result.references.some(reference => reference.path.startsWith(`${node.path}/`) &&

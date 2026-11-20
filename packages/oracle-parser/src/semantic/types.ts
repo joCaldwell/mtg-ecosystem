@@ -118,7 +118,7 @@ export type BindingNode = NodeBase & (
       availability: "if-produced"; identity: "same-objects" | "zone-successors" | "new-objects" | "measured-quantity" }
   /** CR 607.1c/607.2d, 608.2d, 614.12a: a value belongs to one
    * resolution or is stored for the entering source incarnation. */
-  | { node: "value-choice"; scope: string; event: string; chooser: string; category: ValueChoice["category"];
+  | { node: "value-choice"; scope: string; event: string; chooser: string; category: ValueChoice["category"]; within?: "permanent-types";
       lifetime: { kind: "resolution" } | { kind: "source-incarnation"; source: string; lookup: "current-or-last-known" } }
   | { node: "player-state-condition"; scope: string; who: string;
       query: "designation" | "completed-dungeon" | "opponent-count" | "turn-of" }
@@ -177,12 +177,13 @@ export type BindingNode = NodeBase & (
       membership: "still-in-exile"; identity: "source-incarnation"; cardinality: "many" }
   | { node: "linked-exile-filter"; scope: string; pool: string }
   | { node: "blight-payment"; scope: string; payer: string; count: number }
-  | { node: "action-cost-condition"; scope: string; event: string; action: "sacrifice" }
+  | { node: "action-cost-condition"; scope: string; event: string; action: "sacrifice" | "discard" }
   | { node: "value-exchange"; scope: string; subjects: [string, string]; event: string; operation: "life-and-toughness" }
   | { node: "targeting-permission"; scope: string; controller: string; affected: string[]; evaluation: "each-target-legality-check";
       duration: Extract<Effect, { effect: "targeting-as-though" }>["duration"] }
   | { node: "scheduled-phase"; scope: string; phase: Extract<Trigger, { trigger: "phase-in-turn" }>["phase"]; turn: "next" }
   | { node: "skip-draw-step"; scope: string; who: string }
+  | { node: "cast-mana-paid"; scope: string; occurrence: string; measure: "total" }
   | { node: "cast-history-exclusion"; scope: string; occurrence: string; caster: string }
   | { node: "activation-permission"; scope: string; source: string; actors: "any-player" | "opponents-of-source-controller" }
   | { node: "payment-alternatives"; scope: string; payer: string; options: Extract<Cost, { cost: "choice" }>["options"] }

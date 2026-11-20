@@ -789,3 +789,80 @@ describe("per-event replacements and prevention", () => {
     assert.ok(!graph.nodes.some(node => node.node === "prevention-outcome"));
   });
 });
+
+describe("exact choice, payment, and zone-trigger identities", () => {
+  it("binds a resolution choice limited to permanent types", () => {
+    const graph = analyze("Choose a permanent type. Return all cards of the chosen type from your graveyard to your hand.", "Sorcery");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "value-choice");
+    assert.ok(choice?.within === "permanent-types");
+    assert.equal(bound(graph, "/chosenType"), choice.id);
+  });
+
+  it("does not let a branch-local permanent type supply the choice afterward", () => {
+    const graph = analyze("If you control a creature, choose a permanent type. Return all cards of the chosen type "
+      + "from your graveyard to your hand.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+  });
+
+  it("requires the exact earlier discard for an if-you-do condition", () => {
+    const graph = analyze("Discard a card. If you do, draw a card.", "Sorcery");
+    boundCard(graph);
+    const gate = graph.nodes.find(node => node.node === "action-cost-condition");
+    assert.ok(gate?.action === "discard");
+    assert.ok(graph.nodes.some(node => node.node === "event" && node.id === gate.event && node.operation === "discard"));
+
+    const wrong = analyze("Discard a card. Gain 1 life. If you do, draw a card.", "Sorcery");
+    assert.equal(wrong.referencesBound, false);
+    assert.ok(!wrong.nodes.some(node => node.node === "action-cost-condition"));
+  });
+
+  it("reads the cast trigger's actual mana payment", () => {
+    const graph = analyze("Whenever you cast a red spell, this enchantment deals X damage to any target, "
+      + "where X is the amount of mana spent to cast that spell.", "Enchantment");
+    boundCard(graph);
+    const paid = graph.nodes.find(node => node.node === "cast-mana-paid");
+    assert.ok(paid);
+    assert.equal(paid.occurrence, bound(graph, "/bindings/0/value/what"));
+    assert.ok(graph.nodes.some(node => node.id === paid.occurrence && node.node === "event-result"));
+
+    const wrong = analyze("This enchantment deals X damage to any target, "
+      + "where X is the amount of mana spent to cast that spell.", "Sorcery");
+    assert.equal(wrong.referencesBound, false);
+    assert.ok(!wrong.nodes.some(node => node.node === "cast-mana-paid"));
+  });
+
+  it("finds the successor for the specific battlefield departure that triggered", () => {
+    const graph = analyze("When this creature dies or is put into exile from the battlefield, "
+      + "you may put it into its owner's library third from the top.", "Creature");
+    boundCard(graph);
+    const successor = graph.nodes.find(node => node.node === "alternatives" && node.rules.includes("400.7e"));
+    assert.ok(successor?.node === "alternatives" && successor.of.length === 2);
+    assert.equal(bound(graph, "/effects/0/steps/0/what"), successor.id);
+    assert.ok(successor.of.every(id => graph.nodes.some(node => node.id === id &&
+      node.node === "event-result" && node.identity === "zone-successors")));
+
+    const wrong = analyze("When this creature enters or dies, you may put it into its owner's library third from the top.", "Creature");
+    assert.ok(!wrong.nodes.some(node => node.node === "alternatives" && node.rules.includes("400.7e")));
+  });
+});
+
+describe("announced copy models", () => {
+  it("retains the announced model for the immediate linked effects", () => {
+    const graph = analyze("At the beginning of combat on your turn, you may have this creature become a copy of another "
+      + "target creature you control until end of turn, except its name is Fixture. If you do, this creature and that creature "
+      + "each get +2/+0 and gain haste until end of turn and attack this turn if able.", "Creature");
+    boundCard(graph);
+    const model = bound(graph, "/spec/copyOf");
+    const followup = graph.references.filter(reference => "ref" in reference.expression && reference.expression.ref === "that");
+    assert.equal(followup.length, 3);
+    assert.ok(followup.every(reference => reference.binding === "bound" && reference.target === model));
+  });
+
+  it("rejects a model reference with two independently announced creature targets", () => {
+    const graph = analyze("{T}: Tap target creature. You may have this creature become a copy of target creature you control "
+      + "until end of turn. Tap that creature.", "Creature");
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "ambiguous-antecedent" &&
+      diagnostic.path.endsWith("/effects/2/steps/0/what")));
+  });
+});
