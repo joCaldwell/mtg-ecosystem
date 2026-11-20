@@ -92,6 +92,7 @@ impl Policy {
             | PlayerRequest::ManaColor { .. }
             | PlayerRequest::ColoredSearch { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::CascadeLandEntry { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {

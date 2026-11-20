@@ -122,7 +122,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let static_ability = granted_land_mana_static();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[
-            {"properties":{"static_abilities":{"contains":{"required":["effect"],
+            {"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],
                 "properties":{"effect":{"const":static_ability.effect}}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":
                 r#""oracle_text"\s*:\s*"Lands you control have \\"\{T\}: Add one mana of any color\."#

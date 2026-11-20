@@ -172,7 +172,7 @@ struct ObservationWork {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
 enum Task {
-    // Sidecar v33 includes protection in observations and damage-effect choices.
+    // Sidecar v35 includes public cascade land choice work.
     // Projection/request headers remain explicit work, never hidden work
     // performed even when the caller grants no budget.
     Initialize,
@@ -444,6 +444,14 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(handle) = self
+                .cascade_land_query_row(viewer, cursor - base - effect_count)
+                .map_err(|_| QueryRejection::Invariant)?
+        {
+            candidates.push(handle);
+        }
         if let Some(PlayerRequest::CounterPlacementEffect { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(key) = cache
@@ -501,6 +509,8 @@ impl Game {
         let extra = effect_count
             + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
                 cache.allocation(self)?.map_or(0, |ids| ids.len())
+            } else if matches!(b.decision, Some(PlayerRequest::CascadeLandEntry { .. })) {
+                self.cascade_land_query_len()
             } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
                 cache.modes(self)?.map_or(0, |ids| ids.len())
             } else if matches!(
@@ -562,7 +572,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 39,
+                    observation_version: 40,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -589,6 +599,17 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
+                if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = request {
+                    if let Some(handle) = self
+                        .cascade_land_query_row(*viewer, *cursor as usize)
+                        .map_err(|_| QueryRejection::Invariant)?
+                    {
+                        candidates.push(handle);
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= self.cascade_land_query_len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
@@ -816,7 +837,12 @@ impl Game {
                             PlayerResponse::ManaColor { .. },
                         ) => *scope != ManaSourceScope::Mixed,
                         (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
-                        (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
+                        (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
+                            matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
+                        }
+                        (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
+                            progress.stage == cascade::CascadeStage::Offer
+                        }
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
                         }
@@ -1065,7 +1091,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 39,
+                            observation_version: 40,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1101,7 +1127,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 35,
+                    context_version: 36,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1120,7 +1146,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 35,
+            work_version: 36,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1129,7 +1155,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 35
+        if saved.work_version != 36
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -1172,6 +1198,7 @@ impl Game {
             ) => self
                 .private_library_choice_candidates(viewer)
                 .map_or(0, |ids| ids.len() as u64),
+            Some(PlayerRequest::CascadeLandEntry { .. }) => self.cascade_land_query_len() as u64,
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
             Some(PlayerRequest::Modes { .. }) => {
                 if let Some(Request::Modes { candidates, .. }) = self.modes_request()? {
@@ -1219,6 +1246,7 @@ impl Game {
                     .ok_or("decision work resource limit")?,
                 Some(
                     PlayerRequest::OrderTriggers { .. }
+                    | PlayerRequest::CascadeLandEntry { .. }
                     | PlayerRequest::HandReturn { .. }
                     | PlayerRequest::LibraryOrder { .. }
                     | PlayerRequest::LibrarySelect { .. }

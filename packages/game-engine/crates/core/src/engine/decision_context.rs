@@ -174,6 +174,12 @@ impl Game {
         request: Option<&PlayerRequest>,
     ) -> Option<DecisionContext> {
         let request = request?;
+        if let PlayerRequest::CascadeLandEntry { .. } = request
+            && let Frame::Cascade { progress } = &self.state.rules.frame
+        {
+            return self
+                .effect_decision_context(viewer, &self.cascade_land_source(progress).ok()??);
+        }
         if let Some((player, source, ability)) = self.land_entry_offer().ok()? {
             return (player == viewer)
                 .then(|| {

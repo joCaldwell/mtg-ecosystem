@@ -1227,6 +1227,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::GrantControllerLandsAllBasicTypes
                     | StaticEffect::ControlEnchantedPermanent
+                    | StaticEffect::CascadeLandEntry
                     | StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::UnlimitedControllerHandSize

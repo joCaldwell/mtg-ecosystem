@@ -1205,6 +1205,9 @@ pub enum Response {
     SearchLands {
         objects: Vec<ObjectId>,
     },
+    CascadeLandEntry {
+        object: Option<ObjectId>,
+    },
     SearchLandBattlefield {
         object: ObjectId,
     },
@@ -1371,6 +1374,11 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         colors: Vec<Color>,
+    },
+    CascadeLandEntry {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
     },
     SearchLandBattlefield {
         decision_id: u64,
@@ -1548,6 +1556,7 @@ impl Request {
             | Self::ManaColor { decision_id, .. }
             | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
@@ -1590,6 +1599,7 @@ impl Request {
             | Self::ManaColor { player, .. }
             | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
@@ -1687,6 +1697,10 @@ pub enum ProposedEvent {
     },
     DestroyCreature {
         object: ObjectId,
+    },
+    CascadeLandEntry {
+        object: ObjectId,
+        player: PlayerId,
     },
     SearchLandEntry {
         object: ObjectId,
@@ -3442,7 +3456,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 62,
+            snapshot_version: 63,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3484,7 +3498,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 62
+        if s.snapshot_version != 63
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
