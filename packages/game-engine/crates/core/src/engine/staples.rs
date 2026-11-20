@@ -429,6 +429,18 @@ impl Game {
                     self.return_graveyard_card(frame, target, source_block)
                 }
             }
+            Instruction::SearchColoredLibrary { source_block, .. } => {
+                let player = frame.spell.controller;
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::ColoredSearch {
+                        player,
+                        source_block,
+                        revealed: None,
+                    },
+                };
+                Ok(())
+            }
             op @ (Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchTypedLands { .. }) => {
@@ -836,6 +848,21 @@ impl Game {
     ) -> bool {
         match (choice, instruction) {
             (
+                ResolutionChoice::ColoredSearch {
+                    player,
+                    source_block,
+                    revealed,
+                },
+                Instruction::SearchColoredLibrary {
+                    source_block: b,
+                    colors,
+                },
+            ) => {
+                *player == frame.spell.controller
+                    && b == source_block
+                    && self.valid_colored_reveal(*player, colors, revealed.as_deref())
+            }
+            (
                 ResolutionChoice::OptionalDraw {
                     player,
                     source_block,
@@ -913,6 +940,9 @@ impl Game {
                 }
                 | Instruction::SearchBasicLandsSplit { source_block: b }
                 | Instruction::SearchTypedLands {
+                    source_block: b, ..
+                }
+                | Instruction::SearchColoredLibrary {
                     source_block: b, ..
                 }
                 | Instruction::OptionalShuffleLibrary { source_block: b },

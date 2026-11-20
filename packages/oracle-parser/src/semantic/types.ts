@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
+import type { Amount, CascadeExiledCards, Color, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -28,6 +28,10 @@ export type ReferenceExpression = ObjectRef | CascadeExiledCards | { ref: "affec
 
 interface NodeBase { id: string; path: string; rules: string[] }
 export type BindingNode = NodeBase & (
+  /** CR 701.23b: the chosen cards in one hidden, quality-constrained search.
+   * Each ordered slot accepts zero or one card; no object may fill two slots. */
+  | { node: "distinct-library-search"; scope: string; chooser: string; libraryOwner: string;
+      slots: Color[]; allocation: "distinct-objects"; perSlot: "zero-or-one"; cardinality: "many" }
   | { node: "source"; identity: string }
   | { node: "face"; source: string; sourceFaceIndex: number; name: string; typeLine?: string; manaCost?: string; layout: string }
   | { node: "ability"; source: string; face: string; abilityKind: string; you: string }
