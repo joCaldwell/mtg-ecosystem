@@ -1,7 +1,7 @@
 //! Finite public-information planner for the v16 mana pool. No native state,
 //! hidden hands, library order, receipts or query recovery data are consulted.
 use super::*;
-use mtg_contracts::{KeywordAbility, ManaProduction};
+use mtg_contracts::{KeywordAbility, ManaProduction, SingleColorManaAmount};
 
 #[derive(Clone)]
 pub(super) struct PlannedMana {
@@ -176,8 +176,29 @@ pub(super) fn plan(
         {
             continue;
         }
-        let amount = if production == ManaProduction::GreatestControlledPowerCombination {
-            let amount = v
+        let amount = match &production {
+            ManaProduction::AnyOneColor {
+                amount: SingleColorManaAmount::Fixed { quantity },
+            } => quantity.clone(),
+            ManaProduction::AnyOneColor {
+                amount: SingleColorManaAmount::ControllerEnchantments,
+            } => {
+                let count = v
+                    .objects
+                    .iter()
+                    .filter(|object| {
+                        object.zone == Zone::Battlefield
+                            && !object.phased_out
+                            && object.controller == v.viewer
+                            && object
+                                .characteristics
+                                .as_ref()
+                                .is_some_and(|c| c.has_type(CardKind::Enchantment))
+                    })
+                    .count();
+                Quantity::from(i64::try_from(count).ok()?)
+            }
+            ManaProduction::GreatestControlledPowerCombination => v
                 .objects
                 .iter()
                 .filter(|object| {
@@ -190,17 +211,17 @@ pub(super) fn plan(
                 .filter_map(|c| c.power.as_ref())
                 .max()
                 .cloned()
-                .unwrap_or_default();
-            if amount <= Quantity::zero() {
-                continue;
-            }
-            amount
-        } else {
-            1.into()
+                .unwrap_or_default(),
+            _ => 1.into(),
         };
+        if amount <= Quantity::zero() {
+            continue;
+        }
         let colors = match &production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
-            ManaProduction::GreatestControlledPowerCombination | ManaProduction::AnyColor => {
+            ManaProduction::GreatestControlledPowerCombination
+            | ManaProduction::AnyColor
+            | ManaProduction::AnyOneColor { .. } => {
                 vec![Color::W, Color::U, Color::B, Color::R, Color::G]
             }
             ManaProduction::CommanderColor => identity.clone(),

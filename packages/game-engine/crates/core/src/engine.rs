@@ -381,6 +381,7 @@ mod mana_permanents;
 mod mana_tests;
 mod mill;
 mod opponent_mana;
+mod same_color_mana;
 mod scry;
 mod successor_tuck;
 #[cfg(test)]

@@ -96,6 +96,7 @@ mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
 mod saga;
+mod same_color_mana;
 mod scoped_creature_stats;
 mod self_graveyard_shuffle;
 mod self_reference;
@@ -1377,6 +1378,9 @@ enum SourceMana {
     AnyColor {
         amount: Count,
     },
+    AnyOneColor {
+        amount: serde_json::Value,
+    },
     CommanderColor {
         amount: Count,
         whose: PlayerSelector,
@@ -2341,14 +2345,24 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         restriction,
                         ..
                     } => {
-                        let mana = listed_mana::lower(
+                        let mana = match same_color_mana::lower(
                             ability,
-                            block,
-                            &result.lines[block].text,
+                            &result,
                             &shape,
                             &binding,
                             &definition.oracle_id,
-                        )?;
+                            &source.oracle_text,
+                        )? {
+                            Some(mana) => Some(mana),
+                            None => listed_mana::lower(
+                                ability,
+                                block,
+                                &result.lines[block].text,
+                                &shape,
+                                &binding,
+                                &definition.oracle_id,
+                            )?,
+                        };
                         let mana = match mana {
                             Some(mana) => Some(mana),
                             None => lower_mana_ability(

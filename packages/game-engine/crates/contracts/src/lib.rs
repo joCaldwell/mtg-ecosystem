@@ -28,6 +28,8 @@ pub use color_hybrid_cost::{
 mod checkland_entry;
 mod conditional_lands;
 mod cycling;
+#[cfg(test)]
+mod wave1_mana_witnesses;
 pub use cycling::hand_discard_draw_activation;
 mod counted_costs;
 mod distinct_permanent_colors;
@@ -127,6 +129,7 @@ mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub mod source_regeneration;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
+mod same_color_mana;
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
 pub mod source_attack_pump;
@@ -384,6 +387,7 @@ pub enum Capability {
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     ListedManaChoiceV1,
+    SameColorManaV1,
     DisjointPainManaV1,
     SourceTapTriggerV1,
     ControllerCreaturePlusOneCounterReplacementV1,
@@ -1965,6 +1969,9 @@ pub enum ManaProduction {
         symbols: Vec<Color>,
     },
     AnyColor,
+    AnyOneColor {
+        amount: SingleColorManaAmount,
+    },
     CommanderColor,
     /// Add one mana of a color an opponent's land could produce.
     OpponentLandColors,
@@ -1976,6 +1983,12 @@ pub enum ManaProduction {
     Choice {
         colors: Vec<Color>,
     },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SingleColorManaAmount {
+    Fixed { quantity: Quantity },
+    ControllerEnchantments,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -2776,6 +2789,9 @@ impl Definition {
         }) {
             set.insert(Capability::DistinctPermanentColorsV1);
         }
+        if same_color_mana::present(self) {
+            set.insert(Capability::SameColorManaV1);
+        }
         if listed_mana_choice::present(self) {
             set.insert(Capability::ListedManaChoiceV1);
         }
@@ -3551,6 +3567,7 @@ impl Definition {
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
+        same_color_mana::validate(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
         if let Some(labels) = &self.source_labels {
             let source: serde_json::Value = strict_read(&self.provenance.source_json)?;
@@ -7595,6 +7612,7 @@ pub fn catalog_schema() -> serde_json::Value {
     distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
+    same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     other_land_entry::extend_schema(&mut schema);
@@ -8033,6 +8051,7 @@ mod tests {
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             ListedManaChoiceV1,
+            SameColorManaV1,
             DisjointPainManaV1,
             SourceTapTriggerV1,
             ControllerCreaturePlusOneCounterReplacementV1,
@@ -8527,6 +8546,7 @@ mod tests {
         definitions.push(typed_land_search_tests::typed_search());
         definitions.push(conditional_lands::tests::land());
         definitions.push(other_land_entry::witness());
+        definitions.extend(wave1_mana_witnesses::definitions());
         definitions.push(conditional_lands::tests::optional_land());
         definitions.push(cycling::witness());
         definitions.push(opponent_mana::witness());

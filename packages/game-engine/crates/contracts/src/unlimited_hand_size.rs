@@ -41,7 +41,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
             && match &ability.production {
                 ManaProduction::Fixed { symbols } => symbols.as_slice() == [Color::C],
                 ManaProduction::AnyColor => c.kind == CardKind::Artifact,
-                ManaProduction::CommanderColor
+                ManaProduction::AnyOneColor { .. }
+                | ManaProduction::CommanderColor
                 | ManaProduction::OpponentLandColors
                 | ManaProduction::Choice { .. }
                 | ManaProduction::GreatestControlledPowerCombination
