@@ -1187,6 +1187,7 @@ impl Game {
         if let Some(link) = &object.hideaway {
             return Ok(Some(VisibleObject {
                 face_down: true,
+                lore_counters: Quantity::zero(),
                 exiled_by: Some(link.source_handle(viewer).clone()),
                 oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
                     physical.oracle_id.clone()
