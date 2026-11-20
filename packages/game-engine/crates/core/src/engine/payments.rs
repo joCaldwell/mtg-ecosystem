@@ -49,12 +49,44 @@ impl Game {
         }
     }
 
+    fn can_pay_announced(&self, stack: &StackInstance, cost: &ManaCost) -> Result<bool, String> {
+        let player = stack.controller;
+        if self.state.rules.players[player.0 as usize]
+            .restricted_mana
+            .is_empty()
+        {
+            return self.can_pay(player, cost);
+        }
+        self.can_pay_with_restricted(player, cost, self.announced_mana_consumer(stack)?)
+    }
+
+    fn validate_announced_allocation(
+        &self,
+        stack: &StackInstance,
+        cost: &ManaCost,
+        spending: &BTreeMap<Color, Quantity>,
+        restricted: &[RestrictedMana],
+    ) -> Result<(), String> {
+        if restricted.is_empty() {
+            self.selected_payment_pool(stack.controller, cost, spending)?;
+        } else {
+            self.allocated_mana_pools(
+                stack.controller,
+                cost,
+                spending,
+                restricted,
+                self.announced_mana_consumer(stack)?,
+            )?;
+        }
+        Ok(())
+    }
+
     pub(super) fn finish_mana_frame(&self, cast: Casting) -> Result<Frame, String> {
         let stack = self.top()?;
         Ok(
             if self.state.rules.players[stack.controller.0 as usize]
                 .can_pay_life(&phyrexian_life(&stack.hybrid_colors))
-                && self.can_pay(stack.controller, &stack.total_cost)?
+                && self.can_pay_announced(stack, &stack.total_cost)?
             {
                 Frame::SpendMana { cast }
             } else {
@@ -72,6 +104,14 @@ impl Game {
             available: self.state.rules.players[stack.controller.0 as usize]
                 .mana
                 .clone(),
+            restricted_available: if self.state.rules.players[stack.controller.0 as usize]
+                .restricted_mana
+                .is_empty()
+            {
+                vec![]
+            } else {
+                self.eligible_restricted(stack.controller, self.announced_mana_consumer(stack)?)
+            },
         })
     }
 
@@ -79,13 +119,13 @@ impl Game {
         &self,
         player: PlayerId,
         spending: &BTreeMap<Color, Quantity>,
+        restricted: &[RestrictedMana],
     ) -> Result<(), String> {
         let stack = self.top()?;
         if stack.controller != player {
             return Err("mana spending controller invariant".into());
         }
-        self.selected_payment_pool(player, &stack.total_cost, spending)?;
-        Ok(())
+        self.validate_announced_allocation(stack, &stack.total_cost, spending, restricted)
     }
 
     // CR 601.2h / 118.3: the payer chooses which available mana pays generic
@@ -101,7 +141,7 @@ impl Game {
         if !self.is_live(player) || cost.generic.is_negative() {
             return Err("invalid mana payer/cost".into());
         }
-        let mut remaining = self
+        let pool = self
             .state
             .rules
             .players
@@ -109,7 +149,15 @@ impl Game {
             .ok_or("missing paying player")?
             .mana
             .clone();
-        let mut total = Quantity::zero();
+        let remaining = Self::subtract_selected_mana(pool, spending)?;
+        Self::validate_selected_mana_cost(cost, spending)?;
+        Ok(remaining)
+    }
+
+    pub(super) fn subtract_selected_mana(
+        mut remaining: BTreeMap<Color, Quantity>,
+        spending: &BTreeMap<Color, Quantity>,
+    ) -> Result<BTreeMap<Color, Quantity>, String> {
         for (color, amount) in spending {
             if *amount <= Quantity::zero() {
                 return Err("mana spending entries must be positive".into());
@@ -119,6 +167,16 @@ impl Game {
                 return Err("selected mana exceeds available pool".into());
             }
             available.subtract(amount);
+        }
+        Ok(remaining)
+    }
+
+    pub(super) fn validate_selected_mana_cost(
+        cost: &ManaCost,
+        spending: &BTreeMap<Color, Quantity>,
+    ) -> Result<(), String> {
+        let mut total = Quantity::zero();
+        for amount in spending.values() {
             total.add(amount);
         }
         let mut required = BTreeMap::<Color, Quantity>::new();
@@ -134,7 +192,7 @@ impl Game {
         {
             return Err("selected mana does not satisfy exact cost".into());
         }
-        Ok(remaining)
+        Ok(())
     }
 
     pub(super) fn spend_mana_step(&mut self, mut cast: Casting) -> Result<(), String> {
@@ -144,11 +202,17 @@ impl Game {
             .pending
             .take()
             .ok_or("missing spending input")?;
-        let Response::SpendMana { spending } = input.response else {
-            return Err("mana spending response/frame invariant".into());
+        let (spending, restricted) = match input.response {
+            Response::SpendMana { spending } => (spending, vec![]),
+            Response::SpendManaAllocated {
+                spending,
+                restricted,
+            } => (spending, restricted),
+            _ => return Err("mana spending response/frame invariant".into()),
         };
-        self.validate_spending(input.player, &spending)?;
+        self.validate_spending(input.player, &spending, &restricted)?;
         cast.spending = Some(spending);
+        cast.spending_restricted = restricted;
         if self.invocation_sacrifice(self.top()?).is_some() {
             self.state.rules.frame = Frame::SacrificeCost { cast };
             Ok(())
@@ -275,7 +339,7 @@ impl Game {
         }
         let life = phyrexian_life(&stack.hybrid_colors);
         if !self.state.rules.players[stack.controller.0 as usize].can_pay_life(&life)
-            || !self.can_pay(stack.controller, &cost)?
+            || !self.can_pay_announced(&stack, &cost)?
         {
             return Ok(AnnouncementPayment::Unpayable);
         }
@@ -285,11 +349,22 @@ impl Game {
                 .spending
                 .clone()
                 .ok_or("missing explicit mana spending")?;
-            self.selected_payment_pool(stack.controller, &cost, &spending)?;
+            let restricted = cast.spending_restricted.clone();
+            if let Err(error) =
+                self.validate_announced_allocation(&stack, &cost, &spending, &restricted)
+            {
+                if restricted.is_empty() {
+                    return Err(error);
+                }
+                // Departure during sacrifice selection can change which
+                // restrictions the current spell qualifies for.
+                return Ok(AnnouncementPayment::Unpayable);
+            }
             ProposedEvent::PayManaSelected {
                 player: stack.controller,
                 cost: cost.clone(),
                 spending,
+                restricted,
             }
         };
         if !matches!(&self.state.rules.frame, Frame::GraveyardGroup { tx } if matches!(&tx.finish, GroupFinish::Payment { .. }))

@@ -20,6 +20,7 @@ pub(super) fn lower(
             matches!(
                 step,
                 Step::AddMana {
+                    spend_restriction: None,
                     mana: SourceMana::Choice { .. },
                     ..
                 }

@@ -11,6 +11,8 @@ pub enum PlayerStatus {
 pub(super) struct PlayerLastKnown {
     pub(super) life: Quantity,
     pub(super) mana: BTreeMap<Color, Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) restricted_mana: Vec<RestrictedMana>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -325,6 +327,9 @@ impl Game {
         let last = PlayerLastKnown {
             life: self.state.rules.players[player.0 as usize].life.clone(),
             mana: self.state.rules.players[player.0 as usize].mana.clone(),
+            restricted_mana: self.state.rules.players[player.0 as usize]
+                .restricted_mana
+                .clone(),
         };
         self.state.rules.players[player.0 as usize].last_known = Some(last);
         self.expire_player_protection(player);

@@ -803,6 +803,7 @@ fn permanent_target_kernel_normal_target_requests_and_validation_preserve_querie
             sacrifices: vec![],
             origin: AnnouncementOrigin::Spell,
             spending: None,
+            spending_restricted: vec![],
             stack_id: f.spell.id,
             original_object: f.spell.source,
             prior_passes: vec![],

@@ -886,3 +886,9 @@ fn listed_mana_choice_offers_only_printed_colors_and_recovers() {
 
 #[path = "hybrid_filter_mana_tests.rs"]
 mod hybrid_filter_mana_tests;
+
+#[path = "mana_life_gain_tests.rs"]
+mod mana_life_gain_tests;
+
+#[path = "restricted_mana_tests.rs"]
+mod restricted_mana_tests;

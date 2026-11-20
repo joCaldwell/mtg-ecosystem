@@ -290,6 +290,7 @@ impl Game {
             sacrifices: vec![],
             origin: AnnouncementOrigin::Spell,
             spending: None,
+            spending_restricted: vec![],
             stack_id: id,
             original_object,
             prior_passes: self.state.rules.passes.clone(),
@@ -475,6 +476,7 @@ impl Game {
                     },
                     EventGroup::Occurrence {
                         proposed: ProposedEvent::AddMana {
+                            restriction: None,
                             player: input.player,
                             color,
                             amount: receipt.amount.clone(),

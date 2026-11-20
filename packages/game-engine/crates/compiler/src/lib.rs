@@ -79,6 +79,7 @@ mod hybrid_filter_mana;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
 mod land_entry_scry;
+mod land_reclamation;
 mod land_sacrifice_draw;
 mod library_order;
 #[cfg(test)]
@@ -88,6 +89,7 @@ mod library_selection;
 mod library_selection_tests;
 mod linked_hideaway;
 mod listed_mana;
+mod mana_life_gain;
 mod nonland_exile_life;
 mod normalization;
 mod opponent_count_entry;
@@ -105,6 +107,7 @@ mod phase1_sequences_tests;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
+mod restricted_mana;
 mod reveal_land_entry;
 mod saga;
 mod same_color_mana;
@@ -839,6 +842,12 @@ enum Step {
     AddMana {
         who: PlayerSelector,
         mana: SourceMana,
+        #[serde(
+            default,
+            rename = "restriction",
+            deserialize_with = "present_json_operand"
+        )]
+        spend_restriction: Option<serde_json::Value>,
     },
     Exile {
         what: serde_json::Value,
@@ -1194,6 +1203,14 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    AdditionalLandPlays {
+        #[serde(rename = "allowance")]
+        _allowance: serde_json::Value,
+    },
+    PlayPermission {
+        #[serde(rename = "permission")]
+        _permission: serde_json::Value,
+    },
     AsCascade {
         controller: serde_json::Value,
         choice: serde_json::Value,
@@ -1665,6 +1682,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     } else {
         read_abilities(&canonical_abilities)?
     };
+    let land_reclamation = land_reclamation::bound(&source, &shape, &result, &binding)?;
+    let restricted_mana = restricted_mana::lower(&source, &shape, &result, &binding)?;
+    let mana_life_gain = mana_life_gain::lower(&source, &shape, &result, &binding)?;
+    restricted_mana::reject_unbound(&abilities, restricted_mana.is_some())?;
     let mut opponent_entry_mana = opponent_count_entry::bind(
         &abilities,
         result.abilities.get(),
@@ -1784,11 +1805,12 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let keyword_removal_wipe = keyword_removal_wipe::lower(&source, &shape, &result, &binding)?;
     source_dies_nonland_destroy::bind(&source, &result, &binding)?;
-    let mut draw_land_allowance = if matches!(abilities.as_slice(), [Ability::ComposedSpell(_)]) {
-        None
-    } else {
-        draw_land_allowance::lower(&abilities, &result, &binding, &source)?
-    };
+    let mut draw_land_allowance =
+        if land_reclamation || matches!(abilities.as_slice(), [Ability::ComposedSpell(_)]) {
+            None
+        } else {
+            draw_land_allowance::lower(&abilities, &result, &binding, &source)?
+        };
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
         if basic_fetch.is_none() {
@@ -1926,6 +1948,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         .chain(opponent_land_mana)
         .chain(color_mana)
         .chain(granted_mana)
+        .chain(restricted_mana)
+        .chain(mana_life_gain)
         .collect();
     labels
         .mana
@@ -2083,7 +2107,15 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     modes: vec![],
                 });
             }
-            let remaining_abilities = if let Some(chapters) = &saga {
+            let remaining_abilities = if land_reclamation {
+                labels.statics.extend([0, 1]);
+                labels.triggered.push(2);
+                definition
+                    .static_abilities
+                    .extend(land_reclamation_statics());
+                definition.triggered.push(land_reclamation_trigger());
+                &[]
+            } else if let Some(chapters) = &saga {
                 for chapter in chapters {
                     for ability in chapter.abilities() {
                         labels.triggered.push(chapter.source_block);
@@ -3086,7 +3118,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     land_entry_scry::validate_binding(&definition, &shape, &binding)?;
-    controlled_land_entry::bind(&definition, &shape, &binding)?;
+    if !land_reclamation {
+        controlled_land_entry::bind(&definition, &shape, &binding)?;
+    }
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
     reveal_land_entry::validate_binding(&definition, &shape, &binding)?;
     checkland_entry::validate_binding(&definition, &shape, &binding)?;
@@ -6348,7 +6382,14 @@ fn lower_mana_ability(
     let [Sentence { steps, .. }] = effects else {
         return Err(unsupported("mana", "extra mana effects"));
     };
-    let [Step::AddMana { who, mana }] = steps.as_slice() else {
+    let [
+        Step::AddMana {
+            who,
+            mana,
+            spend_restriction: None,
+        },
+    ] = steps.as_slice()
+    else {
         return Err(unsupported("mana", "extra mana steps"));
     };
     let you = PlayerSelector {

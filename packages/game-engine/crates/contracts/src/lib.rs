@@ -36,6 +36,10 @@ mod distinct_permanent_colors;
 mod opponent_mana;
 pub use opponent_mana::opponent_land_mana_family;
 mod hybrid_filter_mana;
+mod mana_life_gain;
+mod mana_spend;
+pub use mana_life_gain::mana_life_gain_source;
+pub use mana_spend::{ManaSpendRestriction, RestrictedMana, restricted_mana_source};
 mod listed_mana_choice;
 mod pain_mana;
 pub use hybrid_filter_mana::{hybrid_filter_abilities, hybrid_filter_colors, hybrid_filter_source};
@@ -93,6 +97,10 @@ mod artifact_modal;
 mod controlled_phasing;
 pub use controlled_phasing::controller_window_instructions;
 mod controlled_land_entry;
+mod land_reclamation;
+pub use land_reclamation::{
+    land_reclamation_source, land_reclamation_statics, land_reclamation_trigger,
+};
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
@@ -407,6 +415,8 @@ pub enum Capability {
     SameColorManaV1,
     DisjointPainManaV1,
     HybridFilterManaV1,
+    ManaLifeGainV1,
+    RestrictedManaV1,
     SourceTapTriggerV1,
     ControllerCreaturePlusOneCounterReplacementV1,
     AttackTriggerV1,
@@ -532,6 +542,7 @@ pub enum Capability {
     LandEntryGainLifeV1,
     LandEntryScryV1,
     ControlledLandEntryV1,
+    LandReclamationV1,
     LandSacrificeDrawV1,
     CreatureDiesV1,
     SelfDiesV1,
@@ -1627,6 +1638,8 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    AdditionalLandPlay,
+    PlayLandsFromOwnGraveyard,
     KeepUnspentManaAsBlack,
     Bestow {
         cost: ManaCost,
@@ -1999,6 +2012,14 @@ pub struct PermanentActivationCosts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
+    RestrictedFixed {
+        symbols: Vec<Color>,
+        spend: ManaSpendRestriction,
+    },
+    FixedWithLifeGain {
+        symbols: Vec<Color>,
+        life: Quantity,
+    },
     HybridFilter {
         colors: [Color; 2],
     },
@@ -2841,6 +2862,12 @@ impl Definition {
         if hybrid_filter_colors(self).is_some() {
             set.insert(Capability::HybridFilterManaV1);
         }
+        if mana_spend::present(self) {
+            set.insert(Capability::RestrictedManaV1);
+        }
+        if mana_life_gain::present(self) {
+            set.extend([Capability::ManaLifeGainV1, Capability::LifeGainV1]);
+        }
         if disjoint_pain_mana_family(self) {
             set.extend([
                 Capability::DisjointPainManaV1,
@@ -3103,6 +3130,9 @@ impl Definition {
                 StaticEffect::GrantControllerLandsAllBasicTypes => {
                     Capability::ControllerLandBasicTypesV1
                 }
+                StaticEffect::AdditionalLandPlay | StaticEffect::PlayLandsFromOwnGraveyard => {
+                    Capability::LandReclamationV1
+                }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::EntersTappedUnlessPayLife { .. } => {
                     Capability::OptionalLifeLandEntryV1
@@ -3224,6 +3254,7 @@ impl Definition {
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
         land_entry_scry::validate(self)?;
+        land_reclamation::validate(self)?;
         controlled_land_entry::validate(self)?;
         other_land_entry::validate(self)?;
         opponent_count_entry::validate(self)?;
@@ -3673,6 +3704,8 @@ impl Definition {
         {
             return Err("unsupported complete opponent-land mana family".into());
         }
+        mana_life_gain::validate(self)?;
+        mana_spend::validate(self)?;
         let hybrid_filter = hybrid_filter_mana::validate(self)?;
         if self.mana_abilities.len() > 1
             || self
@@ -4275,6 +4308,7 @@ impl Definition {
                             | Instruction::GrantHandCastCascade { .. }
                             | Instruction::Hideaway { .. }
                             | Instruction::Scry { .. }
+                            | Instruction::MillCards { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }
@@ -4310,6 +4344,10 @@ impl Definition {
             ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && a.effect != StaticEffect::UnlimitedControllerHandSize
+                && !matches!(
+                    a.effect,
+                    StaticEffect::AdditionalLandPlay | StaticEffect::PlayLandsFromOwnGraveyard
+                )
                 && !matches!(
                     a.effect,
                     StaticEffect::ReduceMaximumHandSize { .. }
@@ -7743,6 +7781,8 @@ pub fn catalog_schema() -> serde_json::Value {
     distinct_permanent_colors::extend_schema(&mut schema);
     pain_mana::extend_schema(&mut schema);
     hybrid_filter_mana::extend_schema(&mut schema);
+    mana_life_gain::extend_schema(&mut schema);
+    mana_spend::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
     same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
@@ -7817,6 +7857,7 @@ pub fn catalog_schema() -> serde_json::Value {
     land_entry_gain_life::extend_schema(&mut schema);
     land_entry_scry::extend_schema(&mut schema);
     controlled_land_entry::extend_schema(&mut schema);
+    land_reclamation::extend_schema(&mut schema);
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
@@ -8096,6 +8137,7 @@ mod tests {
             LandEntryGainLifeV1,
             LandEntryScryV1,
             ControlledLandEntryV1,
+            LandReclamationV1,
             LandSacrificeDrawV1,
             CreatureDiesV1,
             CastEnchantmentV1,
@@ -8199,6 +8241,8 @@ mod tests {
             SameColorManaV1,
             DisjointPainManaV1,
             HybridFilterManaV1,
+            ManaLifeGainV1,
+            RestrictedManaV1,
             SourceTapTriggerV1,
             ControllerCreaturePlusOneCounterReplacementV1,
             AttackTriggerV1,
@@ -8614,6 +8658,7 @@ mod tests {
         definitions.push(land_entry_gain_life::witness());
         definitions.push(land_entry_scry::witness());
         definitions.push(controlled_land_entry::witness());
+        definitions.push(land_reclamation::witness());
         definitions.push(entry_copy::registry_witness());
         definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());
@@ -8705,6 +8750,8 @@ mod tests {
         definitions.push(opponent_mana::witness());
         definitions.push(pain_mana::witness());
         definitions.push(hybrid_filter_mana::witness());
+        definitions.push(mana_life_gain::witness());
+        definitions.push(mana_spend::witness());
         definitions.push(listed_mana_choice::witness());
         definitions.push(source_tap_damage::witness());
         definitions.push(ramos_m1_tests::ramos());

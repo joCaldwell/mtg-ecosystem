@@ -77,6 +77,7 @@ pub(super) fn bind(
     };
     let [
         Step::AddMana {
+            spend_restriction: None,
             mana: SourceMana::Choice { options },
             ..
         },

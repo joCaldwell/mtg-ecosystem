@@ -147,6 +147,7 @@ fn faeburrow_elder_distinct_permanent_colors_fund_paid_spell() {
                         player,
                         color,
                         amount,
+                        restriction: None,
                     },
             } if *source == elder && *player == ACTIVE && *amount == Quantity::from(1) => {
                 Some(*color)

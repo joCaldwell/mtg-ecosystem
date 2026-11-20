@@ -630,6 +630,18 @@ impl Game {
                 }
             };
         }
+        if let EntryOrigin::LandPlay { player, .. } = &origin {
+            let mut validation = self.fork();
+            validation.state.rules.frame = Frame::Priority;
+            if validation
+                .validate_land_play(*player, objects[0].card)
+                .is_err()
+            {
+                self.state.rules.pending = None;
+                self.state.rules.frame = Frame::Priority;
+                return Ok(());
+            }
+        }
         if let EntryOrigin::Cascade { progress } = origin
             && !self.cascade_land_available(&progress, objects[0])?
         {
