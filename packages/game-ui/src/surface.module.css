@@ -17,6 +17,9 @@
   --game-selection: rgb(106 163 255 / .08);
   --game-selection-line: rgb(106 163 255 / .4);
   --game-ink: #000;
+  --game-mat-top: #191c17;
+  --game-mat-base: #121611;
+  --game-mat-edge: #101210;
   --game-card: #111;
   --game-card-edge: rgb(255 255 255 / .16);
   --game-radius: 0.375rem;

@@ -7,7 +7,7 @@ import { relative } from 'node:path';
 
 // Configured by the local operator, never derived from a credential file.
 const upstream = process.env.MTG_CLIENT_UPSTREAM ? upstreamOrigin(process.env.MTG_CLIENT_UPSTREAM) : null;
-const csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+const csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://cards.scryfall.io; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const headers = { 'Content-Security-Policy': csp, 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' };
 function guard(port: number, production: boolean): Connect.NextHandleFunction {
   return (req, res, next) => {

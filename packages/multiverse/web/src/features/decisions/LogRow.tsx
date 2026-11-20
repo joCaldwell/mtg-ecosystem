@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { LogEntry } from "../../api/client.ts";
 import { ago } from "../../domain/time.ts";
 import { CardRef, InlineText } from "../../mtg/index.ts";
-import { Button, Text } from "../../ui/index.ts";
+import { Button } from "../../ui/index.ts";
 import { canUndo, documentEditLabel } from "./logText.ts";
 import styles from "./LogRow.module.css";
 
@@ -56,7 +56,12 @@ function cardsPhrase(cards: LogCard[]): ReactNode {
 
 /** Everything after the leading word. */
 function describe(entry: LogEntry): ReactNode {
-  const { kind, cards, summary } = entry;
+  const { kind, cards } = entry;
+  // Historical generated summaries also feed agent-facing records. Remove
+  // their version markers here and keep optional authored notes as supplied.
+  const summary = entry.summary
+    .replace(/^(Imported a list) at revision \d+(?=: \+\d+\/−\d+(?:, \d+ quantity change\(s\))?(?:, \d+ role change\(s\))?$)/, "$1")
+    .replace(/^(Forked from "[^\n]*") at its revision \d+(?=(?:, with \d+ deck memor(?:y|ies))?$)/, "$1");
   if (kind === "import") return summary || "a list";
   // Summaries are sentences of their own, so they follow a dash, not the verb directly.
   if (kind === "undo") return `— ${summary.replace(/^Undo of #\d+:\s*/, "")}`;
@@ -108,9 +113,6 @@ export function LogRow({
 
   return (
     <div className={styles.row}>
-      <Text mono size="xs" tone="faint" className={styles.rev}>
-        r{entry.revision}
-      </Text>
       <div className={styles.what}>
         <span className={styles[lead.tone]}>{lead.word}</span> <span className={undone ? styles.dim : undefined}>{describe(entry)}</span>
         <span

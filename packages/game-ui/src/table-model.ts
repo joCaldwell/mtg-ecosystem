@@ -6,6 +6,8 @@ export interface CardView {
   readonly printedType: string | null;
   readonly printedMana: string | null;
   readonly oracleText: string | null;
+  readonly printImage?: string;
+  readonly tapped?: boolean;
   readonly sourceIdentity: string;
   readonly zoneLabel: string;
   readonly currentFacts: readonly { readonly label: string; readonly value: string }[];

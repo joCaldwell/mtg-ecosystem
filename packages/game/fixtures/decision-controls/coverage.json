@@ -27,7 +27,7 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "756f535b45f94f2eb54ee7a98281295830233e7cf6e0a364af3b8ef53da28dca"
+      "sha256": "7e1a82af8b0a11945e511ff9dc2fc4defd459a7419980e4ace687b7e2729fd4f"
     },
     {
       "path": "docs/game-engine-current.md",
@@ -43,7 +43,7 @@
     },
     {
       "path": "packages/game/web/src/decisions/controls.ts",
-      "sha256": "05d670f394171c35d049fa08e32f42a685c899fae09c86df7f0b2d4567b6e969"
+      "sha256": "2daaa3735833d5aaacd4734400434dee3fccafaac49d5fb1406f9db54476687c"
     },
     {
       "path": "packages/game/web/src/decisions/structured-controls.ts",
@@ -51,19 +51,19 @@
     },
     {
       "path": "packages/game/web/src/features/decisions/LocalControls.tsx",
-      "sha256": "cb210aa167e209ed81697f6699a4007e66fcf315862ab06d6c8c9a733140bee9"
+      "sha256": "a02a9c186efa063fe32b505a2f1f8df742c4c5bbf01dc61a24ef0744cb604a1b"
     },
     {
       "path": "packages/game/web/src/features/decisions/DecisionPanel.tsx",
-      "sha256": "71911cbdfdfbe88b6a2509a56806af027ff8fe93b971490a765d6b498be754d7"
+      "sha256": "a32c020951c2873ea3009e331ab3c7267a101d14511d18f188247faa00a27d4a"
     },
     {
       "path": "packages/game/web/src/features/decisions/DecisionGallery.tsx",
-      "sha256": "4180331510676b5f6523171973351e53bbe6f2efd214d878b0a491ab8d0515cb"
+      "sha256": "4f81eb02f3cb12c0b1e8db4dc56b814d31528f772f89e979b4617ce4fb359302"
     },
     {
       "path": "packages/game/web/src/features/decisions/decisions.module.css",
-      "sha256": "651128cc16f3ed1f8e584dccc79eda5d0d5f490fc557d4c957fc77e0847583ab"
+      "sha256": "69c036ab494f43c1cc62891cf330fb691c8ad7d33d98d18f60fe1ced482db722"
     },
     {
       "path": "packages/game/web/src/preview/fixture.ts",
@@ -87,7 +87,7 @@
     },
     {
       "path": "packages/game/tests/browser/decision-controls.spec.ts",
-      "sha256": "1f922191d9152fdac2b9a56415d3f0d4791fecc0c4b4636d63fae29d3a182e35"
+      "sha256": "ba6bc15dc31f80d5bf950d953cc4f61a34d767419357e74cc7484a946ab6da77"
     },
     {
       "path": "packages/game/fixtures/foundations-opening/provenance.json",

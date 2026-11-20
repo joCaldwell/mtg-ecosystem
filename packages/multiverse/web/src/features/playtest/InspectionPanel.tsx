@@ -378,8 +378,7 @@ export function InspectionPanel({
         <section className={styles.section}>
           <h3>Observation</h3>
           <p className={styles.muted}>
-            About {draftCard ? draftCard.name : "the whole deck"} · tested r
-            {c.ui.draft.deck_revision ?? s.deck_revision}
+            About {draftCard ? draftCard.name : "the whole deck"}
           </p>
           {c.ui.draft.text && c.ui.draft.oracle_id !== target && (
             <Button
@@ -425,7 +424,7 @@ export function InspectionPanel({
               <RichText text={m.text} />
               <small>
                 {m.author_display ?? m.author} ·{" "}
-                {m.deck_revision === null ? "global" : `r${m.deck_revision}`} ·
+                {m.deck_revision === null && "Global · "}
                 #{m.id}
               </small>
             </div>

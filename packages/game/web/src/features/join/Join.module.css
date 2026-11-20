@@ -1,15 +1,29 @@
-.join { max-width: 780px; margin: 0 auto; padding: var(--space-6); }
-.intro { max-width: 620px; }.intro h1 { font-size: 1.5rem; margin: var(--space-3) 0 var(--space-4); }.intro p { color: var(--soft); }
-.import { padding: var(--space-5) 0; margin-top: var(--space-5); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.import label { display: block; font-weight: 600; margin-bottom: var(--space-3); }.import input { width: 100%; max-width: 100%; color: var(--muted); }
-.import input::file-selector-button { font: inherit; background: var(--accent); color: var(--ink); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); margin-right: var(--space-3); cursor: pointer; }
-.import p, .note { font-size: var(--text-small); color: var(--muted); }.import p { max-width: 560px; margin-bottom: 0; }
-.state { margin: var(--space-5) 0; }.state h2 { font-size: var(--text-title); margin: 0 0 var(--space-2); }.state p { color: var(--soft); }
-.actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); }.note { margin-top: var(--space-6); max-width: 600px; }
-@media (max-width: 719px) { .join { padding: var(--space-5) var(--space-4); }.import input::file-selector-button { min-height: 44px; } }
-
-.import input { font-size: max(1rem, 1em); }
-@media (pointer: coarse) { .import input::file-selector-button { min-block-size: 3rem; } }
-
+.join { max-inline-size: 56rem; margin-inline: auto; padding: clamp(1rem, 5vw, 4rem); }
+.join h1 { font-size: clamp(1.5rem, 1rem + 2.4vw, 2.875rem); margin: 0 0 var(--space-5); letter-spacing: -.04em; }
+.import {
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: radial-gradient(ellipse at 85% 0%, rgb(124 109 63 / .17), transparent 70%), var(--surface);
+}
+.import label { display: block; font-weight: 600; margin-block-end: var(--space-3); }
+.import input { inline-size: 100%; color: var(--muted); font-size: max(1rem, 1em); }
+.import input::file-selector-button {
+  font: inherit;
+  background: var(--accent);
+  color: var(--ink);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  margin-inline-end: var(--space-3);
+  cursor: pointer;
+}
+.import p { font-size: var(--text-small); color: var(--muted); margin-block-end: 0; }
+.state { margin-block: var(--space-5); }
+.state h2 { font-size: var(--text-title); margin: 0 0 var(--space-2); }
+.state p { color: var(--soft); max-inline-size: 60ch; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); }
 .actions > a { display: inline-flex; align-items: center; min-block-size: 1.5rem; }
-@media (pointer: coarse) { .actions > a { min-block-size: 2.75rem; } }
+@media (pointer: coarse), (max-width: 719px) {
+  .import input::file-selector-button, .actions > a { min-block-size: 2.75rem; }
+}

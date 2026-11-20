@@ -55,7 +55,7 @@ export function decisionSurface(request: PlayerRequest, labels: readonly ObjectL
     status: 'supported', control: { kind: 'selection', title, description: 'Choose from the supplied handles. Core must validate the complete response.', options: options(handles, labels), minimum, maximum, ordered },
   });
   switch (request.request) {
-    case 'mulligan': return choice('Opening hand', `Mulligans taken: ${request.mulligans_taken}. Cards to bottom if taking this mulligan: ${request.bottom_if_mulligan}.`,
+    case 'mulligan': return choice('Opening hand', `Mulligans taken: ${request.mulligans_taken} · Cards to bottom after a mulligan: ${request.bottom_if_mulligan}`,
       request.can_mulligan ? [['keep', 'Keep hand'], ['mulligan', 'Take mulligan']] : [['keep', 'Keep hand']]);
     case 'bottom_opening': return selection('Order cards for the bottom of your library', request.candidates, request.count, request.count, true);
     case 'discard': case 'resolve_discard': return selection('Choose cards to discard', request.candidates, request.count, request.count);

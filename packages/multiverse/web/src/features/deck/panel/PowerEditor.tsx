@@ -44,7 +44,7 @@ export function PowerEditor({ kind, power, revision, onClose }: {
     <Button variant="primary" type="submit" form={formId} disabled={busy}>{busy ? "Saving…" : target ? "Save target" : "Save assessment"}</Button>
   </>}>
     <form id={formId} method="post" onSubmit={save} className={styles.form}>
-      <Text as="p" tone="muted">{target ? "Describe the experience you want to build toward. Leave undecided fields unknown." : `Describe the list at r${assessedRevision}. Leave uncertain fields unknown and explain your evidence.`}</Text>
+      <Text as="p" tone="muted">{target ? "Describe the experience you want to build toward. Leave undecided fields unknown." : "Describe the deck as you reviewed it. Leave uncertain fields unknown and explain your evidence."}</Text>
       <div className={styles.fields}>
         {fields.map(field => <Field key={field.key} label={field.label} hint={field.options.find(o => o.value === profile[field.key])?.hint ?? voice("Unknown until you assess it.", "Unknown until you or an agent assesses it.")}>
           <Select options={[{ value: "", label: "Unknown / undecided" }, ...field.options.map(o => ({ value: o.value, label: o.label }))]} value={profile[field.key] ?? ""} onChange={value => setProfile({ ...profile, [field.key]: value || null })} />

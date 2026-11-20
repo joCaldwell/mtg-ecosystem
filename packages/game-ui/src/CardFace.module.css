@@ -1,12 +1,69 @@
-.card { width: 160px; min-height: 174px; flex: 0 0 160px; display: flex; flex-direction: column; align-items: stretch; gap: var(--game-space-2); padding: var(--game-space-3); border: 1px solid var(--game-card-edge); border-radius: var(--game-radius); background: var(--game-card); color: var(--game-text); text-align: left; cursor: pointer; transition: background var(--game-fast), border-color var(--game-fast); }
-.card:hover { background: var(--game-raised); border-color: var(--game-accent); }
-.card[aria-pressed='true'] { border-color: var(--game-accent); background: var(--game-selection); box-shadow: inset 0 2px var(--game-accent); }
-.heading { font-size: var(--game-text-body); font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
-.mana { font: var(--game-text-small)/1.4 var(--game-mono); color: var(--game-muted); }
-.text { font-size: var(--game-text-body); line-height: 1.55; color: var(--game-soft); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex: 1; white-space: pre-line; }
-.type { font-size: var(--game-text-small); color: var(--game-muted); border-top: 1px solid var(--game-line); padding-top: var(--game-space-2); }
-.inspect { display: flex; justify-content: space-between; gap: var(--game-space-2); font-size: var(--game-text-small); color: var(--game-muted); }
-.card:hover .inspect, .card[aria-pressed='true'] .inspect { color: var(--game-accent); }
-.compact { width: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: var(--game-space-1) var(--game-space-2); flex-basis: auto; }
-.compact .text, .compact .inspect { display: none; }.compact .type { border: 0; padding: 0; }
-@container game-table (min-width: 112.5rem) { .card:not(.compact) { width: 190px; flex-basis: 190px; min-height: 208px; } }
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  inline-size: var(--game-card-width, 9rem);
+  min-block-size: 9rem;
+  aspect-ratio: 5 / 7;
+  gap: var(--game-space-2);
+  padding: var(--game-space-3);
+  border: 1px solid var(--game-card-edge);
+  border-radius: var(--game-radius);
+  background: linear-gradient(150deg, var(--game-raised), transparent 75%), var(--game-card);
+  color: var(--game-text);
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--game-fast), border-color var(--game-fast), box-shadow var(--game-fast);
+}
+.card:hover { border-color: var(--game-accent); }
+.card[aria-pressed='true'] { border-color: var(--game-accent); box-shadow: 0 0 0 2px var(--game-accent); }
+.heading { font-size: var(--game-text-body); font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
+.mana { font: var(--game-text-small)/1.4 var(--game-mono); color: var(--game-soft); }
+.type { padding-block-end: var(--game-space-2); border-bottom: 1px solid var(--game-line); color: var(--game-muted); font-size: var(--game-text-small); }
+.text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: clip;
+  color: var(--game-soft);
+  font-size: var(--game-text-small);
+  white-space: pre-line;
+}
+.print {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+  opacity: 0;
+}
+.print[data-loaded] { opacity: 1; }
+.card:has(.print[data-loaded]) :is(.heading, .mana, .type, .text) {
+  position: absolute;
+  visibility: hidden;
+}
+.tapped {
+  position: relative;
+  align-self: start;
+  margin-block-start: auto;
+  padding: 0 var(--game-space-2);
+  border: 1px solid var(--game-control-line);
+  border-radius: var(--game-radius);
+  background: var(--game-surface);
+  color: var(--game-soft);
+  font-size: var(--game-text-small);
+}
+.compact {
+  inline-size: 100%;
+  min-block-size: 2.5rem;
+  aspect-ratio: auto;
+  gap: var(--game-space-1);
+  background: var(--game-card);
+}
+.compact .type { padding: 0; border: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .print { transition: opacity 160ms ease-out; }
+}
