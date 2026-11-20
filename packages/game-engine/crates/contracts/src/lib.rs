@@ -93,6 +93,7 @@ mod targeted_game_loss;
 pub use artifact_modal::BoundArtifactMode;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
+mod controller_creature_pump;
 mod controller_library;
 mod counter_spell_controller_mill;
 pub mod creature_planeswalker_return;
@@ -3413,6 +3414,7 @@ impl Definition {
         basic_landwalk::validate_definition(self)?;
         creature_planeswalker_return::validate(self)?;
         fixed_creature_damage::validate(self, fixed_activations)?;
+        controller_creature_pump::validate(self)?;
         cycling::validate_spell_source(self)?;
         modal_targets::validate_definition(self)?;
         graveyard_shuffle::validate_definition(self)?;
@@ -4784,8 +4786,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if fixed_mill::has_mill(p) && !fixed_mill_program(p) {
         return Err("unsupported complete fixed mill program".into());
     }
-    // Controller selectors are reserved for complete ordinary keyword families.
-    // Shared set decoding must not widen movement, damage, pump or nested routes.
+    // Controller selectors require complete ordinary temporary-effect families.
     fn controller_set(p: &SpellProgram) -> bool {
         p.instructions.iter().any(|i| match i {
             Instruction::MoveSet { set, .. }
@@ -4812,7 +4813,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             "controlled permanent targets require complete temporary keyword program".into(),
         );
     }
-    if controller_set(p) && temporary_set_keyword_program(p).is_none() {
+    if controller_set(p)
+        && temporary_set_keyword_program(p).is_none()
+        && !controller_creature_pump::program(p)
+    {
         return Err("controller set requires complete temporary keyword family".into());
     }
 
@@ -7204,9 +7208,10 @@ pub fn catalog_schema() -> serde_json::Value {
         {"required":["set"],"properties":{"set":{"enum":[ObjectSet::ControllerCreatures,ObjectSet::ControllerPermanents]}}},
         {"required":["sets"],"properties":{"sets":{"contains":{"enum":[ObjectSet::ControllerCreatures,ObjectSet::ControllerPermanents]}}}}
     ]});
+    let controller_pump_program = controller_creature_pump::extend_schema(&mut schema);
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"anyOf":[set_grant_program,{"required":["instructions"],"properties":{"instructions":{"contains":controller_set}}}]},
-        "then":{"anyOf":[set_family_program,{"$ref":"#/$defs/CommanderModalKeywordChild"}]}
+        "then":{"anyOf":[set_family_program,{"$ref":"#/$defs/CommanderModalKeywordChild"},controller_pump_program]}
     }));
     // Recursion fences every mode, trigger and activation as well as top-level spells.
     schema["$defs"]["KeywordGrantFreeProgram"]["properties"]["instructions"]["items"]["not"]["properties"]

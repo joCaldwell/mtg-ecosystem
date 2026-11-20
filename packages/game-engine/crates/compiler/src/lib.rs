@@ -28,6 +28,7 @@ mod controlled_creature_spell_copy;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
+mod controller_creature_pump;
 mod controller_library;
 #[cfg(test)]
 mod controller_scry_tests;
@@ -2855,6 +2856,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             result.abilities.get(),
         )?;
     }
+    controller_creature_pump::bind(&definition, &shape, &binding, &result)?;
     definition.capabilities = definition.requirements();
     // The commander choice requires all three source labels at admission.
     // Its shape and binding graph were checked before lowering.

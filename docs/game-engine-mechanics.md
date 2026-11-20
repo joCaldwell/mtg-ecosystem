@@ -284,8 +284,8 @@ same family. Forced opponent sacrifices choose in APNAP order with earlier choic
 visible, then move simultaneously. A player with no candidate sacrifices nothing.
 
 Board-wide sets include granted keywords at execution; destruction/exile/bounce
-and all-recipient damage commit atomically. Temporary P/T sets capture recipients,
-excluding later entrants. Counts use typed outcomes, including exile-replaced
+and all-recipient damage commit atomically. Temporary P/T sets, including fixed
+pumps for your creatures, capture recipients at resolution. Counts use typed outcomes, including exile-replaced
 but excluding prevented destruction. Anger-style turn-long replacement covers
 only creatures actually dealt its damage, including later sacrifices/zero-toughness
 moves: exile causes no death. Indestructible prevents destruction before replacement;
