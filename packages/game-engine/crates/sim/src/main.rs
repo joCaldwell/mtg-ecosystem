@@ -21,6 +21,7 @@ mod combat_games;
 mod commander_games;
 mod damage_library_games;
 mod damage_life_games;
+mod deck_analytics;
 #[cfg(all(test, feature = "diagnostic-allocations"))]
 mod diagnostic_allocations;
 mod effects_games;
