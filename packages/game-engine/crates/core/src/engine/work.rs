@@ -64,6 +64,7 @@ impl Work {
 // domain exactly as before; later units reuse it without changing row counts.
 #[derive(Default)]
 struct WorkCache {
+    projection: Option<visibility::ProjectionIndex>,
     last_object: Option<CardId>,
     effects: Option<Vec<EffectKey>>,
     triggers: Option<Vec<TriggerId>>,
@@ -75,6 +76,10 @@ struct WorkCache {
     entry_candidates: Option<Vec<ObjectId>>,
 }
 impl WorkCache {
+    fn projection(&mut self, game: &Game) -> &visibility::ProjectionIndex {
+        self.projection
+            .get_or_insert_with(|| game.projection_index())
+    }
     fn next_object<'a>(&mut self, game: &'a Game) -> Option<&'a Object> {
         use std::ops::Bound::{Excluded, Unbounded};
         let next = match self.last_object {
@@ -406,13 +411,13 @@ impl Game {
                 });
             }
             b.view.players.push(
-                self.visible_player(PlayerId(cursor as u8))
+                self.visible_player_indexed(PlayerId(cursor as u8), cache.projection(self))
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         } else if cursor < 4 + self.state.rules.objects.len() {
             if let Some(object) = cache.next_object(self)
                 && let Some(visible) = self
-                    .visible_object(viewer, object)
+                    .visible_object_indexed(viewer, object, cache.projection(self))
                     .map_err(|_| QueryRejection::Invariant)?
             {
                 if let Some(PlayerRequest::HandCast { candidates, .. }) = &mut b.decision

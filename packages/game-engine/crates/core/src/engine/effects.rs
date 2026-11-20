@@ -2440,7 +2440,9 @@ pub enum VisibleEffect {
     },
 }
 impl Game {
-    pub(super) fn refresh_effect_handles(&mut self) -> Result<(), String> {
+    /// Returns the live keys it published handles for. They depend on rules
+    /// state alone, so one publication reuses them for every viewer.
+    pub(super) fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String> {
         let keys = self.live_effect_keys();
         // A printed keyword is already on the public creature. Only a pending
         // damage occurrence needs a command handle for the affected controller.
@@ -2498,7 +2500,7 @@ impl Game {
                 }
             }
         }
-        Ok(())
+        Ok(keys)
     }
     pub(super) fn effect_handle(
         &self,
@@ -2740,9 +2742,17 @@ impl Game {
             }
         })
     }
+    #[cfg(test)]
     pub(super) fn visible_effects(&self, viewer: PlayerId) -> Result<Vec<VisibleEffect>, String> {
-        let mut effects = self
-            .live_effect_keys()
+        self.visible_effects_from(viewer, &self.live_effect_keys())
+    }
+    /// `keys` are `live_effect_keys()` of this unchanged rules state.
+    pub(super) fn visible_effects_from(
+        &self,
+        viewer: PlayerId,
+        keys: &[EffectKey],
+    ) -> Result<Vec<VisibleEffect>, String> {
+        let mut effects = keys
             .iter()
             .map(|key| self.visible_effect(viewer, key))
             .collect::<Result<Vec<_>, _>>()?;

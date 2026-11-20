@@ -33,6 +33,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             config: game.prepared.config.clone(),
             profile_digest: game.prepared.profile_digest.clone(),
         }),
+        definition_index: Arc::clone(&game.definition_index),
         state: game.state.clone(),
         trace: game.trace.clone(),
         executor: Arc::new(()),

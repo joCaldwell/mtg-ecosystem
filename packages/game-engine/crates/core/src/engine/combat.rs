@@ -630,14 +630,11 @@ impl Game {
             .map(|o| o.id)
             .collect::<Vec<_>>();
         let mut occurrences = self.completed_sagas()?;
-        for o in self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| self.is_battlefield_creature(o.id))
-        {
-            let reason = self.creature_sba_reason(o.id)?;
+        // Nothing changes during this sweep: index the static sources once.
+        // A reason exists only for a battlefield creature.
+        let sources = self.static_source_index();
+        for o in self.state.rules.objects.values() {
+            let reason = self.creature_sba_reason_with_sources(o.id, Some(&sources))?;
             if let Some(reason) = reason {
                 occurrences.push(ProposedEvent::StateBasedGraveyard {
                     object: o.id,
@@ -773,17 +770,31 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<Option<CreatureLossReason>, String> {
-        if !self.is_battlefield_creature(object) {
+        self.creature_sba_reason_with_sources(object, None)
+    }
+    fn creature_sba_reason_with_sources(
+        &self,
+        object: ObjectId,
+        sources: Option<&[CardId]>,
+    ) -> Result<Option<CreatureLossReason>, String> {
+        // One derivation decides "battlefield creature" and supplies toughness.
+        let Ok(o) = self.current(object) else {
+            return Ok(None);
+        };
+        if !o.present_on_battlefield() {
             return Ok(None);
         }
-        let o = self.current(object)?;
-        let toughness = self
-            .characteristics(object)?
-            .toughness
-            .ok_or("missing toughness")?;
+        let characteristics = match self.characteristics_with_sources(object, sources) {
+            Ok(characteristics) if characteristics.kind == CardKind::Creature => characteristics,
+            _ => return Ok(None),
+        };
+        let toughness = characteristics.toughness.ok_or("missing toughness")?;
         let reason = if toughness <= Quantity::zero() {
             Some(CreatureLossReason::ZeroToughness)
-        } else if self.has_keyword(object, KeywordAbility::Indestructible) {
+        } else if self
+            .current_keywords_with_sources(object, sources)
+            .contains(&KeywordAbility::Indestructible)
+        {
             // CR 702.12b/704.5g-h: ignore destructive SBAs entirely.
             None
         } else if o.marked_damage >= toughness {
