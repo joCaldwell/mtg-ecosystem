@@ -106,6 +106,53 @@ fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::D
         .find(|d| d.oracle_id == id)
         .ok_or_else(|| format!("public definition missing {id}"))
 }
+// One distinct card per color. Reassign flexible cards when a later slot
+// has no other candidate. The search depth is bounded by the five colors.
+fn colored_library_choices(
+    colors: &[Color],
+    candidates: &[mtg_core::ColoredCardCandidate],
+) -> Vec<mtg_core::ColoredCardAssignment> {
+    fn assign(
+        slot: usize,
+        colors: &[Color],
+        candidates: &[mtg_core::ColoredCardCandidate],
+        owners: &mut [Option<usize>],
+        seen: &mut [bool],
+    ) -> bool {
+        for (index, card) in candidates.iter().enumerate() {
+            if seen[index] || !card.slots.contains(&colors[slot]) {
+                continue;
+            }
+            seen[index] = true;
+            if owners[index].is_none_or(|prior| assign(prior, colors, candidates, owners, seen)) {
+                owners[index] = Some(slot);
+                return true;
+            }
+        }
+        false
+    }
+    let mut owners = vec![None; candidates.len()];
+    for slot in 0..colors.len() {
+        assign(
+            slot,
+            colors,
+            candidates,
+            &mut owners,
+            &mut vec![false; candidates.len()],
+        );
+    }
+    colors
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, color)| {
+            let card = owners.iter().position(|owner| *owner == Some(slot))?;
+            Some(mtg_core::ColoredCardAssignment {
+                slot: *color,
+                handle: candidates[card].handle.clone(),
+            })
+        })
+        .collect()
+}
 struct Strategy<'a> {
     catalog: &'a Catalog,
     policy: Policy,
@@ -211,8 +258,10 @@ impl Strategy<'_> {
                         .ok_or("empty revealed land partition")?,
                 }
             }
-            PlayerRequest::ColoredSearch { .. } => PlayerResponse::ColoredSearch {
-                assignments: vec![],
+            PlayerRequest::ColoredSearch {
+                colors, candidates, ..
+            } => PlayerResponse::ColoredSearch {
+                assignments: colored_library_choices(colors, candidates),
             },
             PlayerRequest::SearchLands {
                 maximum,

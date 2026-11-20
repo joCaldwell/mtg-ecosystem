@@ -3369,4 +3369,34 @@ fn match_policy_partitions_only_offered_library_handles() {
             remainder: handles[1..].to_vec(),
         }
     );
+    let candidate = |handle: ObjectHandle, slots: Vec<Color>| mtg_core::ColoredCardCandidate {
+        handle,
+        slots,
+        oracle_id: "permitted".into(),
+    };
+    obs.decision = Some(PlayerRequest::ColoredSearch {
+        token: mtg_core::DecisionToken("colored".into()),
+        player: obs.view.viewer,
+        colors: vec![Color::U, Color::G],
+        library: vec![],
+        candidates: vec![
+            candidate(handles[0].clone(), vec![Color::U, Color::G]),
+            candidate(handles[1].clone(), vec![Color::U]),
+        ],
+    });
+    assert_eq!(
+        strategy.choose(&obs).unwrap(),
+        PlayerResponse::ColoredSearch {
+            assignments: vec![
+                mtg_core::ColoredCardAssignment {
+                    slot: Color::U,
+                    handle: handles[1].clone()
+                },
+                mtg_core::ColoredCardAssignment {
+                    slot: Color::G,
+                    handle: handles[0].clone()
+                }
+            ],
+        }
+    );
 }
