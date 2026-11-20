@@ -969,3 +969,41 @@ impl Game {
                     source_block: b, ..
                 }
                 | Instruction::RevealAndCast { source_block: b }
+                | Instruction::OptionalShuffleLibrary { source_block: b },
+            ) => {
+                *player == frame.spell.controller
+                    && source_block == b
+                    && (*index as usize)
+                        < self
+                            .state
+                            .rules
+                            .libraries
+                            .get(player)
+                            .map_or(1, Vec::len)
+                            .max(1)
+            }
+            (
+                ResolutionChoice::OptionalRecursion {
+                    player,
+                    target,
+                    source_block,
+                },
+                Instruction::ReturnOwnGraveyardCreatureToHand {
+                    target_slot,
+                    optional: true,
+                    source_block: b,
+                }
+                | Instruction::ReturnOwnGraveyardCardToHand {
+                    target_slot,
+                    optional: true,
+                    source_block: b,
+                },
+            ) => {
+                *player == frame.spell.controller
+                    && source_block == b
+                    && frame.spell.targets.get(*target_slot as usize) == Some(target)
+            }
+            _ => false,
+        }
+    }
+}

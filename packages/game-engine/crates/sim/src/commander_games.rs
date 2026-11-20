@@ -117,6 +117,7 @@ impl Strategy {
             | PlayerRequest::ColoredSearch { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::CascadeLandEntry { .. }
+            | PlayerRequest::ChooseOpponent { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
