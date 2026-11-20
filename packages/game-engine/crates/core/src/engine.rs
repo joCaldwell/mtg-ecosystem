@@ -92,6 +92,7 @@ mod phase1_sequences_tests;
 mod predefined_token_templates;
 mod proliferate;
 mod resolution_payment;
+mod target_color;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
 mod entry_copy;
@@ -676,6 +677,13 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn has_target_color_set(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::TargetColorSetV1))
+    }
+
     fn has_nonland_color_grant(&self) -> bool {
         self.catalog.definitions.iter().any(|d| {
             d.capabilities
@@ -1367,6 +1375,9 @@ pub enum Response {
     OptionalEffect {
         perform: bool,
     },
+    ChooseColor {
+        color: Color,
+    },
     Proliferate {
         object: ObjectId,
         include: bool,
@@ -1634,6 +1645,11 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
     },
+    ChooseColor {
+        decision_id: u64,
+        player: PlayerId,
+        target: ObjectId,
+    },
     Proliferate {
         decision_id: u64,
         player: PlayerId,
@@ -1811,6 +1827,7 @@ impl Request {
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
+            | Self::ChooseColor { decision_id, .. }
             | Self::Proliferate { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
@@ -1866,6 +1883,7 @@ impl Request {
             | Self::SearchLandBattlefield { player, .. }
             | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
+            | Self::ChooseColor { player, .. }
             | Self::Proliferate { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
@@ -2684,6 +2702,7 @@ pub struct Game {
     catalog_has_land_type_grant: bool,
     catalog_has_land_reclamation: bool,
     catalog_has_nonland_color_grant: bool,
+    catalog_has_target_color_set: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     state: State,
@@ -2861,6 +2880,7 @@ impl Game {
                 .iter()
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
+            catalog_has_target_color_set: prepared.has_target_color_set(),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2886,6 +2906,7 @@ impl Game {
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
             catalog_has_land_reclamation: self.catalog_has_land_reclamation,
             catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
+            catalog_has_target_color_set: self.catalog_has_target_color_set,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
@@ -4155,6 +4176,7 @@ impl Game {
                 .iter()
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
+            catalog_has_target_color_set: prepared.has_target_color_set(),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,

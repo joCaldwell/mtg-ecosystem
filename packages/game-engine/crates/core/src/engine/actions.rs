@@ -121,6 +121,9 @@ pub(super) enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
+    SetColor {
+        source_block: u32,
+    },
     Proliferate {
         source_block: u32,
         choices: proliferate::ProliferateChoices,
@@ -509,6 +512,7 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::SetColor { .. } => self.target_color_request(frame),
             ResolutionChoice::Proliferate { choices, .. } => {
                 self.proliferate_request(frame, choices)
             }
@@ -645,6 +649,13 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::SetColor { .. },
+        } = &self.state.rules.frame
+        {
+            return Some(self.validate_target_color_response(frame, player, response));
+        }
         if let Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Proliferate { choices, .. },
@@ -952,6 +963,9 @@ impl Game {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
+                if let ResolutionChoice::SetColor { source_block } = choice {
+                    return self.target_color_step(frame, source_block);
+                }
                 if let ResolutionChoice::Proliferate {
                     source_block,
                     choices,
@@ -1060,7 +1074,8 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::Proliferate { .. }
+                        ResolutionChoice::SetColor { .. }
+                        | ResolutionChoice::Proliferate { .. }
                         | ResolutionChoice::Demonstrate { .. }
                         | ResolutionChoice::HandReturn { .. }
                         | ResolutionChoice::LibraryOrder { .. }
@@ -1100,7 +1115,8 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::Proliferate { .. }
+                    ResolutionChoice::SetColor { .. }
+                    | ResolutionChoice::Proliferate { .. }
                     | ResolutionChoice::Demonstrate { .. }
                     | ResolutionChoice::HandReturn { .. }
                     | ResolutionChoice::LibraryOrder { .. }
@@ -1421,6 +1437,13 @@ impl Game {
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchColoredLibrary { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
+            Instruction::SetTargetColor { source_block, .. } => {
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::SetColor { source_block },
+                };
+                Ok(())
+            }
             Instruction::Proliferate { source_block } => {
                 self.state.rules.frame = Frame::ResolutionChoice {
                     frame,
@@ -2324,6 +2347,13 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::SetColor { source_block },
+                    Instruction::SetTargetColor {
+                        source_block: expected,
+                        ..
+                    },
+                ) => source_block == expected && frame.spell.kind.activated_index().is_some(),
                 (
                     ResolutionChoice::Proliferate {
                         source_block,

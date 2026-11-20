@@ -105,6 +105,7 @@ impl Policy {
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. }
+            | PlayerRequest::ChooseColor { .. }
             | PlayerRequest::Proliferate { .. } => {
                 return Err("staples request unsupported by this completion policy".into());
             }

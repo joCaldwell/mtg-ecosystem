@@ -107,10 +107,11 @@ pub use land_reclamation::{
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
+mod instruction_schema;
 mod land_entry_gain_life;
 mod land_entry_scry;
-mod instruction_schema;
 pub mod proliferate;
+pub mod target_color;
 pub use controlled_land_entry::{controlled_land_entry_trigger, controlled_land_query};
 pub use land_entry_scry::land_entry_scry_trigger;
 mod land_sacrifice_draw;
@@ -591,6 +592,7 @@ pub enum Capability {
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
     ProliferateV1,
+    TargetColorSetV1,
     DividedPlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -1210,6 +1212,10 @@ pub enum Instruction {
         maximum_targets: u32,
         source_block: u32,
     },
+    SetTargetColor {
+        target_slot: u32,
+        source_block: u32,
+    },
     Proliferate {
         source_block: u32,
     },
@@ -1520,6 +1526,7 @@ impl Instruction {
             Self::CreateCreatureTokens { source_block, .. }
             | Self::CreatePredefinedTokens { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
+            | Self::SetTargetColor { source_block, .. }
             | Self::Proliferate { source_block }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. }
@@ -3256,6 +3263,7 @@ impl Definition {
         ability_sequence::validate(self)?;
         predefined_tokens::validate(self)?;
         attachment_modifiers::validate(self)?;
+        let sets_target_color = target_color::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         let basic_land_fetch = basic_land_fetch::validate_definition(self)?;
@@ -4004,6 +4012,10 @@ impl Definition {
                 )
             }) {
                 return Err("attachment instruction requires equip or Aura return trigger".into());
+            }
+            if sets_target_color {
+                validate_instruction_program(&ability.program)?;
+                continue;
             }
             if c.kind == CardKind::Artifact
                 && !equipment
@@ -5621,6 +5633,20 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::RevealAndCast { .. }
             | Instruction::Proliferate { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
+            Instruction::SetTargetColor { target_slot, .. } => {
+                let domain = p
+                    .targets
+                    .get(*target_slot as usize)
+                    .ok_or("missing color target")?
+                    .domain;
+                if !matches!(
+                    domain,
+                    TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                ) {
+                    return Err("color effect requires a battlefield target".into());
+                }
+                Some((*target_slot, domain))
+            }
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
             }
@@ -6358,6 +6384,7 @@ fn add_program_requirements_for_source_pump(
             }
             Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::Proliferate { .. } => Capability::ProliferateV1,
+            Instruction::SetTargetColor { .. } => Capability::TargetColorSetV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
@@ -7942,6 +7969,7 @@ pub fn catalog_schema() -> serde_json::Value {
     land_entry_scry::extend_schema(&mut schema);
     controlled_land_entry::extend_schema(&mut schema);
     proliferate::extend_schema(&mut schema);
+    target_color::extend_schema(&mut schema);
     land_reclamation::extend_schema(&mut schema);
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
@@ -8269,6 +8297,7 @@ mod tests {
             MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
             ProliferateV1,
+            TargetColorSetV1,
             DividedPlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
@@ -8749,6 +8778,7 @@ mod tests {
         definitions.push(land_entry_scry::witness());
         definitions.push(controlled_land_entry::witness());
         definitions.push(proliferate::witness());
+        definitions.push(target_color::witness());
         definitions.push(land_reclamation::witness());
         definitions.push(entry_copy::registry_witness());
         definitions.push(land_sacrifice_draw::witness());

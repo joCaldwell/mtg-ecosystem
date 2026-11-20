@@ -132,6 +132,7 @@ mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
+mod target_color;
 mod target_compensation;
 use optional_costs::KickedCondition;
 mod artifact_loss;
@@ -1663,6 +1664,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     });
     let abilities = if let Some(trigger) = proliferate::lower(&source, &result)? {
         vec![Ability::BoundTrigger(trigger)]
+    } else if let Some(activation) = target_color::lower(&source, &shape, &result, &binding)? {
+        vec![Ability::BoundActivation(activation)]
     } else if has_conditional_fetch {
         fetched_land_untap::decoded_activation(&canonical_abilities)?
     } else if let Some(program) = composition {

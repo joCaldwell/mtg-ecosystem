@@ -1933,3 +1933,87 @@ fn conditional_equipped_legendary_hexproof_follows_the_current_attachment() {
         assert_eq!(g.characteristics(ordinary).unwrap().power, Some(4.into()));
     });
 }
+
+#[test]
+fn target_color_uses_effect_timestamps_and_expires_in_cleanup() {
+    let mut c = catalog();
+    for raw in [
+        include_str!("../../../../tests/fixtures/9c9579c5-7edf-41ca-8595-713ca9245576.json"),
+        include_str!("../../../../tests/fixtures/8fc72080-8d4d-427d-ae30-065bc8ee9a28.json"),
+        include_str!("../../../../tests/fixtures/synthetic-nonland-colors.json"),
+    ] {
+        let result = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            raw,
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("{result:?}");
+        };
+        c.definitions.push(*definition);
+    }
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    c.validate().unwrap();
+    traces(
+        prepared_in(
+            c,
+            &[
+                ("Distorting Lens", 0, false),
+                ("Tidal Visionary", 0, false),
+                ("Grizzly Bears", 0, false),
+                ("Opaline Studio", 0, false),
+                ("Opaline Studio", 0, true),
+                ("Plains", 0, false),
+                ("Plains", 0, false),
+                ("Plains", 0, false),
+            ],
+        ),
+        |g| {
+            reach(g, TurnStep::PrecombatMain);
+            let to_color = object(g, 2);
+            assert_eq!(
+                g.characteristics(to_color).unwrap().colors,
+                MANA_COMBINATION_COLORS
+            );
+            for (id, color) in [(0, Color::B), (1, Color::R)] {
+                activated(g, id, target(to_color));
+                for _ in 0..4 {
+                    answer(g, Response::Pass);
+                }
+                let r = request(g);
+                assert!(matches!(r, Request::ChooseColor {target,..} if target == to_color));
+                assert!(
+                    g.respond(
+                        r.player(),
+                        r.decision_id(),
+                        Response::ChooseColor { color: Color::C }
+                    )
+                    .is_err()
+                );
+                check(g);
+                answer(g, Response::ChooseColor { color });
+                assert!(matches!(request(g), Request::Priority { .. }));
+                assert_eq!(g.characteristics(to_color).unwrap().colors, [color]);
+                check(g);
+                if id == 0 {
+                    cast(g, 4, vec![]);
+                    assert_eq!(
+                        g.characteristics(to_color).unwrap().colors,
+                        MANA_COMBINATION_COLORS
+                    );
+                }
+            }
+            main_for(g, 1);
+            assert_eq!(
+                g.characteristics(to_color).unwrap().colors,
+                MANA_COMBINATION_COLORS
+            );
+            assert!(
+                !g.state
+                    .rules
+                    .effects
+                    .iter()
+                    .any(|e| matches!(e.kind, ResolvedEffectKind::SetColor { .. }))
+            );
+        },
+    );
+}

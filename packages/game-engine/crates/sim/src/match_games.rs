@@ -448,6 +448,9 @@ impl Strategy<'_> {
             PlayerRequest::ForcedSacrifice { candidates, .. } => PlayerResponse::ForcedSacrifice {
                 object: self.sacrifice_choice(v, candidates)?,
             },
+            PlayerRequest::ChooseColor { colors, .. } => PlayerResponse::ChooseColor {
+                color: *colors.first().ok_or("no legal color")?,
+            },
             PlayerRequest::Proliferate { candidate, .. } => PlayerResponse::Proliferate {
                 object: candidate.clone(),
                 include: v

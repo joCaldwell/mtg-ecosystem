@@ -1163,7 +1163,8 @@ impl Game {
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
-                        | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                        | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                        | ResolvedEffectKind::SetColor { target, .. } => {
                             objects.insert(*target);
                         }
                         ResolvedEffectKind::PreventNextDamage {
@@ -1810,6 +1811,29 @@ impl Game {
                 return Err("hideaway requires its single authorized occurrence".into());
             };
             self.authorize_hideaway_event(&cause, proposed)?;
+        }
+        if events.iter().any(|event| {
+            matches!(event, ProposedEvent::CreateEffect {effect}
+            if matches!(effect.kind, ResolvedEffectKind::SetColor {..}))
+        }) {
+            let (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::SetColor { source_block },
+                },
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::CreateEffect { .. },
+                },
+            ) = (&self.state.rules.frame, &group)
+            else {
+                return Err(
+                    "a color effect requires its resolving choice and a single occurrence".into(),
+                );
+            };
+            self.validate_resolving(frame)?;
+            if cause != Self::staple_cause(frame, *source_block) {
+                return Err("color effect creation cause mismatch".into());
+            }
         }
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
