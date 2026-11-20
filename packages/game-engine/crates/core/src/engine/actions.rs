@@ -1054,6 +1054,7 @@ impl Game {
         if frame.draw_progress.is_some() || frame.each_player_draw.is_some() {
             return Err("cannot advance an unfinished counted draw".into());
         }
+        frame.entrant_draw = None;
         frame.outcomes.push(outcome);
         frame.cursor = frame
             .cursor
@@ -1400,7 +1401,10 @@ impl Game {
                         );
                     }
                 }
-                self.offer_player_draw(frame, entrant.controller, source_block)
+                let player = entrant.controller;
+                let mut frame = frame;
+                frame.entrant_draw = Some(Box::new(entrant));
+                self.offer_player_draw(frame, player, source_block)
             }
             Instruction::OptionalDrawCards { source_block } => {
                 self.offer_controller_draw(frame, source_block)
@@ -1964,6 +1968,31 @@ impl Game {
         self.validate_group_discard_progress(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
+        if let Some(fact) = &frame.entrant_draw {
+            let StackKind::Triggered {
+                witness:
+                    TriggerEventWitness::CreatureEnteredWithPower {
+                        entrant,
+                        last_appearance: Some(_),
+                        ..
+                    },
+                ..
+            } = &entry.kind
+            else {
+                return Err("detached entrant choice".into());
+            };
+            if !matches!(
+                program.instructions.get(frame.cursor as usize),
+                Some(Instruction::OptionalDrawForSoleGreatestEntrant { .. })
+            ) || entrant.object != fact.object
+                || entrant.owner != fact.owner
+                || fact.zone != Zone::Battlefield
+                || fact.controller.0 >= 4
+            {
+                return Err("invalid resolving entrant identity".into());
+            }
+            self.validate_characteristic_identity(fact.object, fact.zone, &fact.characteristics)?;
+        }
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id

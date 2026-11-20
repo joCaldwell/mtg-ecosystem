@@ -145,6 +145,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
         group_discard: None,
         each_player_draw: None,
         random_discard: None,
+        entrant_draw: None,
         draw_progress: None,
         set_damage: None,
         condition_check: None,

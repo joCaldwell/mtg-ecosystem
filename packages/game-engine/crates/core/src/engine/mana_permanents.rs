@@ -975,7 +975,7 @@ impl Game {
     }
     fn resolve_mana_ability(
         &mut self,
-        mut a: ManaActivation,
+        a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
         let symbols = match &a.ability.production {

@@ -1049,6 +1049,8 @@ struct DrawProgress {
 #[serde(deny_unknown_fields)]
 struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    entrant_draw: Option<Box<ObjectBefore>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     group_discard: Option<group_discard::GroupDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     random_discard: Option<random_discard::RandomDiscardProgress>,
