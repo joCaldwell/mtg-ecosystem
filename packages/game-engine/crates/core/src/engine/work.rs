@@ -1081,6 +1081,8 @@ impl Game {
                             | PlayerResponse::SearchLandBattlefield { .. }
                             | PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::OptionalRecursion { .. }
+                            | PlayerResponse::ChooseColor { .. }
+                            | PlayerResponse::Proliferate { .. }
                             | PlayerResponse::Sacrifice { .. }
                             | PlayerResponse::ResolveDiscard { .. },
                         )

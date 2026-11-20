@@ -40,7 +40,15 @@ pub(super) fn lower(
     }
     let mut graph = bindings::Bindings::new(&card.oracle_id, source);
     listed_mana::bind_tap_mana(&mut graph, "/faces/0/abilities/0");
-    let root = "/faces/0/abilities/1";
+    bind_paid_tap_mana(&mut graph, "/faces/0/abilities/1");
+    graph.validate(
+        binding,
+        "requires complete hybrid payment and mana-output binding",
+    )?;
+    Ok(Some(hybrid_filter_abilities(colors)))
+}
+
+pub(super) fn bind_paid_tap_mana(graph: &mut bindings::Bindings, root: &str) {
     let mana = format!("{root}/effects/0/steps/0");
     let you = graph.id(root, "you");
     graph.ability(root, "activated", "activator");
@@ -69,11 +77,6 @@ pub(super) fn lower(
         &you,
         "109.5",
     );
-    graph.validate(
-        binding,
-        "requires complete hybrid payment and mana-output binding",
-    )?;
-    Ok(Some(hybrid_filter_abilities(colors)))
 }
 
 #[cfg(test)]

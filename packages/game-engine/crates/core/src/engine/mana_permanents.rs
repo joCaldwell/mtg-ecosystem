@@ -4,6 +4,7 @@ use super::*;
 use mtg_contracts::{disjoint_pain_mana_family, hybrid_filter_colors};
 
 mod hybrid_filter;
+use hybrid_filter::uses_indexed_paid_mana;
 
 mod mana_damage;
 mod mana_life_gain;
@@ -432,7 +433,7 @@ impl Game {
         let definition = self.copiable_definition(source)?;
         if definition.mana_abilities.len() != 1
             && !disjoint_pain_mana_family(definition)
-            && hybrid_filter_colors(definition).is_none()
+            && !uses_indexed_paid_mana(definition)
         {
             return Err("unsupported permanent mana source".into());
         }
@@ -482,7 +483,7 @@ impl Game {
         let grant = self.has_granted_land_mana(source)?;
         let printed = definition.mana_abilities.len() == 1
             || disjoint_pain_mana_family(definition)
-            || hybrid_filter_colors(definition).is_some();
+            || uses_indexed_paid_mana(definition);
         let mut choices: Vec<_> = self
             .intrinsic_choice_colors(player, source)
             .unwrap_or_default()
@@ -603,9 +604,7 @@ impl Game {
                     self.resume_mana(resume, vec![receipt])
                 }
                 ManaAbilityIdentity::Printed { index } => {
-                    if hybrid_filter_colors(self.copiable_definition(source)?).is_some()
-                        && index == 1
-                    {
+                    if uses_indexed_paid_mana(self.copiable_definition(source)?) && index == 1 {
                         return self.start_indexed_mana_ability(
                             &input,
                             source,
@@ -687,7 +686,7 @@ impl Game {
             return Err("invalid permanent mana continuation".into());
         }
         if !self.intrinsic_mana_colors(source)?.is_empty()
-            || hybrid_filter_colors(self.copiable_definition(source)?).is_some()
+            || uses_indexed_paid_mana(self.copiable_definition(source)?)
         {
             self.state.rules.frame = Frame::ManaSourceChoice {
                 player: input.player,
@@ -736,6 +735,11 @@ impl Game {
             .get(index as usize)
             .ok_or("missing selected mana ability")?
             .clone();
+        let stage = if matches!(ability.production, ManaProduction::HybridFilter { .. }) {
+            ManaStage::FilterInput
+        } else {
+            ManaStage::Payment
+        };
         let activation = ManaActivation {
             player: input.player,
             source,
@@ -744,11 +748,7 @@ impl Game {
             branch,
             printed_index,
             filter_input: None,
-            stage: if printed_index.is_some() {
-                ManaStage::FilterInput
-            } else {
-                ManaStage::Payment
-            },
+            stage,
             resume: Box::new(resume),
             receipts: vec![],
             paid: None,
@@ -779,7 +779,8 @@ impl Game {
                 player: a.player,
                 cost: a.payment_cost().ok_or("missing mana ability cost")?,
                 available: self.state.rules.players[a.player.0 as usize].mana.clone(),
-                restricted_available: self.eligible_restricted(a.player, ManaConsumer::Activation),
+                restricted_available: self
+                    .eligible_restricted(a.player, self.activation_mana_consumer(a.source)),
             },
             ManaStage::Combination { ref total } => Request::ManaCombination {
                 decision_id: self.state.rules.revision,
@@ -836,7 +837,7 @@ impl Game {
                     &a.payment_cost().ok_or("missing nested cost")?,
                     spending,
                     restricted,
-                    ManaConsumer::Activation,
+                    self.activation_mana_consumer(a.source),
                 )
                 .map(|_| ()),
             (ManaStage::Combination { total }, Response::ManaCombination { amounts }) => {
@@ -890,7 +891,11 @@ impl Game {
             }
             Response::FinishMana { undo_mana } if a.stage == ManaStage::Payment => {
                 let cost = a.payment_cost().ok_or("missing nested mana cost")?;
-                if self.can_pay_with_restricted(a.player, &cost, ManaConsumer::Activation)? {
+                if self.can_pay_with_restricted(
+                    a.player,
+                    &cost,
+                    self.activation_mana_consumer(a.source),
+                )? {
                     a.stage = ManaStage::Spend;
                     self.state.rules.frame = Frame::ManaAbility {
                         activation: Box::new(a),
@@ -1420,7 +1425,7 @@ impl Game {
                             false
                         } else {
                             self.state.rules.pending = None;
-                            hybrid_filter_colors(self.copiable_definition(*source)?).is_none()
+                            !uses_indexed_paid_mana(self.copiable_definition(*source)?)
                                 && !self.has_granted_land_mana(*source)?
                                 && (self.intrinsic_mana_colors(*source)?.is_empty()
                                     || !self.is_permanent_mana(*source))

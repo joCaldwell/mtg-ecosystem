@@ -600,8 +600,14 @@ impl Game {
                     .unwrap_or_default(),
             };
             let mut lore = vec![];
-            if let EventOutcome::TurnTransitioned { lore: changes, .. } = &occurrence.actual {
-                lore.extend(changes.iter().cloned());
+            match &occurrence.actual {
+                EventOutcome::TurnTransitioned { lore: changes, .. } => {
+                    lore.extend(changes.iter().cloned())
+                }
+                EventOutcome::Proliferated {
+                    lore: Some(change), ..
+                } => lore.push(change.clone()),
+                _ => {}
             }
             for witness in &witnesses {
                 if let TriggerEventWitness::Moved { movement } = witness
