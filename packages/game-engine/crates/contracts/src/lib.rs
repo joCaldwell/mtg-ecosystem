@@ -96,6 +96,7 @@ pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wip
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
+pub mod self_graveyard_shuffle;
 mod self_spell_protection;
 pub use controller_library::{
     FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
@@ -315,6 +316,8 @@ pub enum Capability {
     CascadeV1,
     RevealAndCastV1,
     DemonstrateV1,
+    ProtectionFromEverythingV1,
+    SelfGraveyardRevealShuffleV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
     HandCastCascadeGrantV1,
@@ -498,6 +501,8 @@ pub enum FunctioningZone {
     Hand,
     Battlefield,
     Stack,
+    /// Reserved for the source card's own graveyard-move replacement.
+    Any,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -755,6 +760,9 @@ impl CreatureToken {
             || self
                 .keywords
                 .contains(&KeywordAbility::ProtectionFromEachColor)
+            || self
+                .keywords
+                .contains(&KeywordAbility::ProtectionFromEverything)
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
@@ -1516,6 +1524,10 @@ pub enum StaticEffect {
     /// CR 101.2/113.6: the source spell on the stack can't be countered.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     CantBeCountered,
+    /// CR 113.6b/614.1a/701.24c: replace a move of this card from any zone to
+    /// a graveyard by revealing it and shuffling it into its owner's library.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    SelfGraveyardRevealShuffle,
     /// CR 109.5/611.3/613.1f/702.12: the current controller's other
     /// battlefield permanents have indestructible while this source is present.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -2163,6 +2175,9 @@ pub enum KeywordAbility {
     DoubleStrike,
     Menace,
     ProtectionFromEachColor,
+    /// CR 702.16j: intrinsic battlefield protection from every source.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    ProtectionFromEverything,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -2183,6 +2198,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "double strike" => Ok(Self::DoubleStrike),
             "menace" => Ok(Self::Menace),
             "protection_from_each_color" => Ok(Self::ProtectionFromEachColor),
+            "protection_from_everything" => Ok(Self::ProtectionFromEverything),
             "hexproof" => Ok(Self::Hexproof),
             "shroud" => Ok(Self::Shroud),
 
@@ -2203,6 +2219,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "double strike",
                     "menace",
                     "protection_from_each_color",
+                    "protection_from_everything",
                     "hexproof",
                     "shroud",
                 ],
@@ -2282,6 +2299,7 @@ fn static_creature_modification_valid(
         || (*scope == CreatureScope::Controller
             && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
         || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
+        || keywords.contains(&KeywordAbility::ProtectionFromEverything)
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -2720,6 +2738,9 @@ impl Definition {
                 }
                 StaticEffect::ReduceGenericByCreatureCount => Capability::BoardWipesV1,
                 StaticEffect::CantBeCountered => self_spell_protection::capability(self),
+                StaticEffect::SelfGraveyardRevealShuffle => {
+                    Capability::SelfGraveyardRevealShuffleV1
+                }
                 StaticEffect::GrantOtherControlledPermanentsIndestructible => {
                     set.insert(Capability::IndestructibleV1);
                     Capability::StaticPermanentIndestructibleGrantV1
@@ -2776,6 +2797,7 @@ impl Definition {
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
         creative_technique::validate_definition(self)?;
+        self_graveyard_shuffle::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -3789,6 +3811,7 @@ impl Definition {
                     | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
+                    | StaticEffect::SelfGraveyardRevealShuffle
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible
                     | StaticEffect::EntersTappedUnlessControllerBasicLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
@@ -3820,6 +3843,8 @@ impl Definition {
         if self.static_abilities.iter().any(|a| {
             if a.effect == StaticEffect::MayBeginOnBattlefield {
                 a.functioning_zone != FunctioningZone::Hand
+            } else if a.effect == StaticEffect::SelfGraveyardRevealShuffle {
+                a.functioning_zone != FunctioningZone::Any
             } else if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
                 a.functioning_zone != FunctioningZone::Stack
             } else if matches!(
@@ -4467,6 +4492,9 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    if p.functioning_zone == FunctioningZone::Any {
+        return Err("all-zone functioning is reserved for the self graveyard replacement".into());
+    }
     optional_costs::validate_program(p)?;
     typed_land_search::validate_program(p)?;
     if p.instructions
@@ -5295,6 +5323,7 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
 fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
     Some(match keyword {
         KeywordAbility::ProtectionFromEachColor => return None,
+        KeywordAbility::ProtectionFromEverything => Capability::ProtectionFromEverythingV1,
         KeywordAbility::Flash => Capability::FlashV1,
         KeywordAbility::Defender => Capability::DefenderV1,
         KeywordAbility::Flying => Capability::FlyingV1,
@@ -6047,7 +6076,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // separate battlefield grant to other controlled permanents.
     schema["$defs"]["CreatureToken"]["properties"]["additional_types"] = serde_json::json!({"type":"array","maxItems":1,"items":{"enum":["artifact","enchantment"]}});
     extend_multitype_token_schema(&mut schema);
-    schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible","protection_from_each_color"]}}]});
+    schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible","protection_from_each_color","protection_from_everything"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let permanent_grant_effect = serde_json::json!({
         "const": StaticEffect::GrantOtherControlledPermanentsIndestructible
@@ -6080,7 +6109,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
-            "properties":{"keywords":{"items":{"not":{"enum":["flash","protection_from_each_color"]}}}},
+            "properties":{"keywords":{"items":{"not":{"enum":["flash","protection_from_each_color","protection_from_everything"]}}}},
             "if":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}},
             "then":{"properties":{"scope":{"const":"equipped"},"power":{"const":"0"},"toughness":{"const":"0"},"keywords":{"const":["indestructible"]},"restrictions":{"const":[]}}}
         }}}));
@@ -7086,6 +7115,7 @@ pub fn catalog_schema() -> serde_json::Value {
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
     creative_technique::extend_schema(&mut schema);
+    self_graveyard_shuffle::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -7307,6 +7337,8 @@ mod tests {
             CascadeV1,
             RevealAndCastV1,
             DemonstrateV1,
+            ProtectionFromEverythingV1,
+            SelfGraveyardRevealShuffleV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             HandCastCascadeGrantV1,
@@ -8311,6 +8343,7 @@ mod tests {
         hybrid.capabilities = hybrid.requirements();
         definitions.push(hybrid);
 
+        definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)
