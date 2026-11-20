@@ -241,22 +241,17 @@ fn build_with(
             CompileResult::Lowered { definition } => {
                 // Extraction metadata describes the original archive row. Only
                 // byte-pinned failed rows have separately authenticated replacement ASTs.
-                let (archive_ast, archive_binding) = if row.record_sha256
-                    == library_top_mana::ARCHIVED_ROW
-                    && definition.provenance.parser_sha256 == library_top_mana::PARSER
-                {
-                    (None, library_top_mana::ARCHIVED_BINDING)
-                } else if let Some(binding) = crate::greatest_power::archived_predecessor(
-                    &row.record_sha256,
-                    &definition.provenance,
-                ) {
-                    (None, binding)
-                } else {
-                    (
-                        Some(definition.provenance.ast_sha256.as_str()),
-                        definition.provenance.binding_sha256.as_str(),
-                    )
-                };
+                let (archive_ast, archive_binding) =
+                    match bulk_catalog::archived_predecessor_binding(
+                        &row.record_sha256,
+                        &definition.provenance,
+                    ) {
+                        Some(binding) => (None, binding),
+                        None => (
+                            Some(definition.provenance.ast_sha256.as_str()),
+                            definition.provenance.binding_sha256.as_str(),
+                        ),
+                    };
                 if definition.oracle_id != row.oracle_id
                     || definition.provenance.source_sha256 != row.source_sha256
                     || archive_ast != row.ast_sha256.as_deref()

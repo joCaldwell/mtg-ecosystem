@@ -4,23 +4,6 @@ use super::*;
 use crate::bindings::Bindings;
 use serde_json::{Value, json};
 
-/// Identity of the one failed archive row whose authenticated replacement AST
-/// is emitted by this compiler. Extraction retains the original null AST.
-pub(super) fn archived_predecessor(
-    record_hash: &str,
-    p: &SourceProvenance,
-) -> Option<&'static str> {
-    const ROW: &str = "6f10d88ec4ec087b6bc9b4db76c64349bf82e99e1bae4953f46ccb72d86dccf8";
-    const BINDING: &str = "3ad6bd5c6338f8c57845036aac5dfae7837a7c007f0c1617bc0506236175b137";
-    const AST: &str = "ca7acbda3c3d8ea7414ed87c89839fd839bb014537b44d8143b2f3b2bc2831dc";
-    const PARSER: &str = "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a";
-    (record_hash == ROW
-        && p.binding_sha256 == BINDING
-        && p.ast_sha256 == AST
-        && p.parser_sha256 == PARSER)
-        .then_some(BINDING)
-}
-
 fn full_graph<'a>(identity: &'a str, raw: &Value, ast: &Value) -> Bindings<'a> {
     let mut g = Bindings::new(identity, raw);
     let t = "/faces/0/abilities/0";

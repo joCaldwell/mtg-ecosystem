@@ -112,6 +112,36 @@ struct BannedList {
     named_bans: Vec<BanRecord>,
     offensive_policy: OffensivePolicy,
 }
+pub(crate) fn parse_commander_bans(banned_raw: &str) -> Result<Vec<BanRecord>, ProfileError> {
+    let banned: BannedList = strict_read(banned_raw)?;
+    if banned.retrieved_date.is_empty() || banned.url.is_empty() || banned.html_sha256.len() != 64 {
+        return Err("invalid banned-list source metadata".to_owned().into());
+    }
+    let bans: Vec<_> = banned
+        .named_bans
+        .into_iter()
+        .chain(banned.offensive_policy.records)
+        .collect();
+    let mut ids = BTreeSet::new();
+    for ban in &bans {
+        #[derive(Deserialize)]
+        struct Record {
+            source: Box<serde_json::value::RawValue>,
+            #[serde(rename = "oracleIdentity")]
+            oracle_id: String,
+        }
+        let record: Record = strict_read(&ban.record_json)?;
+        if !ids.insert(&ban.oracle_id)
+            || ban.name.is_empty()
+            || sha256(ban.record_json.as_bytes()) != ban.record_sha256
+            || sha256(record.source.get().as_bytes()) != ban.source_sha256
+            || record.oracle_id != ban.oracle_id
+        {
+            return Err(format!("invalid banned-list source record: {}", ban.oracle_id).into());
+        }
+    }
+    Ok(bans)
+}
 impl MatchProfile {
     pub fn load(raw: &str, catalog_raw: &str, banned_raw: &str) -> Result<Self, ProfileError> {
         let mut p: Self = strict_read(raw)?;
@@ -129,36 +159,7 @@ impl MatchProfile {
                     .into(),
             );
         }
-        let banned: BannedList = strict_read(banned_raw)?;
-        if banned.retrieved_date.is_empty()
-            || banned.url.is_empty()
-            || banned.html_sha256.len() != 64
-        {
-            return Err("invalid banned-list source metadata".to_owned().into());
-        }
-        p.bans = banned
-            .named_bans
-            .into_iter()
-            .chain(banned.offensive_policy.records)
-            .collect();
-        let mut ids = BTreeSet::new();
-        for ban in &p.bans {
-            #[derive(Deserialize)]
-            struct Record {
-                source: Box<serde_json::value::RawValue>,
-                #[serde(rename = "oracleIdentity")]
-                oracle_id: String,
-            }
-            let record: Record = strict_read(&ban.record_json)?;
-            if !ids.insert(&ban.oracle_id)
-                || ban.name.is_empty()
-                || sha256(ban.record_json.as_bytes()) != ban.record_sha256
-                || sha256(record.source.get().as_bytes()) != ban.source_sha256
-                || record.oracle_id != ban.oracle_id
-            {
-                return Err(format!("invalid banned-list source record: {}", ban.oracle_id).into());
-            }
-        }
+        p.bans = parse_commander_bans(banned_raw)?;
         p.banned_list_raw = banned_raw.to_owned();
         p.catalog_sha256 = digest(&catalog)?;
         p.validate_requested_features(&catalog)?;

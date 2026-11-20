@@ -15,6 +15,8 @@ macro_rules! definition_digest {
     };
 }
 pub use search::*;
+mod dynamic_admission;
+pub use dynamic_admission::*;
 mod match_admission;
 mod snapshot_codec;
 mod state_digest;
