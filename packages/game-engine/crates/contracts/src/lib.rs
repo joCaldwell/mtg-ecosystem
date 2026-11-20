@@ -14,6 +14,8 @@ mod colored_library_search;
 pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
 };
+mod color_hybrid_cost;
+pub use color_hybrid_cost::{ColorHybridSymbol, color_hybrid_cost};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -243,6 +245,8 @@ pub struct Characteristics {
     /// CR 205.4g; omitted for nonsnow characteristics.
     #[serde(default, skip_serializing_if = "is_false")]
     pub snow: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     pub mana_cost: ManaCost,
     pub colors: Vec<Color>,
     pub color_identity: Vec<Color>,
@@ -253,6 +257,14 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 impl Characteristics {
+    pub fn printed_mana_value(&self) -> Quantity {
+        let mut value = self.mana_cost.generic.clone();
+        value.add(&Quantity::from(
+            (self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64,
+        ));
+        value
+    }
+
     pub fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
@@ -346,6 +358,7 @@ pub enum Capability {
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
     NormalLayoutV1,
+    ColorHybridCostV1,
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -700,6 +713,7 @@ impl CreatureToken {
     pub fn characteristics(&self) -> Characteristics {
         Characteristics {
             kind: CardKind::Creature,
+            hybrid_mana: vec![],
             additional_types: self.additional_types.clone(),
             subtypes: self.subtypes.clone(),
             basic: false,
@@ -2372,6 +2386,9 @@ pub fn is_canonical_cascade_program(program: &SpellProgram) -> bool {
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
+        if !self.characteristics.hybrid_mana.is_empty() {
+            set.insert(Capability::ColorHybridCostV1);
+        }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
         }
@@ -3101,6 +3118,7 @@ impl Definition {
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         granted_land_mana::validate_definition(self)?;
+        color_hybrid_cost::validate_definition(self)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -7012,6 +7030,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }
     colored_library_search::extend_schema(&mut schema);
     opening_placement::schema(&mut schema);
+    color_hybrid_cost::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7158,6 +7177,7 @@ mod tests {
             CastManaValueSweepV1,
             RandomBottomV1,
             NormalLayoutV1,
+            ColorHybridCostV1,
             BasicLandManaV1,
             LandPlayV1,
             BaseCreatureV1,
@@ -8082,6 +8102,43 @@ mod tests {
         pregame.static_abilities = vec![opening_placement_ability()];
         pregame.capabilities = pregame.requirements();
         definitions.push(pregame);
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-glaze-lattice.json"
+        ))
+        .unwrap();
+        let raw = &record["source"];
+        let mut hybrid = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Artifact
+                    && d.characteristics.additional_types.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        hybrid.name = raw["name"].as_str().unwrap().into();
+        hybrid.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+        hybrid.provenance.printing_id = raw["id"].as_str().unwrap().into();
+        hybrid.provenance.source_json = canonical(raw).unwrap();
+        hybrid.provenance.source_sha256 = sha256(hybrid.provenance.source_json.as_bytes());
+        hybrid.provenance.abilities_json = "[]".into();
+        hybrid.provenance.ast_sha256 = sha256(b"[[]]");
+        hybrid.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        (
+            hybrid.characteristics.mana_cost,
+            hybrid.characteristics.hybrid_mana,
+        ) = color_hybrid_cost(raw["mana_cost"].as_str().unwrap()).unwrap();
+        hybrid.characteristics.colors = vec![Color::W, Color::U, Color::G];
+        hybrid.characteristics.color_identity = hybrid.characteristics.colors.clone();
+        hybrid.source_labels = None;
+        hybrid.static_abilities.clear();
+        hybrid.triggered.clear();
+        hybrid.activated.clear();
+        hybrid.mana_abilities.clear();
+        hybrid.keywords.clear();
+        hybrid.capabilities = hybrid.requirements();
+        definitions.push(hybrid);
+
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

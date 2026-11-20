@@ -149,6 +149,8 @@ pub struct VisibleStackEntry {
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_colors: Vec<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -268,6 +270,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
         previous_choices: Vec<ObjectHandle>,
+    },
+    HybridCost {
+        token: DecisionToken,
+        player: PlayerId,
+        symbols: Vec<ColorHybridSymbol>,
     },
     AnnounceX {
         token: DecisionToken,
@@ -499,6 +506,7 @@ impl PlayerRequest {
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
             | Self::AdditionalCosts { token, .. }
+            | Self::HybridCost { token, .. }
             | Self::AnnounceX { token, .. }
             | Self::Modes { token, .. }
             | Self::CounterPlacementEffect { token, .. }
@@ -561,6 +569,9 @@ pub enum PlayerResponse {
     },
     LegendRule {
         keep: ObjectHandle,
+    },
+    HybridCost {
+        colors: Vec<Color>,
     },
     AnnounceX {
         value: Quantity,
@@ -1292,6 +1303,7 @@ impl Game {
         Ok(VisibleStackEntry {
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
+            hybrid_colors: instance.hybrid_colors.clone(),
             mana_value: instance
                 .x
                 .as_ref()
@@ -1526,6 +1538,21 @@ impl Game {
             } else {
                 Ok(None)
             };
+        }
+        if let Frame::HybridCost { .. } = self.state.rules.frame {
+            let top = self.top()?;
+            if top.controller != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(PlayerRequest::HybridCost {
+                token,
+                player: viewer,
+                symbols: self
+                    .definition(top.source.card)?
+                    .characteristics
+                    .hybrid_mana
+                    .clone(),
+            }));
         }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return Ok(
@@ -2257,6 +2284,9 @@ impl Game {
                     Frame::AdditionalCosts { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 20))
                     }
+                    Frame::HybridCost { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.rules.revision, 51))
+                    }
                     Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 18))
                     }
@@ -2432,6 +2462,9 @@ impl Game {
                     .collect::<Result<Vec<_>, String>>()?;
                 Ok(Response::AdditionalCosts { selected })
             }
+            PlayerResponse::HybridCost { colors } => Ok(Response::HybridCost {
+                colors: colors.clone(),
+            }),
             PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
                 value: value.clone(),
             }),

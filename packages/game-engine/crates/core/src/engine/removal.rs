@@ -219,10 +219,7 @@ impl Game {
                         self.characteristics(object)?,
                     )
                 };
-                let mut mana_value = c.mana_cost.generic;
-                mana_value.add(&Quantity::from(
-                    i64::try_from(c.mana_cost.colored.len()).map_err(|_| "mana value overflow")?,
-                ));
+                let mut mana_value = c.printed_mana_value();
                 if t.domain == TargetDomain::StackSpell {
                     let entry = self
                         .state

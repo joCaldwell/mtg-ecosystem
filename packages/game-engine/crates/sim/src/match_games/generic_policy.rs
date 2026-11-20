@@ -15,11 +15,6 @@ fn zero_cost() -> ManaCost {
         colored: vec![],
     }
 }
-fn mana_value(cost: &ManaCost) -> Quantity {
-    let mut q = cost.generic.clone();
-    q.add(&Quantity::from(cost.colored.len() as i64));
-    q
-}
 fn program_mode(p: &SpellProgram, mode: Option<u32>) -> &SpellProgram {
     mode.and_then(|m| p.modes.get(m as usize))
         .map(|m| &m.program)
@@ -278,7 +273,7 @@ impl Strategy<'_> {
         let Some(c) = &o.characteristics else {
             return Quantity::zero();
         };
-        let mut n = mana_value(&c.mana_cost);
+        let mut n = c.printed_mana_value();
         n.add(&c.power.clone().unwrap_or_default().max(Quantity::zero()));
         n.add(&1.into());
         n
@@ -818,7 +813,7 @@ impl Strategy<'_> {
                         .clone()
                         .or_else(|| {
                             self.entry_program(v, s)
-                                .map(|(d, _)| mana_value(&d.characteristics.mana_cost))
+                                .map(|(d, _)| d.characteristics.printed_mana_value())
                         })
                         .unwrap_or_default(),
                     s.handle.clone().map(|h| h.0),

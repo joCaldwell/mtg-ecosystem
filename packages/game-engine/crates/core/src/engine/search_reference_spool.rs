@@ -1308,7 +1308,7 @@ pub(super) fn compare_with_profile(
                                     ProofPhase::SparseColdSave,
                                     |_| game.save_work(&work),
                                 )?;
-                                let envelope = serde_json::json!({"work_version":37,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":state_sha256,"data":reference.data().unwrap()});
+                                let envelope = serde_json::json!({"work_version":game.prepared.hybrid_work_version(),"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":state_sha256,"data":reference.data().unwrap()});
                                 proof_phase(
                                     profile.as_deref_mut(),
                                     ProofPhase::SparseSavedEnvelopeComparison,

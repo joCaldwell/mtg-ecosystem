@@ -134,6 +134,7 @@ impl Game {
             .successor;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         self.state.rules.stack.push(StackInstance {
+            hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost,
@@ -205,6 +206,12 @@ impl Game {
             && stack.mode_subset.is_none()
         {
             return Ok(Frame::Modes { cast });
+        }
+        if !definition.characteristics.hybrid_mana.is_empty()
+            && stack.alternative_cost.is_none()
+            && stack.hybrid_colors.is_empty()
+        {
+            return Ok(Frame::HybridCost { cast });
         }
         if definition.x_mana_cost && stack.x.is_none() {
             return Ok(Frame::AnnounceX { cast });

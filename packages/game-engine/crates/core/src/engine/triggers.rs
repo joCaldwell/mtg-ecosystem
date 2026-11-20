@@ -1248,6 +1248,7 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.rules.stack.push(StackInstance {
+                        hybrid_colors: vec![],
                         cost_lock: None,
                         selected_additional_costs: None,
                         alternative_cost: None,

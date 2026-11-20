@@ -1708,6 +1708,23 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     labels
         .mana
         .extend(mana_abilities.iter().map(|a| a.source_block));
+    let (base_cost, hybrid_mana) =
+        if let Some((cost, symbols)) = color_hybrid_cost(&source.mana_cost) {
+            // Keep source binding exact until a family binds other ability blocks alongside hybrid.
+            if !source.oracle_text.is_empty() || !abilities.is_empty() {
+                return Err(unsupported(
+                    "source.mana_cost",
+                    "hybrid ability composition is unsupported",
+                ));
+            }
+            bindings::Bindings::new(&r.oracle_identity, &shape).validate(
+                &binding,
+                "hybrid cost requires the exact printed face binding",
+            )?;
+            (cost, symbols)
+        } else {
+            (mana_cost(&source.mana_cost.replace("{X}", ""))?, vec![])
+        };
     let mut definition = Definition {
         source_labels: None,
         x_mana_cost: source.mana_cost.contains("{X}"),
@@ -1720,7 +1737,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             legendary: types.legendary,
             snow: types.snow,
             subtypes: types.subtypes,
-            mana_cost: mana_cost(&source.mana_cost.replace("{X}", ""))?,
+            hybrid_mana,
+            mana_cost: base_cost,
             colors: source.colors,
             color_identity: source.color_identity,
             power,
@@ -11062,4 +11080,21 @@ fn synthetic_cast_color_uses_spell_characteristics() {
     assert!(!predicate.matches(&spell));
     spell.colors.push(Color::U);
     assert!(predicate.matches(&spell));
+}
+
+#[cfg(test)]
+#[test]
+fn hybrid_announcement_requires_the_exact_source_face_and_empty_ability_graph() {
+    let raw = include_str!("../../../tests/fixtures/synthetic-glaze-lattice.json");
+    for mutation in 0..3 {
+        let altered = tests::changed_source(raw, |r| match mutation {
+            0 => r["binding"]["nodes"][1]["manaCost"] = serde_json::json!("{W/U}{G/W}"),
+            1 => r["source"]["mana_cost"] = serde_json::json!("{G/P}{W/U}"),
+            _ => r["source"]["oracle_text"] = serde_json::json!("Draw a card."),
+        });
+        assert!(!matches!(
+            compile(fixtures::MANIFEST, &altered),
+            CompileResult::Lowered { .. }
+        ));
+    }
 }
