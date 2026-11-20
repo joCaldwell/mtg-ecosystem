@@ -60,10 +60,17 @@ fn ast_marker(node: &Value) -> bool {
     match node {
         Value::Array(items) => items.iter().any(ast_marker),
         Value::Object(fields) => {
-            (node["keyword"] == "protection"
-                && node["from"]
-                    .as_array()
-                    .is_some_and(|items| items.iter().any(|from| from["scope"] == "everything")))
+            // A player-granted keyword uses the same protection payload.
+            // Only a printed keywords ability identifies intrinsic protection.
+            (node["kind"] == "keywords"
+                && node["keywords"].as_array().is_some_and(|keywords| {
+                    keywords.iter().any(|keyword| {
+                        keyword["keyword"] == "protection"
+                            && keyword["from"].as_array().is_some_and(|sources| {
+                                sources.iter().any(|from| from["scope"] == "everything")
+                            })
+                    })
+                }))
                 || (node["effect"] == "shuffle-into-library"
                     && node["what"].as_array().is_some_and(|items| {
                         items
