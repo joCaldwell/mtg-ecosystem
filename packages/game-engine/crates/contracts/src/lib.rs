@@ -6422,7 +6422,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
             "targets":{"maxItems":0},"instructions":{"maxItems":0},
-            "resolution":{"anyOf":[{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},{"type":"object","required":["choose_modes"],"properties":{"choose_modes":{"properties":{"exactly":{"minimum":2,"maximum":3}}}}}]},
+            "resolution":{"anyOf":[{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},{"type":"object","required":["choose_modes"],"properties":{"choose_modes":{"properties":{"exactly":{"minimum":2,"maximum":3}}}}},{"const":SpellResolution::ChooseRepeatedModes{exactly:5}}]},
             "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
                 "modes":{"maxItems":0},"instructions":{"minItems":1},
                 "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
