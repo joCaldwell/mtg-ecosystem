@@ -138,6 +138,9 @@ impl Strategy<'_> {
             PlayerRequest::AdditionalCosts { .. } => {
                 return Err("optional casting costs outside this completion policy".into());
             }
+            PlayerRequest::HybridCost { symbols, .. } => PlayerResponse::HybridCost {
+                colors: symbols.iter().map(|s| s.colors[0]).collect(),
+            },
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self
                     .top_program(v)
@@ -165,6 +168,9 @@ impl Strategy<'_> {
             },
             PlayerRequest::CascadeLandEntry { .. } => {
                 return Err("cascade land entry outside this policy admission".into());
+            }
+            PlayerRequest::ChooseOpponent { .. } => {
+                return Err("demonstrate choice outside this policy admission".into());
             }
             PlayerRequest::SearchLandBattlefield { candidates, .. } => {
                 PlayerResponse::SearchLandBattlefield {
@@ -199,6 +205,9 @@ impl Strategy<'_> {
             },
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
+            }
+            PlayerRequest::OpeningPlacement { .. } => {
+                PlayerResponse::OpeningPlacement { object: None }
             }
             PlayerRequest::Mulligan {
                 mulligans_taken,
@@ -1461,6 +1470,7 @@ mod admission_and_host_tests {
         };
         let entry = |name: &str| mtg_core::VisibleStackEntry {
             bestowed: false,
+            hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
             mana_value: None,

@@ -73,6 +73,9 @@ impl MatchRandom {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "phase", deny_unknown_fields)]
 pub enum SetupPhase {
+    OpeningActions {
+        players: Vec<PlayerId>,
+    },
     Shuffle {
         players: Vec<PlayerId>,
         index: u32,
@@ -150,6 +153,7 @@ impl MatchState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VisibleSetupPhase {
+    OpeningActions,
     Declare,
     Bottom,
 }
@@ -171,6 +175,9 @@ pub struct VisibleSetup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SetupAction {
+    PassOpeningActions {
+        player: PlayerId,
+    },
     ShuffleWord {
         player: PlayerId,
         index: u32,
@@ -194,6 +201,9 @@ pub enum SetupAction {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "actual", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SetupOutcome {
+    OpeningActionsPassed {
+        player: PlayerId,
+    },
     ShuffledWord {
         player: PlayerId,
         index: u32,
@@ -244,6 +254,7 @@ impl Game {
             return true;
         };
         match &setup.phase {
+            SetupPhase::OpeningActions { players } => players.is_empty(),
             SetupPhase::Declare { players } => !players
                 .iter()
                 .any(|p| self.is_live(*p) && !setup.players[p.0 as usize].kept),
@@ -254,6 +265,7 @@ impl Game {
     pub(super) fn visible_setup(&self) -> Option<VisibleSetup> {
         let s = self.state.rules.match_state.as_ref()?.setup.as_ref()?;
         let phase = match s.phase {
+            SetupPhase::OpeningActions { .. } => VisibleSetupPhase::OpeningActions,
             SetupPhase::Declare { .. } => VisibleSetupPhase::Declare,
             SetupPhase::Bottom { .. } => VisibleSetupPhase::Bottom,
             _ => return None,
@@ -279,6 +291,13 @@ impl Game {
         }
         let s = self.opening()?;
         let req = match &s.phase {
+            SetupPhase::OpeningActions { players } => {
+                players.first().map(|player| Request::OpeningPlacement {
+                    player: *player,
+                    decision_id: self.state.rules.revision,
+                    candidates: self.opening_placement_candidates(*player),
+                })
+            }
             SetupPhase::Declare { players } => players
                 .iter()
                 .copied()
@@ -325,6 +344,14 @@ impl Game {
     ) -> Result<(), String> {
         match (self.setup_request()?, response) {
             (
+                Some(Request::OpeningPlacement {
+                    player: owner,
+                    candidates,
+                    ..
+                }),
+                Response::OpeningPlacement { object },
+            ) if owner == player && object.is_none_or(|id| candidates.contains(&id)) => Ok(()),
+            (
                 Some(Request::Mulligan {
                     player: p,
                     can_mulligan,
@@ -349,6 +376,25 @@ impl Game {
             }
             _ => Err("invalid opening-hand decision".into()),
         }
+    }
+    fn has_opening_placement(&self) -> bool {
+        self.prepared.includes_opening_placement()
+    }
+    fn opening_placement_candidates(&self, player: PlayerId) -> Vec<ObjectId> {
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| {
+                o.zone == Zone::Hand { owner: player }
+                    && self.state.rules.cards[&o.id.card].owner == player
+                    && self.definition(o.id.card).is_ok_and(|d| {
+                        d.static_abilities
+                            .contains(&mtg_contracts::opening_placement_ability())
+                    })
+            })
+            .map(|o| o.id)
+            .collect()
     }
     fn setup_order(&self) -> Vec<PlayerId> {
         let anchor = self
@@ -425,7 +471,13 @@ impl Game {
                     if players.is_empty() {
                         s.takers.retain(|p| live.contains(p));
                         s.phase = if s.takers.is_empty() {
-                            SetupPhase::Finish
+                            if self.has_opening_placement() {
+                                SetupPhase::OpeningActions {
+                                    players: self.setup_order(),
+                                }
+                            } else {
+                                SetupPhase::Finish
+                            }
                         } else {
                             SetupPhase::Return {
                                 players: s.takers.clone(),
@@ -455,6 +507,12 @@ impl Game {
                                 .filter(|p| !s.players[p.0 as usize].kept)
                                 .collect(),
                         };
+                    }
+                }
+                SetupPhase::OpeningActions { players } => {
+                    players.retain(|p| live.contains(p));
+                    if players.is_empty() {
+                        s.phase = SetupPhase::Finish;
                     }
                 }
                 SetupPhase::Finish => {}
@@ -497,6 +555,38 @@ impl Game {
                         objects,
                     },
                     _ => return Err("wrong opening input".into()),
+                }
+            }
+            SetupPhase::OpeningActions { .. } => {
+                let input = self
+                    .state
+                    .rules
+                    .pending
+                    .as_ref()
+                    .ok_or("missing opening decision")?
+                    .clone();
+                self.validate_setup_response(input.player, &input.response)?;
+                match input.response {
+                    Response::OpeningPlacement { object: Some(id) } => {
+                        self.commit_batch(
+                            BatchCause::Setup,
+                            EventGroup::Occurrence {
+                                proposed: ProposedEvent::Move {
+                                    object: id,
+                                    destination: Zone::Battlefield,
+                                },
+                            },
+                        )?;
+                        self.state.rules.pending = None;
+                        return self.normalize_setup();
+                    }
+                    Response::OpeningPlacement { object: None } => {
+                        self.state.rules.pending = None;
+                        SetupAction::PassOpeningActions {
+                            player: input.player,
+                        }
+                    }
+                    _ => return Err("invalid opening action".into()),
                 }
             }
             SetupPhase::Finish => SetupAction::Finish,
@@ -687,6 +777,13 @@ impl Game {
                     bottom: objects.iter().map(|o| o.card).collect(),
                 }
             }
+            (
+                SetupAction::PassOpeningActions { player },
+                SetupPhase::OpeningActions { players },
+            ) if players.first() == Some(player) && self.is_live(*player) => {
+                players.remove(0);
+                SetupOutcome::OpeningActionsPassed { player: *player }
+            }
             (SetupAction::Finish, SetupPhase::Finish) => {
                 let player = *self
                     .setup_order()
@@ -758,6 +855,17 @@ impl Game {
                         SetupPhase::Declare { players }
                         | SetupPhase::Return { players }
                         | SetupPhase::Bottom { players } => vec![players],
+                        SetupPhase::OpeningActions { players } => {
+                            let order = self.setup_order();
+                            if !self.has_opening_placement()
+                                || !setup.takers.is_empty()
+                                || !order.ends_with(players)
+                                || !order.iter().all(|p| setup.players[p.0 as usize].kept)
+                            {
+                                return Err("invalid opening action phase".into());
+                            }
+                            vec![players]
+                        }
                         SetupPhase::Finish => vec![],
                     };
                     for queue in queues

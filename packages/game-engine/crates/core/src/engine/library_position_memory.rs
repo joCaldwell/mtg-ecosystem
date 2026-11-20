@@ -1,7 +1,7 @@
 use super::*;
 
 impl Game {
-    pub(super) fn remember_public_tuck(&mut self, successor: ObjectId) {
+    pub(super) fn remember_public_library_position(&mut self, successor: ObjectId) {
         for knowledge in &mut self.state.knowledge.visibility {
             knowledge.public_tucked_cards.insert(successor);
         }
@@ -79,6 +79,9 @@ impl Game {
                     | ProposedEvent::LibrarySelect { player, looked, .. }
                     | ProposedEvent::Surveil { player, looked, .. } => {
                         player.0 as usize == seat || !looked.contains(id)
+                    }
+                    ProposedEvent::BottomRevealedCards { order, .. } => {
+                        order.len() <= 1 || !order.contains(id)
                     }
                     ProposedEvent::Setup { .. } => false,
                     _ => true,

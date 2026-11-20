@@ -101,6 +101,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
     let handles = g.capture_trigger_source_handles(target).unwrap();
     let spell = StackInstance {
         alternative_cost: None,
+        hybrid_colors: vec![],
         hand_cast_permission: None,
         cost_lock: None,
         selected_additional_costs: None,
@@ -211,7 +212,11 @@ fn permanent_target_kernel_control_type_zone_incarnation_targetability_and_prefl
     let (g, _, _) = kernel(PAIR, 1);
     let entry = frame(&g).spell;
     let p = g.program_for(&entry).unwrap();
-    assert!(g.has_target_domain(p, PlayerId(0), g.targeting_characteristics(&entry).unwrap()));
+    assert!(g.has_target_domain(
+        p,
+        PlayerId(0),
+        g.targeting_characteristics(&entry).unwrap().as_ref()
+    ));
     for id in [1, 2, 4] {
         assert!(g.object_target_legal(&entry, object(&g, id)));
     }

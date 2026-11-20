@@ -121,6 +121,15 @@ impl Game {
         self.begin_spell_announcement(announcement)
     }
     pub(super) fn is_bestowed_spell(&self, object: ObjectId) -> bool {
+        // CR 702.103e: the Aura effect ends as resolution starts if its target
+        // is illegal. The stack entry keeps the alternative payment as history.
+        if let Frame::Resolve { frame } = &self.state.rules.frame
+            && frame.spell.source == object
+            && frame.spell.kind.is_spell()
+            && frame.legal_targets == [false]
+        {
+            return false;
+        }
         self.state.rules.stack.iter().any(|s| {
             s.source == object
                 && s.kind.is_spell()
@@ -143,12 +152,11 @@ impl Game {
                 .characteristics(mtg_contracts::BestowForm::Aura),
         )
     }
-    pub(super) fn announce_resolution_spell(
-        &mut self,
-        permission: CastPermission,
-        progress: Box<CascadeProgress>,
-    ) -> Result<(), String> {
-        self.validate_resolution_permission(&permission, &progress)?;
+    pub(super) fn announce_resolution_spell(&mut self, progress: CastOwner) -> Result<(), String> {
+        let permission = progress.permission()?;
+        if !self.resolution_offer_legal(&permission)? {
+            return Err("no legal resolution cast".into());
+        }
         self.begin_spell_announcement(SpellAnnouncement {
             bestow: false,
             player: permission.caster,
@@ -234,6 +242,7 @@ impl Game {
             source_facts.characteristics = self.proposed_cast_characteristics(card, true)?;
         }
         self.state.rules.stack.push(StackInstance {
+            hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost,
@@ -306,6 +315,12 @@ impl Game {
             && stack.mode_subset.is_none()
         {
             return Ok(Frame::Modes { cast });
+        }
+        if !definition.characteristics.hybrid_mana.is_empty()
+            && stack.alternative_cost.is_none()
+            && stack.hybrid_colors.is_empty()
+        {
+            return Ok(Frame::HybridCost { cast });
         }
         if definition.x_mana_cost && stack.x.is_none() {
             return Ok(Frame::AnnounceX { cast });
@@ -525,15 +540,14 @@ impl Game {
             CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
             CastCompletion::Resolution {
                 permission,
-                mut progress,
+                progress,
             } => {
                 if permission.object != cast.original_object
                     || permission.caster != stack.controller
                 {
                     return Err("resolution cast reversal permission invariant".into());
                 }
-                progress.stage = cascade::CascadeStage::Offer;
-                Frame::Cascade { progress }
+                progress.resume()
             }
         };
         self.record_event(Event::CastReversed {

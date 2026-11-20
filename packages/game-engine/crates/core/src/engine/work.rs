@@ -822,6 +822,7 @@ impl Game {
                                 && top.len().checked_add(bottom.len()) == Some(looked.len())
                         }
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
+                        (Frame::Setup, PlayerResponse::OpeningPlacement { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
                         }
@@ -866,12 +867,17 @@ impl Game {
                         (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
                             matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
                         }
+                        (
+                            Frame::RevealAndCast { progress },
+                            PlayerResponse::OptionalEffect { .. },
+                        ) => progress.permission().is_ok(),
                         (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
                             progress.stage == cascade::CascadeStage::Offer
                         }
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
                         }
+                        (Frame::HybridCost { .. }, PlayerResponse::HybridCost { .. }) => true,
                         (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
                         (
                             Frame::Modes { .. },
@@ -896,7 +902,14 @@ impl Game {
                             Frame::TriggerTargets { .. },
                             PlayerResponse::PlayerTargets { players },
                         ) => players.len() == self.program().map_err(invalid)?.targets.len(),
-                        (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
+                        (
+                            Frame::ResolutionChoice {
+                                choice: ResolutionChoice::Demonstrate { first: Some(_), .. },
+                                ..
+                            },
+                            PlayerResponse::ChooseOpponent { .. },
+                        )
+                        | (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
                             Frame::ResolutionChoice { .. },

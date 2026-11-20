@@ -146,9 +146,9 @@ pub(super) fn schema(s: &mut serde_json::Value) {
         "static_abilities":{"minItems":1,"maxItems":1,"items":{"properties":{"functioning_zone":{"const":"battlefield"},"effect":{"const":"enters_tapped"}}}},
         "capabilities":{"allOf":[{"contains":{"const":Capability::ActivatedAbilityV1}},{"contains":{"const":Capability::ManaActivationCostV1}},{"contains":{"const":Capability::ControllerDrawV1}}]}
     }}}));
-    // Enum expansion never grants hand execution to a spell/static/trigger or
-    // intrinsic mana. Those contexts retain their existing non-hand zones.
-    for kind in ["SpellProgram", "StaticAbility", "TriggeredAbility"] {
+    // Spell, trigger and intrinsic mana contexts remain outside hand.
+    // The opening placement contract owns the static hand exception.
+    for kind in ["SpellProgram", "TriggeredAbility"] {
         s["$defs"][kind]
             .as_object_mut()
             .unwrap()

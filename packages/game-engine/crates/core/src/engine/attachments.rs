@@ -314,7 +314,7 @@ impl Game {
                     self.targetable_by(object, entry.controller)
                         && self
                             .targeting_characteristics(entry)
-                            .is_ok_and(|source| !self.protected_from(object, source))
+                            .is_ok_and(|source| !self.protected_from(object, &source))
                 }
             }
     }
@@ -357,7 +357,7 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let source = self.structural_characteristics(o.id)?;
+            let source = self.color_layer(o.id)?;
             let subtypes = &source.subtypes;
             let legal = match o.attached_to {
                 Some(target) => {

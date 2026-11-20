@@ -392,6 +392,18 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
             (read, BTreeSet::from([FactKey::Libraries]))
         }
+        ProposedEvent::RevealLibraryCard { object, .. } => (
+            BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
+            BTreeSet::new(),
+        ),
+        ProposedEvent::BottomRevealedCards { order, .. } => (
+            order
+                .iter()
+                .map(|o| FactKey::Object(o.card))
+                .chain([FactKey::Libraries])
+                .collect(),
+            BTreeSet::from([FactKey::Libraries]),
+        ),
         ProposedEvent::RevealSearchLands { objects, .. } => (
             objects
                 .iter()
@@ -910,7 +922,15 @@ impl Game {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
-                ProposedEvent::RevealSearchLands {
+                ProposedEvent::RevealLibraryCard { player, object } => {
+                    objects.insert(*object);
+                    libraries.insert(*player);
+                }
+                ProposedEvent::BottomRevealedCards {
+                    player,
+                    order: selected,
+                }
+                | ProposedEvent::RevealSearchLands {
                     player,
                     objects: selected,
                 } => {
@@ -1003,7 +1023,9 @@ impl Game {
                             libraries.insert(*player);
                             objects.extend(bottom);
                         }
-                        SetupAction::Declare { .. } | SetupAction::Finish => {}
+                        SetupAction::PassOpeningActions { .. }
+                        | SetupAction::Declare { .. }
+                        | SetupAction::Finish => {}
                     }
                 }
                 ProposedEvent::CreateEffect { effect } => {
@@ -1460,6 +1482,33 @@ impl Game {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
+        if cause == BatchCause::Setup
+            && let EventGroup::Occurrence {
+                proposed:
+                    ProposedEvent::Move {
+                        object,
+                        destination,
+                    },
+            } = &group
+        {
+            let input = self
+                .state
+                .rules
+                .pending
+                .as_ref()
+                .ok_or("missing opening placement authority")?;
+            if *destination != Zone::Battlefield
+                || input.response
+                    != (Response::OpeningPlacement {
+                        object: Some(*object),
+                    })
+            {
+                return Err(
+                    "opening placement move does not match selected hand incarnation".into(),
+                );
+            }
+            self.validate_setup_response(input.player, &input.response)?;
+        }
         let entry = self.prepare_entry_batch(&cause, &group)?;
         let mut events = vec![];
         {
@@ -2116,6 +2165,12 @@ impl Game {
     ) -> Result<EventOutcome, String> {
         let entry = authority.entry();
         let actual = match proposed {
+            ProposedEvent::RevealLibraryCard { player, object } => {
+                self.apply_reveal_library_card(*player, *object)?
+            }
+            ProposedEvent::BottomRevealedCards { player, order } => {
+                self.apply_bottom_revealed(*player, order)?
+            }
             ProposedEvent::RevealSearchLands { player, objects } => {
                 if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, split: true, maximum: 2, .. }, .. } if p == *player)
                     || objects.len() > 2
@@ -2244,8 +2299,7 @@ impl Game {
                                 o.present_on_battlefield() && self.is_live(o.controller)
                             })
                             && self.attachment_target_type_valid(object.card, t.card)?
-                            && !self
-                                .protected_from(*t, &self.definition(object.card)?.characteristics)
+                            && !self.protected_from(*t, self.color_layer(*object)?.as_ref())
                     }
                     None => true,
                 };
@@ -3051,8 +3105,7 @@ impl Game {
                     if !self.is_battlefield_creature(object) {
                         return Err("invalid creature damage recipient".into());
                     }
-                    if self.protected_from(object, &self.definition(d.source.card)?.characteristics)
-                    {
+                    if self.protected_from(object, self.color_layer(d.source)?.as_ref()) {
                         return Err("protection requires the damage transaction".into());
                     }
                     (1, object.card.0)

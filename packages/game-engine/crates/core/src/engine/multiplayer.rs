@@ -445,6 +445,7 @@ impl Game {
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
         if let Frame::AdditionalCosts { cast }
+        | Frame::HybridCost { cast }
         | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
@@ -472,6 +473,7 @@ impl Game {
             };
         }
         if let Frame::AdditionalCosts { cast }
+        | Frame::HybridCost { cast }
         | Frame::AnnounceX { cast }
         | Frame::Modes { cast }
         | Frame::EntityTargets { cast }
@@ -489,6 +491,7 @@ impl Game {
             let proposing = matches!(
                 self.state.rules.frame,
                 Frame::AdditionalCosts { .. }
+                    | Frame::HybridCost { .. }
                     | Frame::AnnounceX { .. }
                     | Frame::Modes { .. }
                     | Frame::EntityTargets { .. }
@@ -587,6 +590,7 @@ impl Game {
         self.remove_group_discard_recipient(player);
         self.revalidate_actions_departure()?;
         self.revalidate_cascade_departure()?;
+        self.revalidate_reveal_departure()?;
         self.revalidate_hand_cast_departure()?;
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;
