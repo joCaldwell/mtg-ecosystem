@@ -384,7 +384,7 @@ impl Game {
                         owner: entry.controller,
                     },
                     FunctioningZone::Battlefield => Zone::Battlefield,
-                    FunctioningZone::Stack => {
+                    FunctioningZone::Stack | FunctioningZone::Any => {
                         return Err("invalid activation functioning zone".into());
                     }
                 }

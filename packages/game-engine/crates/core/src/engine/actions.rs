@@ -357,7 +357,7 @@ impl Game {
                     !source.present_on_battlefield() || source.controller != player
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
-                FunctioningZone::Stack => true,
+                FunctioningZone::Stack | FunctioningZone::Any => true,
             }
         {
             return Err("invalid activated ability source/permission".into());

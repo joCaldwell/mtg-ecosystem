@@ -5,24 +5,48 @@ use super::targeted_discard_tests::public_answer;
 use super::*;
 
 #[test]
+#[ignore = "uses the exact scoped archive"]
 fn printed_protection_from_everything_orders_colorless_combat_prevention() {
-    let prepared = prepared_with_sources(
+    let archive = std::fs::read_to_string(
+        std::env::var_os("MTG_SELF_GRAVEYARD_SHUFFLE_ARCHIVE_PROBE")
+            .expect("exact Progenitus archive"),
+    )
+    .unwrap();
+    assert_eq!(
+        mtg_contracts::sha256(archive.as_bytes()),
+        "c5fbc3e89be7b8c69fa6b4e2a74deec2509b214a2484e1200f7ef86cf7f64ab2"
+    );
+    let mut lines = archive.lines();
+    let header = lines.next().unwrap();
+    let record = lines.next().unwrap();
+    assert!(lines.next().is_none());
+    let result = mtg_compiler::compile(header, record);
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}");
+    };
+    let mut prepared = prepared_with_sources(
         &[
             ("Silver Myr", 0, 0, false),
-            ("Progenitus", 1, 1, false),
+            ("Silver Myr", 1, 1, false),
             ("Basilisk Collar", 0, 0, false),
             ("Furnace of Rath", 0, 0, false),
             ("Forest", 0, 0, false),
             ("Forest", 0, 0, false),
         ],
         &[
-            include_str!(
-                "../../../../tests/fixtures/ramos/2d7e00b6-12f0-4b03-82a6-50e3d1b5395e.json"
-            ),
             include_str!("../../../../tests/fixtures/66e8f7f8-3a6d-46ba-837c-b9713ddf7f40.json"),
             include_str!("../../../../tests/fixtures/f5f4dd28-f4ae-4d39-b9b8-6ebfd63c93fe.json"),
         ],
     );
+    prepared.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut prepared.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    prepared.catalog_digest = digest(catalog).unwrap();
+    prepared.profile_digest = digest(&prepared.config).unwrap();
     let mut game = Game::with_trace(prepared, TraceMode::Detailed);
     let (myr, protected, collar) = (object(&game, 0), object(&game, 1), object(&game, 2));
     let defender = PlayerId(1);
