@@ -1,6 +1,8 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
+mod controller_land_types;
+pub use controller_land_types::controller_land_type_ast;
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -313,6 +315,7 @@ pub enum Capability {
     ConditionalBasicLandEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
+    ControllerLandBasicTypesV1,
     FlashV1,
     CastArtifactV1,
     PermanentManaV1,
@@ -1358,6 +1361,7 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    GrantControllerLandsAllBasicTypes,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
     /// grants one independent cascade to this controller's qualifying cast.
     /// The program is exactly canonical_cascade_program, never arbitrary code.
@@ -2582,6 +2586,9 @@ impl Definition {
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
+                StaticEffect::GrantControllerLandsAllBasicTypes => {
+                    Capability::ControllerLandBasicTypesV1
+                }
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
                 StaticEffect::EntersTappedUnlessPayLife { .. } => {
                     Capability::OptionalLifeLandEntryV1
@@ -2923,6 +2930,7 @@ impl Definition {
         }
         // Sacrifice programs admit enchantment programs and creature statics.
         // Other programs retain their narrower kind constraints.
+        controller_land_types::validate(self)?;
         let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
         let wipes = self.capabilities.contains(&Capability::BoardWipesV1);
         if self.x_mana_cost
@@ -6906,6 +6914,16 @@ pub fn catalog_schema() -> serde_json::Value {
     entry_graveyard_exile::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
+    let grant = serde_json::json!({"required":["effect"],"properties":{"effect":{"const":StaticEffect::GrantControllerLandsAllBasicTypes}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+            "if":{"anyOf":[{"required":["static_abilities"],"properties":{"static_abilities":{"contains":grant}}},
+            {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"Lands you control are (?:all basic land types|every basic land type) in addition to their other types\.""#}}}}}]},
+        "then":{"required":["static_abilities"],"properties":{"characteristics":{"properties":{"kind":{"const":"enchantment"},"basic":{"const":false},"snow":{"const":false},"legendary":{"const":false},"subtypes":{"maxItems":0},"additional_types":{"maxItems":0}}},
+            "static_abilities":{"const":[StaticAbility{functioning_zone:FunctioningZone::Battlefield,effect:StaticEffect::GrantControllerLandsAllBasicTypes}]},
+            "activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0},
+            "capabilities":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}}}
+    }));
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7183,6 +7201,7 @@ mod tests {
             ConditionalBasicLandEntryV1,
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
+            ControllerLandBasicTypesV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
@@ -7831,6 +7850,44 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
+        let mut grant = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Enchantment
+                    && d.characteristics.subtypes.is_empty()
+                    && d.activated.is_empty()
+                    && d.triggered.is_empty()
+                    && d.keywords.is_empty()
+            })
+            .unwrap()
+            .clone();
+        grant.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::GrantControllerLandsAllBasicTypes,
+        }];
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-controller-land-types.json"
+        ))
+        .unwrap();
+        let raw = &record["source"];
+        grant.name = raw["name"].as_str().unwrap().into();
+        grant.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+        grant.characteristics.mana_cost = ManaCost {
+            generic: 2.into(),
+            colored: vec![Color::W],
+        };
+        grant.characteristics.colors = vec![Color::W];
+        grant.characteristics.color_identity = vec![Color::W];
+        grant.source_labels = None;
+        grant.provenance.printing_id = raw["id"].as_str().unwrap().into();
+        grant.provenance.source_json = canonical(raw).unwrap();
+        grant.provenance.source_sha256 = sha256(grant.provenance.source_json.as_bytes());
+        grant.provenance.abilities_json = canonical(&controller_land_type_ast()).unwrap();
+        grant.provenance.ast_sha256 =
+            sha256(format!("[{}]", grant.provenance.abilities_json).as_bytes());
+        grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        grant.capabilities = grant.requirements();
+        definitions.push(grant);
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")

@@ -139,6 +139,15 @@ impl Strategy<'_> {
                     .and_then(|(d, p)| self.choose_x(v, d, p))
                     .unwrap_or_default(),
             },
+            PlayerRequest::ChooseManaAbility { choices, .. } => {
+                let desired = self.mana_color;
+                let ability=choices.iter().find(|choice| matches!(choice,mtg_core::ManaAbilityIdentity::Intrinsic{color} if Some(*color)==desired))
+                    .or_else(||choices.first()).copied().ok_or("empty mana ability choices")?;
+                if matches!(ability, mtg_core::ManaAbilityIdentity::Intrinsic { .. }) {
+                    self.mana_color = None;
+                }
+                PlayerResponse::ChooseManaAbility { ability }
+            }
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
                 color: self
                     .mana_color

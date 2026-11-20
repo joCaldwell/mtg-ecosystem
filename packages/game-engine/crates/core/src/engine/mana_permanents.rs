@@ -10,6 +10,8 @@ mod mana_damage;
 pub(super) enum ManaSourceScope {
     Intrinsic,
     Disjoint,
+    Mixed,
+    PrintedDisjoint { index: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,6 +19,33 @@ pub(super) enum ManaSourceScope {
 pub(super) struct ManaBranch {
     index: u32,
     color: Color,
+}
+
+/// A producing ability and its chosen output are separate. An intrinsic ability
+/// is identified by its basic subtype's mana color (CR 305.6), while a printed
+/// ability is identified by its index on this source incarnation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ManaSourceChoice {
+    Intrinsic(Color),
+    Printed(ManaBranch),
+}
+
+impl ManaSourceChoice {
+    fn color(self) -> Color {
+        match self {
+            Self::Intrinsic(color) => color,
+            Self::Printed(branch) => branch.color,
+        }
+    }
+
+    fn from_color(choices: &[Self], color: Color) -> Result<Self, String> {
+        let mut matching = choices.iter().copied().filter(|c| c.color() == color);
+        let choice = matching.next().ok_or("invalid mana source choice")?;
+        if matching.next().is_some() {
+            return Err("mana color identifies multiple source abilities".into());
+        }
+        Ok(choice)
+    }
 }
 
 // Four Healers plus eight once-only sacrifice-draw artifact activations.
@@ -359,6 +388,9 @@ impl Game {
         if definition.mana_abilities.len() != 1 && !disjoint_pain_mana_family(definition) {
             return Err("unsupported permanent mana source".into());
         }
+        if !self.intrinsic_mana_colors(source)?.is_empty() {
+            return self.mixed_mana_choices(player, source).map(|_| ());
+        }
         self.validate_permanent_mana_costs(player, source, 0)
     }
 
@@ -393,23 +425,90 @@ impl Game {
         Ok(())
     }
 
+    pub(super) fn mixed_mana_choices(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+    ) -> Result<Vec<ManaAbilityIdentity>, String> {
+        let definition = self.definition(source.card)?;
+        if self.intrinsic_mana_colors(source)?.is_empty()
+            || (definition.mana_abilities.len() != 1 && !disjoint_pain_mana_family(definition))
+        {
+            return Err("missing mixed mana provider".into());
+        }
+        let mut choices: Vec<_> = self
+            .intrinsic_choice_colors(player, source)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|color| ManaAbilityIdentity::Intrinsic { color })
+            .collect();
+        for index in 0..definition.mana_abilities.len() {
+            let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
+            if self
+                .validate_permanent_mana_costs(player, source, index)
+                .is_ok()
+            {
+                choices.push(ManaAbilityIdentity::Printed { index });
+            }
+        }
+        if choices.is_empty() {
+            return Err("no payable mixed mana ability".into());
+        }
+        Ok(choices)
+    }
+    fn mana_source_choices(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        scope: ManaSourceScope,
+    ) -> Result<Vec<ManaSourceChoice>, String> {
+        match scope {
+            ManaSourceScope::Mixed => Err("mixed provider requires an ability identity".into()),
+            ManaSourceScope::Intrinsic if self.is_permanent_mana(source) => {
+                Err("printed provider cannot select an intrinsic-only scope".into())
+            }
+            ManaSourceScope::Intrinsic => Ok(self
+                .intrinsic_choice_colors(player, source)?
+                .into_iter()
+                .map(ManaSourceChoice::Intrinsic)
+                .collect()),
+            ManaSourceScope::Disjoint | ManaSourceScope::PrintedDisjoint { .. } => {
+                let definition = self.definition(source.card)?;
+                if !disjoint_pain_mana_family(definition) {
+                    return Err("invalid disjoint mana source".into());
+                }
+                let mut choices = Vec::new();
+                for (index, ability) in definition.mana_abilities.iter().enumerate() {
+                    let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
+                    if matches!(scope,ManaSourceScope::PrintedDisjoint{index:selected} if selected!=index)
+                    {
+                        continue;
+                    }
+                    self.validate_permanent_mana_costs(player, source, index)?;
+                    for color in self.mana_colors(player, &ability.production)? {
+                        choices.push(ManaSourceChoice::Printed(ManaBranch { index, color }));
+                    }
+                }
+                if choices.is_empty() {
+                    return Err("missing printed mana branch".into());
+                }
+                Ok(choices)
+            }
+        }
+    }
+
     pub(super) fn mana_source_colors(
         &self,
         player: PlayerId,
         source: ObjectId,
         scope: ManaSourceScope,
     ) -> Result<Vec<Color>, String> {
-        match scope {
-            ManaSourceScope::Intrinsic => self.intrinsic_choice_colors(player, source),
-            ManaSourceScope::Disjoint => {
-                let definition = self.definition(source.card)?;
-                if !disjoint_pain_mana_family(definition) {
-                    return Err("invalid disjoint mana source".into());
-                }
-                self.validate_permanent_mana_costs(player, source, 0)?;
-                self.mana_abilities(source)
-            }
+        let choices = self.mana_source_choices(player, source, scope)?;
+        let colors: Vec<_> = choices.iter().map(|c| c.color()).collect();
+        if colors.iter().collect::<BTreeSet<_>>().len() != colors.len() {
+            return Err("mana source requires a choice of ability".into());
         }
+        Ok(colors)
     }
 
     pub(super) fn mana_source_choice_step(
@@ -425,29 +524,54 @@ impl Game {
             .pending
             .take()
             .ok_or("missing mana source choice input")?;
+        if scope == ManaSourceScope::Mixed {
+            let Response::ChooseManaAbility { ability } = input.response else {
+                return Err("expected mana ability identity".into());
+            };
+            if input.player != player
+                || !self.mana_resume_player(&resume, player)
+                || !self.mixed_mana_choices(player, source)?.contains(&ability)
+            {
+                return Err("invalid selected mana ability".into());
+            }
+            return match ability {
+                ManaAbilityIdentity::Intrinsic { color } => {
+                    let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
+                    self.resume_mana(resume, vec![receipt])
+                }
+                ManaAbilityIdentity::Printed { index } => {
+                    if !disjoint_pain_mana_family(self.definition(source.card)?) {
+                        return self.start_mana_ability(&input, source, None, resume);
+                    }
+                    let scope = ManaSourceScope::PrintedDisjoint { index };
+                    let choices = self.mana_source_choices(player, source, scope)?;
+                    if let [ManaSourceChoice::Printed(branch)] = choices.as_slice() {
+                        self.start_mana_ability(&input, source, Some(*branch), resume)
+                    } else {
+                        self.state.rules.frame = Frame::ManaSourceChoice {
+                            player,
+                            source,
+                            scope,
+                            resume: Box::new(resume),
+                        };
+                        Ok(())
+                    }
+                }
+            };
+        }
         let Response::ManaColor { color } = input.response else {
             return Err("mana source choice input invariant".into());
         };
-        if input.player != player
-            || !self.mana_resume_player(&resume, player)
-            || !self
-                .mana_source_colors(player, source, scope)?
-                .contains(&color)
-        {
+        if input.player != player || !self.mana_resume_player(&resume, player) {
             return Err("invalid mana source choice".into());
         }
-        match scope {
-            ManaSourceScope::Intrinsic => {
+        let choices = self.mana_source_choices(player, source, scope)?;
+        match ManaSourceChoice::from_color(&choices, color)? {
+            ManaSourceChoice::Intrinsic(color) => {
                 let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
                 self.resume_mana(resume, vec![receipt])
             }
-            ManaSourceScope::Disjoint => {
-                // The contract's first branch produces only C and the second
-                // produces exactly one of the disjoint printed colored types.
-                let branch = ManaBranch {
-                    index: if color == Color::C { 0 } else { 1 },
-                    color,
-                };
+            ManaSourceChoice::Printed(branch) => {
                 self.start_mana_ability(&input, source, Some(branch), resume)
             }
         }
@@ -476,7 +600,15 @@ impl Game {
         if !self.mana_resume_player(&resume, input.player) {
             return Err("invalid permanent mana continuation".into());
         }
-        if disjoint_pain_mana_family(self.definition(source.card)?) {
+        if !self.intrinsic_mana_colors(source)?.is_empty() {
+            self.state.rules.frame = Frame::ManaSourceChoice {
+                player: input.player,
+                source,
+                scope: ManaSourceScope::Mixed,
+                resume: Box::new(resume),
+            };
+            Ok(())
+        } else if disjoint_pain_mana_family(self.definition(source.card)?) {
             self.state.rules.frame = Frame::ManaSourceChoice {
                 player: input.player,
                 source,
@@ -982,7 +1114,10 @@ impl Game {
             resume,
         } = &self.state.rules.frame
         {
-            if self.mana_source_colors(*player, *source, *scope).is_err() {
+            if match scope {
+                ManaSourceScope::Mixed => self.mixed_mana_choices(*player, *source).is_err(),
+                _ => self.mana_source_colors(*player, *source, *scope).is_err(),
+            } {
                 let resume = *resume.clone();
                 self.state.rules.pending = None;
                 self.state.rules.frame = resume;
@@ -1062,8 +1197,13 @@ impl Game {
             resume,
         } = f
         {
-            if self.mana_source_colors(*player, *source, *scope)?.len() < 2
-                || !self.mana_resume_player(resume, *player)
+            if match scope {
+                ManaSourceScope::Mixed => self.mixed_mana_choices(*player, *source)?.is_empty(),
+                ManaSourceScope::Intrinsic if self.catalog_has_land_type_grant => self
+                    .mana_source_colors(*player, *source, *scope)?
+                    .is_empty(),
+                _ => self.mana_source_colors(*player, *source, *scope)?.len() < 2,
+            } || !self.mana_resume_player(resume, *player)
             {
                 return Err("mana source choice snapshot invariant".into());
             }
@@ -1091,5 +1231,33 @@ impl Game {
             return Err("buried mana source choice continuation".into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod source_choice_tests {
+    use super::*;
+
+    #[test]
+    fn mana_source_selection_preserves_ability_identity_for_overlapping_outputs() {
+        let intrinsic = ManaSourceChoice::Intrinsic(Color::G);
+        let free = ManaSourceChoice::Printed(ManaBranch {
+            index: 3,
+            color: Color::U,
+        });
+        let paid = ManaSourceChoice::Printed(ManaBranch {
+            index: 1,
+            color: Color::G,
+        });
+        assert_eq!(
+            ManaSourceChoice::from_color(&[paid, free], Color::G),
+            Ok(paid)
+        );
+        assert_eq!(
+            ManaSourceChoice::from_color(&[intrinsic, free], Color::U),
+            Ok(free)
+        );
+        assert!(ManaSourceChoice::from_color(&[intrinsic, paid], Color::G).is_err());
+        assert!(ManaSourceChoice::from_color(&[intrinsic, free], Color::W).is_err());
     }
 }

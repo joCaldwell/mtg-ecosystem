@@ -344,6 +344,8 @@ mod cast_origin_tests;
 #[cfg(test)]
 mod casting_foundation_tests;
 #[cfg(test)]
+mod controller_land_type_tests;
+#[cfg(test)]
 mod distinct_permanent_colors_tests;
 mod hand_return;
 mod intrinsic_mana;
@@ -629,6 +631,14 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    // Existing reviewed catalogs keep their exact private snapshot envelope.
+    // The headless land-type family can retain new unpaid selection frames.
+    fn has_land_type_grant(&self) -> bool {
+        self.catalog.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::ControllerLandBasicTypesV1)
+        })
+    }
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
         let profile_digest = pod
@@ -1136,6 +1146,13 @@ enum Frame {
         winner: PlayerId,
     },
 }
+/// The intrinsic ability for a basic land type or an index into this source's printed mana abilities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "ability", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ManaAbilityIdentity {
+    Intrinsic { color: Color },
+    Printed { index: u32 },
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
@@ -1171,6 +1188,9 @@ pub enum Response {
     },
     ForcedSacrifice {
         object: ObjectId,
+    },
+    ChooseManaAbility {
+        ability: ManaAbilityIdentity,
     },
     ManaColor {
         color: Color,
@@ -1334,6 +1354,11 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
         previous_choices: Vec<(PlayerId, ObjectId)>,
+    },
+    ChooseManaAbility {
+        decision_id: u64,
+        player: PlayerId,
+        choices: Vec<ManaAbilityIdentity>,
     },
     ManaColor {
         decision_id: u64,
@@ -1505,6 +1530,7 @@ impl Request {
             | Self::Surveil { decision_id, .. } => *decision_id,
             Self::AdditionalCosts { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
+            | Self::ChooseManaAbility { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
@@ -1545,6 +1571,7 @@ impl Request {
             | Self::Surveil { player, .. } => *player,
             Self::AdditionalCosts { player, .. }
             | Self::AnnounceX { player, .. }
+            | Self::ChooseManaAbility { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
             | Self::SearchLandBattlefield { player, .. }
@@ -2233,6 +2260,7 @@ pub struct SnapshotWriteInfo {
     pub state_sha256: String,
 }
 pub struct Game {
+    catalog_has_land_type_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     state: State,
@@ -2388,6 +2416,7 @@ impl Game {
             },
         };
         let mut game = Self {
+            catalog_has_land_type_grant: prepared.has_land_type_grant(),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2409,6 +2438,7 @@ impl Game {
     }
     pub fn fork(&self) -> Self {
         Self {
+            catalog_has_land_type_grant: self.catalog_has_land_type_grant,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
@@ -2486,26 +2516,18 @@ impl Game {
     /// window's offered sources to decide what can be activated now.
     pub fn mana_abilities(&self, object: ObjectId) -> Result<Vec<Color>, String> {
         let o = self.current(object)?;
-        let d = self.definition(object.card)?;
-        if o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
-            let mut colors = Vec::new();
-            for ability in &d.mana_abilities {
-                colors.extend(self.mana_colors(o.controller, &ability.production)?);
+        let mut colors = self.intrinsic_mana_colors(object)?;
+        let mixed = !colors.is_empty();
+        if o.zone == Zone::Battlefield {
+            for ability in &self.definition(object.card)?.mana_abilities {
+                for color in self.mana_colors(o.controller, &ability.production)? {
+                    if !mixed || !colors.contains(&color) {
+                        colors.push(color);
+                    }
+                }
             }
-            return Ok(colors);
         }
-        if o.zone != Zone::Battlefield || d.intrinsic_zone != Some(FunctioningZone::Battlefield) {
-            return Ok(vec![]);
-        }
-        let c = self.characteristics(object)?;
-        Ok(if c.kind == CardKind::Land {
-            c.subtypes
-                .iter()
-                .filter_map(|s| basic_land_color(s))
-                .collect()
-        } else {
-            vec![]
-        })
+        Ok(colors)
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
         if let Some(token) = self.state.rules.tokens.get(&card) {
@@ -2690,6 +2712,16 @@ impl Game {
             Frame::ManaSourceChoice {
                 player,
                 source,
+                scope: ManaSourceScope::Mixed,
+                ..
+            } => Request::ChooseManaAbility {
+                decision_id: self.state.rules.revision,
+                player: *player,
+                choices: self.mixed_mana_choices(*player, *source)?,
+            },
+            Frame::ManaSourceChoice {
+                player,
+                source,
                 scope,
                 ..
             } => Request::ManaColor {
@@ -2827,8 +2859,16 @@ impl Game {
         } = &self.state.rules.frame
         {
             return match response {
+                Response::ChooseManaAbility { ability }
+                    if *chooser == player
+                        && *scope == ManaSourceScope::Mixed
+                        && self.mixed_mana_choices(player, *source)?.contains(ability) =>
+                {
+                    Ok(())
+                }
                 Response::ManaColor { color }
                     if *chooser == player
+                        && *scope != ManaSourceScope::Mixed
                         && self
                             .mana_source_colors(player, *source, *scope)?
                             .contains(color) =>
@@ -3383,7 +3423,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 60,
+            snapshot_version: 61,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3425,7 +3465,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 60
+        if s.snapshot_version != 61
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3434,6 +3474,7 @@ impl Game {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
         let game = Self {
+            catalog_has_land_type_grant: prepared.has_land_type_grant(),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,

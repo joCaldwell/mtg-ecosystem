@@ -188,6 +188,50 @@ impl DamageRecipient {
     }
 }
 impl Game {
+    // CR 205.3i, 305.6–7, 611.3 and 613.1d. Preserve printed order and add
+    // missing basic subtypes once, independent of the number of granting sources.
+    fn add_basic_land_types(c: &mut Characteristics) {
+        for subtype in ["Plains", "Island", "Swamp", "Mountain", "Forest"] {
+            if !c.subtypes.iter().any(|s| s == subtype) {
+                c.subtypes.push(subtype.into());
+            }
+        }
+    }
+
+    pub(super) fn apply_land_subtype_grants(
+        &self,
+        object: ObjectId,
+        c: &mut Characteristics,
+    ) -> Result<(), String> {
+        if !self.catalog_has_land_type_grant || !c.has_type(CardKind::Land) {
+            return Ok(());
+        }
+        let land = self.current(object)?;
+        if land.zone != Zone::Battlefield {
+            return Ok(());
+        }
+        for provider in self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Battlefield && o.controller == land.controller)
+        {
+            if self
+                .definition(provider.id.card)?
+                .static_abilities
+                .iter()
+                .any(|a| {
+                    a.functioning_zone == FunctioningZone::Battlefield
+                        && a.effect == StaticEffect::GrantControllerLandsAllBasicTypes
+                })
+            {
+                Self::add_basic_land_types(c);
+                break;
+            }
+        }
+        Ok(())
+    }
     fn characteristics_before_power_toughness(
         &self,
         object: ObjectId,
@@ -227,6 +271,7 @@ impl Game {
         object: ObjectId,
     ) -> Result<Characteristics, String> {
         let mut c = self.characteristics_before_power_toughness(object)?.clone();
+        self.apply_land_subtype_grants(object, &mut c)?;
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
             if let Some(p) = c.power.as_mut() {
@@ -2394,6 +2439,7 @@ impl Game {
     pub(super) fn validate_characteristic_identity(
         &self,
         source: ObjectId,
+        zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
         let mut base = self.definition(source.card)?.characteristics.clone();
@@ -2401,6 +2447,13 @@ impl Game {
             || base.toughness.is_some() != c.toughness.is_some()
         {
             return Err("modified source lost printed stat shape".into());
+        }
+        if base.subtypes != c.subtypes
+            && zone == Zone::Battlefield
+            && base.has_type(CardKind::Land)
+            && self.catalog_has_land_type_grant
+        {
+            Self::add_basic_land_types(&mut base);
         }
         base.power = c.power.clone();
         base.toughness = c.toughness.clone();
@@ -2429,7 +2482,7 @@ impl Game {
         damage: &PreparedDamage,
         fact: &ObjectBefore,
     ) -> Result<(), String> {
-        self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+        self.validate_characteristic_identity(fact.object, fact.zone, &fact.characteristics)?;
         if fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || fact.marked_damage.is_negative()
@@ -2514,7 +2567,11 @@ impl Game {
             {
                 return Err("damage source identity/quantity invariant".into());
             }
-            self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
+            self.validate_characteristic_identity(
+                d.source.object,
+                d.source.zone,
+                &d.source.characteristics,
+            )?;
             if let Some(fact) = &d.source_appearance {
                 self.validate_source_appearance(d, fact)?;
             } else if scoped_live {
@@ -2744,6 +2801,7 @@ impl Game {
                             let provider = &qualification.effect_source;
                             self.validate_characteristic_identity(
                                 provider.object,
+                                provider.zone,
                                 &provider.characteristics,
                             )?;
                             self.validate_source_appearance(d, &qualification.damage_source)?;

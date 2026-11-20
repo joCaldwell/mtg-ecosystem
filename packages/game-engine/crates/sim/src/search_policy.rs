@@ -96,7 +96,8 @@ pub(super) fn choose(
         PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
             return Err("sacrifice request outside foundations search".into());
         }
-        PlayerRequest::ManaColor { .. }
+        PlayerRequest::ChooseManaAbility { .. }
+        | PlayerRequest::ManaColor { .. }
         | PlayerRequest::SearchLands { .. }
         | PlayerRequest::SearchLandBattlefield { .. }
         | PlayerRequest::OptionalEffect { .. }

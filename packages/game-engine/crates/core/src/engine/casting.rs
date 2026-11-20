@@ -275,10 +275,7 @@ impl Game {
         if self.reserved_mana_source(object) {
             return Err("mana source is already announcing".into());
         }
-        let o = self.current(object)?;
-        if o.controller != player || o.tapped || self.mana_abilities(object)?.is_empty() {
-            return Err("invalid mana activation".into());
-        }
+        self.intrinsic_choice_colors(player, object)?;
         Ok(())
     }
 
