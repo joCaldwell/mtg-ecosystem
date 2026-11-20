@@ -910,6 +910,7 @@ fn shield(game: &mut Game, source: u32, amount: i64) {
         id,
         target_handles: vec![],
         origin: EffectOrigin {
+            activated_ability: None,
             mode: Some(1),
             stack_id: StackId(0),
             source,

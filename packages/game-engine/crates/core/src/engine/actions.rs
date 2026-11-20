@@ -22,6 +22,12 @@ pub(super) enum StackKind {
     },
 }
 impl StackKind {
+    pub(super) fn activated_index(&self) -> Option<u32> {
+        match self {
+            Self::Activated { ability, .. } => Some(*ability),
+            _ => None,
+        }
+    }
     pub(super) fn event_player(&self) -> Result<Option<PlayerId>, String> {
         match self {
             Self::Triggered {

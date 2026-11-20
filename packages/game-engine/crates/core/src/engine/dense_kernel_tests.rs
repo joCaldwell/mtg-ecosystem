@@ -788,6 +788,7 @@ mod diagnostic {
                 domain.state.rules.effects.push(ResolvedEffect {
                     id: EffectId(index as u64),
                     origin: EffectOrigin {
+                        activated_ability: None,
                         mode: None,
                         stack_id: StackId(u32::try_from(index).unwrap()),
                         source,
