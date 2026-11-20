@@ -9,6 +9,8 @@ pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_origin;
+mod cast_payer_draw;
+pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
 mod typed_land_search;
@@ -250,6 +252,7 @@ pub enum Capability {
     DamageTriggerV1,
     SourceDamageTriggerV2,
     OptionalControllerDrawV1,
+    CastPayerDrawV1,
     EventPlayerDiscardV1,
     EventPlayerSacrificeV1,
     FilteredDamageTriggerV1,
@@ -972,6 +975,13 @@ pub enum Instruction {
         gain: bool,
         source_block: u32,
     },
+    /// CR 118.12a and 603.5: the event caster may pay before the controller may draw.
+    OptionalDrawUnlessCasterPays {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        generic: Quantity,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
     /// one card, including when their library is empty.
     OptionalDrawCards {
@@ -1118,7 +1128,8 @@ impl Instruction {
             | Self::MillAnnouncedX { source_block, .. }
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
-            Self::OptionalDrawCards { source_block, .. } => *source_block,
+            Self::OptionalDrawCards { source_block, .. }
+            | Self::OptionalDrawUnlessCasterPays { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardPlayerSet { source_block, .. }
             | Self::DiscardTargetPlayer { source_block, .. }
@@ -2859,6 +2870,7 @@ impl Definition {
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
         own_graveyard_card_return::validate_definition(self)?;
+        cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3409,6 +3421,7 @@ impl Definition {
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
                             | Instruction::OptionalDrawCards { .. }
+                            | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
@@ -4335,6 +4348,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::DrawEachPlayer { .. }
             | Instruction::OptionalDrawCards { .. }
+            | Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::DrawDamageAmount { .. } => None,
             Instruction::DamageSet {
                 sets,
@@ -4999,6 +5013,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::DealDamageAnnouncedX { .. }) {
             set.insert(Capability::NoncombatDamageV1);
         }
+        if matches!(
+            instruction,
+            Instruction::OptionalDrawUnlessCasterPays { .. }
+        ) {
+            set.insert(Capability::OptionalControllerDrawV1);
+        }
         if instruction.uses_event_player() {
             set.insert(Capability::EventPlayerRecipientV1);
         }
@@ -5148,6 +5168,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
+            Instruction::OptionalDrawUnlessCasterPays { .. } => Capability::CastPayerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
             Instruction::TapPermanent { .. } => Capability::TapPermanentV1,
@@ -6565,6 +6586,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastColorPredicateV1}}}}}
     }));
     cast_origin::extend_schema(&mut schema);
+    cast_payer_draw::extend_schema(&mut schema);
     activated_artifact_draw::extend_schema(&mut schema);
     unlimited_hand_size::extend_schema(&mut schema);
     hand_size_adjustments::extend_schema(&mut schema);
@@ -6855,6 +6877,7 @@ mod tests {
             DamageTriggerV1,
             SourceDamageTriggerV2,
             OptionalControllerDrawV1,
+            CastPayerDrawV1,
             EventPlayerDiscardV1,
             EventPlayerSacrificeV1,
             FilteredDamageTriggerV1,
@@ -7149,6 +7172,7 @@ mod tests {
         definitions.push(each_player_draw::witness());
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
+        definitions.push(cast_payer_draw::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
