@@ -1216,3 +1216,6 @@ mod demonstrate_tests;
 
 #[path = "grant_hand_cast_cascade_tests.rs"]
 mod grant_hand_cast_cascade_tests;
+
+#[path = "entry_copy_tests.rs"]
+mod entry_copy_tests;

@@ -518,7 +518,7 @@ impl Game {
             && movement.previous == *source
             && movement.successor.card == source.card
             && source.incarnation.checked_add(1) == Some(movement.successor.incarnation)
-            && matches!(&self.state.rules.frame, Frame::Resolve { frame } if frame.stack_id == *stack_id && frame.spell.source == *source)
+            && matches!(&self.state.rules.frame, Frame::Resolve { frame } | Frame::LandEntry { origin: EntryOrigin::Copy { frame, .. }, .. } if frame.stack_id == *stack_id && frame.spell.source == *source)
             && spell.source == *source
             && spell.id == *stack_id
             && spell.controller == *player
@@ -678,7 +678,7 @@ impl Game {
         if let Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
+            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
             ..
         } = &self.state.rules.frame
         {

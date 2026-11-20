@@ -1324,6 +1324,17 @@ impl Game {
                 }
             }
         }
+        for event in events {
+            if let ProposedEvent::Move {
+                object,
+                destination: Zone::Battlefield,
+            }
+            | ProposedEvent::EnterAttached { object, .. } = event
+                && let Some(model) = self.entry_copy_model(*object)
+            {
+                objects.insert(model);
+            }
+        }
         let explicit_attachments = events
             .iter()
             .filter_map(|event| match event {
@@ -1878,7 +1889,8 @@ impl Game {
             } => object,
             _ => return false,
         };
-        self.copiable_definition(object).is_ok_and(|d| {
+        let model = self.entry_copy_model(*object).unwrap_or(*object);
+        self.copiable_definition(model).is_ok_and(|d| {
             d.static_abilities.iter().any(|a| {
                 matches!(
                     a.effect,
@@ -1919,7 +1931,8 @@ impl Game {
         controller: PlayerId,
         before: Option<&PreEventFacts>,
     ) -> Result<bool, String> {
-        for a in &self.copiable_definition(object)?.static_abilities {
+        let model = self.entry_copy_model(object).unwrap_or(object);
+        for a in &self.copiable_definition(model)?.static_abilities {
             match &a.effect {
                 StaticEffect::EntersTapped => return Ok(true),
                 StaticEffect::EntersTappedUnlessControllerBasicLands { minimum } => {
@@ -1966,6 +1979,8 @@ impl Game {
                     entry.movement(object, intended_controller, force_tapped)?;
                 intended_controller = Some(controller);
                 optional_declined = declined;
+            } else if self.has_entry_copy(object)? {
+                return Err("copy entry requires prepared transaction authority".into());
             } else if self.optional_entry_cost(object)?.is_some() {
                 return Err("optional-life entry requires prepared transaction authority".into());
             }
@@ -2063,6 +2078,11 @@ impl Game {
         // CR 614.1c/614.12: this source replacement modifies entry,
         // rather than tapping the permanent in a subsequent event.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        if *destination == Zone::Battlefield
+            && let Some(donor) = entry.and_then(|proof| proof.donor(*object))
+        {
+            self.record_entry_copy(successor, donor)?;
+        }
         let enters_tapped = *destination == Zone::Battlefield
             && (force_tapped
                 || optional_declined
@@ -2245,33 +2265,36 @@ impl Game {
                 // attached when entry observers and ETB hooks see it.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 let source = self.current(*object)?;
-                let definition = self.copiable_definition(object)?;
-                if source.zone != Zone::Stack
-                    || definition.characteristics.kind != CardKind::Enchantment
-                    || definition.characteristics.subtypes != ["Aura"]
-                    || !self.is_live(source.controller)
-                    || !self.attachment_target_type_valid(*object, *target)?
-                    || !self
-                        .current(*target)
-                        .is_ok_and(|o| o.present_on_battlefield())
-                    || !self
-                        .current(*target)
-                        .is_ok_and(|o| self.is_live(o.controller))
-                    || !self.targetable_by(*target, source.controller)
-                    || self.protected_from(*target, &definition.characteristics)
-                {
-                    return Err("invalid attached Aura entry".into());
+                if let Some(donor) = entry.and_then(|proof| proof.donor(*object)) {
+                    // CR 303.4f: non-target legality and the exact attachment
+                    // were proved by prepare_entry_batch before any mutation.
+                    if !self
+                        .entry_aura_targets(donor, source.controller)?
+                        .is_some_and(|targets| targets.contains(target))
+                    {
+                        return Err("invalid copied Aura entry".into());
+                    }
+                } else {
+                    let definition = self.copiable_definition(object)?;
+                    if source.zone != Zone::Stack
+                        || definition.characteristics.kind != CardKind::Enchantment
+                        || definition.characteristics.subtypes != ["Aura"]
+                        || !self.is_live(source.controller)
+                        || !self.attachment_target_type_valid(*object, *target)?
+                        || !self
+                            .current(*target)
+                            .is_ok_and(|o| o.present_on_battlefield() && self.is_live(o.controller))
+                        || !self.targetable_by(*target, source.controller)
+                        || self.protected_from(*target, &definition.characteristics)
+                    {
+                        return Err("invalid attached Aura entry".into());
+                    }
                 }
                 // Check allocation before movement/LKI writes, even for direct
                 // private application; the batch/rule-step owns full rollback.
                 let (attachment_timestamp, _) = self.next_attachment_allocation()?;
-                let EventOutcome::Moved { movement } = self.apply_occurrence_with_prior(
-                    &ProposedEvent::Move {
-                        object: *object,
-                        destination: Zone::Battlefield,
-                    },
-                    before,
-                )?
+                let EventOutcome::Moved { movement } =
+                    self.apply_move(*object, Zone::Battlefield, None, false, before, entry)?
                 else {
                     return Err("attached entry movement invariant".into());
                 };

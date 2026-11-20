@@ -250,29 +250,40 @@ impl Game {
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let base = &self.copiable_definition(object)?.characteristics;
+        if !self.catalog_has_nonland_color_grant || base.has_type(CardKind::Land) {
+            return Ok(std::borrow::Cow::Borrowed(base));
+        }
+        let target = self.current(object)?;
+        if !target.present_on_battlefield() {
+            return Ok(std::borrow::Cow::Borrowed(base));
+        }
+        self.battlefield_color_layer(base, target.controller)
+    }
+    pub(super) fn battlefield_color_layer<'a>(
+        &self,
+        base: &'a Characteristics,
+        controller: PlayerId,
+    ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
         if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
-            let target = self.current(object)?;
-            if target.present_on_battlefield() {
-                for source in self
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|s| s.present_on_battlefield() && s.controller == target.controller)
+            for source in self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|s| s.present_on_battlefield() && s.controller == controller)
+            {
+                if self
+                    .copiable_definition(source.id)?
+                    .static_abilities
+                    .iter()
+                    .any(|a| {
+                        a.effect == StaticEffect::ControllerNonlandsAllColors
+                            && a.functioning_zone == FunctioningZone::Battlefield
+                    })
                 {
-                    if self
-                        .copiable_definition(source.id)?
-                        .static_abilities
-                        .iter()
-                        .any(|a| {
-                            a.effect == StaticEffect::ControllerNonlandsAllColors
-                                && a.functioning_zone == FunctioningZone::Battlefield
-                        })
-                    {
-                        let mut effective = base.clone();
-                        effective.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
-                        return Ok(std::borrow::Cow::Owned(effective));
-                    }
+                    let mut effective = base.clone();
+                    effective.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
+                    return Ok(std::borrow::Cow::Owned(effective));
                 }
             }
         }
