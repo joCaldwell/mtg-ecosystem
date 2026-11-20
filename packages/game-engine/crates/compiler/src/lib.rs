@@ -12,6 +12,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod basic_landwalk;
 mod bestow;
 mod bindings;
 mod cascade_land_entry;
@@ -1523,6 +1524,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
+    let landwalk = basic_landwalk::lower(&source, &shape, types.kind, &result, &binding)?;
     let self_graveyard_shuffle =
         self_graveyard_shuffle::validate(&source, &shape, &result, &binding)?;
     let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
@@ -1555,6 +1557,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         vec![Ability::PlayerGraveyardShuffle]
     } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
+    } else if landwalk.is_some() {
+        vec![]
     } else if self_graveyard_shuffle {
         vec![
             Ability::PrintedProtectionFromEverything,
@@ -1867,7 +1871,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         mana_abilities,
         triggered: vec![],
         static_abilities: vec![],
-        keywords: vec![],
+        keywords: landwalk.unwrap_or_default(),
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,
@@ -1916,7 +1920,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     "nonempty land abilities are not supported",
                 ));
             }
-            if kind == CardKind::Creature && abilities.is_empty() && !source.oracle_text.is_empty()
+            if kind == CardKind::Creature
+                && abilities.is_empty()
+                && definition.keywords.is_empty()
+                && !source.oracle_text.is_empty()
             {
                 return Err(invalid(
                     "source.oracle_text",

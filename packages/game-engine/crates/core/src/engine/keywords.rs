@@ -97,14 +97,7 @@ impl Game {
     fn landwalk_prevents_block(&self, attacker: ObjectId, keywords: &[KeywordAbility]) -> bool {
         let land_types: Vec<_> = keywords
             .iter()
-            .filter_map(|keyword| match keyword {
-                KeywordAbility::Plainswalk => Some(BasicLandType::Plains),
-                KeywordAbility::Islandwalk => Some(BasicLandType::Island),
-                KeywordAbility::Swampwalk => Some(BasicLandType::Swamp),
-                KeywordAbility::Mountainwalk => Some(BasicLandType::Mountain),
-                KeywordAbility::Forestwalk => Some(BasicLandType::Forest),
-                _ => None,
-            })
+            .filter_map(|keyword| keyword.basic_landwalk_type())
             .collect();
         if land_types.is_empty() {
             return false;

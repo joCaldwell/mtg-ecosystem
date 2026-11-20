@@ -33,6 +33,7 @@ pub use opponent_mana::opponent_land_mana_family;
 mod listed_mana_choice;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
+pub mod basic_landwalk;
 mod cast_entry;
 mod entry_copy;
 mod saga;
@@ -351,6 +352,7 @@ pub enum Capability {
     DemonstrateV1,
     ProtectionFromEverythingV1,
     SelfGraveyardRevealShuffleV1,
+    BasicLandwalkV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
     HandCastCascadeGrantV1,
@@ -815,6 +817,10 @@ impl CreatureToken {
             || self
                 .keywords
                 .contains(&KeywordAbility::ProtectionFromEverything)
+            || self
+                .keywords
+                .iter()
+                .any(|k| k.basic_landwalk_type().is_some())
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
@@ -2281,6 +2287,11 @@ pub enum KeywordAbility {
     #[serde(rename = "double strike")]
     DoubleStrike,
     Menace,
+    Plainswalk,
+    Islandwalk,
+    Swampwalk,
+    Mountainwalk,
+    Forestwalk,
     ProtectionFromEachColor,
     // CR 702.16j: intrinsic battlefield protection from every source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -2304,6 +2315,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "first strike" => Ok(Self::FirstStrike),
             "double strike" => Ok(Self::DoubleStrike),
             "menace" => Ok(Self::Menace),
+            "plainswalk" => Ok(Self::Plainswalk),
+            "islandwalk" => Ok(Self::Islandwalk),
+            "swampwalk" => Ok(Self::Swampwalk),
+            "mountainwalk" => Ok(Self::Mountainwalk),
+            "forestwalk" => Ok(Self::Forestwalk),
             "protection_from_each_color" => Ok(Self::ProtectionFromEachColor),
             "protection_from_everything" => Ok(Self::ProtectionFromEverything),
             "hexproof" => Ok(Self::Hexproof),
@@ -2325,6 +2341,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "first strike",
                     "double strike",
                     "menace",
+                    "plainswalk",
+                    "islandwalk",
+                    "swampwalk",
+                    "mountainwalk",
+                    "forestwalk",
                     "protection_from_each_color",
                     "protection_from_everything",
                     "hexproof",
@@ -2407,6 +2428,7 @@ fn static_creature_modification_valid(
             && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
         || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
         || keywords.contains(&KeywordAbility::ProtectionFromEverything)
+        || keywords.iter().any(|k| k.basic_landwalk_type().is_some())
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -3368,6 +3390,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        basic_landwalk::validate_definition(self)?;
         creature_planeswalker_return::validate(self)?;
         fixed_creature_damage::validate(self)?;
         modal_targets::validate_definition(self)?;
@@ -5561,6 +5584,11 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
         KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
         KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
         KeywordAbility::Menace => Capability::MenaceV1,
+        KeywordAbility::Plainswalk
+        | KeywordAbility::Islandwalk
+        | KeywordAbility::Swampwalk
+        | KeywordAbility::Mountainwalk
+        | KeywordAbility::Forestwalk => Capability::BasicLandwalkV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
     })
 }
@@ -6382,6 +6410,7 @@ pub fn catalog_schema() -> serde_json::Value {
             serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"land"}}}}},"then":{"properties":{"keywords":{"items":{"not":{"const":"flash"}}}}}})
         ]);
 
+    basic_landwalk::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -7608,6 +7637,7 @@ mod tests {
             DemonstrateV1,
             ProtectionFromEverythingV1,
             SelfGraveyardRevealShuffleV1,
+            BasicLandwalkV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             HandCastCascadeGrantV1,
@@ -8640,6 +8670,35 @@ mod tests {
         hybrid.keywords.clear();
         hybrid.capabilities = hybrid.requirements();
         definitions.push(hybrid);
+
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/basic-landwalk-zendikar-farguide.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        let mut landwalk = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        landwalk.name = source["name"].as_str().unwrap().into();
+        landwalk.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        landwalk.provenance.printing_id = source["id"].as_str().unwrap().into();
+        landwalk.provenance.source_json = canonical(source).unwrap();
+        landwalk.provenance.source_sha256 = sha256(landwalk.provenance.source_json.as_bytes());
+        landwalk.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        landwalk.provenance.ast_sha256 =
+            sha256(format!("[{}]", landwalk.provenance.abilities_json).as_bytes());
+        landwalk.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        landwalk.characteristics.subtypes = vec!["Elemental".into()];
+        landwalk.characteristics.power = Some(3.into());
+        landwalk.characteristics.toughness = Some(3.into());
+        landwalk.characteristics.mana_cost.generic = 4.into();
+        landwalk.source_labels = None;
+        landwalk.keywords = vec![KeywordAbility::Forestwalk];
+        landwalk.capabilities = landwalk.requirements();
+        definitions.push(landwalk);
 
         definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {

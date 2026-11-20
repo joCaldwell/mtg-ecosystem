@@ -288,8 +288,7 @@ fn flying_reach_defender_and_vigilance_declarations() {
 }
 #[test]
 fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
-    // The exact archived card is covered by compiler integration. Use a
-    // synthetic combat setup with an otherwise vanilla nonbasic Forest.
+    // Use the exact archived attacker and a synthetic nonbasic Forest.
     let mut p = prepared(
         &[
             ("Grizzly Bears", 0, false),
@@ -304,13 +303,18 @@ fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
     );
     p.config.cards[4].owner = PlayerId(2);
     let catalog = Arc::make_mut(&mut p.catalog);
-    let bears = catalog
-        .definitions
-        .iter_mut()
-        .find(|d| d.name == "Grizzly Bears")
-        .unwrap();
-    bears.keywords.push(KeywordAbility::Forestwalk);
-    bears.capabilities = bears.requirements();
+    let mtg_compiler::CompileResult::Lowered {
+        definition: attacker,
+    } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/basic-landwalk-zendikar-farguide.json"),
+    )
+    else {
+        panic!("archived landwalk attacker");
+    };
+    for entry in &mut p.config.cards[..2] {
+        entry.oracle_id = attacker.oracle_id.clone();
+    }
     let mut land = catalog.definition_by_oracle_id(FOREST).unwrap().clone();
     land.oracle_id = "synthetic-nonbasic-forest".into();
     land.name = "Synthetic Nonbasic Forest".into();
@@ -318,7 +322,7 @@ fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
     land.characteristics.basic = false;
     land.capabilities = land.requirements();
     p.config.cards[4].oracle_id = land.oracle_id.clone();
-    catalog.definitions.push(land);
+    catalog.definitions.extend([land, *attacker]);
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -386,7 +390,7 @@ fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
             },
         );
         reach(g, TurnStep::CombatDamage);
-        assert_eq!(g.state.rules.players[1].life, 38.into());
+        assert_eq!(g.state.rules.players[1].life, 37.into());
         assert_eq!(g.state.rules.players[2].life, 40.into());
     });
 
