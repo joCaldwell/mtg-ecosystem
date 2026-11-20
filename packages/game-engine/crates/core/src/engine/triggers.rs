@@ -1500,7 +1500,8 @@ impl Game {
                 && (fact.controller != controller || fact.owner != controller))
             || (matches!(
                 definition.condition,
-                TriggerCondition::SpellCastWithOrigin { .. }
+                TriggerCondition::SelfEntersBattlefield
+                    | TriggerCondition::SpellCastWithOrigin { .. }
             ) && fact.controller != controller)
             || handles.len() != 4
         {

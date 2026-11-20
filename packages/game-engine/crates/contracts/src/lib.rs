@@ -44,6 +44,7 @@ mod announced_x_draw;
 mod artifact_modal;
 mod counter_unless_generic;
 mod each_player_draw;
+mod entry_graveyard_exile;
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -365,6 +366,7 @@ pub enum Capability {
     OtherCreatureEntersBattlefieldV1,
     PowerFilteredCreatureEntryV1,
     CreatureEntryReturnV1,
+    EntryGraveyardExileV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -950,6 +952,10 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
+    ExileTargetGraveyard {
+        target_slot: u32,
+        source_block: u32,
+    },
     ReturnEntryTargetCreature {
         target_slot: u32,
         optional: bool,
@@ -1182,7 +1188,8 @@ impl Instruction {
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
-            Self::ReturnEntryTargetCreature { source_block, .. }
+            Self::ExileTargetGraveyard { source_block, .. }
+            | Self::ReturnEntryTargetCreature { source_block, .. }
             | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
             Self::MoveTriggeredSuccessor { source_block, .. }
             | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
@@ -2603,6 +2610,7 @@ impl Definition {
         power_entry_draw::validate_definition(self)?;
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
+        entry_graveyard_exile::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3311,10 +3319,13 @@ impl Definition {
                     .triggered
                     .iter()
                     .all(|a| a.condition == TriggerCondition::SelfSpellCast),
-                CardKind::Land => self
-                    .triggered
-                    .iter()
-                    .all(|a| a.condition == TriggerCondition::SelfBecomesTapped),
+                CardKind::Land => self.triggered.iter().all(|a| {
+                    a.condition == TriggerCondition::SelfBecomesTapped
+                        || (a.condition == TriggerCondition::SelfEntersBattlefield
+                            && self
+                                .capabilities
+                                .contains(&Capability::EntryGraveyardExileV1))
+                }),
             }
         {
             return Err(
@@ -3540,6 +3551,7 @@ impl Definition {
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnOwnGraveyardCardToHand { .. }
+                            | Instruction::ExileTargetGraveyard { .. }
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
@@ -4576,6 +4588,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
+            Instruction::ExileTargetGraveyard { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::AnyPlayer))
+            }
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
             | Instruction::ExilePermanent { target_slot, .. }
             | Instruction::UntapPermanent { target_slot, .. } => {
@@ -5303,6 +5318,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
+            Instruction::ExileTargetGraveyard { .. } => Capability::EntryGraveyardExileV1,
             Instruction::ReturnEntryTargetCreature { .. } => Capability::CreatureEntryReturnV1,
             Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
             Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
@@ -6799,6 +6815,7 @@ pub fn catalog_schema() -> serde_json::Value {
     divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
+    entry_graveyard_exile::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     schema
 }
@@ -7004,6 +7021,7 @@ mod tests {
             OtherCreatureEntersBattlefieldV1,
             PowerFilteredCreatureEntryV1,
             CreatureEntryReturnV1,
+            EntryGraveyardExileV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -7438,6 +7456,7 @@ mod tests {
         definitions.push(cast_payer_draw::witness());
         definitions.push(divided_plus_one_counters::witness());
         definitions.push(creature_entry_return::witness());
+        definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
