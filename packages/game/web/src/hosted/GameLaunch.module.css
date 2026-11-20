@@ -1,3 +1,5 @@
-.launch { margin-top: var(--s-7); padding-top: var(--s-6); border-top: 1px solid var(--line); }
-.launch p { color: var(--muted); margin-bottom: var(--s-6); }
-.launch > button { margin-inline-end: var(--s-4); margin-bottom: var(--s-4); }
+.launch { padding-block-start: var(--s-5); }
+.launch p { color: var(--muted); margin-block: 0 var(--s-4); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+.actions + p { margin-block-start: var(--s-4); }
+.launch p:empty { margin: 0; }

@@ -2,28 +2,29 @@ import { GameSession } from "../app/session.ts";
 import type { GameRecord } from "../../../shared/contracts.ts";
 import type { GameBrowserHost } from "./host.ts";
 import { useEffect, useState } from "react";
+import styles from "./LiveGamePage.module.css";
 
 type Grant = { gameId: string; attempt: number; file?: File; error?: string };
 type Saved = { gameId: string; attempt: number; game?: GameRecord; error?: string; denied?: boolean };
 function savedStatus(game: GameRecord): string {
   if (game.state === "completed") return game.outcome?.kind === "draw" ? "The game ended in a draw."
     : game.outcome?.kind === "win" ? game.outcome.winner === 0 ? "You won." : `Automated seat ${game.outcome.winner + 1} won.` : "The game is complete.";
-  if (game.state === "provisioning") return "Your game is being prepared.";
-  if (game.pause === "human_timeout") return "The game stopped after the human decision time limit. Its saved record is retained.";
-  if (game.pause === "lifetime_exceeded") return "The game stopped after the game time limit. Its saved record is retained.";
-  if (game.state === "interrupted") return "The game was interrupted. Its saved record is retained.";
-  return "The game is paused. Return to saved games to resume.";
+  if (game.state === "provisioning") return "";
+  if (game.pause === "human_timeout") return "The game stopped after the human decision time limit.";
+  if (game.pause === "lifetime_exceeded") return "The game stopped after the game time limit.";
+  if (game.state === "interrupted") return "";
+  return "Resume this game from Saved games.";
 }
 /** The route selects the match endpoint; imported bytes can never choose it.
  * Seat capabilities live only in this mounted grant/File and session memory. */
 export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrowserHost }) {
   const { api, ApiError } = host;
-  const { Button, ButtonLink, ErrorNote, Loading, Page, PageHeader } = host.ui;
+  const { Button, ButtonLink, ErrorNote, Loading } = host.ui;
   const [attempt, setAttempt] = useState(0);
   const [grant, setGrant] = useState<Grant | null>(null);
   const [saved, setSaved] = useState<Saved | null>(null);
+  useEffect(() => host.startRequestBudget?.(), [gameId, host.startRequestBudget]);
   useEffect(() => {
-    const releaseBudget = host.startRequestBudget?.();
     let current = true, grantAllowed = true, revoked = false;
     let statusRequest: AbortController | undefined;
     let nextStatus: ReturnType<typeof setTimeout> | undefined;
@@ -72,21 +73,22 @@ export function LiveGamePage({ gameId, host }: { gameId: string; host: GameBrows
       current = false;
       clearTimeout(timer); clearTimeout(nextStatus);
       controller.abort(); statusRequest?.abort();
-      releaseBudget?.();
     };
-  }, [gameId, attempt, host.startRequestBudget]);
+  }, [gameId, attempt]);
   const current = grant?.gameId === gameId && grant.attempt === attempt ? grant : null;
   const record = saved?.gameId === gameId && saved.attempt === attempt ? saved : null;
   const game = record?.game;
   const inactive = !!game && game.state !== "active";
-  return <Page width="full" header={<PageHeader title="Game" actions={<ButtonLink href={host.backHref}>Back to saved games</ButtonLink>} />}>
-    {inactive && <section aria-labelledby="saved-game-status"><h2 id="saved-game-status">{game.state === "completed" ? "Game complete" : game.state === "provisioning" ? "Preparing game" : game.state === "paused" ? "Game paused" : "Game interrupted"}</h2><p role="status">{savedStatus(game)}</p></section>}
-    {record?.error && <ErrorNote>{record.error}</ErrorNote>}
-    {current?.file ? <GameSession gameId={gameId} bootstrapFile={current.file} headingLevel={2} interactive={!inactive && record?.denied !== true}
-      {...(host.requestFetch ? { requestFetch: host.requestFetch } : {})} />
+  return <div className={styles.page}>
+    <header className={styles.header}><h1>Game</h1><ButtonLink href={host.backHref}>Back to Play</ButtonLink></header>
+    {inactive && <section className={current?.file ? styles.notice : styles.summary} aria-labelledby="saved-game-status"><h2 id="saved-game-status">{game.state === "completed" ? "Game complete" : game.state === "provisioning" ? "Preparing game" : game.state === "paused" ? "Game paused" : "Game interrupted"}</h2><p className={styles.stateDetail} role="status">{savedStatus(game)}</p></section>}
+    {record?.error && <div className={styles.notice}><ErrorNote>{record.error}</ErrorNote></div>}
+    {current?.file ? <div className={styles.workspace}><GameSession gameId={gameId} bootstrapFile={current.file} headingLevel={2} interactive={!inactive && record?.denied !== true}
+      {...(host.requestFetch ? { requestFetch: host.requestFetch } : {})} /></div>
       : inactive ? null
-      : current?.error ? <><ErrorNote>{current.error}</ErrorNote><Button onClick={() => setAttempt(value => value + 1)}>Try again</Button></>
-        : record?.denied ? <Button onClick={() => setAttempt(value => value + 1)}>Try again</Button>
-        : <Loading />}
-  </Page>;
+      : <div className={styles.notice}>
+        {current?.error && <ErrorNote>{current.error}</ErrorNote>}
+        {current?.error || record?.denied ? <Button onClick={() => setAttempt(value => value + 1)}>Try again</Button> : <Loading />}
+      </div>}
+  </div>;
 }

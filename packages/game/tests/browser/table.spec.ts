@@ -1,9 +1,13 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Request } from '@playwright/test';
+import { isFixturePrint } from './fixture-images.ts';
 
 test('read-only production table, decision jump and honest join boundary', async ({ page, browser }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('console', message => {
+    const imageFailure = message.text().startsWith('Failed to load resource:') && message.location().url.startsWith('https://cards.scryfall.io/');
+    if (message.type() === 'error' && !imageFailure) errors.push(message.text());
+  });
   const response = await page.goto('/');
   expect(response?.headers()['content-security-policy']).toContain("connect-src 'self'");
   await expect(page.getByText('Not connected', { exact: true })).toBeVisible();
@@ -16,7 +20,7 @@ test('read-only production table, decision jump and honest join boundary', async
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Join a Commander table' })).toBeVisible();
   await page.getByRole('link', { name: 'Inspect the fixture' }).click();
-  await expect(page.getByRole('complementary', { name: 'Card inspector' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Card inspector' })).toHaveCount(0);
   expect(errors).toEqual([]);
   await testInfo.attach('browser-version', { body: browser.version(), contentType: 'text/plain' });
   await page.screenshot({ path: testInfo.outputPath('desktop.png'), fullPage: true });
@@ -68,13 +72,31 @@ test('omitted metadata shows identity fallback and observed characteristics with
   await expect(page.getByText('Isamaru, Hound of Konda', { exact: true })).toHaveCount(0);
 });
 
+test('failed print loads leave the permitted card readable and inspectable', async ({ page }) => {
+  await page.route('https://cards.scryfall.io/**', route => route.fulfill({ status: 503 }));
+  await page.goto('/');
+  const hand = page.getByRole('region', { name: 'Your hand', exact: true });
+  const card = hand.getByRole('button', { name: 'Inspect Plains', exact: true }).first();
+  await expect(card.locator('img')).toHaveCount(0);
+  await expect(card.getByText('Basic Land — Plains')).toBeVisible();
+  await card.focus();
+  await page.keyboard.press('Enter');
+  const inspector = page.getByRole('complementary', { name: 'Card inspector' });
+  await expect(inspector.getByText('({T}: Add {W}.)', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(card).toBeFocused();
+});
+
 test('inspection build makes no API requests and persists no session data', async ({ page }) => {
-  const requests: string[] = [];
-  page.on('request', request => requests.push(request.url()));
+  await page.addInitScript(() => { Reflect.deleteProperty(URL, 'canParse'); });
+  const requests: Request[] = [];
+  page.on('request', request => requests.push(request));
   await page.goto('/');
   await page.getByRole('link', { name: 'About this build' }).click();
   await expect(page.getByRole('heading', { name: 'A table with opening choices' })).toBeVisible();
-  expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !url.includes('/v1/'))).toBe(true);
+  expect(requests.some(isFixturePrint)).toBe(true);
+  expect(requests.every(request => isFixturePrint(request) ||
+    (new URL(request.url()).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(request.url())))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length, serviceWorkers: (await navigator.serviceWorker.getRegistrations()).length }))).toEqual({ local: 0, session: 0, databases: 0, serviceWorkers: 0 });
 });
 
@@ -82,6 +104,7 @@ test('desktop workspace keeps hand, decision and inspection available together',
   for (const viewport of [{ width: 1280, height: 720 }, { width: 2560, height: 1440 }]) {
     await page.setViewportSize(viewport);
     await page.goto('/');
+    await expect(page.getByRole('region', { name: 'Players' }).locator('img')).toHaveCount(0);
     const hand = page.getByRole('region', { name: 'Your hand', exact: true });
     const choice = page.getByRole('region', { name: 'Opening hand', exact: true });
     const inspector = page.getByRole('complementary', { name: 'Card inspector' });

@@ -377,9 +377,7 @@ export function PlaytestTable({
           </a>
           <div className={styles.title}>
             <h1>{s.deck_name}</h1>
-            <span>
-              Playtest · <span className={styles.mono}>r{s.deck_revision}</span>
-            </span>
+            <span>Playtest</span>
           </div>
         </div>
         <PlayerSummary
@@ -405,9 +403,7 @@ export function PlaytestTable({
       </header>
       {deck.deck.revision !== s.deck_revision && (
         <Banner tone="warn">
-          Testing r{s.deck_revision}; the saved deck is now r
-          {deck.deck.revision}. Continue this snapshot or start a new opening
-          test.
+          Your saved deck changed after this test began. Continue this test or start a new one with the saved deck.
         </Banner>
       )}
       {c.error && (
@@ -650,7 +646,6 @@ export function PlaytestTable({
       {restart && (
         <NewGameDialog
           deckName={s.deck_name}
-          revision={deck.deck.revision}
           commanders={deck.cards.filter((x) => x.role === "commander" && !x.maybe)}
           initialMode={f.opening.mode}
           replaces="table"

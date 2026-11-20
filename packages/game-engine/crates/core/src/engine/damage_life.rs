@@ -46,14 +46,20 @@ fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
-        Frame::Resolve { frame }
+        Frame::Cascade { progress } => Some(&progress.frame.spell),
+        Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        }
+        | Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => Some(&frame.spell),
+        Frame::CounterPlacement { transaction } => Some(&transaction.frame.spell),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             match transaction.continuation.as_ref() {
                 DamageContinuation::Instruction { frame } => Some(&frame.spell),
-                DamageContinuation::Combat => None,
+                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
             }
         }
         Frame::Stabilize { resume, .. } => resolving_entry(resume),
@@ -65,6 +71,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
             | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => resolving_entry(resume),
+            CommanderContinuation::CascadeBottom { progress } => Some(&progress.frame.spell),
             CommanderContinuation::Draw { .. } => None,
         },
         _ => None,
@@ -72,10 +79,16 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
-        Frame::Resolve { frame }
+        Frame::Cascade { progress } => update_entry(&mut progress.frame.spell, fact),
+        Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        }
+        | Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::ForcedSacrifice { frame, .. }
         | Frame::OptionalDamage { frame } => update_entry(&mut frame.spell, fact),
+        Frame::CounterPlacement { transaction } => update_entry(&mut transaction.frame.spell, fact),
         Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
             // CR 608.2h/702.2e/702.15c: every prepared source departure
             // retains its actual last appearance, even without scoped effects.
@@ -98,6 +111,9 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
             }
             CommanderContinuation::StateBased { resume }
             | CommanderContinuation::StateBasedBatch { resume, .. } => update_frame(resume, fact),
+            CommanderContinuation::CascadeBottom { progress } => {
+                update_entry(&mut progress.frame.spell, fact)
+            }
             CommanderContinuation::Draw { .. } => {}
         },
         _ => {}
@@ -262,13 +278,13 @@ impl Game {
         top.entity_targets = entities;
         top.announced_entity_targets = announced;
         if cast.origin.is_spell() {
-            self.state.rules.frame = Frame::Mana { cast };
+            self.state.rules.frame = self.announcement_mana_frame(cast)?;
         } else {
-            self.complete_targeted_activation(cast, input.decision_id)?;
+            self.continue_activation_after_targets(cast, input.decision_id)?;
         }
         Ok(())
     }
-    pub(super) fn complete_targeted_activation(
+    pub(super) fn continue_activation_after_targets(
         &mut self,
         cast: Casting,
         decision_id: u64,
@@ -286,7 +302,7 @@ impl Game {
                     return Ok(());
                 }
                 ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
-                    self.state.rules.frame = Frame::Mana { cast };
+                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
                 ActivationCost::SacrificeSource => {
@@ -410,6 +426,137 @@ impl Game {
         }
         Ok(())
     }
+    // Use the same announced target and amount when preparing or restoring damage.
+    pub(super) fn directed_damage_operands<'a>(
+        &self,
+        spell: &'a StackInstance,
+        instruction: &'a Instruction,
+    ) -> Result<(u32, &'a Quantity, u32, TargetEntity), String> {
+        let (slot, amount, block) = match instruction {
+            Instruction::DealDamage {
+                target_slot,
+                amount,
+                source_block,
+            } => (*target_slot, amount, *source_block),
+            Instruction::DealDamageAnnouncedX {
+                target_slot,
+                source_block,
+            } => (
+                *target_slot,
+                spell.x.as_ref().ok_or("missing announced X")?,
+                *source_block,
+            ),
+            _ => return Err("expected directed damage instruction".into()),
+        };
+        let index = slot as usize;
+        let target = match self
+            .program_for(spell)?
+            .targets
+            .get(index)
+            .map(|spec| spec.domain)
+        {
+            Some(TargetDomain::AnyDamageTarget) => *spell
+                .entity_targets
+                .get(index)
+                .ok_or("missing damage binding")?,
+            Some(TargetDomain::OpponentPlayer) => {
+                let player = *spell
+                    .player_targets
+                    .get(index)
+                    .ok_or("missing opponent damage binding")?;
+                if player == spell.controller || player.0 >= 4 {
+                    return Err("invalid announced opponent damage binding".into());
+                }
+                TargetEntity::Player { player }
+            }
+            Some(TargetDomain::BattlefieldCreature) => TargetEntity::Object {
+                object: *spell
+                    .targets
+                    .get(index)
+                    .ok_or("missing creature damage binding")?,
+            },
+            _ => return Err("unsupported directed damage target domain".into()),
+        };
+        Ok((slot, amount, block, target))
+    }
+
+    fn commit_opponent_life(
+        &mut self,
+        frame: &Resolving,
+        amount: &Quantity,
+        source_block: u32,
+        gain: bool,
+    ) -> Result<Option<CommittedBatch>, String> {
+        let occurrences = self
+            .opponents(frame.spell.controller)
+            .into_iter()
+            .map(|player| {
+                if gain {
+                    ProposedEvent::GainLife {
+                        player,
+                        amount: amount.clone(),
+                    }
+                } else {
+                    ProposedEvent::LoseLife {
+                        player,
+                        amount: amount.clone(),
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        if occurrences.is_empty() {
+            return Ok(None);
+        }
+        self.commit_batch(
+            Self::staple_cause(frame, source_block),
+            EventGroup::Simultaneous { occurrences },
+        )
+        .map(Some)
+    }
+
+    // CR 119.3/119.9, 608.2c/h, 704.4. Both commits belong to one staged
+    // resolution step, so failure of the gain also rolls back the losses.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn drain_opponents(
+        &mut self,
+        frame: Resolving,
+        amount: OpponentDrainAmount,
+        source_block: u32,
+    ) -> Result<(), String> {
+        let amount = match amount {
+            OpponentDrainAmount::Fixed { value } => value,
+            OpponentDrainAmount::AnnouncedX => {
+                frame.spell.x.clone().ok_or("missing announced X")?
+            }
+        };
+        if amount == Quantity::zero() {
+            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
+        }
+        let Some(losses) = self.commit_opponent_life(&frame, &amount, source_block, false)? else {
+            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
+        };
+        let mut total = Quantity::zero();
+        for occurrence in &losses.occurrences {
+            let EventOutcome::LifeLost { amount, .. } = &occurrence.actual else {
+                return Err("missing opponent life loss outcome".into());
+            };
+            total.add(amount);
+        }
+        let player = frame.spell.controller;
+        let actual = if total > Quantity::zero() && self.is_live(player) {
+            Some(self.commit(
+                ProposedEvent::GainLife {
+                    player,
+                    amount: total,
+                },
+                losses.cause,
+            )?)
+        } else {
+            None
+        };
+        self.finish_instruction(frame, InstructionOutcome::Life { actual })
+    }
+
     // CR 608.2b-c/704.4: execute the ordered program without an intervening
     // SBA check. A self-targeted Soul Feast may reach zero then recover before
     // the next priority checkpoint; an all-target-illegal spell never starts.
@@ -438,21 +585,11 @@ impl Game {
         }
         let gain = matches!(instruction, Instruction::GainLife { .. });
         let (block, proposed, damage) = match instruction {
-            Instruction::DealDamage {
-                target_slot,
-                amount,
-                source_block,
-            } => {
-                let target = *frame
-                    .spell
-                    .entity_targets
-                    .get(target_slot as usize)
-                    .ok_or("missing damage binding")?;
-                if !frame
-                    .legal_targets
-                    .get(target_slot as usize)
-                    .copied()
-                    .unwrap_or(false)
+            Instruction::DealDamage { .. } | Instruction::DealDamageAnnouncedX { .. } => {
+                let (target_slot, amount, source_block, target) =
+                    self.directed_damage_operands(&frame.spell, &instruction)?;
+                if *amount == Quantity::zero()
+                    || frame.legal_targets.get(target_slot as usize) != Some(&true)
                     || !self.entity_legal(target)
                 {
                     return self
@@ -469,11 +606,26 @@ impl Game {
                             source: self.source_facts(&frame.spell)?,
                             controller: frame.spell.controller,
                             recipient,
-                            amount,
+                            amount: amount.clone(),
                         }),
                     },
                     true,
                 )
+            }
+            Instruction::DealDamageToController {
+                amount,
+                source_block,
+            } => {
+                // CR 109.5/113.7a: use the trigger's frozen controller and
+                // the land's current or last-known source facts.
+                let controller = frame.spell.controller;
+                let damage = NoncombatDamageOccurrence {
+                    source: self.source_facts(&frame.spell)?,
+                    controller,
+                    recipient: DamageRecipient::Player { player: controller },
+                    amount,
+                };
+                return self.prepare_noncombat_damage(frame, damage, source_block);
             }
             Instruction::GainLife {
                 recipient,
@@ -487,7 +639,9 @@ impl Game {
             } => {
                 let player = match recipient {
                     LifeRecipient::EachOpponent => {
-                        return self.sacrifice_life(frame, amount, source_block, gain);
+                        let _ = self.commit_opponent_life(&frame, &amount, source_block, gain)?;
+                        return self
+                            .finish_instruction(frame, InstructionOutcome::Life { actual: None });
                     }
                     LifeRecipient::EventPlayer => {
                         let Some(actor) = frame.spell.kind.event_player()? else {

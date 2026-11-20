@@ -1,3 +1,4 @@
+use super::successor_tuck::self_graveyard_successor;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -16,11 +17,13 @@ pub(super) struct PendingTrigger {
     pub(super) id: TriggerId,
     pub(super) source: ObjectId,
     pub(super) controller: PlayerId,
-    pub(super) ability: u32,
+    pub(super) ability: EffectiveTriggerAbility,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) grant: Option<CascadeGrantProvenance>,
     pub(super) source_facts: ObjectBefore,
     pub(super) source_handles: Vec<ObjectHandle>,
     event: TriggerOccurrenceId,
-    witness: TriggerEventWitness,
+    pub(super) witness: TriggerEventWitness,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,10 +48,27 @@ pub enum TriggerOccurrenceId {
 pub struct CastOccurrenceId {
     pub cast: StackId,
 }
+/// Semantic successful-cast ledger, independent of observers and tracing.
+/// Original physical seats never compact on departure (CR 601.2i/800.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct TurnCastHistory {
+    pub(super) any_cast: bool,
+    pub(super) exile_cast: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CastHistoryFacts {
+    pub turn_number: u64,
+    pub first_overall: bool,
+    pub first_from_exile: bool,
+}
 /// Frozen CR 601.2i event facts. The caster is not the active player.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CastOccurrence {
+    pub history: CastHistoryFacts,
+    pub x: Option<Quantity>,
     pub stack_id: StackId,
     pub caster: PlayerId,
     pub cast_from: Zone,
@@ -98,6 +118,16 @@ pub enum TriggerEventWitness {
     TokenEntered {
         object: ObjectId,
     },
+    Tapped {
+        object: ObjectId,
+        controller: PlayerId,
+    },
+    /// CR 603.6a/603.10: the entrant as it appeared after the whole event.
+    /// A move names its actual successor; a created token starts at incarnation 0.
+    CreatureEnteredWithPower {
+        entrant: Box<ObjectBefore>,
+        movement: Option<MoveOutcome>,
+    },
     StepBegan {
         turn: TurnState,
         owner: PlayerId,
@@ -112,7 +142,8 @@ impl TriggerEventWitness {
             } else {
                 m.previous
             }),
-            Self::TokenEntered { object } => Some(*object),
+            Self::TokenEntered { object } | Self::Tapped { object, .. } => Some(*object),
+            Self::CreatureEnteredWithPower { entrant, .. } => Some(entrant.object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::StepBegan { .. } | Self::SpellCast { .. } | Self::GroupedDamageDealt { .. } => {
@@ -217,6 +248,37 @@ fn caster_matches(relation: CasterRelation, caster: PlayerId, controller: Player
         CasterRelation::Opponent => caster != controller,
     }
 }
+fn cast_matches(
+    condition: &TriggerCondition,
+    cast: &CastOccurrence,
+    source: ObjectId,
+    controller: PlayerId,
+) -> bool {
+    match condition {
+        TriggerCondition::SelfSpellCast => cast.spell.object == source && cast.caster == controller,
+        TriggerCondition::SpellCast { caster, spell } => {
+            caster_matches(*caster, cast.caster, controller)
+                && spell.matches(&cast.spell.characteristics)
+        }
+        TriggerCondition::SpellCastWithOrigin {
+            caster,
+            spell,
+            origin,
+        } => {
+            // CR 601.2a/i, 603.3a: use the completed cast's origin and the
+            // source controller at the event, including when replaying LKI.
+            // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            let CastOriginPredicate::Outside { zone } = origin;
+            let excluded = match zone {
+                CastOriginZone::ControllerHand => Zone::Hand { owner: controller },
+            };
+            cast.cast_from != excluded
+                && caster_matches(*caster, cast.caster, controller)
+                && spell.matches(&cast.spell.characteristics)
+        }
+        _ => false,
+    }
+}
 fn attack_matches(
     predicate: &AttackSubject,
     source: ObjectId,
@@ -239,6 +301,23 @@ fn attack_matches(
             }) && types.matches(&attacker.characteristics)
         }
     }
+}
+fn power_entry_matches(
+    minimum_power: &Quantity,
+    other: bool,
+    source: ObjectId,
+    controller: PlayerId,
+    entrant: &ObjectBefore,
+) -> bool {
+    entrant.zone == Zone::Battlefield
+        && entrant.controller == controller
+        && (!other || entrant.object != source)
+        && entrant.characteristics.has_type(CardKind::Creature)
+        && entrant
+            .characteristics
+            .power
+            .as_ref()
+            .is_some_and(|power| power >= minimum_power)
 }
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
@@ -296,6 +375,25 @@ impl Game {
     pub(super) fn stack_limit(&self) -> usize {
         capacities::STACK_LIMIT
     }
+    // CR 603.2c/603.10/701.26a: observe the source after a committed tap.
+    // Entry tapped, an attempted tap of a tapped object, and mana reversal
+    // have no tap occurrence. The player who caused the tap is irrelevant.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn source_tap_witness(&self, object: ObjectId) -> Result<Option<TriggerEventWitness>, String> {
+        let current = self.current(object)?;
+        Ok((current.zone == Zone::Battlefield
+            && current.tapped
+            && self
+                .definition(object.card)?
+                .triggered
+                .iter()
+                .any(|ability| ability.condition == TriggerCondition::SelfBecomesTapped))
+        .then_some(TriggerEventWitness::Tapped {
+            object,
+            controller: current.controller,
+        }))
+    }
+
     // CR 603.2c/603.3a/603.10a: one match per actual occurrence, with
     // pre-event lookback for dies and post-event observers for enters. An
     // atomic simultaneous group shares one observer view, including sources
@@ -401,15 +499,27 @@ impl Game {
                 // attacking never fabricate occurrences. Capture pre-event
                 // attacker facts, not mutable later combat membership.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                EventOutcome::AttackersDeclared { attacks } => attacks
-                    .iter()
-                    .map(|(attacker, defender)| {
-                        Ok(TriggerEventWitness::CreatureAttacked {
-                            attacker: Box::new(before.object_before(*attacker)?),
+                EventOutcome::AttackersDeclared { attacks } => {
+                    let mut witnesses = Vec::new();
+                    for (attacker, defender) in attacks {
+                        let prior = before.object_before(*attacker)?;
+                        // The declaration leaf applies its taps internally
+                        // (508.1f). Vigilance leaves the source untapped.
+                        if !prior.tapped
+                            && let Some(tap) = self.source_tap_witness(*attacker)?
+                        {
+                            witnesses.push(tap);
+                        }
+                        witnesses.push(TriggerEventWitness::CreatureAttacked {
+                            attacker: Box::new(prior),
                             defender_player_id: *defender,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, String>>()?,
+                        });
+                    }
+                    witnesses
+                }
+                EventOutcome::Tapped { object } => {
+                    self.source_tap_witness(*object)?.into_iter().collect()
+                }
                 EventOutcome::TokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })
@@ -498,6 +608,7 @@ impl Game {
                         TriggerEventWitness::StepBegan { .. }
                             | TriggerEventWitness::CreatureAttacked { .. }
                             | TriggerEventWitness::DamageDealt { .. }
+                            | TriggerEventWitness::Tapped { .. }
                     )
                 {
                     self.collect_trigger_witness(
@@ -518,8 +629,20 @@ impl Game {
         if completed.id != entry.id || !completed.kind.is_spell() || completed.paid.is_none() {
             return Err("cast occurrence requires a completed paid spell".into());
         }
+        let prior = self
+            .state
+            .rules
+            .cast_history
+            .get(entry.controller.0 as usize)
+            .ok_or("invalid cast history seat")?;
         let witness = TriggerEventWitness::SpellCast {
             cast: Box::new(CastOccurrence {
+                history: CastHistoryFacts {
+                    turn_number: self.state.rules.turn.number,
+                    first_overall: !prior.any_cast,
+                    first_from_exile: entry.cast_from == Zone::Exile && !prior.exile_cast,
+                },
+                x: entry.x.clone(),
                 stack_id: entry.id,
                 caster: entry.controller,
                 cast_from: entry.cast_from,
@@ -538,6 +661,40 @@ impl Game {
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
+        // Prepare the complete payload/history transaction off-state as well.
+        // Even a direct collector failure publishes no sibling, handle or trace.
+        let mut staged = self.fork();
+        staged.in_rule_step = self.in_rule_step;
+        match staged.collect_trigger_witness_staged(before, event, witness) {
+            Ok(()) => {
+                self.state = staged.state;
+                self.trace = staged.trace;
+                Ok(())
+            }
+            Err(reason) => {
+                self.state.rules.typed_fault = staged.state.rules.typed_fault;
+                Err(reason)
+            }
+        }
+    }
+    fn collect_trigger_witness_staged(
+        &mut self,
+        before: Option<&Game>,
+        event: TriggerOccurrenceId,
+        witness: TriggerEventWitness,
+    ) -> Result<(), String> {
+        // Inside the full collector transaction, including the zero-match case.
+        // Never consume on proposal, failed payment or a failed sibling batch.
+        if let TriggerEventWitness::SpellCast { cast } = &witness {
+            let row = self
+                .state
+                .rules
+                .cast_history
+                .get_mut(cast.caster.0 as usize)
+                .ok_or("invalid cast history seat")?;
+            row.any_cast = true;
+            row.exile_cast |= cast.cast_from == Zone::Exile;
+        }
         let dies = witness.dies();
         let enters = witness.enters();
 
@@ -566,12 +723,15 @@ impl Game {
             _ => None,
         };
         let mut matched = vec![];
+        // Filled once per actual entry, only if a power-filtered observer exists.
+        let mut entry_facts = None;
         for object in observers
             .state
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.zone == Zone::Battlefield || matches!(&witness, TriggerEventWitness::SpellCast {cast} if o.zone == Zone::Stack && o.id == cast.spell.object))
+            .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
         {
             for (ability, definition) in observers
                 .definition(object.id.card)?
@@ -580,7 +740,42 @@ impl Game {
                 .enumerate()
             {
                 let mut grouped_members = None;
+                let mut power_entry = None;
                 let matches = match &definition.condition {
+                    TriggerCondition::ControlledCreatureEntersWithPower {
+                        minimum_power,
+                        other,
+                    } => {
+                        if enters && entry_facts.is_none() {
+                            entry_facts =
+                                Some(observers.object_before(
+                                    subject.ok_or("missing entry trigger subject")?,
+                                )?);
+                        }
+                        if let Some(entrant) = &entry_facts
+                            && power_entry_matches(
+                                minimum_power,
+                                *other,
+                                object.id,
+                                object.controller,
+                                entrant,
+                            )
+                        {
+                            power_entry = Some(TriggerEventWitness::CreatureEnteredWithPower {
+                                entrant: Box::new(entrant.clone()),
+                                movement: match &witness {
+                                    TriggerEventWitness::Moved { movement } => {
+                                        Some(movement.clone())
+                                    }
+                                    TriggerEventWitness::TokenEntered { .. } => None,
+                                    _ => return Err("missing actual entry authority".into()),
+                                },
+                            });
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     TriggerCondition::GroupedDamageDealt { .. } => {
                         if let TriggerEventWitness::GroupedDamageDealt { kind, members, .. } =
                             &witness
@@ -619,8 +814,11 @@ impl Game {
                         matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, .. }
                             if attack_matches(predicate, object.id, object.controller, attacker))
                     }
-                    TriggerCondition::SpellCast { caster, spell } => {
-                        matches!(&witness, TriggerEventWitness::SpellCast {cast} if caster_matches(*caster, cast.caster, object.controller) && spell.matches(&cast.spell.characteristics))
+                    TriggerCondition::SelfSpellCast
+                    | TriggerCondition::SpellCast { .. }
+                    | TriggerCondition::SpellCastWithOrigin { .. } => {
+                        matches!(&witness, TriggerEventWitness::SpellCast { cast }
+                            if cast_matches(&definition.condition, cast, object.id, object.controller))
                     }
                     TriggerCondition::StepBegan {
                         step,
@@ -636,6 +834,13 @@ impl Game {
                                 .is_ok_and(|s| s.controller != object.controller)
                     }
                     TriggerCondition::SelfDies => creature && dies && Some(object.id) == subject,
+                    TriggerCondition::SelfBecomesTapped => {
+                        matches!(&witness, TriggerEventWitness::Tapped { object: tapped, .. } if *tapped == object.id)
+                    }
+                    TriggerCondition::SelfMoved { .. } => {
+                        self_graveyard_successor(&witness, object.id, object.controller).is_some()
+                            && creature
+                    }
                     TriggerCondition::SelfAuraToGraveyard => dies && Some(object.id) == subject,
                     TriggerCondition::AnyCreatureDies => creature && dies,
                     TriggerCondition::SelfEntersBattlefield => enters && Some(object.id) == subject,
@@ -665,10 +870,10 @@ impl Game {
                                 .any(|s| f.non_subtypes.contains(s))
                     });
                 if matches
-                    && definition.functioning_zone == FunctioningZone::Battlefield
+                    && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
                 {
-                    let mut matched_witness = witness.clone();
+                    let mut matched_witness = power_entry.unwrap_or_else(|| witness.clone());
                     if let TriggerEventWitness::GroupedDamageDealt { members, .. } =
                         &mut matched_witness
                     {
@@ -700,7 +905,7 @@ impl Game {
                             None
                         },
                         observers.object_before(object.id)?,
-                        u32::try_from(ability).map_err(|_| "trigger ability index limit")?,
+                        EffectiveTriggerAbility::Intrinsic { index: u32::try_from(ability).map_err(|_| "trigger ability index limit")? },
                         definition
                             .intervening_if
                             .as_ref()
@@ -714,11 +919,68 @@ impl Game {
                             })
                             .transpose()?,
                         matched_witness,
+                        None,
                     ));
                 }
             }
         }
-        for (death_controller, source_facts, ability, match_condition, witness) in matched {
+        if let TriggerEventWitness::SpellCast { cast } = &witness {
+            let spell = observers
+                .state
+                .rules
+                .stack
+                .iter()
+                .find(|s| s.id == cast.stack_id)
+                .ok_or("missing completed cast for grants")?;
+            let mana_value = observers.stack_mana_value(spell)?;
+            for object in observers
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield)
+            {
+                let fact = observers.object_before(object.id)?;
+                if fact.controller != cast.caster || !observers.is_live(cast.caster) {
+                    continue;
+                }
+                for (index, descriptor) in observers
+                    .definition(object.id.card)?
+                    .static_abilities
+                    .iter()
+                    .enumerate()
+                {
+                    if let StaticEffect::GrantSpellCascade { eligibility, .. } = &descriptor.effect
+                        && descriptor.functioning_zone == FunctioningZone::Battlefield
+                        && spell_cascade_grants::eligible(eligibility, &mana_value, cast)
+                    {
+                        matched.push((
+                            None,
+                            cast.spell.clone(),
+                            EffectiveTriggerAbility::Granted {
+                                grant_source: object.id,
+                                static_ability_index: u32::try_from(index)
+                                    .map_err(|_| "static ability index limit")?,
+                            },
+                            None,
+                            witness.clone(),
+                            Some(fact.clone()),
+                        ));
+                    }
+                }
+            }
+        }
+        // Preflight the COMPLETE effective emission before diagnostics, handles,
+        // IDs or pending rows publish. Failed intervening checks still retain
+        // their ordinary diagnostic below, but consume no trigger capacity.
+        let emission = matched
+            .iter()
+            .filter(|(_, _, _, condition, _, _)| condition.as_ref().is_none_or(|c| c.passed()))
+            .count();
+        self.preflight_trigger_emission(emission)?;
+        for (death_controller, source_facts, ability, match_condition, witness, grant_fact) in
+            matched
+        {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
                     source: source_facts.object,
@@ -745,6 +1007,14 @@ impl Game {
             let controller = source_facts.controller;
             let consumed = source_facts.clone();
             let source_handles = self.capture_trigger_source_handles(source)?;
+            let grant = grant_fact
+                .map(|fact| {
+                    Ok::<_, String>(CascadeGrantProvenance {
+                        source_handles: self.capture_trigger_source_handles(fact.object)?,
+                        source_facts: fact,
+                    })
+                })
+                .transpose()?;
             self.state.rules.pending_triggers.push(PendingTrigger {
                 death_controller,
                 match_condition,
@@ -752,6 +1022,7 @@ impl Game {
                 source,
                 controller,
                 ability,
+                grant: grant.clone(),
                 source_facts,
                 source_handles,
                 event: event.clone(),
@@ -762,19 +1033,53 @@ impl Game {
                 source,
                 player: controller,
                 ability,
+                grant,
                 occurrence: event.clone(),
                 witness: witness.clone(),
                 source_facts: Box::new(consumed),
             })?;
         }
+        self.check_history_capacity()?;
         Ok(())
     }
-    fn apnap_players(&self) -> Vec<PlayerId> {
+    pub(super) fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String> {
+        self.check_stack_capacity(additional)?;
+        let additional = u64::try_from(additional).map_err(|_| "trigger ID resource limit")?;
+        if self
+            .state
+            .rules
+            .next_trigger_id
+            .checked_add(additional)
+            .is_none()
+        {
+            return Err(self.capacity_error(RuleFault::TriggerIdCapacityExceeded {
+                next: self.state.rules.next_trigger_id,
+                additional,
+            }));
+        }
+        // One stack ID per pending trigger, including all new siblings.
+        let pending = u64::try_from(self.state.rules.pending_triggers.len())
+            .map_err(|_| "stack ID resource limit")?;
+        let requested = pending
+            .checked_add(additional)
+            .ok_or("stack ID resource limit")?;
+        if u64::from(self.state.rules.next_stack_id)
+            .checked_add(requested)
+            .is_none_or(|end| end > u64::from(u32::MAX))
+        {
+            return Err(self.capacity_error(RuleFault::StackIdCapacityExceeded {
+                next: self.state.rules.next_stack_id,
+                additional: requested,
+            }));
+        }
+        Ok(())
+    }
+    pub(super) fn apnap_seats(&self) -> impl Iterator<Item = PlayerId> {
         let anchor = self.state.rules.turn_owner.0;
-        (0..4)
-            .map(|offset| PlayerId((anchor + offset) % 4))
-            .filter(|p| self.is_live(*p))
-            .collect()
+        (0..4).map(move |offset| PlayerId((anchor + offset) % 4))
+    }
+    pub(super) fn apnap_players(&self) -> Vec<PlayerId> {
+        self.apnap_seats().filter(|p| self.is_live(*p)).collect()
     }
     pub(super) fn begin_trigger_placement(
         &mut self,
@@ -917,10 +1222,7 @@ impl Game {
                         .checked_add(1)
                         .ok_or("stack ID resource limit")?;
                     let targeted = !self
-                        .definition(trigger.source.card)?
-                        .triggered
-                        .get(trigger.ability as usize)
-                        .ok_or("missing trigger definition")?
+                        .effective_trigger(trigger.source, trigger.ability)?
                         .program
                         .targets
                         .is_empty();
@@ -929,12 +1231,16 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.rules.stack.push(StackInstance {
+                        cost_lock: None,
+                        selected_additional_costs: None,
+                        alternative_cost: None,
                         x: None,
                         death_controller: trigger.death_controller,
                         sacrificed: None,
+                        sacrificed_set: vec![],
                         mode: None,
                         effect_source_handles: vec![],
-                        source_facts: Some(trigger.source_facts),
+                        source_facts: Some(trigger.source_facts.clone()),
                         entity_targets: vec![],
                         announced_entity_targets: vec![],
                         stack_targets: vec![],
@@ -942,6 +1248,7 @@ impl Game {
                         kind: StackKind::Triggered {
                             match_condition: trigger.match_condition,
                             ability: trigger.ability,
+                            grant: trigger.grant,
                             source_handles: trigger.source_handles,
                             trigger_id: id,
                             event: trigger.event,
@@ -955,7 +1262,7 @@ impl Game {
                         announced_targets: vec![vec![]; 4],
                         paid: (!targeted).then_some(zero.clone()),
                         total_cost: zero,
-                        cast_from: Zone::Battlefield,
+                        cast_from: trigger.source_facts.zone,
                     });
                     placement.changed |= placement.cleanup;
                     self.state.rules.passes.clear();
@@ -1148,16 +1455,12 @@ impl Game {
     fn validate_trigger_source(
         &self,
         source: ObjectId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         controller: PlayerId,
         fact: &ObjectBefore,
         handles: &[ObjectHandle],
     ) -> Result<(), String> {
-        let definition = self
-            .definition(source.card)?
-            .triggered
-            .get(ability as usize)
-            .ok_or("snapshot missing triggered definition")?;
+        let definition = self.effective_trigger(source, ability)?;
         if controller.0 >= 4
             || fact.object != source
             || fact.owner
@@ -1170,9 +1473,26 @@ impl Game {
                     .owner
             || fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
-            || fact.zone != Zone::Battlefield
+            || !matches!(
+                (
+                    definition.functioning_zone,
+                    fact.zone,
+                    &definition.condition
+                ),
+                (FunctioningZone::Battlefield, Zone::Battlefield, _)
+                    | (
+                        FunctioningZone::Stack,
+                        Zone::Stack,
+                        TriggerCondition::SelfSpellCast
+                    )
+            )
+            || (matches!(definition.condition, TriggerCondition::SelfMoved { .. })
+                && (fact.controller != controller || fact.owner != controller))
+            || (matches!(
+                definition.condition,
+                TriggerCondition::SpellCastWithOrigin { .. }
+            ) && fact.controller != controller)
             || handles.len() != 4
-            || definition.functioning_zone != FunctioningZone::Battlefield
         {
             return Err("snapshot trigger source invariant".into());
         }
@@ -1184,12 +1504,13 @@ impl Game {
     fn validate_trigger_witness(
         &self,
         source: ObjectId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         controller: PlayerId,
         death_controller: Option<PlayerId>,
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
-        let condition = &self.definition(source.card)?.triggered[ability as usize].condition;
+        let definition = self.effective_trigger(source, ability)?;
+        let condition = &definition.condition;
         let valid = match witness {
             TriggerEventWitness::GroupedDamageDealt {
                 kind,
@@ -1337,7 +1658,13 @@ impl Game {
                     cast.spell.object,
                     &cast.spell.characteristics,
                 )?;
-                cast.stack_id.0 < self.state.rules.next_stack_id
+                cast.history.turn_number > 0
+                    && cast.history.turn_number <= self.state.rules.turn.number
+                    && (!cast.history.first_from_exile || cast.cast_from == Zone::Exile)
+                    && (!cast.history.first_overall
+                        || cast.cast_from != Zone::Exile
+                        || cast.history.first_from_exile)
+                    && cast.stack_id.0 < self.state.rules.next_stack_id
                     && cast.caster.0 < 4
                     && cast.spell.controller == cast.caster
                     && cast.spell.default_controller.0 < 4
@@ -1349,8 +1676,10 @@ impl Game {
                         .cards
                         .get(&cast.spell.object.card)
                         .is_some_and(|c| c.owner == cast.spell.owner)
-                    && matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
-                    && matches!(condition, TriggerCondition::SpellCast {caster,spell} if caster_matches(*caster, cast.caster, controller) && spell.matches(&cast.spell.characteristics))
+                    && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
+                        || cast.cast_from == Zone::Exile)
+                    && cast.x.as_ref().is_none_or(|x| !x.is_negative())
+                    && cast_matches(condition, cast, source, controller)
                     && death_controller.is_none()
             }
 
@@ -1372,16 +1701,74 @@ impl Game {
                     && *condition == TriggerCondition::OtherCreatureEntersBattlefield
                     && *object != source
             }
+            TriggerEventWitness::Tapped {
+                object,
+                controller: at_tap,
+            } => {
+                *condition == TriggerCondition::SelfBecomesTapped
+                    && *object == source
+                    && *at_tap == controller
+                    && death_controller.is_none()
+            }
+            TriggerEventWitness::CreatureEnteredWithPower { entrant, movement } => {
+                self.validate_characteristic_identity(entrant.object, &entrant.characteristics)?;
+                let token = self.state.rules.tokens.contains_key(&entrant.object.card);
+                let actual_entry = match movement {
+                    Some(m) => {
+                        !token
+                            && m.destination == Zone::Battlefield
+                            && match m.from {
+                                Zone::Battlefield => false,
+                                Zone::Stack | Zone::Exile => true,
+                                Zone::Hand { owner }
+                                | Zone::Library { owner }
+                                | Zone::Command { owner }
+                                | Zone::Graveyard { owner } => owner == entrant.owner,
+                            }
+                            && m.successor == entrant.object
+                            && m.previous.card == m.successor.card
+                            && m.previous.incarnation.checked_add(1)
+                                == Some(m.successor.incarnation)
+                    }
+                    None => {
+                        token
+                            && entrant.object.incarnation == 0
+                            && entrant.default_controller == entrant.owner
+                    }
+                };
+                actual_entry
+                    && death_controller.is_none()
+                    && entrant.default_controller.0 < 4
+                    && entrant.marked_damage == Quantity::zero()
+                    && !entrant.deathtouch_damage
+                    && !entrant.attack_ready
+                    && self
+                        .state
+                        .rules
+                        .cards
+                        .get(&entrant.object.card)
+                        .is_some_and(|c| c.owner == entrant.owner)
+                    && matches!(condition, TriggerCondition::ControlledCreatureEntersWithPower { minimum_power, other }
+                        if power_entry_matches(minimum_power, *other, source, controller, entrant))
+            }
             TriggerEventWitness::Moved { movement: m } => {
                 self.state.rules.cards.contains_key(&m.previous.card)
                     && m.successor.card == m.previous.card
                     && m.previous.incarnation.checked_add(1) == Some(m.successor.incarnation)
                     && (match condition {
-                        TriggerCondition::StepBegan { .. }
+                        TriggerCondition::SelfSpellCast
+                        | TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
+                        | TriggerCondition::SpellCastWithOrigin { .. }
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
-                        | TriggerCondition::GroupedDamageDealt { .. } => false,
+                        | TriggerCondition::SelfBecomesTapped
+                        | TriggerCondition::GroupedDamageDealt { .. }
+                        | TriggerCondition::ControlledCreatureEntersWithPower { .. } => false,
+                        TriggerCondition::SelfMoved { .. } => {
+                            death_controller.is_none()
+                                && self_graveyard_successor(witness, source, controller).is_some()
+                        }
                         TriggerCondition::SelfDies | TriggerCondition::SelfAuraToGraveyard => {
                             witness.dies() && m.previous == source
                         }
@@ -1432,6 +1819,7 @@ impl Game {
     ) -> Result<Option<TriggerId>, String> {
         let StackKind::Triggered {
             ability,
+            grant,
             source_handles,
             trigger_id,
             event,
@@ -1441,6 +1829,7 @@ impl Game {
         else {
             return Ok(None);
         };
+        self.validate_cascade_grant(*ability, entry.controller, witness, grant.as_ref())?;
         self.validate_trigger_source(
             entry.source,
             *ability,
@@ -1466,7 +1855,14 @@ impl Game {
         )?;
         if trigger_id.0 >= self.state.rules.next_trigger_id
             || !self.valid_trigger_occurrence(event, witness)
-            || entry.cast_from != Zone::Battlefield
+            || entry.cast_from
+                != if self.effective_trigger(entry.source, *ability)?.condition
+                    == TriggerCondition::SelfSpellCast
+                {
+                    Zone::Stack
+                } else {
+                    Zone::Battlefield
+                }
             || (!entry.targets.is_empty()
                 && self.program_for(entry)?.targets.first().is_none_or(|t| {
                     !matches!(
@@ -1495,6 +1891,12 @@ impl Game {
         }
         let mut ids = BTreeSet::new();
         for trigger in &self.state.rules.pending_triggers {
+            self.validate_cascade_grant(
+                trigger.ability,
+                trigger.controller,
+                &trigger.witness,
+                trigger.grant.as_ref(),
+            )?;
             self.validate_trigger_source(
                 trigger.source,
                 trigger.ability,

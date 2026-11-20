@@ -3,6 +3,8 @@ import { assertDamageTriggerSchema } from "./damage-trigger-contracts.ts";
 import { assertAttackTriggerSchema } from "./attack-trigger-contracts.ts";
 import { assertCastTriggerSchema } from "./cast-trigger-contracts.ts";
 import { assertUntapSchema } from "./untap-contracts.ts";
+import { assertRamosSchema } from "./ramos-contracts.ts";
+import { assertCounterPlacementSchema } from "./counter-placement-contracts.ts";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -39,11 +41,72 @@ function loadCatalog(name: string) {
   return JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
 }
 
+test("counter_spell_controller_mill exported schema requires a complete instant", () => {
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  const catalog = JSON.parse(read("expected-effects-ir.json"));
+  const d = catalog.definitions.find((card: any) => card.name === "Counterspell");
+  catalog.definitions = [d];
+  d.spell.instructions = [{ op: "counter_spell_and_mill_controller", target_slot: 0, count: "3", source_block: 0 }];
+  d.capabilities.push("counter_spell_controller_mill_v1");
+  assert.ok(validate(catalog), JSON.stringify(validate.errors));
+
+  const rejects = [
+    (v: any) => { v.spell.instructions[0].count = "0"; },
+    (v: any) => { v.spell.instructions[0].count = 3; },
+    (v: any) => { v.spell.instructions[0].target_slot = 1; },
+    (v: any) => { v.spell.instructions[0].source_block = 1; },
+    (v: any) => { v.spell.instructions[0].recipient = "owner"; },
+    (v: any) => { v.spell.instructions.push({ op: "counter_stack_object", target_slot: 0, source_block: 0 }); },
+    (v: any) => { v.spell.targets[0].selection_id = "line:0:2"; },
+    (v: any) => { v.spell.targets[0].domain = "stack_activated_or_triggered_ability"; },
+    (v: any) => { v.spell.targets[0].filter = { types: ["instant"], non_types: [], non_colors: [], opponent: false }; },
+    (v: any) => { v.spell.targets.push({ ...v.spell.targets[0], slot: 1 }); },
+    (v: any) => { v.spell.additional_sacrifice = { types: ["creature"], subtypes: [] }; },
+    (v: any) => { v.spell.optional_additional_costs = [{ identity: "extra", source_block: 0, mana: { generic: "1", colored: [] } }]; },
+    (v: any) => { v.spell.modes = [{ program: { ...v.spell } }]; v.spell.instructions = []; v.spell.targets = []; },
+    (v: any) => { v.characteristics.kind = "sorcery"; v.spell.timing = "main_phase"; },
+    (v: any) => { v.keywords = ["flash"]; },
+    (v: any) => { v.x_mana_cost = true; },
+    (v: any) => { v.capabilities.push("fixed_mill_program_v1"); },
+    (v: any) => { v.spell.instructions = [{ op: "counter_stack_object", target_slot: 0, source_block: 0 }]; },
+    ...d.capabilities.map((cap: string) => (v: any) => { v.capabilities = v.capabilities.filter((c: string) => c !== cap); }),
+  ];
+  for (const [index, mutate] of rejects.entries()) {
+    const bad = structuredClone(catalog);
+    mutate(bad.definitions[0]);
+    assert.equal(validate(bad), false, `counter mill schema mutation ${index}`);
+  }
+});
+
 test("untap schema stays within a complete ordinary spell", () => {
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
   } }).compile(run("schema"));
   assertUntapSchema(validate, loadCatalog("removal"));
+});
+
+test("Ramos complete source and counter-mana family agree with exported schema", () => {
+  const source = path.join(root, "packages/game-engine/tests/fixtures/ramos");
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-ramos-schema-"));
+  let passed = false;
+  try {
+    const manifest = path.join(temporary, "catalog.json");
+    fs.writeFileSync(manifest, JSON.stringify({
+      schema_version: IR_SCHEMA_VERSION, output_order: "canonical",
+      provenance: path.join(source, "provenance.json"),
+      records: [path.join(source, "3ed41d2d-211b-4013-8562-8c64d54cc43a.json")],
+      expected_ir: "ramos-ir.json", expected_digest: "ramos.sha256",
+    }));
+    const report = run("catalog", "build", manifest, "--write");
+    const catalog = JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
+    const validate = new Ajv2020({ strict: false, formats: {
+      uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+    } }).compile(run("schema"));
+    assertRamosSchema(validate, catalog, JSON.parse(read("expected-mana-ir.json")));
+    passed = true;
+  } finally { if (passed) fs.rmSync(temporary, { recursive: true, force: true }); }
 });
 
 test("retained archive hashes agree with JavaScript and source parser", () => {
@@ -680,7 +743,7 @@ runtimeTest("choice witnesses retain independent targets, selected modes and twi
       assert.deepEqual(p.actual.commander_damage,[]);
       for(const e of t.entries){let amount=BigInt(e.original_amount);for(const a of t.applications.filter((a: any)=>a.damage===e.id)){assert.equal(BigInt(a.before),amount);assert.ok(BigInt(a.after)===amount-BigInt(a.prevented)||BigInt(a.after)===amount*2n);amount=BigInt(a.after);}assert.equal(amount,BigInt(e.amount));}
     }
-    for(const o of [...r.choices,...r.final_observations]){privacy(o);assert.equal(o.observation_version,16);for(const card of o.view.objects){assert.notEqual(card.zone.zone,"library");if(card.zone.zone==="hand")assert.equal(card.owner,o.view.viewer);}}
+    for(const o of [...r.choices,...r.final_observations]){privacy(o);assert.equal(o.observation_version,22);for(const card of o.view.objects){assert.notEqual(card.zone.zone,"library");if(card.zone.zone==="hand")assert.equal(card.owner,o.view.viewer);}}
     for(const history of Object.values(r.commander_ledger.records) as any[])assert.deepEqual(history.combat_damage,{});
   }
 });
@@ -836,7 +899,7 @@ runtimeTest("effects witnesses retain signed characteristics, actual damage and 
     }
     if (r.policy!=="commander_amplified") assert.deepEqual(r.commander_ledger.records["0"].combat_damage,{});
     for (const o of [...r.choices,...r.final_observations]) {
-      privacy(o);assert.equal(o.observation_version,16);
+      privacy(o);assert.equal(o.observation_version,22);
       assert.equal(o.view.objects.some((obj: any)=>obj.zone.zone==="library"),false);
       assert.equal(o.view.objects.filter((obj: any)=>obj.zone.zone==="hand").every((obj: any)=>obj.owner===o.view.viewer),true);
       for (const e of o.view.effects??[]) assert.match(e.handle,new RegExp(`^v${o.view.viewer}-e\\d+$`));
@@ -965,7 +1028,7 @@ runtimeTest("ordinary trigger witnesses retain APNAP order, countered programs a
     }
   }
   for (const r of reports) for (const o of [...r.choices,...r.final_observations]) {
-    checkProjection(o);assert.equal(o.observation_version,16);
+    checkProjection(o);assert.equal(o.observation_version,22);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone==="library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone==="hand").every((x: any) => x.owner===o.view.viewer),true);
     if (o.decision?.request==="order_triggers") {
@@ -1124,7 +1187,7 @@ runtimeTest("stack and cost witnesses preserve instance targets, paid costs and 
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(discarded >= 0 && discarded < completed && completed < lost);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version,16);
+    assert.equal(o.observation_version,22);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"),false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer),true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -1170,7 +1233,7 @@ runtimeTest("action witnesses preserve explicit spending, player sacrifice and n
   const lost = failed.findIndex((e: any) => e.event === "players_lost");
   assert.ok(completed >= 0 && lost > completed);
   for (const report of reports) for (const o of [...report.choices,...report.final_observations]) {
-    assert.equal(o.observation_version, 16);
+    assert.equal(o.observation_version, 22);
     assert.equal(o.view.objects.some((x: any) => x.zone.zone === "library"), false);
     assert.equal(o.view.objects.filter((x: any) => x.zone.zone === "hand").every((x: any) => x.owner === o.view.viewer), true);
     for (const forbidden of ["incarnation","stack_id","source_handles","mana_activations","rule_steps"]) assert.equal(JSON.stringify(o).includes(`"${forbidden}"`),false);
@@ -1181,7 +1244,7 @@ runtimeTest("response observations expose stack order without reviving historica
   const response = demo().response;
   const before = response.stacked_observation;
   const after = response.after_top_observation;
-  assert.equal(before.observation_version, 16);
+  assert.equal(before.observation_version, 22);
   assert.deepEqual(before.view.stack.map((s: any) => s.controller), [0, 2]);
   assert.equal(before.view.stack.every((s: any) => s.cast_complete), true);
   assert.equal(after.view.stack.length, 1);
@@ -1199,7 +1262,7 @@ runtimeTest("response observations expose stack order without reviving historica
 runtimeTest("casting mana witnesses expose the caster request and preserve keep/undo outcomes", () => {
   const report = demo();
   const casting = report.mana_casting;
-  assert.equal(casting.mana_observation.observation_version, 16);
+  assert.equal(casting.mana_observation.observation_version, 22);
   assert.equal(casting.mana_observation.decision.request, "mana");
   assert.deepEqual(casting.mana_observation.decision.cost, { generic: "0", colored: ["U"] });
   assert.equal(casting.mana_observation.view.priority, null);
@@ -1228,7 +1291,7 @@ runtimeTest("turn progression and permanent casting expose only permitted public
   assert.equal(turns.status, "turns_permanents_verified");
   assert.deepEqual(turns.turn, { number: 5, step: "precombat_main", lands_played: 1 });
   const own = turns.final_observations[0];
-  assert.equal(own.observation_version, 16);
+  assert.equal(own.observation_version, 22);
   assert.deepEqual(own.view.turn, turns.turn);
   assert.equal(own.view.priority, 0);
   assert.equal(own.view.stack.length, 0);
@@ -1256,7 +1319,7 @@ runtimeTest("complete scenario games retain rules outcomes and private combat pr
     assert.equal(run.journal.concessions.length, 0);
     assert.ok(run.checkpoints > 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 16);
+      assert.equal(observation.observation_version, 22);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const forbidden of ["incarnation", "damage_choices", "libraries", "frame", "rule_steps"]) {
@@ -1293,7 +1356,7 @@ runtimeTest("Commander witnesses preserve tax, actual return destinations and pr
     assert.equal(choices.length, 1);
     assert.equal(choices[0].player, 0);
     for (const observation of run.final_observations) {
-      assert.equal(observation.observation_version, 16);
+      assert.equal(observation.observation_version, 22);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "total_cost", "continuation", "rule_steps"]) {
         assert.equal(JSON.stringify(observation).includes(`"${key}"`), false, key);
@@ -1348,7 +1411,7 @@ runtimeTest("Commander damage and library witnesses expose actual results withou
   }
   for (const run of runs) {
     for (const observation of [...run.final_observations, ...run.choices]) {
-      assert.equal(observation.observation_version, 16);
+      assert.equal(observation.observation_version, 22);
       assert.equal(observation.view.objects.some((o: any) => o.zone.zone === "library"), false);
       assert.equal(observation.view.objects.filter((o: any) => o.zone.zone === "hand").every((o: any) => o.owner === observation.view.viewer), true);
       for (const key of ["incarnation", "frame", "commander_returns", "libraries", "continuation", "rule_steps", "previous_top"]) {
@@ -2276,4 +2339,20 @@ test("exact-source Righteousness preserves its blocking creature target and boun
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation preserves the frozen source and diagnostic binding");
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
+});
+
+
+test("complete frozen counter placement replacement family exports strict schema1", () => {
+  const source=fileURLToPath(new URL("fixtures/ramos/",import.meta.url));
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),"mtg-counter-placement-schema-"));
+  const manifest=path.join(temporary,"catalog.json");
+  fs.writeFileSync(manifest,JSON.stringify({schema_version:1,output_order:"canonical",provenance:path.join(source,"provenance.json"),
+    records:["3ed41d2d-211b-4013-8562-8c64d54cc43a","a1f3da21-af6d-450e-bf0b-985d158418e6","ca0cc02b-b106-4eca-9388-d4b48dd3be49"].map(id=>path.join(source,`${id}.json`)),
+    expected_ir:path.join(temporary,"actual-ir.json"),expected_digest:path.join(temporary,"actual.sha256")}));
+  const report=run("catalog","build",manifest,"--write");
+  assert.equal(report.definitions,3);
+  const compiled=JSON.parse(fs.readFileSync(report.expected_ir,"utf8"));
+  const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
+  assert.deepEqual(assertCounterPlacementSchema(validate,compiled),{positives:10,negatives:20});
+  // Preserve generated complete-source evidence with the ordinary test runner.
 });

@@ -1,0 +1,85 @@
+1 Ramos, Dragon Engine
+1 Abzan Charm
+1 Akroma's Will
+1 Anguished Unmaking
+1 Apex Devastator
+1 Aragorn, the Uniter
+1 Arcane Signet
+1 Avacyn, Angel of Hope
+1 Averna, the Chaos Bloom
+1 Bloodbraid Elf
+1 Breeding Pool
+1 Breya, Etherium Shaper
+1 Call Forth the Tempest
+1 Child of Alara
+1 Chromanticore
+1 Chromatic Lantern
+1 Cinder Glade
+1 City of Brass
+1 Command Tower
+1 Conflux
+1 Corpsejack Menace
+1 Creative Technique
+1 Cultivate
+1 Dauntless Escort
+1 Door to Nothingness
+1 Double Major
+1 Enigma Sphinx
+1 Esper Charm
+1 Ethersworn Sphinx
+1 Exotic Orchard
+1 Exterminatus
+1 Faeburrow Elder
+1 Farewell
+1 Farseek
+1 Fellwar Stone
+6 Forest
+1 Golgari Signet
+1 Hallowed Fountain
+1 Hardened Scales
+1 Imoti, Celebrant of Bounty
+2 Island
+1 Ketria Triome
+1 Kodama's Reach
+1 Leyline of the Guildpact
+1 Maelstrom Archangel
+1 Maelstrom Nexus
+1 Maelstrom Wanderer
+1 Mosswort Bridge
+4 Mountain
+1 Nature's Lore
+1 Omnath, Locus of All
+1 Overgrown Tomb
+4 Plains
+1 Polluted Delta
+1 Prismatic Omen
+1 Progenitus
+1 Quandrix Command
+1 Rhystic Study
+1 Ruinous Ultimatum
+1 Sakashima's Protege
+1 Selvala, Heart of the Wilds
+1 Shardless Agent
+1 Skyshroud Claim
+1 Spara's Headquarters
+1 Stomping Ground
+1 Sulfurous Springs
+4 Swamp
+1 Talisman of Creativity
+1 Talisman of Curiosity
+1 Talisman of Unity
+1 Teferi's Protection
+1 Temple Garden
+1 Temur Ascendancy
+1 Thunder of Unity
+1 Unite the Coalition
+1 Urban Evolution
+1 Vega, the Watcher
+1 Void Rend
+1 Whirlwind of Thought
+1 Wild-Magic Sorcerer
+1 Windswept Heath
+1 Yavimaya Coast
+1 Yidris, Maelstrom Wielder
+1 Zacama, Primal Calamity
+1 Ziatora's Proving Ground

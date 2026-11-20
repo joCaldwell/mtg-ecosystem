@@ -151,13 +151,16 @@ fn scan(catalog: &Catalog, g: &Game) -> Result<serde_json::Value, String> {
                     ..
                 } => {
                     let d = lookup(source.card).ok_or("triggered card")?;
-                    let a = &d.triggered[*ability as usize];
+                    let mtg_core::EffectiveTriggerAbility::Intrinsic { index } = ability else {
+                        return Err("static spell grant reporting is not admitted".into());
+                    };
+                    let a = &d.triggered[*index as usize];
                     bump(&mut out.triggers, a.condition.reporting_key(), "collected");
                     pending.insert(
                         *trigger_id,
                         Invocation {
                             definition: d,
-                            path: format!("triggered/{ability}"),
+                            path: format!("triggered/{index}"),
                             program: &a.program,
                         },
                     );

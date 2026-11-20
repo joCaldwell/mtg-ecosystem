@@ -92,6 +92,7 @@ fn complete_pressure_point_preserves_tap_then_draw_and_full_provenance() {
     assert_eq!(
         d.spell,
         Some(SpellProgram {
+            optional_additional_costs: vec![],
             additional_sacrifice: None,
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,

@@ -130,13 +130,14 @@ impl Game {
                 .definition(object.card)
                 .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
     }
-    pub(super) fn creature_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
-        if !self.target_is_creature(target) {
-            return vec![];
-        }
-        let Ok(creature) = self.current(target) else {
+    pub(super) fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
+        let Ok(permanent) = self.current(target) else {
             return vec![];
         };
+        if permanent.zone != Zone::Battlefield {
+            return vec![];
+        }
+        let creature = self.target_is_creature(target);
         self.state
             .rules
             .objects
@@ -147,28 +148,36 @@ impl Game {
                     d.static_abilities
                         .iter()
                         .filter_map(move |a| match &a.effect {
+                            StaticEffect::GrantOtherControlledPermanentsIndestructible
+                                if a.functioning_zone == FunctioningZone::Battlefield
+                                    && o.id != target
+                                    && o.controller == permanent.controller =>
+                            {
+                                Some(&a.effect)
+                            }
                             StaticEffect::ModifyCreatures { scope, .. }
-                                if match scope {
-                                    CreatureScope::Source => o.id == target,
-                                    CreatureScope::Controller => {
-                                        o.controller == creature.controller
-                                    }
-                                    CreatureScope::AttackingController => {
-                                        // CR 508.1k/506.4/611.3a: attacking is
-                                        // incarnation-bound combat membership,
-                                        // independent of tapping or readiness.
-                                        o.controller == creature.controller
-                                            && self
-                                                .state
-                                                .rules
-                                                .combat
-                                                .iter()
-                                                .any(|attacker| attacker.attacker == target)
-                                    }
-                                    CreatureScope::Equipped | CreatureScope::Enchanted => {
-                                        o.attached_to == Some(target)
-                                    }
-                                } =>
+                                if creature
+                                    && match scope {
+                                        CreatureScope::Source => o.id == target,
+                                        CreatureScope::Controller => {
+                                            o.controller == permanent.controller
+                                        }
+                                        CreatureScope::AttackingController => {
+                                            // CR 508.1k/506.4/611.3a: attacking is
+                                            // incarnation-bound combat membership,
+                                            // independent of tapping or readiness.
+                                            o.controller == permanent.controller
+                                                && self
+                                                    .state
+                                                    .rules
+                                                    .combat
+                                                    .iter()
+                                                    .any(|attacker| attacker.attacker == target)
+                                        }
+                                        CreatureScope::Equipped | CreatureScope::Enchanted => {
+                                            o.attached_to == Some(target)
+                                        }
+                                    } =>
                             {
                                 Some(&a.effect)
                             }
@@ -183,15 +192,19 @@ impl Game {
             .definition(object.card)
             .map(|d| d.keywords.clone())
             .unwrap_or_default();
-        for effect in self.creature_modifications(object) {
-            if let StaticEffect::ModifyCreatures {
-                keywords: grants, ..
-            } = effect
-            {
-                for keyword in grants {
-                    if !keywords.contains(keyword) {
-                        keywords.push(*keyword);
-                    }
+        for effect in self.static_modifications(object) {
+            let grants: &[KeywordAbility] = match effect {
+                StaticEffect::ModifyCreatures {
+                    keywords: grants, ..
+                } => grants,
+                StaticEffect::GrantOtherControlledPermanentsIndestructible => {
+                    &[KeywordAbility::Indestructible]
+                }
+                _ => continue,
+            };
+            for keyword in grants {
+                if !keywords.contains(keyword) {
+                    keywords.push(*keyword);
                 }
             }
         }
@@ -230,7 +243,7 @@ impl Game {
         object: ObjectId,
         restriction: CreatureRestriction,
     ) -> bool {
-        self.creature_modifications(object).iter().any(|a| matches!(a, StaticEffect::ModifyCreatures { restrictions, .. } if restrictions.contains(&restriction)))
+        self.static_modifications(object).iter().any(|a| matches!(a, StaticEffect::ModifyCreatures { restrictions, .. } if restrictions.contains(&restriction)))
     }
     pub(super) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
         // CR 702.11b/18a apply only while the ability functions on battlefield.

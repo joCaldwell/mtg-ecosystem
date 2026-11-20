@@ -1,6 +1,14 @@
 import { productFetch } from "./request-budget.ts";
 
 // One HTTP boundary, shared by the small reader client and the editor.
+function browserError(status: number, error: string): string {
+  if (status !== 409) return error;
+  if (/^Deck revision changed: expected \d+, current \d+\. Read the deck again\.$/.test(error))
+    return "The deck changed. Open the current deck and try again.";
+  if (/^The deck is now at revision \d+; re-read it and assess that revision\. Nothing was recorded\.$/.test(error))
+    return "The deck changed. Review the current deck and try the assessment again.";
+  return error;
+}
 export class ApiError extends Error {
   status: number;
   error: string;
@@ -26,8 +34,9 @@ export async function request<T>(method: string, path: string, body?: unknown, s
     const json = res.headers.get("content-type")?.split(";")[0].trim() === "application/json";
     if (!res.ok) {
       const data = json ? await res.json().catch(() => null) : null;
-      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("api-error", { detail: { status: res.status, retryAfter: Number(res.headers.get("Retry-After") ?? 60), message: data?.error } }));
-      throw new ApiError(res.status, typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
+      const message = typeof data?.error === "string" ? browserError(res.status, data.error) : undefined;
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("api-error", { detail: { status: res.status, retryAfter: Number(res.headers.get("Retry-After") ?? 60), message } }));
+      throw new ApiError(res.status, message ?? `HTTP ${res.status}`);
     }
     if (!json) throw new ApiError(res.status, "The server returned an unexpected response. Please retry.");
     const data = await res.json();

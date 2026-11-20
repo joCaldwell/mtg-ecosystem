@@ -53,47 +53,6 @@ pub(super) fn lower_rule(rule: &Value) -> Result<StaticAbility, Failure> {
     })
 }
 
-// Match the archive producer's spelled-number vocabulary and canonical decimal text.
-fn matches_fixed_amount(text: &str, amount: i64) -> bool {
-    const UNITS: [&str; 20] = [
-        "one",
-        "two",
-        "three",
-        "four",
-        "five",
-        "six",
-        "seven",
-        "eight",
-        "nine",
-        "ten",
-        "eleven",
-        "twelve",
-        "thirteen",
-        "fourteen",
-        "fifteen",
-        "sixteen",
-        "seventeen",
-        "eighteen",
-        "nineteen",
-        "twenty",
-    ];
-    const TENS: [&str; 8] = [
-        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
-    ];
-    let decimal = amount.to_string();
-    if text == decimal {
-        return true;
-    }
-    match amount as usize {
-        n @ 1..=20 => text == UNITS[n - 1],
-        50 => text == "fifty",
-        n @ 21..=99 if n % 10 != 0 => {
-            text.split_once('-') == Some((TENS[n / 10 - 2], UNITS[n % 10 - 1]))
-        }
-        _ => false,
-    }
-}
-
 fn ability_binding(identity: &str, path: &str, kind: &str) -> Value {
     json!({
         "id":format!("card:{identity}{path}#ability"), "path":path, "node":"ability",
@@ -132,7 +91,14 @@ pub(super) fn lower_end_step_draw(
     if intervening.is_none()
         && matches!(trigger, SourceTrigger::Phase { phase, whose }
             if phase == "end-step" && whose.as_str() == Some("your"))
-        && let [Sentence { bindings, steps }] = effects
+        && let [
+            Sentence {
+                bindings,
+                steps,
+                condition: None,
+                condition_kind: None,
+            },
+        ] = effects
         && bindings.is_empty()
         && let [
             Step::Draw {
@@ -153,6 +119,7 @@ pub(super) fn lower_end_step_draw(
             intervening_if: None,
             program: SpellProgram {
                 additional_sacrifice: None,
+                optional_additional_costs: vec![],
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
@@ -500,6 +467,8 @@ fn flash_end_step_draw() {
         whose: json!(whose),
     };
     let draw = |value, optional| Sentence {
+        condition: None,
+        condition_kind: None,
         bindings: vec![],
         steps: vec![Step::Draw {
             who: PlayerSelector {

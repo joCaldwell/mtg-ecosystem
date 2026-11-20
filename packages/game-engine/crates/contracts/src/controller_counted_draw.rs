@@ -4,6 +4,7 @@ use super::*;
 /// A single unbound counted controller draw, with source position supplied by its owner.
 pub(crate) fn standalone_controller_draw(p: &SpellProgram) -> Option<(&Quantity, u32)> {
     if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
         || !p.targets.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
@@ -25,6 +26,7 @@ pub(crate) fn standalone_controller_draw(p: &SpellProgram) -> Option<(&Quantity,
 pub fn controller_counted_draw_program(p: &SpellProgram) -> bool {
     standalone_controller_draw(p).is_some_and(|(_, block)| block == 0)
         || (p.additional_sacrifice.is_none()
+            && p.optional_additional_costs.is_empty()
             && p.modes.is_empty()
             && p.targets.is_empty()
             && p.functioning_zone == FunctioningZone::Stack
@@ -45,7 +47,7 @@ pub fn controller_counted_draw_program(p: &SpellProgram) -> bool {
             })
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
-    s["$defs"]["ControllerCountedDrawProgram"] = serde_json::json!({"properties":{"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":1,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","recipient","amount","source_block"],"properties":{"op":{"const":"lose_life"},"recipient":{"const":"controller"},"amount":{"type":"string","pattern":"^[1-9][0-9]*$"},"source_block":{"const":0}}}],"items":false}}});
+    s["$defs"]["ControllerCountedDrawProgram"] = serde_json::json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":1,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","recipient","amount","source_block"],"properties":{"op":{"const":"lose_life"},"recipient":{"const":"controller"},"amount":{"type":"string","pattern":"^[1-9][0-9]*$"},"source_block":{"const":0}}}],"items":false}}});
 }
 #[cfg(test)]
 pub(crate) fn witness() -> Definition {

@@ -54,15 +54,23 @@ impl Game {
             }
             _ => return Err("unsupported mill recipient".into()),
         };
+        let outcome = self.commit_mill(player, count, Self::staple_cause(&frame, source_block))?;
+        self.finish_instruction(frame, outcome)
+    }
+    pub(super) fn commit_mill(
+        &mut self,
+        player: PlayerId,
+        count: Quantity,
+        cause: BatchCause,
+    ) -> Result<InstructionOutcome, String> {
         if !self.is_live(player) {
-            return self
-                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+            return Ok(InstructionOutcome::PlayerActionSkipped { player });
         }
         if count.is_negative() {
             return Err("negative mill count".into());
         }
         if count == Quantity::zero() {
-            return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+            return Ok(InstructionOutcome::Effect { actual: None });
         }
         let cards = self.library_prefix(player, &count)?;
         let actual = self.commit(
@@ -71,20 +79,11 @@ impl Game {
                 count,
                 cards,
             },
-            BatchCause::Instruction {
-                stack_id: frame.stack_id,
-                player: frame.spell.controller,
-                source: frame.spell.source,
-                cursor: frame.cursor,
-                source_block,
-            },
+            cause,
         )?;
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            },
-        )
+        Ok(InstructionOutcome::Effect {
+            actual: Some(actual),
+        })
     }
     pub(super) fn apply_mill(
         &mut self,

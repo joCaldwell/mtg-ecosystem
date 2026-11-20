@@ -545,7 +545,7 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
                 ability,
                 ..
             } => {
-                assert_eq!(*ability, 0);
+                assert_eq!(*ability, EffectiveTriggerAbility::Intrinsic { index: 0 });
                 Some((
                     game.definition(source.card).unwrap().oracle_id.clone(),
                     subject.subject().unwrap().card,

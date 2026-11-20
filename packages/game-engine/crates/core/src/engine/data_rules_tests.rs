@@ -169,6 +169,7 @@ fn generic_simultaneous_trigger_bound_fits_shared_stack_policy() {
                 .filter(|d| d.characteristics.basic)
                 .all(|d| d.triggered.is_empty())
         );
+        assert!(c.cast_trigger_fanout_bound(400).unwrap() < capacities::STACK_LIMIT / 2);
         let sources = 4 * c
             .definitions
             .iter()

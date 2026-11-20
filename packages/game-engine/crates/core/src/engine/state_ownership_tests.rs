@@ -53,6 +53,7 @@ struct FlatStateReference {
     turn_owner: PlayerId,
     turn: TurnState,
     original_seating: Vec<PlayerId>,
+    cast_history: [triggers::TurnCastHistory; 4],
     commanders: CommanderLedger,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     commander_returns: BTreeSet<ObjectId>,

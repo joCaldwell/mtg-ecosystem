@@ -51,6 +51,7 @@ function rig() {
     clearTimeout(id: number) { timers.delete(id); },
     require(name: string) {
       if (name === "react") return hooks;
+      if (name === "./LiveGamePage.module.css") return { default: {} };
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
       if (name === "../app/session.ts") return { GameSession: "GameSession" };
       if (name === "../../api/client.ts") return { ApiError, api: {
@@ -58,7 +59,7 @@ function rig() {
         humanGameSeat() { const d = deferred(); grants.push(d); return d.promise; },
       } };
       if (name === "../../app/routes.ts") return { href: () => "/play" };
-      if (name === "../../ui/index.ts") return Object.fromEntries(["Button", "ButtonLink", "ErrorNote", "Loading", "Page", "PageHeader"].map(key => [key, key]));
+      if (name === "../../ui/index.ts") return Object.fromEntries(["Button", "ButtonLink", "ErrorNote", "Loading"].map(key => [key, key]));
       throw new Error(`Unexpected component import: ${name}`);
     },
   });
@@ -67,7 +68,7 @@ function rig() {
     cursor = 0;
     const view = exported.LiveGamePage({ gameId, host: {
       api: { getGame() { const d = deferred(); reads.push(d); return d.promise; }, humanGameSeat() { const d = deferred(); grants.push(d); return d.promise; } }, ApiError,
-      backHref: "/play", ui: Object.fromEntries(["Button", "ButtonLink", "ErrorNote", "Loading", "Page", "PageHeader"].map(key => [key, key])),
+      backHref: "/play", ui: Object.fromEntries(["Button", "ButtonLink", "ErrorNote", "Loading"].map(key => [key, key])),
     } });
     if (pendingEffect) { const effect = pendingEffect; pendingEffect = undefined; cleanup?.(); cleanup = effect(); }
     return view;

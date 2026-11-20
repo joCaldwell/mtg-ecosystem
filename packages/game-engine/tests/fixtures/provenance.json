@@ -1915,6 +1915,24 @@
       "archive_line": 32280
     },
     {
+      "file": "dismantling-blow.json",
+      "oracle_id": "300cba5a-adbb-4852-be06-ac00d9d6fd37",
+      "record_sha256": "3bce8621bbb088b7aada567c86a5562b9a37b09b0a4d8158e02a43ce8c63e736",
+      "source_sha256": "1aa880153c5fccf8ead19823fe37d1d4f844b7c07b215ebad0163de58c30151b",
+      "ast_sha256": "14176f86443b77ca38cf2ebb46652b06f4cffd37e10d6a1e6860fef185e38be0",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 7173
+    },
+    {
+      "file": "natural-reclamation.json",
+      "oracle_id": "98266582-12fd-4a7b-a9bb-e9cc4370ed28",
+      "record_sha256": "ab3067e692f7720b2b34179324ed37c4f7b654b3cbfe59b1871540e68622a616",
+      "source_sha256": "2243d89f737855fdbb8bbaf4e80de2612f6002794b834297be0823d8d8fbd686",
+      "ast_sha256": "186dee59ffe19c91a03830cd4831f5f48fcc724cf75c2c369a3aa9da3fb6fffa",
+      "archive": "archive-manifest-current.json",
+      "archive_line": 22928
+    },
+    {
       "file": "0b3bdbc6-cde7-4187-b13c-82fd02ae4037.json",
       "oracle_id": "0b3bdbc6-cde7-4187-b13c-82fd02ae4037",
       "record_sha256": "977b9e20c96a8acef3abf32c8376e802fe0f04f9bfeb4480c972de6f30694051",

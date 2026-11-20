@@ -29,6 +29,13 @@ pub enum SourceInformation {
     Current,
     LastKnown,
 }
+/// Historical battlefield incarnation and its derived power at this check.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QualifyingCreature {
+    pub object: ObjectId,
+    pub power: Quantity,
+}
 /// Evidence of the information actually read, never a fabricated hand count.
 /// The hand-empty variant retains its existing serialized field shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,11 +54,17 @@ pub enum InterveningCheck {
         information: SourceInformation,
         passed: bool,
     },
+    ControllerHasCreatureWithPower {
+        controller: PlayerId,
+        minimum_power: Quantity,
+        qualifying: Option<QualifyingCreature>,
+    },
 }
 impl InterveningCheck {
     pub fn passed(&self) -> bool {
         match self {
             Self::ControllerHandEmpty { passed, .. } | Self::SourceStatus { passed, .. } => *passed,
+            Self::ControllerHasCreatureWithPower { qualifying, .. } => qualifying.is_some(),
         }
     }
     fn validates(
@@ -85,6 +98,20 @@ impl InterveningCheck {
                     && *s == source
                     && *expected == *status
                     && *passed == status.matches(*tapped)
+            }
+            (
+                InterveningCondition::ControllerHasCreatureWithPower { minimum_power },
+                Self::ControllerHasCreatureWithPower {
+                    controller: c,
+                    minimum_power: recorded,
+                    qualifying,
+                },
+            ) => {
+                *c == controller
+                    && recorded == minimum_power
+                    && qualifying
+                        .as_ref()
+                        .is_none_or(|fact| &fact.power >= minimum_power)
             }
             _ => false,
         }
@@ -232,11 +259,7 @@ impl Game {
             return Ok(None);
         }
         let top = self.top()?;
-        let root = self
-            .definition(top.source.card)?
-            .spell
-            .as_ref()
-            .ok_or("modal root missing")?;
+        let root = self.root_program_for(top)?;
         let candidates = root
             .modes
             .iter()
@@ -291,26 +314,17 @@ impl Game {
             player: input.player,
             mode,
         })?;
-        let p = self.program()?;
-        self.state.rules.frame = if p.targets.is_empty() {
-            Frame::Mana { cast }
+        if cast.origin.is_spell() {
+            self.state.rules.frame = self.spell_announcement_frame(cast)?;
         } else {
-            match p.targets[0].domain {
-                TargetDomain::AnyDamageTarget => Frame::EntityTargets { cast },
-                TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
-                    Frame::PlayerTargets { cast }
+            match self.program()?.targets.first().map(|t| t.domain) {
+                Some(TargetDomain::AnyDamageTarget) => {
+                    self.state.rules.frame = Frame::EntityTargets { cast }
                 }
-                TargetDomain::ControlledBattlefieldCreature
-                | TargetDomain::ControlledBattlefieldPermanent
-                | TargetDomain::BattlefieldPermanent
-                | TargetDomain::BattlefieldCreature
-                | TargetDomain::BlockingBattlefieldCreature
-                | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                    Frame::StackTargets { cast }
-                }
+                None => self.continue_activation_after_targets(cast, input.decision_id)?,
+                Some(_) => return Err("unsupported activated mode target".into()),
             }
-        };
+        }
         Ok(())
     }
     // CR603.4 checks twice; CR608.2h/113.7a use current expected-zone
@@ -363,6 +377,35 @@ impl Game {
                     passed: status.matches(tapped),
                 }
             }
+            InterveningCondition::ControllerHasCreatureWithPower { minimum_power } => {
+                let mut qualifying = None;
+                for object in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Battlefield && o.controller == controller)
+                {
+                    let characteristics = self.characteristics(object.id)?;
+                    if characteristics.has_type(CardKind::Creature) {
+                        let power = characteristics
+                            .power
+                            .ok_or("missing battlefield creature power")?;
+                        if &power >= minimum_power {
+                            qualifying = Some(QualifyingCreature {
+                                object: object.id,
+                                power,
+                            });
+                            break;
+                        }
+                    }
+                }
+                InterveningCheck::ControllerHasCreatureWithPower {
+                    controller,
+                    minimum_power: minimum_power.clone(),
+                    qualifying,
+                }
+            }
         })
     }
     pub(super) fn check_resolution_condition(
@@ -372,17 +415,12 @@ impl Game {
         let StackKind::Triggered { ability, .. } = &stack.kind else {
             return Ok(None);
         };
-        let Some(condition) = self
-            .definition(stack.source.card)?
-            .triggered
-            .get(*ability as usize)
-            .ok_or("missing conditional trigger")?
-            .intervening_if
-        else {
+        let definition = self.effective_trigger(stack.source, *ability)?;
+        let Some(condition) = definition.intervening_if.as_ref() else {
             return Ok(None);
         };
         let check = self.check_intervening(
-            &condition,
+            condition,
             stack.controller,
             stack.source,
             stack
@@ -402,12 +440,9 @@ impl Game {
     pub(super) fn validate_choices_state(&self) -> Result<(), String> {
         if let Frame::Modes { cast } = &self.state.rules.frame {
             let top = self.top()?;
-            let root = self
-                .definition(top.source.card)?
-                .spell
-                .as_ref()
-                .ok_or("missing modal announcement definition")?;
-            if !cast.origin.is_spell()
+            let root = self.root_program_for(top)?;
+            if top.kind.is_spell() != cast.origin.is_spell()
+                || cast.stack_id != top.id
                 || root.modes.is_empty()
                 || top.mode.is_some()
                 || top.paid.is_some()
@@ -419,8 +454,12 @@ impl Game {
         for entry in &self.state.rules.stack {
             self.validate_mode_binding(entry)?;
         }
-        if let Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } =
-            &self.state.rules.frame
+        if let Frame::Resolve { frame }
+        | Frame::ResolutionChoice { frame, .. }
+        | Frame::LandEntry {
+            origin: EntryOrigin::Search { frame },
+            ..
+        } = &self.state.rules.frame
         {
             self.validate_mode_binding(&frame.spell)?;
             self.validate_condition_cache(frame)?;
@@ -428,19 +467,14 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_mode_binding(&self, entry: &StackInstance) -> Result<(), String> {
-        let root = match entry.kind {
-            StackKind::Spell => self
-                .definition(entry.source.card)?
-                .spell
-                .as_ref()
-                .ok_or("missing mode root")?,
-            _ => {
-                if entry.mode.is_some() {
-                    return Err("nonspell selected mode".into());
-                }
-                return Ok(());
-            }
-        };
+        if matches!(entry.kind, StackKind::Triggered { .. }) {
+            return if entry.mode.is_none() {
+                Ok(())
+            } else {
+                Err("unexpected triggered mode".into())
+            };
+        }
+        let root = self.root_program_for(entry)?;
         if root.modes.is_empty() {
             if entry.mode.is_some() {
                 return Err("nonmodal spell selected mode".into());
@@ -456,14 +490,14 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
-        let expected = match frame.spell.kind {
-            StackKind::Triggered { ability, .. } => self
-                .definition(frame.spell.source.card)?
-                .triggered
-                .get(ability as usize)
-                .ok_or("missing conditional program")?
-                .intervening_if
-                .as_ref(),
+        let definition = match frame.spell.kind {
+            StackKind::Triggered { ability, .. } => {
+                Some(self.effective_trigger(frame.spell.source, ability)?)
+            }
+            _ => None,
+        };
+        let expected = match &definition {
+            Some(definition) => definition.intervening_if.as_ref(),
             _ => None,
         };
         match (expected, &frame.condition_check) {
@@ -486,17 +520,12 @@ impl Game {
     pub(super) fn validate_match_condition(
         &self,
         source: ObjectId,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
         controller: PlayerId,
         check: Option<&InterveningCheck>,
     ) -> Result<(), String> {
-        let expected = self
-            .definition(source.card)?
-            .triggered
-            .get(ability as usize)
-            .ok_or("missing match condition definition")?
-            .intervening_if
-            .as_ref();
+        let definition = self.effective_trigger(source, ability)?;
+        let expected = definition.intervening_if.as_ref();
         match (expected, check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))

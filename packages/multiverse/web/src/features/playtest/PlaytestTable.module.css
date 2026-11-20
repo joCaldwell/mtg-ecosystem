@@ -311,10 +311,6 @@
   gap: var(--s-4);
   color: var(--muted);
 }
-.mono {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
 
 /* Short windows keep the hand to one scrolling row so the battlefield keeps room. */
 @media (max-height: 1000px) {

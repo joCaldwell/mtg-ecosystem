@@ -9,6 +9,7 @@ mod reactive_tests {
         let card = |name: &str, owner: u8, zone: Zone| {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             VisibleObject {
+                mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
                 keywords: vec![],
@@ -27,6 +28,7 @@ mod reactive_tests {
             }
         };
         let mut v = PermittedView {
+            known_library_positions: vec![],
             sacrifice_choices: vec![],
             setup: None,
             effects: vec![],
@@ -71,6 +73,7 @@ mod reactive_tests {
             ("Goliath Sphinx", 2),
         ] {
             v.stack.push(mtg_core::VisibleStackEntry {
+                selected_additional_costs: None,
                 x: None,
                 mana_value: None,
                 mode: None,
@@ -122,6 +125,7 @@ mod reactive_tests {
             s.damage_target(
                 &v,
                 &mtg_contracts::SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     timing: mtg_contracts::SpellTiming::Instant,
                     resolution: mtg_contracts::SpellResolution::Instructions,
@@ -144,6 +148,7 @@ mod reactive_tests {
             s.damage_target(
                 &v,
                 &mtg_contracts::SpellProgram {
+                    optional_additional_costs: vec![],
                     additional_sacrifice: None,
                     timing: mtg_contracts::SpellTiming::Instant,
                     resolution: mtg_contracts::SpellResolution::Instructions,
@@ -207,6 +212,7 @@ mod wipe_tests {
     pub(super) fn card(c: &Catalog, name: &str, owner: u8, zone: Zone) -> VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
+            mana_ability_used: None,
             attached_to: None,
             attachments: vec![],
             keywords: d.keywords.clone(),
@@ -234,6 +240,7 @@ mod wipe_tests {
         ] {
             v.objects.push(card(&c, name, 1, Zone::Stack));
             v.stack.push(mtg_core::VisibleStackEntry {
+                selected_additional_costs: None,
                 x,
                 mana_value: mv,
                 mode: None,
@@ -444,7 +451,7 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
     };
     assert_eq!(
         s.priority(&Observation {
-            observation_version: 16,
+            observation_version: 25,
             decision_context: None,
             decision: None,
             view: v
@@ -465,7 +472,7 @@ fn strategy(c: &Catalog) -> Strategy<'_> {
 }
 fn observation(view: PermittedView) -> Observation {
     Observation {
-        observation_version: 16,
+        observation_version: 25,
         decision_context: None,
         decision: None,
         view,
@@ -474,6 +481,7 @@ fn observation(view: PermittedView) -> Observation {
 fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = wipe_tests::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
+        selected_additional_costs: None,
         x: None,
         mana_value: None,
         mode: None,
@@ -1901,7 +1909,7 @@ mod defensive_untap_policy_tests {
                         .clone();
                     v.stack[0].triggered = Some(mtg_core::VisibleTriggered {
                         oracle_id: id,
-                        ability: 0,
+                        ability: mtg_core::VisibleTriggerAbility::Intrinsic { index: 0 },
                         handle: StackHandle("trigger".into()),
                         source: mtg_core::VisibleTarget {
                             announced: ObjectHandle("source".into()),
@@ -2290,6 +2298,7 @@ mod activated_permanent_tap_policy_tests {
         );
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
+            selected_additional_costs: None,
             x: None,
             mana_value: None,
             mode: None,
@@ -2464,6 +2473,7 @@ mod activated_headless_policy_tests {
     }
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
+            selected_additional_costs: None,
             x: None,
             mana_value: None,
             mode: None,
@@ -2826,6 +2836,7 @@ mod temporal_adept_policy_tests {
             );
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
+                selected_additional_costs: None,
                 x: None,
                 mana_value: None,
                 mode: None,

@@ -40,25 +40,34 @@ export function createGameRequestBudget(effects: RequestBudgetEffects) {
   }
 
   const send: typeof fetch = async (input, init) => {
-    const budget = active;
+    let budget = active;
     const origin = effects.origin();
     if (!budget || !origin) return effects.fetch(input, init);
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, origin);
     if (url.origin !== origin || !url.pathname.startsWith("/api/")) return effects.fetch(input, init);
 
     const requestSignal = init?.signal ?? (input instanceof Request ? input.signal : null);
-    const signal = requestSignal ? AbortSignal.any([requestSignal, budget.cancel.signal]) : budget.cancel.signal;
-    for (;;) {
-      signal.throwIfAborted();
+    while (budget) {
+      requestSignal?.throwIfAborted();
       const now = effects.now();
       if (now >= budget.nextRequestAt) {
         budget.nextRequestAt = now + budget.spacing;
         break;
       }
-      await effects.wait(budget.nextRequestAt - now, signal);
+      const wake = budget.cancel.signal;
+      const signal = requestSignal ? AbortSignal.any([requestSignal, wake]) : wake;
+      try {
+        await effects.wait(budget.nextRequestAt - now, signal);
+      } catch (error) {
+        requestSignal?.throwIfAborted();
+        if (!wake.aborted || error !== wake.reason) throw error;
+        // Releasing the game budget wakes dispatch. The caller owns cancellation.
+      }
+      budget = active;
     }
+    requestSignal?.throwIfAborted();
     const response = await effects.fetch(input, init);
-    if (active === budget && response.status === 429 && response.headers.get("X-Multiverse-UI-Limit") === "1") {
+    if (budget && active === budget && response.status === 429 && response.headers.get("X-Multiverse-UI-Limit") === "1") {
       // The Actor limiter emits delta-seconds. Scope the hint to this page's
       // authenticated budget and leave the original response to its caller.
       const seconds = response.headers.get("Retry-After");

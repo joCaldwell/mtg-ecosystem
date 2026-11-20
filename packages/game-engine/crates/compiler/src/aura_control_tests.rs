@@ -130,6 +130,7 @@ fn aura_control_complete_frozen_witnesses_have_pinned_source_and_same_reusable_s
         assert_eq!(
             d.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 timing: SpellTiming::MainPhase,
                 resolution: SpellResolution::Permanent,
                 functioning_zone: FunctioningZone::Stack,
@@ -721,15 +722,18 @@ fn aura_control_supplemental_multitype_mana_sources_use_existing_complete_loweri
         assert_eq!(
             d.mana_abilities,
             vec![ManaAbility {
+                self_damage: None,
                 costs: PermanentActivationCosts {
                     tap: true,
                     mana: None,
-                    sacrifice: false
+                    sacrifice: false,
+                    remove_source_plus_one_counters: None
                 },
                 production: ManaProduction::Fixed {
                     symbols: vec![Color::U]
                 },
                 source_block: 0,
+                restriction: None,
             }]
         );
         assert!(d.activated.is_empty() && d.triggered.is_empty() && d.static_abilities.is_empty());

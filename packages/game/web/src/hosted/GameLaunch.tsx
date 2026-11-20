@@ -32,12 +32,14 @@ export function GameLaunch({ deckId, revision, host }: { deckId: number; revisio
     } catch { if (mounted.current) { setError(launch ? "The launch outcome is unknown. Retry uses the same game request." : "Could not check compatibility. Try again."); if (!launch) setAdmission({ state: "unavailable", reason: "native_unavailable" }); } }
     finally { if (mounted.current) setBusy(false); }
   }
-  return <section className={styles.launch} aria-labelledby="start-game-title" aria-busy={busy}>
-    <h2 id="start-game-title">Start game</h2>
-    <p id="game-admission" aria-live={admission.state === "checking" ? "off" : "polite"}>{admissionMessage(admission)}</p>
+  const ready = admission.state === "supported" && admission.launch_ready && !game;
+  return <section className={styles.launch} aria-label="Game launch" aria-busy={busy}>
+    <p id="game-admission" aria-live="polite">{admissionMessage(admission)}</p>
     {error && <ErrorNote>{error}</ErrorNote>}
-    <Button disabled={busy} onClick={() => void perform(false)}>Check compatibility</Button>
-    <Button variant="primary" disabled={busy || admission.state !== "supported" || !admission.launch_ready || !!game} aria-describedby="game-admission" onClick={() => void perform(true)}>Start game</Button>
+    <div className={styles.actions}>
+      <Button {...(ready ? {} : { variant: "primary" as const })} disabled={busy} onClick={() => void perform(false)}>Check compatibility</Button>
+      <Button variant="primary" disabled={busy || !ready} aria-describedby="game-admission" onClick={() => void perform(true)}>Start game</Button>
+    </div>
     {game && <p role="status">{game.state === "active" ? "Your game is ready." : game.state === "completed" ? "Your game is complete." : "Your game is saved. Its session is currently paused."}</p>}
   </section>;
 }

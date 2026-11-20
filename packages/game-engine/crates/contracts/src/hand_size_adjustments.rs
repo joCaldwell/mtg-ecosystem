@@ -46,10 +46,9 @@ pub(super) fn validate_definition(definition: &Definition) -> Result<(), String>
         || !definition.mana_abilities.is_empty()
         || !definition.activated.is_empty()
         || !definition.triggered.is_empty()
-        || definition
-            .spell
-            .as_ref()
-            .is_some_and(|spell| spell.additional_sacrifice.is_some())
+        || definition.spell.as_ref().is_some_and(|spell| {
+            spell.additional_sacrifice.is_some() || !spell.optional_additional_costs.is_empty()
+        })
     {
         return Err(error.into());
     }
@@ -128,7 +127,7 @@ fn extend_adjustment_schema(
             "timing":{"const":SpellTiming::MainPhase},
             "resolution":{"const":SpellResolution::Permanent},
             "functioning_zone":{"const":FunctioningZone::Stack},
-            "additional_sacrifice":{"type":"null"},
+            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
             "instructions":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0}
         }},
         "mana_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0}

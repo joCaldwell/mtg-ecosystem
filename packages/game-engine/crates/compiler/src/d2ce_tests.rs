@@ -1330,12 +1330,6 @@ fn attacking_creature_keywords_rejects_unconsumed_status_scope_and_modifier_sema
         |e| e["what"]["filter"]["status"] = serde_json::json!(["attacking", "attacking"]),
         |e| e["what"]["filter"]["status"] = serde_json::json!([]),
         |e| e["what"]["filter"]["status"] = serde_json::Value::Null,
-        |e| {
-            e["what"]["filter"]
-                .as_object_mut()
-                .unwrap()
-                .remove("status");
-        },
         |e| e["what"]["filter"]["control"] = "opponent".into(),
         |e| {
             e["what"]["filter"]
@@ -1391,6 +1385,32 @@ fn attacking_creature_keywords_rejects_unconsumed_status_scope_and_modifier_sema
             compile(MANIFEST, &raw)
         );
     }
+}
+
+#[test]
+fn omitted_attacking_status_uses_generic_live_controller_modifier_scope() {
+    // Synthetic AST control: the newly supported live Controller family has
+    // no status restriction; preserve the independent damage-trigger clause.
+    let raw = tests::changed_source(OHRAN, |r| {
+        let result = &mut r["faces"][0]["result"];
+        result["abilities"][0]["effect"]["what"]["filter"]
+            .as_object_mut()
+            .unwrap()
+            .remove("status");
+        result["lines"][0]["ability"] = result["abilities"][0].clone();
+    });
+    let CompileResult::Lowered { definition } = compile(MANIFEST, &raw) else {
+        panic!("generic controller static modifier must lower")
+    };
+    definition.validate().unwrap();
+    assert!(
+        matches!(definition.static_abilities.as_slice(), [StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::ModifyCreatures { scope: CreatureScope::Controller, power, toughness, keywords, restrictions }
+    }] if power == &Quantity::zero() && toughness == &Quantity::zero()
+        && keywords == &[KeywordAbility::Deathtouch] && restrictions.is_empty())
+    );
+    assert_eq!(definition.triggered.len(), 1);
 }
 
 #[test]

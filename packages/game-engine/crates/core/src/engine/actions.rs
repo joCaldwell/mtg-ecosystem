@@ -8,7 +8,9 @@ pub(super) enum StackKind {
     Triggered {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_condition: Option<InterveningCheck>,
-        ability: u32,
+        ability: EffectiveTriggerAbility,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<CascadeGrantProvenance>,
         source_handles: Vec<ObjectHandle>,
         trigger_id: TriggerId,
         event: TriggerOccurrenceId,
@@ -70,6 +72,12 @@ pub(super) enum ResolutionChoice {
     Search {
         player: PlayerId,
         maximum: u32,
+        split: bool,
+        source_block: u32,
+    },
+    SearchSplit {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
         source_block: u32,
     },
     Shuffle {
@@ -230,6 +238,53 @@ impl Game {
             },
         }
     }
+    fn discard_spec<'a>(
+        &self,
+        frame: &Resolving,
+        instruction: &'a Instruction,
+    ) -> Result<(PlayerId, &'a Quantity, u32), String> {
+        match instruction {
+            Instruction::DiscardCards {
+                recipient,
+                count,
+                source_block,
+            } => Ok((
+                self.resolution_player(frame, recipient.as_ref())?,
+                count,
+                *source_block,
+            )),
+            Instruction::DiscardPlayerSet {
+                count,
+                source_block,
+                ..
+            } => {
+                let player = frame
+                    .group_discard
+                    .as_ref()
+                    .and_then(|group| group.remaining.first())
+                    .ok_or("missing group discard chooser")?;
+                Ok((*player, count, *source_block))
+            }
+            Instruction::DiscardTargetPlayer {
+                target_slot,
+                count,
+                source_block,
+            } => {
+                // A sole illegal target ends resolution before instruction dispatch.
+                let slot = *target_slot as usize;
+                if frame.legal_targets.get(slot) != Some(&true) {
+                    return Err("missing legal discard target".into());
+                }
+                let player = *frame
+                    .spell
+                    .player_targets
+                    .get(slot)
+                    .ok_or("missing discard player target")?;
+                Ok((player, count, *source_block))
+            }
+            _ => Err("expected discard instruction".into()),
+        }
+    }
     pub(super) fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
@@ -239,7 +294,7 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    fn validate_activation(
+    pub(super) fn validate_activation(
         &self,
         player: PlayerId,
         object: ObjectId,
@@ -251,17 +306,28 @@ impl Game {
             .activated
             .get(ability as usize)
             .ok_or("unknown activated ability")?;
-        if source.zone != Zone::Battlefield
-            || source.controller != player
-            || !self.is_live(player)
-            || ability.functioning_zone != FunctioningZone::Battlefield
+        if !self.is_live(player)
+            || match ability.functioning_zone {
+                FunctioningZone::Battlefield => {
+                    source.zone != Zone::Battlefield || source.controller != player
+                }
+                FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
+                FunctioningZone::Stack => true,
+            }
         {
             return Err("invalid activated ability source/permission".into());
         }
         if ability.program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("equip requires sorcery timing".into());
         }
+        if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {
+            self.validate_tap_life_sacrifice_source(player, object, life)?;
+        }
         let tap = ability.cost == ActivationCost::TapSource
+            || matches!(
+                ability.cost,
+                ActivationCost::TapPayLifeSacrificeSource { .. }
+            )
             || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap);
         if tap
             && (source.tapped
@@ -271,8 +337,10 @@ impl Game {
         {
             return Err("tap ability requires an untapped continuously controlled creature".into());
         }
-        if let ActivationCost::SacrificePermanent { filter, .. } = &ability.cost
-            && (self.sacrifice_candidates(player, filter).is_empty())
+        if let ActivationCost::SacrificePermanent { filter, count, .. } = &ability.cost
+            && usize::try_from(*count).map_or(true, |n| {
+                self.sacrifice_candidates(player, filter).len() < n
+            })
         {
             return Err("no payable sacrifice permanent".into());
         }
@@ -347,6 +415,15 @@ impl Game {
                 maximum: *maximum,
                 candidates: self.search_lands(*player),
             }),
+            ResolutionChoice::SearchSplit {
+                player, objects, ..
+            } if self.is_live(*player) && objects.len() == 2 => {
+                Some(Request::SearchLandBattlefield {
+                    decision_id,
+                    player: *player,
+                    candidates: objects.clone(),
+                })
+            }
             ResolutionChoice::OptionalShuffle { player, .. }
             | ResolutionChoice::OptionalEffect { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. }
@@ -580,12 +657,9 @@ impl Game {
                 },
                 Response::ResolveDiscard { objects },
             ) => Some((|| {
-                let hand = self.action_hand(player);
                 if *chooser != player
                     || !self.is_live(player)
-                    || objects.len() != std::cmp::min(*count, hand.len())
-                    || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
-                    || objects.iter().any(|o| !hand.contains(o))
+                    || !self.valid_discard_selection(player, *count, objects)
                 {
                     return Err("invalid resolution discard choice".into());
                 }
@@ -614,9 +688,9 @@ impl Game {
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
                     .player_targets = players;
-                self.state.rules.frame = Frame::Mana { cast };
+                self.state.rules.frame = self.announcement_mana_frame(cast)?;
             }
-            Frame::ResolutionChoice { frame, choice } => {
+            Frame::ResolutionChoice { mut frame, choice } => {
                 if let ResolutionChoice::HandReturn {
                     player,
                     source_block,
@@ -677,6 +751,7 @@ impl Game {
                     choice,
                     ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
                         | ResolutionChoice::OptionalDraw { .. }
@@ -693,6 +768,7 @@ impl Game {
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
                         | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
@@ -727,6 +803,7 @@ impl Game {
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. }
                     | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
@@ -758,32 +835,12 @@ impl Game {
                         }
                     }
                     Response::ResolveDiscard { objects } => {
-                        let result = self.commit_batch(
-                            cause,
-                            EventGroup::Simultaneous {
-                                occurrences: objects
-                                    .into_iter()
-                                    .map(|object| ProposedEvent::DiscardCard {
-                                        object,
-                                        player: request.player(),
-                                    })
-                                    .collect(),
-                            },
-                        )?;
-                        let movements = result
-                            .occurrences
-                            .iter()
-                            .map(|r| match &r.actual {
-                                EventOutcome::CardDiscarded { movement, .. } => {
-                                    Ok(movement.clone())
-                                }
-                                _ => Err("missing simultaneous discard outcome".to_string()),
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-                        InstructionOutcome::Discarded {
-                            player: request.player(),
-                            movements,
+                        if let Some(group) = &mut frame.group_discard {
+                            group.select(request.player(), objects)?;
+                            self.state.rules.frame = Frame::Resolve { frame };
+                            return Ok(());
                         }
+                        self.discard_batch(cause, request.player(), objects)?
                     }
                     _ => return Err("resolution response invariant".into()),
                 };
@@ -792,6 +849,46 @@ impl Game {
             _ => return Err("action frame invariant".into()),
         }
         Ok(())
+    }
+    pub(super) fn valid_discard_selection(
+        &self,
+        player: PlayerId,
+        count: usize,
+        objects: &[ObjectId],
+    ) -> bool {
+        let hand = self.action_hand(player);
+        objects.len() == count.min(hand.len())
+            && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
+            && objects.iter().all(|o| hand.contains(o))
+    }
+    pub(super) fn discard_batch(
+        &mut self,
+        cause: BatchCause,
+        player: PlayerId,
+        objects: Vec<ObjectId>,
+    ) -> Result<InstructionOutcome, String> {
+        let movements = if objects.is_empty() {
+            vec![]
+        } else {
+            let result = self.commit_batch(
+                cause,
+                EventGroup::Simultaneous {
+                    occurrences: objects
+                        .into_iter()
+                        .map(|object| ProposedEvent::DiscardCard { object, player })
+                        .collect(),
+                },
+            )?;
+            result
+                .occurrences
+                .iter()
+                .map(|r| match &r.actual {
+                    EventOutcome::CardDiscarded { movement, .. } => Ok(movement.clone()),
+                    _ => Err("missing simultaneous discard outcome".to_string()),
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        Ok(InstructionOutcome::Discarded { player, movements })
     }
     fn validate_choice_input(
         &self,
@@ -816,7 +913,13 @@ impl Game {
         mut frame: Resolving,
         outcome: InstructionOutcome,
     ) -> Result<(), String> {
-        if frame.draw_progress.is_some() {
+        if frame.group_discard.is_some() {
+            return Err("cannot advance an unfinished group discard".into());
+        }
+        if frame.random_discard.is_some() {
+            return Err("cannot advance an unfinished random discard".into());
+        }
+        if frame.draw_progress.is_some() || frame.each_player_draw.is_some() {
             return Err("cannot advance an unfinished counted draw".into());
         }
         frame.outcomes.push(outcome);
@@ -834,11 +937,14 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,
                 source_block,
             } => self.begin_hand_return(frame, count, source_block),
-            Instruction::DrawControllerCards { .. } => self.draw_multiple(frame),
+            Instruction::DrawControllerCards { .. } | Instruction::DrawEachPlayer { .. } => {
+                self.draw_multiple(frame)
+            }
             Instruction::OrderLibraryTop {
                 amount,
                 source_block,
@@ -856,6 +962,18 @@ impl Game {
                 count,
                 source_block,
             } => self.execute_mill(frame, recipient, count, source_block),
+            Instruction::MillAnnouncedX {
+                target_slot,
+                source_block,
+            } => {
+                let count = frame.spell.x.clone().ok_or("missing announced X")?;
+                self.execute_mill(
+                    frame,
+                    Some(LifeRecipient::Target { target_slot }),
+                    count,
+                    source_block,
+                )
+            }
             Instruction::Scry {
                 amount,
                 source_block,
@@ -865,6 +983,7 @@ impl Game {
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
             i @ (Instruction::MoveSet { .. }
+            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
@@ -879,7 +998,8 @@ impl Game {
             | Instruction::ModifySourcePowerToughness { .. }) => {
                 self.execute_sacrifice_instruction(frame, i)
             }
-            i @ (Instruction::DestroyPermanent { .. }
+            i @ (Instruction::ReturnEntryTargetCreature { .. }
+            | Instruction::DestroyPermanent { .. }
             | Instruction::ExilePermanent { .. }
             | Instruction::UntapPermanent { .. }
             | Instruction::TapPermanent { .. }
@@ -895,14 +1015,52 @@ impl Game {
             op @ (Instruction::DestroyTargetCreature { .. }
             | Instruction::DestroyAllCreatures { .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
-            | Instruction::SearchBasicLands { .. }) => self.execute_staples_instruction(frame, op),
+            | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
+            | Instruction::SearchBasicLands { .. }
+            | Instruction::SearchBasicLandsSplit { .. }
+            | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
             op @ (Instruction::CreateCreatureTokens { .. }
-            | Instruction::PutPlusOneCounters { .. }) => self.execute_token_instruction(frame, op),
+            | Instruction::PutPlusOneCounters { .. }
+            | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
+                self.execute_token_instruction(frame, op)
+            }
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::PreventCombatDamage { .. }
+            | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
+            Instruction::DrainOpponents {
+                amount,
+                source_block,
+            } => self.drain_opponents(frame, amount, source_block),
+            Instruction::ChangeLifeAnnouncedX {
+                recipient,
+                gain,
+                source_block,
+            } => {
+                let amount = frame.spell.x.clone().ok_or("missing announced X")?;
+                if amount == Quantity::zero() {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Life { actual: None });
+                }
+                let op = if gain {
+                    Instruction::GainLife {
+                        recipient,
+                        amount,
+                        source_block,
+                    }
+                } else {
+                    Instruction::LoseLife {
+                        recipient,
+                        amount,
+                        source_block,
+                    }
+                };
+                self.execute_damage_life_instruction(frame, op)
+            }
             op @ (Instruction::DealDamage { .. }
+            | Instruction::DealDamageToController { .. }
+            | Instruction::DealDamageAnnouncedX { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
             Instruction::SacrificeCreature {
@@ -1005,7 +1163,16 @@ impl Game {
                 };
                 self.draw_one(frame, player, source_block)
             }
-            Instruction::DrawDamageAmount { .. } => self.draw_multiple(frame),
+            Instruction::DrawCardsIfAdditionalCost { cost_identity, .. } => {
+                if !self.additional_cost_was_selected(&frame.spell, &cost_identity)? {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                self.draw_multiple(frame)
+            }
+            Instruction::DrawDamageAmount { .. } | Instruction::DrawAnnouncedX { .. } => {
+                self.draw_multiple(frame)
+            }
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1025,12 +1192,14 @@ impl Game {
                 };
                 Ok(())
             }
-            Instruction::DiscardCards {
-                recipient,
+            Instruction::DiscardPlayerSet {
+                scope,
                 count,
                 source_block,
-            } => {
-                let player = self.resolution_player(&frame, recipient.as_ref())?;
+            } => self.group_discard_step(frame, scope, count, source_block),
+            Instruction::DiscardTargetPlayerAtRandom { .. } => self.random_discard_step(frame),
+            op @ (Instruction::DiscardCards { .. } | Instruction::DiscardTargetPlayer { .. }) => {
+                let (player, count, source_block) = self.discard_spec(&frame, &op)?;
                 if count.is_negative() {
                     return Err("negative discard count".into());
                 }
@@ -1040,7 +1209,7 @@ impl Game {
                         InstructionOutcome::PlayerActionSkipped { player },
                     );
                 }
-                let actual_count = self.bounded_hand_count(player, &count);
+                let actual_count = self.bounded_hand_count(player, count);
                 if actual_count == 0 {
                     self.finish_instruction(
                         frame,
@@ -1064,13 +1233,15 @@ impl Game {
             Instruction::CounterStackObject {
                 target_slot,
                 source_block,
-            } => self.resolve_counter_instruction(frame, target_slot, source_block),
+            } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
+            Instruction::CounterSpellAndMillController {
+                target_slot,
+                count,
+                source_block,
+            } => self.resolve_counter_instruction(frame, target_slot, source_block, Some(count)),
             _ => Err("unexpected action instruction".into()),
         }
     }
-    /// One ordinary draw attempt, shared by mandatory and accepted optional
-    /// draws. The existing Commander continuation owns the remaining attempt;
-    /// recovery must not offer the optional choice again.
     pub(super) fn draw_one(
         &mut self,
         frame: Resolving,
@@ -1152,6 +1323,21 @@ impl Game {
         instruction: &Instruction,
     ) -> Result<Option<(Quantity, u32)>, String> {
         let (amount, source_block) = match instruction {
+            Instruction::DrawEachPlayer {
+                count,
+                source_block,
+            } => {
+                let amount = match count {
+                    DrawEachCount::Fixed { value } => value,
+                    DrawEachCount::AnnouncedX => {
+                        frame.spell.x.as_ref().ok_or("missing announced X")?
+                    }
+                };
+                if amount.is_negative() {
+                    return Err("negative each-player draw amount".into());
+                }
+                (amount.clone(), *source_block)
+            }
             Instruction::DrawControllerCards {
                 count,
                 source_block,
@@ -1161,8 +1347,32 @@ impl Game {
                 }
                 (count.clone(), *source_block)
             }
+            Instruction::DrawAnnouncedX {
+                recipient,
+                source_block,
+            } => {
+                if let LifeRecipient::Target { target_slot } = recipient
+                    && frame.legal_targets.get(*target_slot as usize) != Some(&true)
+                {
+                    return Err("missing legal announced-X draw target".into());
+                }
+                (
+                    frame.spell.x.clone().ok_or("missing announced X")?,
+                    *source_block,
+                )
+            }
             Instruction::DrawDamageAmount { source_block } => {
                 (self.damage_draw_amount(frame)?, *source_block)
+            }
+            Instruction::DrawCardsIfAdditionalCost {
+                cost_identity,
+                count,
+                source_block,
+            } => {
+                if !self.additional_cost_was_selected(&frame.spell, cost_identity)? {
+                    return Ok(None);
+                }
+                (count.clone(), *source_block)
             }
             Instruction::DrawCards {
                 count,
@@ -1184,6 +1394,21 @@ impl Game {
     /// CR 120.4b/603.2c: "that many" is the positive final member of this
     /// invocation's actual damage witness, never printed power or life changes.
     pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
+        if let Some(Instruction::DrawCardsIfAdditionalCost {
+            cost_identity,
+            count,
+            ..
+        }) = self
+            .program_for(&frame.spell)?
+            .instructions
+            .get(frame.cursor as usize)
+        {
+            return if self.additional_cost_was_selected(&frame.spell, cost_identity)? {
+                Ok(count.clone())
+            } else {
+                Err("unselected optional-cost draw progress".into())
+            };
+        }
         match &frame.spell.kind {
             StackKind::Triggered {
                 witness: TriggerEventWitness::DamageDealt { damage, .. },
@@ -1206,16 +1431,19 @@ impl Game {
         let (amount, source_block) = self
             .counted_draw_spec(&frame, program, instruction)?
             .ok_or("counted draw source invariant")?;
+        // CR 121.2c: freeze the live APNAP order once, then perform all of
+        // one player's draws before starting the next player's attempts.
+        if matches!(instruction, Instruction::DrawEachPlayer { .. })
+            && frame.each_player_draw.is_none()
+        {
+            frame.each_player_draw = Some(EachPlayerDrawProgress {
+                remaining: self.apnap_players(),
+                completed: vec![],
+            });
+        }
         let player = Self::draw_player_for_instruction(&frame, instruction)?;
         if amount == Quantity::zero() {
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::DrawAttempts {
-                    player,
-                    attempted: Quantity::zero(),
-                    failed: Quantity::zero(),
-                },
-            );
+            return self.finish_player_draws(frame, player, Quantity::zero(), Quantity::zero());
         }
         if frame.draw_progress.is_none() {
             frame.draw_progress = Some(DrawProgress {
@@ -1254,14 +1482,7 @@ impl Game {
         if matches!(outcome, InstructionOutcome::PlayerActionSkipped { player: actor } if actor == player && !self.is_live(player))
         {
             let progress = frame.draw_progress.take().unwrap();
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::DrawAttempts {
-                    player,
-                    attempted: progress.completed,
-                    failed: progress.failed,
-                },
-            );
+            return self.finish_player_draws(frame, player, progress.completed, progress.failed);
         }
         let failed = match outcome {
             InstructionOutcome::Drawn {
@@ -1287,14 +1508,7 @@ impl Game {
         }
         if progress.remaining == Quantity::zero() {
             let progress = frame.draw_progress.take().unwrap();
-            self.finish_instruction(
-                frame,
-                InstructionOutcome::DrawAttempts {
-                    player,
-                    attempted: progress.completed,
-                    failed: progress.failed,
-                },
-            )
+            self.finish_player_draws(frame, player, progress.completed, progress.failed)
         } else {
             self.state.rules.frame = Frame::Resolve { frame };
             Ok(())
@@ -1304,6 +1518,22 @@ impl Game {
     /// counters nor a substituted witness can establish an unrecorded draw.
     fn validate_draw_progress(&self, frame: &Resolving) -> Result<(), String> {
         let program = self.program_for(&frame.spell)?;
+        if let Some(scope) = &frame.each_player_draw {
+            let Some(instruction @ Instruction::DrawEachPlayer { .. }) =
+                program.instructions.get(frame.cursor as usize)
+            else {
+                return Err("each-player draw progress on another instruction".into());
+            };
+            let (amount, _) = self
+                .counted_draw_spec(frame, program, instruction)?
+                .ok_or("missing each-player draw count")?;
+            if scope.remaining.is_empty()
+                || (scope.completed.is_empty() && frame.draw_progress.is_none())
+            {
+                return Err("each-player draw cursor invariant".into());
+            }
+            self.validate_each_player_draws(&scope.completed, &scope.remaining, &amount)?;
+        }
         if let Some(progress) = &frame.draw_progress {
             let instruction = program
                 .instructions
@@ -1327,10 +1557,16 @@ impl Game {
             }
         }
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
-            match (
-                self.counted_draw_spec(frame, program, instruction)?,
-                outcome,
-            ) {
+            let spec = self.counted_draw_spec(frame, program, instruction)?;
+            if matches!(instruction, Instruction::DrawEachPlayer { .. }) {
+                let InstructionOutcome::EachPlayerDrawAttempts { players } = outcome else {
+                    return Err("missing each-player draw outcome".into());
+                };
+                let (amount, _) = spec.ok_or("missing each-player draw count")?;
+                self.validate_each_player_draws(players, &[], &amount)?;
+                continue;
+            }
+            match (spec, outcome) {
                 (
                     Some((amount, _)),
                     InstructionOutcome::DrawAttempts {
@@ -1349,7 +1585,12 @@ impl Game {
                         return Err("counted draw completed outcome invariant".into());
                     }
                 }
-                (Some(_), _) | (None, InstructionOutcome::DrawAttempts { .. }) => {
+                (Some(_), _)
+                | (
+                    None,
+                    InstructionOutcome::DrawAttempts { .. }
+                    | InstructionOutcome::EachPlayerDrawAttempts { .. },
+                ) => {
                     return Err("counted draw outcome on another instruction".into());
                 }
                 _ => (),
@@ -1362,24 +1603,7 @@ impl Game {
         entry: &StackInstance,
         resolved: bool,
     ) -> Result<(), String> {
-        if self
-            .state
-            .rules
-            .stack
-            .last()
-            .is_some_and(|top| top.id == entry.id)
-        {
-            self.state.rules.stack.pop();
-        } else if self.is_live(entry.controller)
-            || self
-                .state
-                .rules
-                .stack
-                .iter()
-                .any(|item| item.id == entry.id)
-        {
-            return Err("ability completion binding invariant".into());
-        }
+        self.remove_resolved_entry(entry)?;
         if matches!(entry.kind, StackKind::Triggered { .. }) {
             self.record_event(Event::TriggeredAbilityCompleted {
                 stack_id: entry.id,
@@ -1397,6 +1621,27 @@ impl Game {
             .ok_or("no live player after ability")?;
         self.stabilize()
     }
+    pub(super) fn remove_resolved_entry(&mut self, entry: &StackInstance) -> Result<(), String> {
+        if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == entry.id) {
+            let child = self.resolution_child(entry.id);
+            if self.state.rules.stack[index] != *entry
+                || match child {
+                    None => index + 1 != self.state.rules.stack.len(),
+                    Some(child) => {
+                        index + 2 != self.state.rules.stack.len()
+                            || self.top()?.id != child
+                            || self.top()?.paid.is_none()
+                    }
+                }
+            {
+                return Err("exact resolving owner completion invariant".into());
+            }
+            self.state.rules.stack.remove(index);
+        } else if self.invocation_lives(entry) {
+            return Err("missing live resolving owner".into());
+        }
+        Ok(())
+    }
     pub(super) fn invocation_lives(&self, entry: &StackInstance) -> bool {
         if entry.kind.is_spell() {
             self.state
@@ -1409,12 +1654,23 @@ impl Game {
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
+        self.validate_resolving_owned(frame, None)
+    }
+    pub(super) fn validate_resolving_owned(
+        &self,
+        frame: &Resolving,
+        child: Option<StackId>,
+    ) -> Result<(), String> {
         self.validate_trigger_entry(&frame.spell)?;
+        self.validate_cost_lock(&frame.spell)?;
+        self.validate_additional_cost_entry(&frame.spell)?;
         self.validate_mode_binding(&frame.spell)?;
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
         self.validate_set_damage_facts(frame)?;
         self.validate_draw_progress(frame)?;
+        self.validate_random_discard_progress(frame)?;
+        self.validate_group_discard_progress(frame)?;
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
@@ -1435,8 +1691,24 @@ impl Game {
             .iter()
             .any(|item| item.id == entry.id)
         {
-            if self.top()? != entry {
-                return Err("snapshot resolving top binding".into());
+            let position = self
+                .state
+                .rules
+                .stack
+                .iter()
+                .position(|s| s.id == entry.id)
+                .ok_or("missing resolving entry")?;
+            if self.state.rules.stack.get(position) != Some(entry)
+                || match child {
+                    None => position + 1 != self.state.rules.stack.len(),
+                    Some(child) => {
+                        position + 2 != self.state.rules.stack.len()
+                            || self.top()?.id != child
+                            || child <= entry.id
+                    }
+                }
+            {
+                return Err("snapshot resolving owner/child binding".into());
             }
         } else if self.invocation_lives(entry) {
             return Err("snapshot detached invocation invariant".into());
@@ -1444,6 +1716,23 @@ impl Game {
         Ok(())
     }
     pub(super) fn revalidate_actions_departure(&mut self) -> Result<(), String> {
+        if let Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::OptionalEffect { target, .. },
+        } = &self.state.rules.frame
+            && self.current(*target).is_err()
+            && matches!(
+                self.program_for(&frame.spell)?
+                    .instructions
+                    .get(frame.cursor as usize),
+                Some(Instruction::ReturnEntryTargetCreature { .. })
+            )
+        {
+            let outcome = InstructionOutcome::ObjectNoLongerPresent { target: *target };
+            let frame = frame.clone();
+            self.state.rules.pending = None;
+            return self.finish_instruction(frame, outcome);
+        }
         if matches!(
             self.state.rules.frame,
             Frame::ResolutionChoice { .. }
@@ -1571,20 +1860,17 @@ impl Game {
                         count,
                         source_block,
                     },
-                    Instruction::DiscardCards {
-                        recipient,
-                        count: expected,
-                        source_block: expected_block,
-                    },
-                ) => {
-                    self.resolution_player(frame, recipient.as_ref())
-                        .is_ok_and(|actor| actor == *player)
-                        && *count > 0
-                        && (!self.is_live(*player)
-                            || *count == self.bounded_hand_count(*player, expected))
-                        && Quantity::from(*count as i64) <= *expected
-                        && *source_block == *expected_block
-                }
+                    op,
+                ) => self
+                    .discard_spec(frame, op)
+                    .is_ok_and(|(actor, expected, block)| {
+                        actor == *player
+                            && *count > 0
+                            && (!self.is_live(*player)
+                                || *count == self.bounded_hand_count(*player, expected))
+                            && Quantity::from(*count as i64) <= *expected
+                            && *source_block == block
+                    }),
                 _ => self.valid_staples_choice(frame, choice, instruction),
             };
             if !valid {

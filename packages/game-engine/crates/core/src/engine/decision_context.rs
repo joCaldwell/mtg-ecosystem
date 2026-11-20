@@ -45,6 +45,29 @@ pub struct DecisionContext {
     pub modes: Vec<DecisionMode>,
 }
 impl Game {
+    pub(super) fn trigger_source_label(
+        &self,
+        source: ObjectId,
+        ability: EffectiveTriggerAbility,
+    ) -> Option<&str> {
+        let (source, index, is_static) = match ability {
+            EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
+            EffectiveTriggerAbility::Granted {
+                grant_source,
+                static_ability_index,
+            } => (grant_source, static_ability_index, true),
+        };
+        let labels = self.definition(source.card).ok()?.source_labels.as_ref()?;
+        let blocks = if is_static {
+            &labels.statics
+        } else {
+            &labels.triggered
+        };
+        labels
+            .blocks
+            .get(*blocks.get(index as usize)? as usize)
+            .map(String::as_str)
+    }
     pub(super) fn described_source(
         &self,
         viewer: PlayerId,
@@ -57,15 +80,20 @@ impl Game {
             // Use precisely the runtime's intrinsic CR 305.6 production query.
             // Never describe a permanent ability as intrinsic when its labels are missing.
             let colors = self.mana_abilities(object).ok()?;
-            let [color] = colors.as_slice() else {
+            if colors.is_empty() {
                 return None;
-            };
+            }
+            let symbols = colors
+                .iter()
+                .map(|color| format!("{{{color:?}}}"))
+                .collect::<Vec<_>>()
+                .join(" or ");
             return Some(DecisionSource {
                 kind,
                 oracle_id: definition.oracle_id.clone(),
                 object: Some(self.handle_for(viewer, object).ok()?),
                 ability: None,
-                text: format!("Tap: Add {{{color:?}}}. (Intrinsic basic land mana ability.)"),
+                text: format!("Tap: Add {symbols}. (Intrinsic basic land mana ability.)"),
             });
         }
         let labels = definition.source_labels.as_ref()?;
@@ -78,6 +106,9 @@ impl Game {
         };
         let text = match blocks {
             None => labels.text.clone(),
+            Some(_) if kind == DecisionSourceKind::ManaAbility && ability.is_none() => {
+                labels.text.clone()
+            }
             Some(blocks) => labels
                 .blocks
                 .get(*blocks.get(ability? as usize)? as usize)?
@@ -95,7 +126,41 @@ impl Game {
         let (kind, ability) = match entry.kind {
             StackKind::Spell => (DecisionSourceKind::Spell, None),
             StackKind::Activated { ability, .. } => (DecisionSourceKind::Activated, Some(ability)),
-            StackKind::Triggered { ability, .. } => (DecisionSourceKind::Triggered, Some(ability)),
+            StackKind::Triggered {
+                ability: EffectiveTriggerAbility::Intrinsic { index },
+                ..
+            } => (DecisionSourceKind::Triggered, Some(index)),
+            StackKind::Triggered {
+                ability:
+                    EffectiveTriggerAbility::Granted {
+                        grant_source,
+                        static_ability_index,
+                    },
+                ref grant,
+                ..
+            } => {
+                // The grantor describes this ability; the cast spell remains its
+                // rules source. Preserve the viewer's captured public handle after departure.
+                let labels = self
+                    .definition(grant_source.card)
+                    .ok()?
+                    .source_labels
+                    .as_ref()?;
+                return Some(DecisionSource {
+                    kind: DecisionSourceKind::Triggered,
+                    oracle_id: self.definition(grant_source.card).ok()?.oracle_id.clone(),
+                    object: grant
+                        .as_ref()?
+                        .source_handles
+                        .get(viewer.0 as usize)
+                        .cloned(),
+                    ability: Some(static_ability_index),
+                    text: labels
+                        .blocks
+                        .get(*labels.statics.get(static_ability_index as usize)? as usize)?
+                        .clone(),
+                });
+            }
         };
         self.described_source(viewer, entry.source, kind, ability)
     }
@@ -105,20 +170,52 @@ impl Game {
         request: Option<&PlayerRequest>,
     ) -> Option<DecisionContext> {
         let request = request?;
+        if let Some((player, source, ability)) = self.land_entry_offer().ok()? {
+            return (player == viewer)
+                .then(|| {
+                    self.effect_decision_context(viewer, &EffectKey::Static { source, ability })
+                })
+                .flatten();
+        }
         if let Frame::DamageAllocation { effect, .. } = &self.state.rules.frame {
             return self.effect_decision_context(viewer, effect);
+        }
+
+        if let Frame::DamageEffects { transaction } = &self.state.rules.frame
+            && let DamageContinuation::Mana { activation, .. } = transaction.continuation.as_ref()
+            && activation.player == viewer
+        {
+            return self
+                .described_source(
+                    viewer,
+                    activation.source,
+                    DecisionSourceKind::ManaAbility,
+                    Some(activation.ability_index()),
+                )
+                .map(|source| DecisionContext {
+                    source: Some(source),
+                    ..Default::default()
+                });
         }
 
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
+            (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
+                return self
+                    .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
+                    .map(|source| DecisionContext {
+                        source: Some(source),
+                        ..Default::default()
+                    });
+            }
             (Frame::ManaAbility { activation }, _) if activation.player == viewer => {
                 return self
                     .described_source(
                         viewer,
                         activation.source,
                         DecisionSourceKind::ManaAbility,
-                        Some(0),
+                        Some(activation.ability_index()),
                     )
                     .map(|source| DecisionContext {
                         source: Some(source),
@@ -154,7 +251,7 @@ impl Game {
             .ok()?
             .source_labels
             .as_ref()?;
-        if matches!(request, PlayerRequest::Modes { .. }) {
+        if entry.kind.is_spell() && matches!(request, PlayerRequest::Modes { .. }) {
             context.modes = labels
                 .spell_modes
                 .iter()

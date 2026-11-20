@@ -22,6 +22,7 @@ pub fn controller_surveil_program(p: &SpellProgram) -> bool {
 
 fn controller_look_program(p: &SpellProgram, surveil: bool) -> bool {
     if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
         || !p.targets.is_empty()
         || p.functioning_zone != FunctioningZone::Stack
@@ -76,7 +77,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     let scry = json!({"required":["op","amount","source_block"],"properties":{"op":{"const":"scry"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"}}});
     let draw = json!({"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"}}});
     let root = json!({"required":["targets","instructions"],"properties":{
-        "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
+        "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
     }});
     schema["$defs"]["ControllerScryProgram"] = json!({"allOf":[root.clone(),
@@ -326,6 +327,7 @@ mod tests {
         d.validate().unwrap();
         let p = d.spell.as_ref().unwrap();
         assert!(!controller_scry_program(p));
+        assert!(!controller_surveil_program(p));
         let descriptor = temporary_permanent_keyword_program(p).unwrap();
         assert_eq!(descriptor.controller_scry, Some(&Quantity::from(1)));
         assert!(descriptor.controller_life.is_none());
@@ -384,6 +386,67 @@ mod tests {
                 serde_json::from_value::<Instruction>(changed).is_err(),
                 "case {case}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod combined_cost_fences {
+    use super::*;
+    #[test]
+    fn scry_combined_optional_cost_and_conditional_draw_fences() {
+        for variant in 0..3 {
+            let targeted = variant == 1;
+            let mut d = if targeted {
+                temporary_permanent_keyword_tests::grant(false)
+            } else if variant == 2 {
+                surveil_witness()
+            } else {
+                witness()
+            };
+            if targeted {
+                let p = d.spell.as_mut().unwrap();
+                p.targets[0].domain = TargetDomain::BattlefieldPermanent;
+                p.targets[0].filter.as_mut().unwrap().types =
+                    vec![CardKind::Creature, CardKind::Artifact];
+                p.instructions.push(Instruction::Scry {
+                    amount: 1.into(),
+                    source_block: 0,
+                });
+            }
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            let identity = format!(
+                "card:{}/faces/0/abilities/0/keywords/0#keyword",
+                d.oracle_id
+            );
+            let p = d.spell.as_mut().unwrap();
+            p.optional_additional_costs
+                .push(OptionalAdditionalManaCost {
+                    identity: identity.clone(),
+                    source_block: 0,
+                    mana: ManaCost {
+                        generic: 1.into(),
+                        colored: vec![],
+                    },
+                });
+            assert!(!controller_scry_program(p));
+            assert!(!controller_surveil_program(p));
+            assert!(temporary_targeted_keyword_program(p).is_none());
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
+            let p = d.spell.as_mut().unwrap();
+            p.optional_additional_costs.clear();
+            p.instructions.push(Instruction::DrawCardsIfAdditionalCost {
+                cost_identity: identity,
+                count: 1.into(),
+                source_block: 0,
+            });
+            assert!(!controller_scry_program(p));
+            assert!(!controller_surveil_program(p));
+            assert!(temporary_targeted_keyword_program(p).is_none());
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err());
         }
     }
 }

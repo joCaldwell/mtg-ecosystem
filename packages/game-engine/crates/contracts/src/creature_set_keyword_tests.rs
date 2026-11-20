@@ -354,6 +354,56 @@ fn creature_set_keyword_modifier_strict_io_and_first_strike_serialization() {
 }
 
 #[test]
+fn creature_set_keyword_excludes_optional_cost_and_conditional_draw_families() {
+    for set in [
+        ObjectSet::ControllerCreatures,
+        ObjectSet::AttackingCreatures,
+        ObjectSet::ControllerPermanents,
+    ] {
+        for modifier in [false, true] {
+            if set == ObjectSet::ControllerPermanents && modifier {
+                continue;
+            }
+            let baseline = grant(set.clone(), &[KeywordAbility::Lifelink], modifier);
+            baseline.validate().unwrap();
+            assert!(temporary_set_keyword_program(baseline.spell.as_ref().unwrap()).is_some());
+            for variant in 0..3 {
+                let mut invalid = baseline.clone();
+                let identity = format!(
+                    "card:{}/faces/0/abilities/0/keywords/0#keyword",
+                    invalid.oracle_id
+                );
+                let program = invalid.spell.as_mut().unwrap();
+                if variant != 1 {
+                    program
+                        .optional_additional_costs
+                        .push(OptionalAdditionalManaCost {
+                            identity: identity.clone(),
+                            source_block: 0,
+                            mana: ManaCost {
+                                generic: 2.into(),
+                                colored: vec![Color::U],
+                            },
+                        });
+                }
+                if variant != 0 {
+                    program
+                        .instructions
+                        .push(Instruction::DrawCardsIfAdditionalCost {
+                            cost_identity: identity,
+                            count: 2.into(),
+                            source_block: 1,
+                        });
+                }
+                assert!(temporary_set_keyword_program(program).is_none());
+                invalid.capabilities = invalid.requirements();
+                assert!(invalid.validate().is_err());
+            }
+        }
+    }
+}
+
+#[test]
 fn creature_set_keyword_shared_stat_type_preserves_wire_bytes() {
     let instruction = Instruction::GrantKeywordsSet {
         set: ObjectSet::ControllerCreatures,

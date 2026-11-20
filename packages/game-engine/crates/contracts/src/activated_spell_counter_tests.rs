@@ -13,6 +13,7 @@ pub(super) fn activated_counter() -> Definition {
     .unwrap();
     d.activated[0].cost = ActivationCost::Composite {
         costs: PermanentActivationCosts {
+            remove_source_plus_one_counters: None,
             tap: true,
             sacrifice: false,
             mana: Some(ManaCost {

@@ -359,7 +359,7 @@ fn stale_target_waits_for_sba_without_following_successor_and_movement_captures_
     assert_eq!(g.state.rules.objects[&CardId(0)].attached_to, Some(bear));
     assert_eq!(timestamp(&g, 0), Some(1));
     g.validate_attachment_state().unwrap();
-    assert!(g.creature_modifications(successor).is_empty());
+    assert!(g.static_modifications(successor).is_empty());
     let mut occurrences = vec![];
     g.attachment_sbas(&mut occurrences).unwrap();
     g.commit_batch(

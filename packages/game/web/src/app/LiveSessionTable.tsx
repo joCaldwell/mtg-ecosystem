@@ -3,7 +3,7 @@ import type { ReadSession, ReadSnapshot } from '../session/controller.ts';
 import { immutable } from '../session/read-state.ts';
 import { liveTable } from '../presentation/live-table.ts';
 import { SessionStatus } from '../features/table/SessionStatus.tsx';
-import { GameTable as Table } from '@multiverse/game-ui';
+import { GameSurface, GameTable as Table } from '@multiverse/game-ui';
 import { LiveDecision } from '../features/live/LiveDecision.tsx';
 import type { LiveDecisionDraft } from '../session/live-decision.ts';
 import { CommandStatus } from '../features/opening/CommandStatus.tsx';
@@ -13,11 +13,12 @@ import styles from './LiveSessionTable.module.css';
 
 /** Shared standalone/product composition. Host owns routing; one session owns
  * all authorization, reads, discovery, journal and command effects. */
-export function LiveSessionTable({ session, snapshot, headingLevel = 1, emptyActions, interactive = true }: {
+export function LiveSessionTable({ session, snapshot, headingLevel = 1, emptyActions, diagnostics = false, interactive = true }: {
   readonly session: ReadSession<File>; readonly snapshot: ReadSnapshot;
-  readonly headingLevel?: 1 | 2; readonly emptyActions?: ReactNode;
+  readonly headingLevel?: 1 | 2; readonly emptyActions?: ReactNode; readonly diagnostics?: boolean;
   readonly interactive?: boolean;
 }) {
+  const Heading = headingLevel === 1 ? 'h1' : 'h2';
   const currentContext = session.commandContext();
   const observation = snapshot.read?.state.status === 'available' ? snapshot.read.state.observation : null;
   const request = observation?.decision ?? null;
@@ -50,9 +51,9 @@ export function LiveSessionTable({ session, snapshot, headingLevel = 1, emptyAct
     }
     return immutable([...new Map(labels.map(label => [label.handle, label])).values()]);
   }, [table, request, snapshot.metadata]);
-  return <div className={styles.liveSurface}><SessionStatus snapshot={snapshot} onStop={session.stop} />{table ? <Table table={table} headingLevel={headingLevel}
+  return <GameSurface className={styles.liveSurface}><SessionStatus diagnostics={diagnostics} snapshot={snapshot} onStop={session.stop} />{table ? <Table diagnostics={diagnostics} table={table} headingLevel={headingLevel}
         choiceStatus={<CommandStatus command={snapshot.command} connected={interactive && snapshot.connection === 'ready'} onRetry={() => { if (interactive) void session.retryCommand(); }} />}
         decisionControls={request?.request === 'priority' || request?.request === 'mana' ? <LiveActions snapshot={snapshot.actions} draft={actionDraft} enabled={interactive && currentContext !== null} objects={actionObjects}
           onStart={scope => { const intent = ++actionIntent.current; setActionDraft(null); void session.startActions(scope).then(value => { if (intent === actionIntent.current) setActionDraft(value); }); }} onCancel={generation => { actionIntent.current++; setActionDraft(null); void session.cancelActions(generation); }}
-          onSubmit={(original, index) => { void session.submitAction(original, index); }} /> : <LiveDecision draft={draft} request={request} labels={decisionLabels} enabled={openingEnabled} onIntent={intent => { void session.submitIntent(intent); }} />} /> : <section className={styles.page}><h1>Live table</h1><p>{snapshot.connection === 'pending' ? 'Waiting for the first committed observation.' : 'Import a single-seat file to open your permitted view.'}</p><CommandStatus command={snapshot.command} connected={interactive && snapshot.connection === 'ready'} onRetry={() => { if (interactive) void session.retryCommand(); }} />{emptyActions}</section>}</div>;
+          onSubmit={(original, index) => { void session.submitAction(original, index); }} /> : <LiveDecision draft={draft} request={request} labels={decisionLabels} enabled={openingEnabled} onIntent={intent => { void session.submitIntent(intent); }} />} /> : <section className={styles.page}><Heading>Live table</Heading><p>{snapshot.connection === 'pending' ? 'Waiting for the first committed observation.' : 'Import a single-seat file to open your permitted view.'}</p><CommandStatus command={snapshot.command} connected={interactive && snapshot.connection === 'ready'} onRetry={() => { if (interactive) void session.retryCommand(); }} />{emptyActions}</section>}</GameSurface>;
 }

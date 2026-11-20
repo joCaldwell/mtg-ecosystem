@@ -101,6 +101,7 @@ fn complete_regress_and_disperse_preserve_permanent_predicate_owner_destination_
         assert_eq!(
             d.spell,
             Some(SpellProgram {
+                optional_additional_costs: vec![],
                 additional_sacrifice: None,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,

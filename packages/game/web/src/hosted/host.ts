@@ -13,6 +13,7 @@ export interface GameBrowserHost {
     humanGameSeat(id: string, signal: AbortSignal): Promise<{ bootstrap_file: string }>;
   };
   ApiError: new (status: number, message: string) => Error & { status: number };
+  gameHref(id: string): string;
   navigateGame(id: string): void;
   backHref: string;
   useSavedGames(): { data: { games: GameRecord[] } | null; error: string | null; loading: boolean; reload(): void };
@@ -21,8 +22,5 @@ export interface GameBrowserHost {
     ButtonLink: ComponentType<{ children?: ReactNode; href: string }>;
     ErrorNote: ComponentType<{ children?: ReactNode }>;
     Loading: ComponentType;
-    Page: ComponentType<{ children: ReactNode; width: "full"; header: ReactNode }>;
-    PageHeader: ComponentType<{ title: string; actions: ReactNode }>;
-    Text: ComponentType<{ children?: ReactNode; as?: "p"; tone?: "muted"; mono?: boolean }>;
   };
 }

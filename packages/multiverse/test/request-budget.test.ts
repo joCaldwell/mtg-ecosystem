@@ -57,13 +57,21 @@ test("game and account requests share dispatch slots while an earlier long poll 
   await pending;
   assert.deepEqual(calls[1], ["/api/games/01/native/v1/matches/01/commands", { method: "POST", body }]);
 
-  const stale = budget.send("/api/games/01");
+  const inbox = budget.send("/api/inbox");
+  const cancel = budget.send("/api/games/01/native/v1/matches/01/actions/query", { method: "POST", body: '{"operation":"cancel","cursor":"original"}' });
+  const owner = new AbortController();
+  const stale = budget.send("/api/games/01", { signal: owner.signal });
   const assertStale = assert.rejects(stale, { name: "AbortError" });
   release();
+  owner.abort();
+  await Promise.all([inbox, cancel]);
   await assertStale;
   finishPoll(new Response());
   await events;
-  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.slice(2), [
+    ["/api/inbox", undefined],
+    ["/api/games/01/native/v1/matches/01/actions/query", { method: "POST", body: '{"operation":"cancel","cursor":"original"}' }],
+  ]);
 });
 
 test("only an Actor-budget 429 defers background reads within its active game", async () => {

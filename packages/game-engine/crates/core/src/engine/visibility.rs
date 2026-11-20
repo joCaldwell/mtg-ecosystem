@@ -31,13 +31,26 @@ pub struct VisibleAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct TriggerHandle(pub String);
+/// Public origin uses only already captured public/historical handles.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
+pub enum VisibleTriggerAbility {
+    Intrinsic {
+        index: u32,
+    },
+    Granted {
+        source: VisibleTarget,
+        oracle_id: String,
+        static_ability_index: u32,
+    },
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleTriggered {
     pub handle: StackHandle,
     pub source: VisibleTarget,
     pub oracle_id: String,
-    pub ability: u32,
+    pub ability: VisibleTriggerAbility,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -47,7 +60,7 @@ pub struct VisiblePendingTrigger {
     pub handle: TriggerHandle,
     pub source: VisibleTarget,
     pub oracle_id: String,
-    pub ability: u32,
+    pub ability: VisibleTriggerAbility,
 }
 fn is_zero(value: &u64) -> bool {
     *value == 0
@@ -73,6 +86,8 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mana_ability_used: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attached_to: Option<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -131,6 +146,8 @@ pub enum VisibleEntityTarget {
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_additional_costs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
@@ -161,9 +178,20 @@ pub struct VisibleAttacker {
     pub blocked: bool,
     pub blockers: Vec<ObjectHandle>,
 }
+/// A remembered public tuck. Position is one-based; memory gives no object
+/// handle or authority to inspect or target a card in a hidden library.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KnownLibraryPosition {
+    pub library_owner: PlayerId,
+    pub position: u32,
+    pub oracle_id: String,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,8 +211,19 @@ pub struct PermittedView {
     pub stack: Vec<VisibleStackEntry>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AdditionalCostChoice {
+    pub id: String,
+    pub mana: ManaCost,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    AdditionalCosts {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<AdditionalCostChoice>,
+    },
     HandReturn {
         token: DecisionToken,
         player: PlayerId,
@@ -241,6 +280,11 @@ pub enum PlayerRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana_ability_source: Option<ObjectHandle>,
     },
+    SearchLandBattlefield {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     SearchLands {
         token: DecisionToken,
         player: PlayerId,
@@ -281,6 +325,12 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         candidates: Vec<u32>,
+    },
+    CounterPlacementEffect {
+        token: DecisionToken,
+        player: PlayerId,
+        recipient: ObjectHandle,
+        candidates: Vec<VisibleCounterPlacementCandidate>,
     },
     DamageEffect {
         token: DecisionToken,
@@ -405,13 +455,16 @@ impl PlayerRequest {
             Self::LegendRule { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
+            | Self::SearchLandBattlefield { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
+            | Self::AdditionalCosts { token, .. }
             | Self::AnnounceX { token, .. }
             | Self::Modes { token, .. }
+            | Self::CounterPlacementEffect { token, .. }
             | Self::DamageEffect { token, .. }
             | Self::OrderTriggers { token, .. }
             | Self::EntityTargets { token, .. }
@@ -445,6 +498,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    AdditionalCosts {
+        selected: Vec<String>,
+    },
     HandReturn {
         objects: Vec<ObjectHandle>,
     },
@@ -481,6 +537,9 @@ pub enum PlayerResponse {
     SearchLands {
         objects: Vec<ObjectHandle>,
     },
+    SearchLandBattlefield {
+        object: ObjectHandle,
+    },
     OptionalEffect {
         perform: bool,
     },
@@ -498,6 +557,9 @@ pub enum PlayerResponse {
     },
     Modes {
         mode: u32,
+    },
+    CounterPlacementEffect {
+        effect: CounterPlacementEffectHandle,
     },
     DamageEffect {
         effect: EffectHandle,
@@ -637,6 +699,8 @@ impl ObjectHandles {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(super) public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) own_knowledge: Vec<OwnKnowledgeAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -741,15 +805,8 @@ impl Game {
             .ok_or("missing pending trigger")?;
         Ok(VisiblePendingTrigger {
             label: self
-                .definition(trigger.source.card)?
-                .source_labels
-                .as_ref()
-                .and_then(|l| {
-                    l.triggered
-                        .get(trigger.ability as usize)
-                        .and_then(|b| l.blocks.get(*b as usize))
-                })
-                .cloned(),
+                .trigger_source_label(trigger.source, trigger.ability)
+                .map(str::to_owned),
             handle: self
                 .state
                 .knowledge
@@ -774,10 +831,51 @@ impl Game {
                 .ok_or("missing trigger physical source")?
                 .oracle_id
                 .clone(),
-            ability: trigger.ability,
+            ability: self.visible_trigger_ability(
+                viewer,
+                trigger.ability,
+                trigger.grant.as_ref(),
+            )?,
         })
     }
 
+    fn visible_trigger_ability(
+        &self,
+        viewer: PlayerId,
+        ability: EffectiveTriggerAbility,
+        grant: Option<&CascadeGrantProvenance>,
+    ) -> Result<VisibleTriggerAbility, String> {
+        match ability {
+            EffectiveTriggerAbility::Intrinsic { index } => {
+                Ok(VisibleTriggerAbility::Intrinsic { index })
+            }
+            EffectiveTriggerAbility::Granted {
+                grant_source,
+                static_ability_index,
+            } => {
+                let grant = grant.ok_or("missing public grant provenance")?;
+                Ok(VisibleTriggerAbility::Granted {
+                    source: VisibleTarget {
+                        announced: grant
+                            .source_handles
+                            .get(viewer.0 as usize)
+                            .ok_or("missing grant source handle")?
+                            .clone(),
+                        current: self.handle_for(viewer, grant_source).ok(),
+                    },
+                    oracle_id: self
+                        .state
+                        .rules
+                        .cards
+                        .get(&grant_source.card)
+                        .ok_or("missing grant physical source")?
+                        .oracle_id
+                        .clone(),
+                    static_ability_index,
+                })
+            }
+        }
+    }
     pub(super) fn player_entity(
         &self,
         viewer: PlayerId,
@@ -806,6 +904,31 @@ impl Game {
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other
     // hands remain hidden. https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
+        // CR602.2a/701.20a: the validated hand-source announcement reveals
+        // this incarnation until its ability leaves the stack, including the
+        // unpaid mana window. A successor or another hand card never inherits
+        // this authority. Cancellation ends current visibility; the existing
+        // public observation journal preserves legitimately announced identity.
+        if self.state.rules.stack.iter().any(|entry| {
+            entry.source == object.id
+                && entry.cast_from == object.zone
+                && matches!(entry.cast_from, Zone::Hand { owner } if owner == entry.controller)
+                && matches!(&entry.kind, StackKind::Activated { ability, .. }
+                    if self.definition(object.id.card).is_ok_and(|d| d.activated.get(*ability as usize).is_some_and(hand_discard_draw_activation)))
+        }) {
+            return true;
+        }
+        // CR 701.20a-b: only this selected set is temporarily public; it
+        // remains in the library, without publishing positions or other candidates.
+        if matches!(&self.state.rules.frame,
+            Frame::ResolutionChoice { choice: ResolutionChoice::SearchSplit { objects, .. }, .. }
+            if objects.contains(&object.id))
+        {
+            return true;
+        }
+        if self.land_entry_visible_to(viewer, object.id) {
+            return true;
+        }
         match object.zone {
             Zone::Hand { owner } => owner == viewer,
             Zone::Library { owner } => {
@@ -951,6 +1074,11 @@ impl Game {
                     name: t.definition.name.clone(),
                     keywords: t.definition.keywords.clone(),
                 }),
+            mana_ability_used: self
+                .definition(object.id.card)?
+                .mana_abilities
+                .first()
+                .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
             plus_one_counters: object.plus_one_counters.clone(),
             characteristics: { Some(self.characteristics(object.id)?) },
             marked_damage: object.marked_damage.clone(),
@@ -1002,6 +1130,7 @@ impl Game {
             StackKind::Spell => (Some(self.handle_for(viewer, instance.source)?), None, None),
             StackKind::Triggered {
                 ability,
+                grant,
                 source_handles,
                 ..
             } => (
@@ -1024,7 +1153,7 @@ impl Game {
                         .ok_or("missing triggered physical source")?
                         .oracle_id
                         .clone(),
-                    ability: *ability,
+                    ability: self.visible_trigger_ability(viewer, *ability, grant.as_ref())?,
                 }),
             ),
             StackKind::Activated {
@@ -1096,6 +1225,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             mana_value: instance
                 .x
@@ -1120,6 +1250,7 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            known_library_positions: self.known_library_positions(viewer)?,
             sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
                 &self.state.rules.frame
             {
@@ -1303,6 +1434,17 @@ impl Game {
                 candidates: vec![],
             }));
         }
+        if let Frame::AdditionalCosts { .. } = self.state.rules.frame {
+            return if self.top()?.controller == viewer {
+                Ok(Some(PlayerRequest::AdditionalCosts {
+                    token,
+                    player: viewer,
+                    candidates: self.public_additional_cost_choices(viewer)?,
+                }))
+            } else {
+                Ok(None)
+            };
+        }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return Ok(
                 (self.top()?.controller == viewer).then_some(PlayerRequest::AnnounceX {
@@ -1311,12 +1453,39 @@ impl Game {
                 }),
             );
         }
+        if let Some(Request::OptionalEffect { player, .. }) = self.land_entry_request()? {
+            return Ok(
+                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
+            );
+        }
+        if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
+            return Ok(
+                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
+            );
+        }
         if let Some(Request::Modes { player, .. }) = self.modes_request()? {
             return Ok((player == viewer).then_some(PlayerRequest::Modes {
                 token,
                 player,
                 candidates: vec![],
             }));
+        }
+        if let Some(Request::CounterPlacementEffect {
+            player, recipient, ..
+        }) = self.counter_placement_request()?
+        {
+            return Ok((player == viewer)
+                .then(|| {
+                    self.handle_for(viewer, recipient).map(|recipient| {
+                        PlayerRequest::CounterPlacementEffect {
+                            token: token.clone(),
+                            player,
+                            recipient,
+                            candidates: vec![],
+                        }
+                    })
+                })
+                .transpose()?);
         }
         if let Some(Request::DamageEffect {
             player, recipient, ..
@@ -1397,6 +1566,13 @@ impl Game {
                     .collect::<Result<Vec<_>, _>>()
             };
             return Ok(Some(match request {
+                Request::SearchLandBattlefield { candidates, .. } => {
+                    PlayerRequest::SearchLandBattlefield {
+                        token,
+                        player: viewer,
+                        candidates: handles(candidates)?,
+                    }
+                }
                 Request::HandReturn { count, .. } => PlayerRequest::HandReturn {
                     token,
                     player: viewer,
@@ -1619,6 +1795,17 @@ impl Game {
                     candidates: self.eligible_players(self.program()?.targets[0].domain, viewer),
                 }))
             }
+            Frame::ManaSourceChoice {
+                player,
+                source,
+                scope,
+                ..
+            } if *player == viewer => Ok(Some(PlayerRequest::ManaColor {
+                token,
+                player: viewer,
+                colors: self.mana_source_colors(*player, *source, *scope)?,
+                mana_ability_source: Some(self.handle_for(viewer, *source)?),
+            })),
             Frame::ManaAbility { activation } if activation.player == viewer => {
                 Ok(Some(match self.permanent_mana_request(activation)? {
                     Request::Mana { cost, .. } => PlayerRequest::Mana {
@@ -1640,7 +1827,13 @@ impl Game {
                         token,
                         player: viewer,
                         colors,
-                        mana_ability_source: Some(self.handle_for(viewer, activation.source)?),
+                        // CR 113.7a: the paid production choice survives its
+                        // source, but a departed incarnation has no live handle.
+                        mana_ability_source: self
+                            .current(activation.source)
+                            .ok()
+                            .map(|_| self.handle_for(viewer, activation.source))
+                            .transpose()?,
                     },
                     _ => return Err("nested mana request invariant".into()),
                 }))
@@ -1824,8 +2017,18 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 17))
+            } else if self
+                .cascade_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.rules.revision, 22))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
                 Some((self.state.rules.revision, 13))
+            } else if self
+                .counter_placement_request()?
+                .is_some_and(|r| r.player() == viewer)
+            {
+                Some((self.state.rules.revision, 22))
             } else if self
                 .damage_effect_request()?
                 .is_some_and(|r| r.player() == viewer)
@@ -1877,6 +2080,16 @@ impl Game {
                     {
                         Some((self.state.rules.revision, 7))
                     }
+                    Frame::LandEntry { .. }
+                        if self
+                            .land_entry_offer()?
+                            .is_some_and(|(player, _, _)| player == viewer) =>
+                    {
+                        Some((self.state.rules.revision, 20))
+                    }
+                    Frame::ManaSourceChoice { player, .. } if player == viewer => {
+                        Some((self.state.rules.revision, 20))
+                    }
                     Frame::ManaAbility { ref activation } if activation.player == viewer => {
                         Some((self.state.rules.revision, 20))
                     }
@@ -1890,6 +2103,9 @@ impl Game {
                     }
                     Frame::Priority if self.state.rules.priority == viewer => {
                         Some((self.state.rules.revision, 0))
+                    }
+                    Frame::AdditionalCosts { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.rules.revision, 20))
                     }
                     Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 18))
@@ -1976,6 +2192,7 @@ impl Game {
         response: &PlayerResponse,
     ) -> Result<Response, String> {
         let size = match response {
+            PlayerResponse::AdditionalCosts { selected } => selected.len(),
             PlayerResponse::LibrarySelect {
                 hand: top,
                 remainder: bottom,
@@ -2049,10 +2266,31 @@ impl Game {
             PlayerResponse::DamageAllocation { allocations } => Ok(Response::DamageAllocation {
                 allocations: self.resolve_allocation_response(viewer, allocations)?,
             }),
+            PlayerResponse::AdditionalCosts { selected } => {
+                let choices = self.public_additional_cost_choices(viewer)?;
+                let selected = selected
+                    .iter()
+                    .map(|id| {
+                        let index = choices
+                            .iter()
+                            .position(|c| c.id == *id)
+                            .ok_or("foreign or stale optional cost ID")?;
+                        Ok(self.program()?.optional_additional_costs[index]
+                            .identity
+                            .clone())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                Ok(Response::AdditionalCosts { selected })
+            }
             PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
                 value: value.clone(),
             }),
             PlayerResponse::Modes { mode } => Ok(Response::Modes { mode: *mode }),
+            PlayerResponse::CounterPlacementEffect { effect } => {
+                Ok(Response::CounterPlacementEffect {
+                    effect: self.resolve_counter_effect(viewer, effect)?,
+                })
+            }
             PlayerResponse::DamageEffect { effect, damage } => {
                 let (effect, damage) = self.resolve_damage_effect_pair(viewer, effect, damage)?;
                 Ok(Response::DamageEffect { effect, damage })
@@ -2082,6 +2320,11 @@ impl Game {
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
             }),
+            PlayerResponse::SearchLandBattlefield { object } => {
+                Ok(Response::SearchLandBattlefield {
+                    object: self.resolve_handle(viewer, object)?,
+                })
+            }
             PlayerResponse::SearchLands { objects } => Ok(Response::SearchLands {
                 objects: objects
                     .iter()

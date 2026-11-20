@@ -29,7 +29,10 @@ fn priority(g: &mut Game, who: u8) {
 fn add_mana(p: &mut Prepared, id: &str) {
     edit(p, id, |d| {
         d.mana_abilities = vec![ManaAbility {
+            restriction: None,
+            self_damage: None,
             costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: None,
                 tap: true,
                 mana: None,
                 sacrifice: false,
@@ -549,6 +552,117 @@ fn d2cb_synthetic_hand_empty_composes_with_step_trigger_and_keeps_old_shape() {
     );
 }
 #[test]
+fn power_entry_draw_self_entry_rechecks_derived_power_for_trigger_controller() {
+    const CROW: &str = "000d5588-5a4c-434e-988d-396632ade42c";
+    const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
+    const ANTHEM: &str = "e3886fe8-9b76-4613-8891-4ec74657c087";
+    let controller = PlayerId(0);
+    let mut p = prepared(
+        &[
+            (ARENA, 0, 0, Zone::Hand { owner: controller }),
+            (CROW, 1, 0, Zone::Battlefield),
+            (BEARS, 0, 1, Zone::Battlefield),
+            (ANTHEM, 2, 0, Zone::Battlefield),
+            (SWAMP, 0, 0, Zone::Battlefield),
+            (SWAMP, 0, 0, Zone::Battlefield),
+            (SWAMP, 0, 0, Zone::Battlefield),
+        ],
+        TurnStep::PrecombatMain,
+    );
+    // Use Arena's castable body for a synthetic two-trigger enchantment.
+    edit(&mut p, ARENA, |d| {
+        d.source_labels = None;
+        let mut self_entry = d.triggered[0].clone();
+        self_entry.program.instructions.truncate(1); // Draw one.
+        self_entry.condition = TriggerCondition::SelfEntersBattlefield;
+        self_entry.intervening_if = Some(InterveningCondition::ControllerHasCreatureWithPower {
+            minimum_power: 2.into(),
+        });
+        let mut creature_entry = self_entry.clone();
+        creature_entry.condition = TriggerCondition::ControlledCreatureEntersWithPower {
+            minimum_power: 2.into(),
+            other: false,
+        };
+        creature_entry.intervening_if = None;
+        d.triggered = vec![self_entry, creature_entry];
+        d.static_abilities = vec![StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::Controller,
+                power: Quantity::zero(),
+                toughness: Quantity::zero(),
+                keywords: vec![KeywordAbility::Trample],
+                restrictions: vec![],
+            },
+        }];
+    });
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    answer(&mut g, Response::Cast { card: CardId(0) });
+    for id in 4..=6 {
+        let object = g.object_id(CardId(id)).unwrap();
+        answer(&mut g, Response::ActivateMana { object });
+    }
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    g.complete_test_mana();
+    resolve(&mut g);
+    let [trigger] = g.state.rules.stack.as_slice() else {
+        panic!("expected one self-entry trigger")
+    };
+    let matched = InterveningCheck::ControllerHasCreatureWithPower {
+        controller,
+        minimum_power: 2.into(),
+        qualifying: Some(QualifyingCreature {
+            object: g.object_id(CardId(1)).unwrap(),
+            power: 2.into(),
+        }),
+    };
+    assert!(matches!(&trigger.kind, StackKind::Triggered {
+        ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
+        witness: TriggerEventWitness::Moved { movement, .. }, match_condition: Some(check), ..
+    } if movement.successor == trigger.source && check == &matched));
+    recover(&g);
+    let mut forged: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+    forged["state"]["stack"][0]["kind"]["match_condition"]["qualifying"]["object"]["incarnation"] =
+        99.into();
+    forged["state_sha256"] = digest(&forged["state"]).unwrap().into();
+    assert!(Game::restore(g.prepared.as_ref().clone(), &forged.to_string()).is_err());
+
+    let library = g.state.rules.libraries[&controller].len();
+    let mut unchanged = g.fork();
+    resolve(&mut unchanged);
+    assert_eq!(
+        unchanged.state.rules.libraries[&controller].len(),
+        library - 1
+    );
+
+    // The anthem leaves. The opponent still controls a 2/2 owned by the caster.
+    g.concede(PlayerId(2)).unwrap();
+    placed(&mut g);
+    recover(&g);
+    for _ in 0..3 {
+        answer(&mut g, Response::Pass);
+    }
+    pass_until(
+        &mut g,
+        |g| matches!(&g.state.rules.frame, Frame::Resolve { frame } if frame.condition_check.is_some()),
+    );
+    let Frame::Resolve { frame } = &g.state.rules.frame else {
+        unreachable!()
+    };
+    assert_eq!(
+        frame.condition_check,
+        Some(InterveningCheck::ControllerHasCreatureWithPower {
+            controller,
+            minimum_power: 2.into(),
+            qualifying: None,
+        })
+    );
+    recover(&g);
+    let _ = settle(&mut g);
+    assert!(g.state.rules.stack.is_empty());
+    assert_eq!(g.state.rules.libraries[&controller].len(), library);
+}
+#[test]
 fn d2cb_forged_actor_status_and_lki_evidence_rejected_all_traces() {
     for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
         let mut g = Game::with_trace(
@@ -737,4 +851,82 @@ fn d2cb_synthetic_tapped_predicate_and_hand_recheck_after_normal_draw() {
         );
         recover(&g);
     }
+}
+
+#[test]
+fn synthetic_upkeep_damage_binds_announced_opponent_through_recovery() {
+    let mut p = prepared(&[(ARENA, 0, 0, Zone::Battlefield)], TurnStep::Untap);
+    edit(&mut p, ARENA, |d| {
+        d.name = "Synthetic Upkeep Observer".into();
+        d.source_labels = None;
+        let program = &mut d.triggered[0].program;
+        program.targets = vec![TargetSpec {
+            slot: 0,
+            selection_id: "opponent".into(),
+            chooser: Chooser::Controller,
+            stage: EvaluationStage::Announcement,
+            domain: TargetDomain::OpponentPlayer,
+            filter: None,
+        }];
+        program.instructions = vec![Instruction::DealDamage {
+            target_slot: 0,
+            amount: 3.into(),
+            source_block: 0,
+        }];
+    });
+    let mut g = Game::new(p);
+    for _ in 0..12 {
+        if matches!(settle(&mut g), Request::PlayerTargets { .. }) {
+            break;
+        }
+        passive(&mut g);
+    }
+    let Request::PlayerTargets {
+        player,
+        candidates,
+        decision_id,
+        ..
+    } = settle(&mut g)
+    else {
+        panic!("expected trigger placement target");
+    };
+    assert_eq!(player, PlayerId(0));
+    assert_eq!(candidates, vec![PlayerId(1), PlayerId(2), PlayerId(3)]);
+    assert!(
+        g.respond(
+            player,
+            decision_id,
+            Response::PlayerTargets {
+                players: vec![player]
+            }
+        )
+        .is_err()
+    );
+    let opponent = PlayerId(2);
+    answer(
+        &mut g,
+        Response::PlayerTargets {
+            players: vec![opponent],
+        },
+    );
+    recover(&g);
+    pass_until(&mut g, |g| {
+        matches!(g.state.rules.frame, Frame::DamageEffects { .. })
+    });
+    let Frame::DamageEffects { transaction } = &g.state.rules.frame else {
+        unreachable!()
+    };
+    assert_eq!(
+        transaction.entries[0].recipient,
+        DamageRecipient::Player { player: opponent }
+    );
+    let mut wrong_target = transaction.clone();
+    wrong_target.entries[0].recipient = DamageRecipient::Player {
+        player: PlayerId(1),
+    };
+    assert!(g.validate_damage_transaction(&wrong_target).is_err());
+    recover(&g);
+    let _ = settle(&mut g);
+    assert_eq!(g.state.rules.players[2].life, 37.into());
+    assert_eq!(g.state.rules.players[0].life, 40.into());
 }

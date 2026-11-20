@@ -263,6 +263,10 @@ impl Strategy {
             .as_ref()
             .ok_or("missing trigger policy request")?;
         Ok(match request {
+            PlayerRequest::CounterPlacementEffect { .. } => {
+                return Err("counter placement replacement choices outside this policy".into());
+            }
+
             PlayerRequest::HandReturn { .. }
             | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
@@ -273,6 +277,9 @@ impl Strategy {
             PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
                 keep: candidates.last().ok_or("empty legend choices")?.clone(),
             },
+            PlayerRequest::AdditionalCosts { .. } => {
+                return Err("optional casting costs outside this completion policy".into());
+            }
             PlayerRequest::AnnounceX { .. } => {
                 return Err("X request unsupported by this completion policy".into());
             }
@@ -281,6 +288,7 @@ impl Strategy {
             }
             PlayerRequest::ManaColor { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request unsupported by this completion policy".into());
@@ -925,12 +933,13 @@ fn assert_outcome(run: &Run, policy: Policy) -> Result<(), String> {
                 occurrence,
                 witness: subject,
                 source_facts,
+                ..
             } = event
             {
                 if source_facts.object != *source
                     || source_facts.controller != *player
                     || source_facts.zone != Zone::Battlefield
-                    || *ability != 0
+                    || *ability != (mtg_core::EffectiveTriggerAbility::Intrinsic { index: 0 })
                     || !pairs.insert((source.card, subject.subject().unwrap().card))
                 {
                     return Err("trigger source facts or unique source/subject pair differs".into());

@@ -100,6 +100,191 @@ fn recover(game: &Game) {
     assert_eq!(replayed.trace(), game.trace());
 }
 
+// CR 101.2/101.3, 601.2c, 608.2b and 701.8a:
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[test]
+fn void_rend_paid_counter_attempt_and_nonland_destruction() {
+    let raw =
+        include_str!("../../../../tests/fixtures/ramos/713f16db-95ec-479e-a48c-7a69f7668d7f.json");
+    assert_eq!(
+        sha256(raw.as_bytes()),
+        "096021d12aefd92519068bb66cd3e4d4287fa0178499858e25196685594d3eab"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        raw,
+    ) else {
+        panic!("complete frozen Void Rend must lower");
+    };
+    assert_eq!(
+        definition.capabilities,
+        BTreeSet::from([
+            Capability::NormalLayoutV1,
+            Capability::CastInstantV1,
+            Capability::PermanentRemovalV1,
+            Capability::SelfSpellProtectionV1,
+        ])
+    );
+    let rend = definition.oracle_id.clone();
+    let mut catalog = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-wipes-ir.json"
+    ))
+    .unwrap();
+    let counterspell = catalog
+        .definitions
+        .iter()
+        .find(|d| d.name == "Counterspell")
+        .unwrap();
+    let mut config = ScenarioConfig::turns_permanents();
+    let caster = PlayerId(0);
+    let opponent = PlayerId(1);
+    config.profile = "void-rend-source-witness".into();
+    config.initial.turn_step = TurnStep::PrecombatMain;
+    config.cards = [
+        (rend.as_str(), caster, Zone::Hand { owner: caster }),
+        (PLAINS, caster, Zone::Battlefield),
+        (ISLAND, caster, Zone::Battlefield),
+        (SWAMP, caster, Zone::Battlefield),
+        (BEARS, opponent, Zone::Battlefield),
+        (
+            &counterspell.oracle_id,
+            opponent,
+            Zone::Hand { owner: opponent },
+        ),
+        (ISLAND, opponent, Zone::Battlefield),
+        (ISLAND, opponent, Zone::Battlefield),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(id, (oracle_id, owner, zone))| CardSetup {
+        id: CardId(id as u32),
+        oracle_id: oracle_id.into(),
+        owner,
+        controller: owner,
+        zone,
+    })
+    .collect();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    let mut game = Game::with_trace(
+        Prepared {
+            catalog_digest: digest(&catalog).unwrap(),
+            profile_digest: digest(&config).unwrap(),
+            catalog: Arc::new(catalog),
+            config,
+            match_config: None,
+        },
+        TraceMode::Detailed,
+    );
+
+    let target = game.object_id(CardId(4)).unwrap();
+    answer(&mut game, Response::Cast { card: CardId(0) });
+    assert!(
+        matches!(settle(&mut game), Request::Targets { candidates, .. }
+        if candidates == [target])
+    );
+    answer(
+        &mut game,
+        Response::Targets {
+            objects: vec![target],
+        },
+    );
+    for land in 1..=3 {
+        activate_mana(&mut game, land);
+    }
+    answer(&mut game, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut game,
+        Response::SpendMana {
+            spending: [
+                (Color::W, 1.into()),
+                (Color::U, 1.into()),
+                (Color::B, 1.into()),
+            ]
+            .into(),
+        },
+    );
+    assert_eq!(settle(&mut game).player(), caster);
+    let protected = game.top().unwrap().id;
+    assert_eq!(
+        game.top().unwrap().paid,
+        Some(ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::W, Color::U, Color::B],
+        })
+    );
+
+    answer(&mut game, Response::Pass);
+    assert_eq!(settle(&mut game).player(), opponent);
+    answer(&mut game, Response::Cast { card: CardId(5) });
+    assert!(
+        matches!(settle(&mut game), Request::StackTargets { candidates, .. }
+        if candidates == [protected])
+    );
+    answer(
+        &mut game,
+        Response::StackTargets {
+            entries: vec![protected],
+        },
+    );
+    activate_mana(&mut game, 6);
+    activate_mana(&mut game, 7);
+    answer(&mut game, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut game,
+        Response::SpendMana {
+            spending: [(Color::U, 2.into())].into(),
+        },
+    );
+    assert_eq!(settle(&mut game).player(), opponent);
+    let counter = game.top().unwrap().id;
+    for _ in 0..4 {
+        answer(&mut game, Response::Pass);
+    }
+    settle(&mut game);
+    assert_eq!(game.state.rules.stack.len(), 1);
+    assert_eq!(game.top().unwrap().id, protected);
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::Committed {
+        proposed: ProposedEvent::CounterStackObject { countering, .. },
+        actual: EventOutcome::CounterPrevented { target },
+    } if *countering == counter && *target == protected))
+    );
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::SpellCompleted {
+        stack_id, resolved: true,
+    } if *stack_id == counter))
+    );
+
+    for _ in 0..4 {
+        answer(&mut game, Response::Pass);
+    }
+    settle(&mut game);
+    assert!(game.state.rules.stack.is_empty());
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::Committed {
+        proposed: ProposedEvent::DestroyPermanent { object },
+        actual: EventOutcome::Moved { movement },
+    } if *object == target && movement.destination == (Zone::Graveyard { owner: opponent })))
+    );
+    assert!(
+        game.events()
+            .iter()
+            .any(|event| matches!(event, Event::SpellCompleted {
+        stack_id, resolved: true,
+    } if *stack_id == protected))
+    );
+}
+
 #[test]
 fn counter_event_consumes_exact_spell_membership_and_actual_physical_successor() {
     let mut game = with_counter(bears_on_stack(), 11);

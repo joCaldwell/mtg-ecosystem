@@ -247,7 +247,10 @@ impl Strategy<'_> {
     ) -> Option<(&'a Definition, &'a SpellProgram)> {
         let (d, p) = if let Some(t) = &s.triggered {
             let d = definition(self.catalog, &t.oracle_id).ok()?;
-            (d, &d.triggered.get(t.ability as usize)?.program)
+            let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &t.ability else {
+                return None; // Static spell grants have no policy admission.
+            };
+            (d, &d.triggered.get(*index as usize)?.program)
         } else if let Some(a) = &s.ability {
             let d = definition(self.catalog, &a.oracle_id).ok()?;
             (d, &d.activated.get(a.ability as usize)?.program)
@@ -1202,6 +1205,13 @@ impl Strategy<'_> {
                 }
                 ObjectSet::ControllerPermanents => o.controller == v.viewer,
                 ObjectSet::NonlandPermanents => c.kind != CardKind::Land,
+                ObjectSet::OpponentNonlandPermanents => {
+                    o.controller != v.viewer
+                        && v.players.iter().any(|p| {
+                            p.player == o.controller && p.status == mtg_core::PlayerStatus::Live
+                        })
+                        && !c.has_type(CardKind::Land)
+                }
                 ObjectSet::Enchantments => c.has_type(CardKind::Enchantment),
                 ObjectSet::AttackingCreatures => v.combat.iter().any(|a| a.attacker == o.handle),
                 ObjectSet::OpponentCreatures => {
@@ -1337,6 +1347,7 @@ impl Strategy<'_> {
                             .iter()
                             .map(|a| match &a.production {
                                 mtg_contracts::ManaProduction::Fixed { symbols } => symbols.len(),
+                                mtg_contracts::ManaProduction::OpponentLandColors => 0,
                                 _ => 1,
                             })
                             .max()
@@ -1657,6 +1668,9 @@ impl Strategy<'_> {
             return None;
         }
         let (tap, sac, cost) = match &a.cost {
+            // This finite source family is not admitted to this policy/catalog.
+            ActivationCost::TapPayLifeSacrificeSource { .. }
+            | ActivationCost::DiscardSource { .. } => return None,
             ActivationCost::TapSource => (true, false, zero_cost()),
             ActivationCost::SacrificeSource => (false, true, zero_cost()),
             ActivationCost::Mana { cost } => (false, false, cost.clone()),
@@ -1665,7 +1679,14 @@ impl Strategy<'_> {
                 costs.sacrifice,
                 costs.mana.clone().unwrap_or_else(zero_cost),
             ),
-            ActivationCost::SacrificePermanent { filter, mana } => {
+            ActivationCost::SacrificePermanent {
+                count,
+                filter,
+                mana,
+            } => {
+                if *count != 1 {
+                    return None;
+                }
                 if !self
                     .sacrifice_objects(v, filter)
                     .iter()

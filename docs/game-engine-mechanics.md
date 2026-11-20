@@ -97,9 +97,9 @@ Commander-return decisions are resumable continuations, never priority windows.
 Fixed nonnegative Scry/Surveil partition available prefixes
 (CR 701.22/701.25): Scry orders top/bottom; Surveil orders retained cards and
 moves the rest to graveyards. Only the chooser sees temporary handles. Fixed mill
-(CR 701.17) moves the controller's or one target player's prefix, clamping short
-libraries without failed draws. Zero emits no event; graveyard moves create public
-successors. Memory is charged/replay-proven; choices reject atomically, departed actors skip,
+(CR 701.17) moves a library prefix, clamping short libraries. Zero emits no event.
+Counter-and-mill uses the legal target spell's controller even if countering fails.
+Graveyard successors are public. Memory is charged and replay-proven.
 Commander SBAs follow resolution. One-draw and artifact-or-creature grant/Scry
 compositions are supported. Activated/triggered
 forms, Flashback, mill costs/replacements and search reconstruction reject.
@@ -113,12 +113,14 @@ Top-order/optional-shuffle/draw privately orders an incarnation-preserving prefi
 offers a shuffle, then draws. Even empty libraries shuffle; declines consume no
 randomness. `ControllerCountedDrawV1` uses sequential unclamped attempts with
 optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
-opponent hand-size reductions can draw at their controller's end step. Paid
-activations can draw after tapping or sacrificing their source. Counted
-draws precede whole-hand returns or simultaneous discards. Commander replacements
-precede return successors; discard precedes Commander SBAs. Short hands clamp;
-failed draws continue. `TargetedCountedDrawV1` shares progress for one announced
-player; departure never redirects attempts or grants new authority.
+opponent hand-size reductions draw at their controller's end step. Paid draws
+survive source sacrifice. Counted
+draws precede hand returns or simultaneous discards. Commander replacements
+precede return successors. Returning a targeted creature from your graveyard
+uses ordinary battlefield entry. Targeted and group discards clamp to hand size.
+Group choices stay private until one simultaneous discard before Commander SBAs.
+Each-player draws finish each seat in turn order, including failed attempts.
+Seeded random discard samples without replacement. Departure never redirects attempts.
 
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
@@ -126,6 +128,20 @@ Surviving activators retain paid abilities when a borrowed source's owner leaves
 Personal effects for a departed invocation controller skip rather than redirect.
 
 <a id="announcement-priority-and-payment"></a>
+
+Typed nonbasic lands derive intrinsic mana; `ManaColor` selects before costs.
+Conditional entry counts prior Basic+Land objects once per simultaneous group.
+Optional-life entry chooses before debit/entry, reserves combined costs, and
+atomically commits payments, entries and landplay usage. Forced/intrinsic/declined
+tapping combine. Landplay and paid Lore/Claim/Farseek retain owned continuations,
+privacy and recovery. Source integers are exact u64; IR quantities remain arbitrary
+precision. Fetch activations atomically tap, pay life and sacrifice the source
+before typed search; the current controller pays and paid roots retain LKI through
+source-owner departure. Sacrifice-source creature activations capture controller
+creatures at resolution for pure temporary keyword grants.
+Cycling pays mana then discards its announced hand source; resolution draws without
+moving that discarded card. Focused proof uses38/28,IR1; admission and opponent
+production remain open.
 
 ## Casting, costs, targets and stack
 
@@ -141,8 +157,12 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
-X is announced nonnegative and frozen; only stack mana value includes it. Generic
-self-cost reduction cannot erase colored costs.
+X is announced nonnegative and frozen; stack mana value and supported draw, damage, life and mill effects use it.
+CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
+of BoardWipes. Every validated slot applies; the legacy creature reducer shares
+its arithmetic. Base/alternative, X, selected additionals and increases precede
+reductions and floor-zero, preserving colored/colorless symbols. Private locks freeze
+bounded counts at CR601.2f; replay authenticates them without later-board repricing.
 
 Activated abilities use a separate stack ID/historical source handle; their card
 stays in place. Tap-source costs enforce readiness/continuous control, subject to
@@ -153,6 +173,7 @@ Failed payment removes the proposal and can reverse its recorded mana activation
 or draw one or two followed by a mandatory discard.
 Sacrifice costs use ordinary post-activation SBAs; resolution sacrifices/discards
 wait for the complete invocation. Additional costs never change mana value.
+Targeted discard uses the announced player's hand.
 
 Object target slots share domain/filter because the request supplies one common
 candidate set; unequal per-slot filters reject. Entity/player/opponent/stack
@@ -221,11 +242,12 @@ Validate an entire simultaneous damage group before life/history writes. Capture
 assignment facts separately from current or latest-departure damage-time source
 appearance. Damage-time deathtouch/lifelink and its beneficiary use that current/
 LKI source, including equipment departure and simultaneous common-prior facts.
-Noncombat damage retains the source incarnation and frozen invocation controller;
-that controller is distinct from the source's current or last-known controller.
+Noncombat damage retains the source incarnation and frozen invocation controller,
+independent of current or last-known control. Synthetic fixed damage retains the announced
+opponent through resolution and recovery. Compiler admission awaits source and target binding.
 Old assignment-time keywords cannot fabricate damage-time benefits. Commander
-combat history uses only actual combat damage. Direct life gain/loss is distinct.
-Run SBAs after the complete program: intermediate life loss/gain is not an early loss.
+combat history uses actual combat damage. Opponent drain credits committed
+simultaneous life losses before state-based actions.
 
 Replacement/prevention applies once per effect/member, under affected-recipient
 choices and APNAP ordering. Freeze the consumed prefix; later source departure
@@ -251,8 +273,8 @@ exclusions reject any matching type; sacrifice subtype lists are conjunctive.
 
 Compensation uses the exact target's current or last relevant public appearance,
 not its successor: controller, power and mana value can differ from ownership.
-A token has mana value zero. Optional targeted triggers select targets on stack
-placement and optionality on resolution; no legal target removes the trigger.
+Tokens have zero mana value. Entry returns target at trigger placement; optional
+returns choose at resolution. No legal target removes the trigger.
 
 Sacrifice moves a controller's own permanent to its owner's graveyard and is not
 destruction. Choose/pay sacrifices after targets. “Sacrifice a creature” may use
@@ -261,15 +283,22 @@ Complete Shrapnel Blast lowers one-artifact additional sacrifice through that
 same family. Forced opponent sacrifices choose in APNAP order with earlier choices
 visible, then move simultaneously. A player with no candidate sacrifices nothing.
 
-Board-wide sets are evaluated at instruction execution, including granted
-keywords. Set destruction/exile/bounce and all-recipient damage commit atomically.
-Temporary set P/T effects capture members on creation; later entrants are excluded.
-Counted quantities use the instruction's actual typed outcomes, not a later board
-scan. Destruction counts exclude prevented destruction but include successful
-movement replaced by exile. An Anger-style turn-long replacement applies only to
-creatures actually dealt its damage; later sacrifice/zero-toughness deaths may be
-exiled and do not die. Indestructible prevents destruction before that replacement.
-No creature dies trigger is inferred from generic departure.
+Board-wide sets include granted keywords at execution; destruction/exile/bounce
+and all-recipient damage commit atomically. Temporary P/T sets capture recipients,
+excluding later entrants. Counts use typed outcomes, including exile-replaced
+but excluding prevented destruction. Anger-style turn-long replacement covers
+only creatures actually dealt its damage, including later sacrifices/zero-toughness
+moves: exile causes no death. Indestructible prevents destruction before replacement;
+generic departures never imply dies triggers.
+
+`TypedLandSearchV1` consumes complete own-library → battlefield → shuffle spells:
+Nature's Lore, Farseek, Skyshroud Claim. Land subtype OR ignores Basic supertype;
+positive exact maxima use only common physical capacity for offered counts.
+Finding zero is legal (CR 701.23b); found cards enter simultaneously without reveal;
+forced tapping preserves intrinsic entry. Extra filters/clauses/costs/composition
+reject. Basic/split IR stays separate. Validated typed nonbasics are eligible;
+Command Tower remains negative. Cinder Glade/Prairie Stream entry uses common-prior
+facts. Shock entry, cycling and consumer admission remain open.
 
 ## Keywords, attachments and temporary effects
 
@@ -530,8 +559,8 @@ retain their original 409 controls and payloads. The
 [separate permanent controls](../packages/game-engine/crates/contracts/tests/permanent-set-keyword-schema-probes.mjs)
 cover the new selector, disjoint family/primitive closure, signed/zero modifier
 negatives and all other opcode/context fences. These are bounded synthetic IR
-controls; `--prepare-only` constructs them without schema execution. New Rust tests
-and schema validation remain UNRUN pending parent source-bound qualification.
+controls; `--prepare-only` constructs them without schema execution. Source-qualified tests/schema evidence is indexed in the evidence guide; acceptance
+never transfers to later source.
 The targeted atomic-grant probes remain separate; their prior split-format 1,955-probe inventory has its own historical identity. This family
 changes no catalog bodies, pool/profile/policy,
 hosting/search or consumer admission; Card IR remains schema 1.
@@ -541,13 +570,24 @@ hosting/search or consumer admission; Card IR remains schema 1.
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
-controller, event-player, source incarnation and family-specific witnesses.
-Intervening conditions check at collection and resolution. Source status uses
-current incarnation or departure-refreshed LKI bounded by live continuations;
-never retain an unbounded permanent LKI archive. Cast triggers collect after
+controllers, actors, incarnations and witnesses. Power-filtered entries use
+derived post-event power. Intervening conditions recheck at resolution. Source
+status uses current incarnation or departure-refreshed LKI in live continuations.
+Cast triggers collect after
 successful payment; declared attacks use the real declaration batch. Ordinary
 step, death, ETB, draw/discard and combat/noncombat-damage families each retain
 strict source/program validation.
+
+Live battlefield static grants add independent cascade instances to completed spells
+of the source's current controller using disjoint mana-value, first-cast or
+first-from-exile predicates. A constant four-seat ledger counts every successful
+cast, including observer-free and resolution casts, and resets only on a new turn.
+Intrinsic indexes and grant-source incarnation/static indexes are distinct identities.
+The cast spell remains rules source; caster and grant provenance freeze at collection,
+surviving later grantor departure/control changes. Whole batches preflight IDs,
+fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
+firstness; failed proposals/payments never consume it. Complete frozen Nexus and
+Wild-Magic Sorcerer reuse canonical cascade; Yidris remains unsupported.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,

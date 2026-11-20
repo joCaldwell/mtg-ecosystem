@@ -64,10 +64,12 @@ fn artifact_draw(
                 tap: true,
                 mana: Some(cost.clone()),
                 sacrifice,
+                remove_source_plus_one_counters: None,
             },
         },
         program: SpellProgram {
             additional_sacrifice: None,
+            optional_additional_costs: vec![],
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
@@ -159,10 +161,13 @@ fn paid_counted_draw() {
         &cost,
         true,
         vec![ManaAbility {
+            restriction: None,
+            self_damage: None,
             costs: PermanentActivationCosts {
                 tap: true,
                 mana: None,
                 sacrifice: false,
+                remove_source_plus_one_counters: None,
             },
             production: ManaProduction::Fixed {
                 symbols: vec![Color::C; 3],

@@ -415,7 +415,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       const button = page!.getByRole("button", { name: "Discover actions", exact: true });
       const actions = page!.getByRole("region", { name: "Available actions", exact: true }).locator("ol > li > button");
       const phases = {
-        complete: "Discovery complete. Each submitted action is validated again by the host.",
+        complete: "Discovery complete.",
         limited: "Discovery reached a local limit. Results are not a complete menu.",
         uncertain: "Discovery could not finish. Results cannot be submitted.",
         stale: "The decision changed. Discover actions again.", unavailable: "Discovery is unavailable for this decision.",
@@ -627,7 +627,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     await choose(value => value.initiation.action === "pass");
     // Unmount the lazy session, then let any already in-flight read settle. No
     // later native I/O or UI command may retain the discarded route's File.
-    await page.getByRole("link", { name: "Back to saved games", exact: true }).click();
+    await page.getByRole("link", { name: "Back to Play", exact: true }).click();
     await audit.drain(5_000); await delay(250);
     const readsAfterUnmount = nativeReads; await delay(300);
     check(nativeReads === readsAfterUnmount && !(await connected()), "old_file_route_unmounted"); unmounted = true;

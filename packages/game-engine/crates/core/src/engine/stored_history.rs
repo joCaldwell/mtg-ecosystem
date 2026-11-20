@@ -222,6 +222,8 @@ impl<'de> Deserialize<'de> for StoredStack {
 #[serde(deny_unknown_fields)]
 pub(super) struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    known_library_positions: Vec<KnownLibraryPosition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) setup: Option<VisibleSetup>,
@@ -320,6 +322,7 @@ impl<'de> Deserialize<'de> for StoredPermittedView {
 impl From<PermittedView> for StoredPermittedView {
     fn from(view: PermittedView) -> Self {
         let PermittedView {
+            known_library_positions,
             sacrifice_choices,
             setup,
             effects,
@@ -350,6 +353,7 @@ impl From<PermittedView> for StoredPermittedView {
         }
         Self {
             data: StoredViewData {
+                known_library_positions,
                 sacrifice_choices,
                 setup,
                 effects,
@@ -373,6 +377,7 @@ impl From<PermittedView> for StoredPermittedView {
 impl StoredPermittedView {
     pub(super) fn to_public(&self) -> PermittedView {
         let StoredViewData {
+            known_library_positions,
             sacrifice_choices,
             setup,
             effects,
@@ -389,6 +394,7 @@ impl StoredPermittedView {
             stack,
         } = &self.data;
         PermittedView {
+            known_library_positions: known_library_positions.clone(),
             sacrifice_choices: sacrifice_choices.clone(),
             setup: setup.clone(),
             effects: effects.clone(),
@@ -407,6 +413,7 @@ impl StoredPermittedView {
     }
     pub(super) fn matches_public(&self, view: &PermittedView) -> bool {
         let PermittedView {
+            known_library_positions,
             sacrifice_choices,
             setup,
             effects,
@@ -423,6 +430,7 @@ impl StoredPermittedView {
             stack,
         } = view;
         let StoredViewData {
+            known_library_positions: positions,
             sacrifice_choices: sc,
             setup: s,
             effects: e,
@@ -438,7 +446,8 @@ impl StoredPermittedView {
             objects: r,
             stack: k,
         } = &self.data;
-        sc == sacrifice_choices
+        positions == known_library_positions
+            && sc == sacrifice_choices
             && s == setup
             && e == effects
             && c == combat

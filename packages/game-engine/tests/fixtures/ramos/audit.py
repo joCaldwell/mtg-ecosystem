@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Revision-17 input check and singleton production-catalog audit; see support doc.
+
+No parser, compiler, admission, or diagnostic semantics are implemented here.
+Run native invocations under the documented shared Cargo lock. Outputs are
+create-new, ignored evidence; the frozen baseline is never regenerated in place.
+"""
+import hashlib
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+HERE = pathlib.Path(__file__).resolve().parent
+
+
+def sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def read(path):
+    return json.loads(path.read_bytes())
+
+
+def verify():
+    manifest = read(HERE / "revision-17.manifest.json")
+    deck, boundary, cards = (manifest[k] for k in ("deck", "source_boundary", "cards"))
+    export = (HERE / deck["export_file"]).read_bytes()
+    assert sha(export) == deck["export_sha256"]
+    assert export.endswith(b"\n") and b"\r" not in export
+    assert export.decode() == "".join(f"{c['quantity']} {c['name']}\n" for c in cards)
+    assert len(cards) == deck["definition_count"] == len({c["oracle_id"] for c in cards})
+    assert sum(c["quantity"] for c in cards) == deck["quantity_count"]
+    assert [c["oracle_id"] for c in cards if c["zone"] == "command"] == [deck["commander_oracle_id"]]
+    assert sha((HERE / boundary["archive_manifest_file"]).read_bytes().rstrip()) == boundary["archive_manifest_sha256"]
+    assert sha((HERE / boundary["banned_policy_file"]).read_bytes()) == boundary["banned_policy_file_sha256"]
+    provenance = {r["oracle_id"]: r for r in read(HERE / "provenance.json")["records"]}
+    assert set(provenance) == {c["oracle_id"] for c in cards}
+    origin = next(r for r in read(HERE / "accepted-archives.json") if r["file_sha256"] == boundary["archive_sha256"])
+    lands = 0
+    for c in cards:
+        raw = (HERE / c["file"]).read_bytes()
+        assert sha(raw) == c["file_sha256"]
+        assert sha(raw.rstrip()) == c["record_sha256"]
+        assert c["record_sha256"] in origin["record_sha256"]
+        r = json.loads(raw)
+        assert r["oracleIdentity"] == r["source"]["oracle_id"] == c["oracle_id"]
+        assert r["source"]["name"] == c["name"]
+        for key, archive_key in (("source_sha256", "sourceSha256"), ("ast_sha256", "astSha256"), ("binding_sha256", "bindingSha256")):
+            assert r.get(archive_key) == c[key]
+        assert r["status"] == c["parse_status"]
+        assert r["binding"]["fullyBound"] == c["binding_fully_bound"]
+        assert r["source"]["legalities"]["commander"] == c["commander_legality"]
+        for key in ("file", "archive_line", "record_sha256", "source_sha256", "ast_sha256"):
+            assert provenance[c["oracle_id"]][key] == c[key]
+        lands += c["quantity"] if "Land" in r["source"]["type_line"] else 0
+    assert lands == deck["frozen_source_land_count"]
+    return manifest
+
+
+def source_diagnostic(stderr, json_errors):
+    if json_errors:
+        try:
+            error = json.loads(stderr)
+        except ValueError:
+            return {}
+        if isinstance(error, dict) and error.get("kind") in ("unsupported_source", "invalid_source") and all(
+            isinstance(error.get(key), str) for key in ("file", "path", "reason")
+        ):
+            return {"status": error["kind"].removesuffix("_source"), "path": error["path"], "reason": error["reason"]}
+        return {}
+
+    # Retained CLI binaries printed the compiler diagnostic inside a Rust Debug envelope.
+    envelope = re.fullmatch(r'Error: InvalidData \{ reason: ("(?:\\.|[^"\\])*") \}\n', stderr)
+    if envelope:
+        detail = json.loads(envelope[1])
+        diagnostic = re.search(r': (Unsupported|Invalid) \{ path: ("(?:\\.|[^"\\])*"), reason: ("(?:\\.|[^"\\])*") \}$', detail)
+        if diagnostic:
+            return {"status": diagnostic[1].lower(), "path": json.loads(diagnostic[2]), "reason": json.loads(diagnostic[3])}
+    return {}
+
+
+def audit(binary, output, manifest, json_errors=False):
+    output.mkdir(parents=True, exist_ok=False)
+    rows = []
+    report = {"format_version": 1, "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "target_manifest_sha256": sha((HERE / "revision-17.manifest.json").read_bytes()),
+              "binary": str(binary), "binary_sha256": sha(binary.read_bytes()), "records": rows}
+    for c in manifest["cards"]:
+        stem = output / c["oracle_id"]
+        catalog = {"schema_version": 1, "output_order": "canonical", "provenance": str(HERE / "provenance.json"),
+                   "records": [str(HERE / c["file"])], "expected_ir": str(stem.with_suffix(".ir.json")),
+                   "expected_digest": str(stem.with_suffix(".sha256"))}
+        path = stem.with_suffix(".catalog.json")
+        path.write_text(json.dumps(catalog, indent=2) + "\n")
+        command = [str(binary), "catalog", "build", str(path), "--write"]
+        if json_errors:
+            command.append("--json-errors")
+        run = subprocess.run(command, capture_output=True, text=True)
+        row = {"oracle_id": c["oracle_id"], "name": c["name"], "command": command,
+               "exit_code": run.returncode, "stdout": run.stdout, "stderr": run.stderr}
+        if run.returncode == 0:
+            definition = read(stem.with_suffix(".ir.json"))["definitions"][0]
+            row.update(status="lowered_validated", capabilities=definition["capabilities"],
+                       singleton_catalog_sha256=stem.with_suffix(".sha256").read_text())
+        else:
+            row["status"] = "catalog_error"
+            row.update(source_diagnostic(run.stderr, json_errors))
+        rows.append(row)
+        # Preserve each result immediately, including unexpected failures.
+        (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps({s: sum(r["status"] == s for r in rows) for s in sorted({r["status"] for r in rows})}))
+    assert all(r["status"] != "catalog_error" for r in rows), "inspect preserved unexpected CLI errors"
+
+
+def compare(before, after, manifest_path):
+    raw = manifest_path.read_bytes()
+    ids = [card["oracle_id"] for card in json.loads(raw)["cards"]]
+    if len(set(ids)) != len(ids) or not ids:
+        raise ValueError("invalid manifest inventory")
+
+    def index(report):
+        if report["format_version"] != 1 or report["target_manifest_sha256"] != sha(raw):
+            raise ValueError("report format or target manifest mismatch")
+        if not re.fullmatch(r"[0-9a-f]{40}", report["source_commit"]):
+            raise ValueError("expected full producer commit")
+        rows = {}
+        for row in report["records"]:
+            key, status = row["oracle_id"], row["status"]
+            if key in rows or status not in ("unsupported", "invalid", "catalog_error", "lowered_validated"):
+                raise ValueError(f"duplicate ID or unknown status for {key}")
+            if type(row["exit_code"]) is not int or (row["exit_code"] == 0) != (status == "lowered_validated"):
+                raise ValueError(f"inconsistent exit code for {key}")
+            detail = {"status": status}
+            if status in ("unsupported", "invalid"):
+                for field in ("path", "reason"):
+                    if not isinstance(row[field], str):
+                        raise ValueError(f"invalid diagnostic for {key}")
+                    detail[field] = row[field]
+            rows[key] = detail
+        if rows.keys() != set(ids):
+            raise ValueError("incomplete or unexpected report inventory")
+        return rows
+
+    left, right = index(before), index(after)
+    return {"scope": "compiler results only", "before_commit": before["source_commit"],
+            "after_commit": after["source_commit"], "target_manifest_sha256": sha(raw),
+            "record_count": len(ids),
+            "changes": [{"oracle_id": key, "before": left[key], "after": right[key]}
+                        for key in sorted(ids) if left[key] != right[key]]}
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["--compare"]:
+        if len(sys.argv) not in (4, 5):
+            raise SystemExit("usage: audit.py --compare BEFORE AFTER [TARGET_MANIFEST]")
+        manifest = pathlib.Path(sys.argv[4]) if len(sys.argv) == 5 else HERE / "revision-17.manifest.json"
+        try:
+            result = compare(read(pathlib.Path(sys.argv[2])), read(pathlib.Path(sys.argv[3])), manifest)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise SystemExit(f"cannot compare reports: {exc}")
+        print(json.dumps(result, indent=2))
+        sys.exit(0)
+    target = verify()
+    if sys.argv[1:] == ["--verify"]:
+        print(json.dumps({"verified_definitions": len(target["cards"]), "cards": target["deck"]["quantity_count"], "lands": target["deck"]["frozen_source_land_count"]}))
+    elif len(sys.argv) == 3 or (len(sys.argv) == 4 and sys.argv[3] == "--json-errors"):
+        audit(pathlib.Path(sys.argv[1]).resolve(), pathlib.Path(sys.argv[2]).resolve(), target, json_errors=len(sys.argv) == 4)
+    else:
+        raise SystemExit("usage: audit.py --verify | audit.py MTG_SIM_BINARY NEW_OUTPUT_DIRECTORY [--json-errors]")

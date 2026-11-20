@@ -4,7 +4,15 @@ use serde_json::{Value, json};
 pub(super) fn coalesce(
     effects: &[Sentence],
 ) -> Result<Option<(Quantity, Option<Quantity>)>, Failure> {
-    let [Sentence { bindings, steps }] = effects else {
+    let [
+        Sentence {
+            bindings,
+            steps,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects
+    else {
         return Ok(None);
     };
     let [

@@ -100,9 +100,13 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
     let target = object(&g, id);
     let handles = g.capture_trigger_source_handles(target).unwrap();
     let spell = StackInstance {
+        alternative_cost: None,
+        cost_lock: None,
+        selected_additional_costs: None,
         x: None,
         death_controller: None,
         sacrificed: None,
+        sacrificed_set: vec![],
         mode: None,
         effect_source_handles: g.capture_trigger_source_handles(source).unwrap(),
         source_facts: None,
@@ -135,6 +139,9 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
         cursor: 0,
         target_facts: vec![None],
         outcomes: vec![],
+        group_discard: None,
+        each_player_draw: None,
+        random_discard: None,
         draw_progress: None,
         set_damage: None,
         condition_check: None,
@@ -783,7 +790,8 @@ fn permanent_target_kernel_normal_target_requests_and_validation_preserve_querie
     let f = frame(&g);
     g.state.rules.frame = Frame::Targets {
         cast: Casting {
-            sacrifice: None,
+            completion: CastCompletion::Priority,
+            sacrifices: vec![],
             origin: AnnouncementOrigin::Spell,
             spending: None,
             stack_id: f.spell.id,

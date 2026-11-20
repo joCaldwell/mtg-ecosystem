@@ -9,7 +9,10 @@ export function liveTable(read: SeatResume, metadata: PresentationArtifact | nul
   if (read.state.status !== 'available') return null;
   if (metadata && metadata.catalog_sha256 !== read.catalog_sha256) throw new Error('Presentation catalog mismatch');
   const { view, decision } = read.state.observation;
-  const display = (object: typeof view.objects[number]) => cardView(object, metadata);
+  // External image requests are limited to public zones. A third party must
+  // never learn a private live hand through a card image request.
+  const display = (object: typeof view.objects[number]) => cardView(object, metadata,
+    object.zone.zone === 'battlefield' || object.zone.zone === 'command' || object.zone.zone === 'stack');
   const stack = view.stack.map((entry, index): CardView => {
     const object = view.objects.find(object => object.handle === entry.spell);
     const source = entry.ability ?? entry.triggered;

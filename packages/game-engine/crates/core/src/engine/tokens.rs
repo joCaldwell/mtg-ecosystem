@@ -14,6 +14,14 @@ pub(super) fn quantity_is_zero(n: &Quantity) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "fault", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RuleFault {
+    TriggerIdCapacityExceeded {
+        next: u64,
+        additional: u64,
+    },
+    StackIdCapacityExceeded {
+        next: u32,
+        additional: u64,
+    },
     HistoryCapacityExceeded {
         capacity: usize,
         requested: usize,
@@ -71,22 +79,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
     let mut d = source.clone();
     d.oracle_id = format!("token:{}", id.0);
     d.name = format!("{} Token", token.subtypes.join(" "));
-    d.characteristics = Characteristics {
-        kind: CardKind::Creature,
-        additional_types: vec![],
-        subtypes: token.subtypes.clone(),
-        basic: false,
-        legendary: false,
-        snow: false,
-        mana_cost: ManaCost {
-            generic: Quantity::zero(),
-            colored: vec![],
-        },
-        colors: token.colors.clone(),
-        color_identity: token.colors.clone(),
-        power: Some(token.power.clone()),
-        toughness: Some(token.toughness.clone()),
-    };
+    d.characteristics = token.characteristics();
     d.intrinsic_zone = None;
     d.spell = None;
     d.activated.clear();
@@ -106,6 +99,8 @@ impl Game {
 
     pub(super) fn capacity_error(&mut self, fault: RuleFault) -> String {
         let reason = match fault {
+            RuleFault::TriggerIdCapacityExceeded { .. } => "trigger ID resource limit",
+            RuleFault::StackIdCapacityExceeded { .. } => "stack ID resource limit",
             RuleFault::HistoryCapacityExceeded { .. } => "history capacity exceeded",
             RuleFault::TokenHistoryCapacityExceeded { .. } => "token history capacity exceeded",
             RuleFault::EventGroupDepthCapacityExceeded { .. } => {
@@ -202,6 +197,45 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::PutSourcePlusOneCountersForCastColors { source_block } => {
+                let StackKind::Triggered {
+                    witness: TriggerEventWitness::SpellCast { cast },
+                    ..
+                } = &frame.spell.kind
+                else {
+                    return Err("unbound cast color instruction".into());
+                };
+                // CR 608.2h/113.7a/201.5: inspect the exact spell incarnation
+                // currently on the stack; otherwise the bounded witness is its
+                // departure LKI in this immutable-spell-color pool. The frozen
+                // cast event is identity evidence, not a universal quantity rule.
+                // Spell-color modification has no admitted IR operation. Before
+                // adding one, refresh separate departure LKI; never rewrite cast facts.
+                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                let colors = if self.state.rules.stack.iter().any(|s| {
+                    s.id == cast.stack_id && s.source == cast.spell.object && s.kind.is_spell()
+                }) {
+                    self.characteristics(cast.spell.object)?.colors
+                } else {
+                    cast.spell.characteristics.colors.clone()
+                };
+                let n = colors
+                    .into_iter()
+                    .filter(|c| *c != Color::C)
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                if n == 0 || !self.is_battlefield_creature(frame.spell.source) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ProposedEvent::PutPlusOneCounters {
+                        object: frame.spell.source,
+                        amount: Quantity::from(n as i64),
+                    },
+                    source_block,
+                )
+            }
             Instruction::PutPlusOneCounters {
                 on,
                 amount,
@@ -244,6 +278,9 @@ impl Game {
             cursor: frame.cursor,
             source_block: block,
         };
+        if let ProposedEvent::PutPlusOneCounters { object, amount } = event {
+            return self.begin_counter_placement(frame, object, amount, cause);
+        }
         let actual = self.commit(event, cause)?;
         self.finish_instruction(
             frame,
@@ -325,7 +362,11 @@ impl Game {
                     token: token.clone(),
                 })
             }
+            ProposedEvent::ApplyCounterPlacementEffect { effect } => {
+                self.apply_counter_placement_effect(effect)
+            }
             ProposedEvent::PutPlusOneCounters { object, amount } => {
+                self.validate_counter_placement_commit(*object, amount)?;
                 if !self.is_battlefield_creature(*object) || *amount <= Quantity::zero() {
                     return Err("invalid counter placement".into());
                 }
@@ -425,6 +466,20 @@ impl Game {
         }
         if let Some(fault) = self.typed_fault() {
             let expected = match fault {
+                RuleFault::TriggerIdCapacityExceeded { next, additional }
+                    if *next >= self.state.rules.next_trigger_id
+                        && next.checked_add(*additional).is_none() =>
+                {
+                    "trigger ID resource limit"
+                }
+                RuleFault::StackIdCapacityExceeded { next, additional }
+                    if *next >= self.state.rules.next_stack_id
+                        && u64::from(*next)
+                            .checked_add(*additional)
+                            .is_none_or(|end| end > u64::from(u32::MAX)) =>
+                {
+                    "stack ID resource limit"
+                }
                 RuleFault::HistoryCapacityExceeded {
                     capacity,
                     requested,

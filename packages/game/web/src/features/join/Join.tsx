@@ -7,7 +7,7 @@ import styles from './Join.module.css';
 export function Join({ snapshot, onImport, onStop }: { snapshot: ReadSnapshot; onImport(file: File): void; onStop(): void }) {
   const id = useId();
   return <section className={styles.join}>
-    <div className={styles.intro}><span className="eyebrow">Local session / opening actions</span><h1>Join a Commander table</h1><p>Open the seat file your local operator exported for you. It connects this browser to your permitted view of the table.</p></div>
+    <h1>Join a Commander table</h1>
     <div className={styles.import}>
       <label htmlFor={`${id}-seat-file`}>Single-seat bootstrap file</label>
       <input id={`${id}-seat-file`} name="seat-file" type="file" accept=".json,application/json" aria-describedby={`${id}-file-help`} onChange={event => {
@@ -15,7 +15,7 @@ export function Join({ snapshot, onImport, onStop }: { snapshot: ReadSnapshot; o
         event.currentTarget.value = '';
         if (file) onImport(file);
       }} />
-      <p id={`${id}-file-help`}>Choose one seat’s exported JSON file, up to 4 KiB. Refreshing requires reimport. Use a separate browser profile for each player.</p>
+      <p id={`${id}-file-help`}>Use the JSON file from your local operator (up to 4 KiB). Each player needs a separate browser profile.</p>
     </div>
     <div className={styles.state} role="status" aria-live="polite"><h2>{connectionLabel(snapshot)}</h2><p>{connectionDetail(snapshot)}</p></div>
     <div className={styles.actions}>
@@ -23,6 +23,5 @@ export function Join({ snapshot, onImport, onStop }: { snapshot: ReadSnapshot; o
       {snapshot.connection !== 'idle' && <button type="button" onClick={onStop}>Release seat and clear view</button>}
       <Link to="/fixtures/opening">Inspect the fixture</Link>
     </div>
-    <p className={styles.note}>This build supports opening-hand choices and saved-choice recovery. Later game decisions remain unavailable.</p>
   </section>;
 }

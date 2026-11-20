@@ -93,7 +93,7 @@ export function ActivityPanel() {
                       </span>
                       <span className={styles.verb}>{verbOf(e.action)}</span>
                       <span className={styles.summary}>
-                        <InlineText text={e.summary} />
+                        <InlineText text={e.action === "assess_deck_power" ? e.summary.replace(/^Assessed power at r\d+(?= \()/, "Assessed power") : e.summary} />
                       </span>
                       {wasProposal(e) ? <Chip tone="agent">proposal</Chip> : <Chip>applied</Chip>}
                     </li>

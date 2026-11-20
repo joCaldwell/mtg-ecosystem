@@ -102,7 +102,7 @@ export function MemoryCard({
           {byOwner ? <span title={memory.author_display ?? memory.author}>you</span> : <Text tone="agent">{memory.author_display ?? memory.author}</Text>}
         </span>
         {memory.source_log_id != null && <span>from decision {memory.source_log_id}</span>}
-        <span title={memory.deck_revision != null ? `Recorded at r${memory.deck_revision}` : undefined}>{ago(memory.revised_at)}</span>
+        <span>{ago(memory.revised_at)}</span>
         {memory.owner_touched && !byOwner && <span>edited by you</span>}
 
         {!memory.read_only && <span className={styles.acts}>

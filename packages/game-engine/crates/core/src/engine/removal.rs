@@ -20,14 +20,20 @@ pub(super) struct TargetFacts {
 impl Game {
     fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
         match frame {
-            Frame::Resolve { frame }
+            Frame::Cascade { progress } => Some(&mut progress.frame),
+            Frame::LandEntry {
+                origin: EntryOrigin::Search { frame },
+                ..
+            }
+            | Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }
             | Frame::ForcedSacrifice { frame, .. }
             | Frame::OptionalDamage { frame } => Some(frame),
+            Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
                 match transaction.continuation.as_mut() {
                     DamageContinuation::Instruction { frame } => Some(frame),
-                    DamageContinuation::Combat => None,
+                    DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
                 }
             }
             Frame::Stabilize { resume, .. } | Frame::LegendRule { resume, .. } => {
@@ -43,6 +49,7 @@ impl Game {
                 | CommanderContinuation::StateBasedBatch { resume, .. } => {
                     Self::target_information_frame(resume)
                 }
+                CommanderContinuation::CascadeBottom { progress } => Some(&mut progress.frame),
                 CommanderContinuation::Draw { .. } => None,
             },
             _ => None,
@@ -314,6 +321,29 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::ReturnEntryTargetCreature {
+                target_slot,
+                optional,
+                source_block,
+            } => {
+                let target = frame.spell.targets[target_slot as usize];
+                if frame.legal_targets.get(target_slot as usize) != Some(&true) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
+                }
+                // CR608.2b: legality was checked as resolution began. A later
+                // departure can remove that incarnation, but cannot rebind it.
+                if self.current(target).is_err() {
+                    return self.finish_instruction(
+                        frame,
+                        InstructionOutcome::ObjectNoLongerPresent { target },
+                    );
+                }
+                if optional {
+                    return self.offer_optional_target_effect(frame, target, source_block);
+                }
+                return self.return_target_to_owner_hand(frame, target, source_block);
+            }
             Instruction::DestroyPermanent {
                 target_slot,
                 source_block,
@@ -334,25 +364,7 @@ impl Game {
                     instruction,
                     Instruction::DestroyPermanent { optional: true, .. }
                 ) {
-                    // CR 603.5: "may" is the controller's resolution choice; a
-                    // departed controller (800.4a) makes none, as in
-                    // removal_choice_step.
-                    if !self.is_live(frame.spell.controller) {
-                        let player = frame.spell.controller;
-                        return self.finish_instruction(
-                            frame,
-                            InstructionOutcome::PlayerActionSkipped { player },
-                        );
-                    }
-                    self.state.rules.frame = Frame::ResolutionChoice {
-                        choice: ResolutionChoice::OptionalEffect {
-                            player: frame.spell.controller,
-                            target,
-                            source_block,
-                        },
-                        frame,
-                    };
-                    return Ok(());
+                    return self.offer_optional_target_effect(frame, target, source_block);
                 }
                 (
                     if matches!(instruction, Instruction::ExilePermanent { .. }) {
@@ -449,6 +461,28 @@ impl Game {
             },
         )
     }
+    fn offer_optional_target_effect(
+        &mut self,
+        frame: Resolving,
+        target: ObjectId,
+        source_block: u32,
+    ) -> Result<(), String> {
+        // CR603.5/800.4a: the invocation's controller decides during resolution.
+        let player = frame.spell.controller;
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        self.state.rules.frame = Frame::ResolutionChoice {
+            choice: ResolutionChoice::OptionalEffect {
+                player,
+                target,
+                source_block,
+            },
+            frame,
+        };
+        Ok(())
+    }
     pub(super) fn removal_choice_step(
         &mut self,
         frame: Resolving,
@@ -473,13 +507,28 @@ impl Game {
         if input.player != player {
             return Err("wrong optional effect player".into());
         }
-        let actual = if perform && self.object_target_legal(&frame.spell, target) {
-            Some(self.commit(
-                ProposedEvent::DestroyPermanent { object: target },
-                Self::removal_cause(&frame, block),
-            )?)
-        } else {
-            None
+        if !perform {
+            return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+        }
+        let actual = match self
+            .program_for(&frame.spell)?
+            .instructions
+            .get(frame.cursor as usize)
+        {
+            Some(Instruction::ReturnEntryTargetCreature { optional: true, .. }) => {
+                return self.return_target_to_owner_hand(frame, target, block);
+            }
+            Some(Instruction::DestroyPermanent { optional: true, .. }) => {
+                if self.object_target_legal(&frame.spell, target) {
+                    Some(self.commit(
+                        ProposedEvent::DestroyPermanent { object: target },
+                        Self::removal_cause(&frame, block),
+                    )?)
+                } else {
+                    None
+                }
+            }
+            _ => return Err("optional target instruction invariant".into()),
         };
         self.finish_instruction(frame, InstructionOutcome::Effect { actual })
     }

@@ -96,7 +96,7 @@ fn new_intrinsics_require_capability_closure_and_exact_shapes() {
         }
     });
     assert!(
-        matches!(compile(MANIFEST,&raw),CompileResult::Unsupported {reason,..} if reason=="static:enters-tapped:conditional")
+        matches!(compile(MANIFEST,&raw),CompileResult::Unsupported {reason,..} if reason=="unsupported complete conditional land entry")
     );
 }
 
