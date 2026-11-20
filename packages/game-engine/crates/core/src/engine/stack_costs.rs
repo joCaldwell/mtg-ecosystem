@@ -351,7 +351,10 @@ impl Game {
             ),
         };
         let player_target_domain = artifact_loss_activation(activated)
-            || program.targets.first().is_some_and(|t| t.domain == TargetDomain::PlayerOrPlaneswalker);
+            || program
+                .targets
+                .first()
+                .is_some_and(|t| t.domain == TargetDomain::PlayerOrPlaneswalker);
         if source_handles.len() != 4
             || (!entry.targets.is_empty()
                 && program.targets.first().is_none_or(|t| {
