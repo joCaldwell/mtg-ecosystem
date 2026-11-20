@@ -4144,12 +4144,171 @@ class Analyzer {
     return true;
   }
 
+  private searchStage(search: Extract<Effect, { effect: "search" }>, path: string, context: Context, actor: Candidate,
+    rules: string[], grouped = false): { event: string; found: Candidate } | undefined {
+    this.bound(search.who, child(path, "who"), actor.id, rules);
+    this.walk(search.zones, child(path, "zones"), { ...context, actor });
+    const selection = this.object(search.for, child(path, "for"), { ...context, actor });
+    if (!selection) return;
+    const event = this.event(path, context, "search", [actor, selection], context.conditional ? { conditional: true } : {});
+    return { event, found: this.eventResult(path, event, "objects", grouped ? "many" : "one", "same-objects", { cls: "card" }) };
+  }
+
+  /** CR 608.2h, 701.23h and 730.3. Count actual original creature
+   * departures per last controller, even if the exile successors moved again. */
+  private searchesForExiledCreatures(sentences: Sentence[], path: string, context: Context): boolean {
+    if (!context.spellAbility || context.uncertainExileOrigin || context.exileResults?.length ||
+        sentences.length !== 3 || sentences.some(sentence => Object.keys(sentence).length !== 1) ||
+        sentences[0].steps.length !== 1 || sentences[1].steps.length !== 1 || sentences[2].steps.length !== 2) return false;
+    const [exile] = sentences[0].steps;
+    const [loop] = sentences[1].steps;
+    const [place, shuffle] = sentences[2].steps;
+    const each = { ref: "each", filter: { types: ["creature"], relation: { relation: "event-result", event: "exile", scope: "this-way" } } } satisfies ObjectRef;
+    const controller = { player: "controller", of: { ref: "it" } } as const;
+    const players = { player: "those-players" } as const;
+    const results = { ref: "related", number: "plural", filter: { cls: "card" },
+      relation: { relation: "grouped-search-results", from: "preceding-search-loop", by: "searching-player" } } as const;
+    if (exile.effect !== "exile" || Object.keys(exile).length !== 2 || exile.what.ref !== "target" ||
+        objectCardinality(exile.what) !== "one" || !exile.what.selectionId ||
+        !isDeepStrictEqual(exile.what.filter, { types: ["creature"], control: "not-you" }) ||
+        loop.effect !== "for-each" || loop.effects.length !== 1 || Object.keys(loop.effects[0]).length !== 1 ||
+        loop.effects[0].steps.length !== 1 || !isDeepStrictEqual(loop, { effect: "for-each", each, processing: "instruction-wise",
+          groupedSearch: "last-controllers-of-exiled-creatures", effects: loop.effects }) ||
+        !isDeepStrictEqual(place, { effect: "move-zone", what: results, to: { zone: "battlefield" }, who: players, tapped: true }) ||
+        !isDeepStrictEqual(shuffle, { effect: "shuffle", who: players, library: { zone: "library", owner: players },
+          coalesceEarlierLibrarySearches: true })) return false;
+    const [search] = loop.effects[0].steps;
+    if (search.effect !== "search" || Object.keys(search).length !== 4 ||
+        !isDeepStrictEqual(search.who, controller) ||
+        !isDeepStrictEqual(search.zones, { selection: "all", of: [{ zone: "library", owner: "their" }] }) ||
+        search.for.ref !== "filter" || Object.keys(search.for).length !== 3 ||
+        !isDeepStrictEqual(search.for.count, { amount: "fixed", value: 1 }) ||
+        search.for.filter.cls !== "card" || !isDeepStrictEqual(search.for.filter.types, ["land"]) ||
+        Object.keys(search.for.filter).some(key => !["cls", "types", "supertypes", "subtypes"].includes(key))) return false;
+    const first = `${path}/0/steps/0`;
+    this.effect(exile, first, context);
+    const rules = ["101.4", "110.2a", "400.7", "608.2f", "608.2h", "701.23b", "701.23h", "702.96a", "712.21e", "730.3"];
+    const at = `${path}/1/steps/0`;
+    const actual = this.node({ id: this.id(at, "exiled-creature-controllers"), path: at, node: "exiled-creature-controllers",
+      scope: context.ability, event: this.id(first, "event"), information: "before-move", cardinality: "many", rules });
+    this.bound(each, child(at, "each"), actual, rules);
+    const actor = this.node({ id: this.id(at, "searching-controller"), path: at, node: "instruction-member",
+      scope: context.ability, group: actual, domain: "player", rules });
+    const who: Candidate = { id: actor, domain: "player", cardinality: "one" };
+    const searchPath = `${at}/effects/0/steps/0`;
+    const original = this.node({ id: this.id(searchPath, "exiled-creature"), path: searchPath, node: "instruction-member",
+      scope: context.ability, group: actual, domain: "object", rules });
+    this.bound({ ref: "it" }, `${searchPath}/who/of`, original, rules);
+    const stage = this.searchStage(search, searchPath, context, who, rules, true);
+    if (!stage) return true;
+    const searched = this.eventResult(child(searchPath, "searchers"), stage.event, "player", "many", "same-objects");
+    const destination = `${path}/2/steps/0`;
+    this.bound(players, child(destination, "who"), searched.id, rules);
+    this.bound(results, child(destination, "what"), stage.found.id, rules);
+    const move = this.event(destination, context, "move-zone", [searched, stage.found]);
+    const shufflePath = `${path}/2/steps/1`;
+    this.bound(players, child(shufflePath, "who"), searched.id, rules);
+    this.bound(players, `${shufflePath}/library/owner`, searched.id, rules);
+    const finish = this.event(shufflePath, context, "shuffle", [searched]);
+    this.node({ id: this.id(at, "coalesced-library-search"), path: at, node: "coalesced-library-search", scope: context.ability,
+      grouping: "same-player-library-before-shuffle", actualSearchers: searched.id, shuffle: finish,
+      stages: [{ search: stage.event, actor, quota: { kind: "per-last-controller", source: actual }, found: stage.found.id,
+        place: move, entersTapped: true }], rules });
+    this.engineFeature("coalesced-library-search", at,
+      "Count each actual exiled creature once by its last controller, combine their search slots, and place that player's finds tapped before each actual searcher shuffles.", rules);
+    context.objects = [];
+    context.players = [];
+    context.quantities = [];
+    context.mentionedObject = true;
+    context.uncertainExileOrigin = true;
+    return true;
+  }
+
+  /** CR 701.23h combines the controller's library searches without
+   * changing the visible placement and optional-offer instruction order. */
+  private searchesForOpponentOffers(sentences: Sentence[], path: string, context: Context): boolean {
+    if (!context.spellAbility || sentences.length !== 4 || sentences.some(sentence => Object.keys(sentence).length !== 1) ||
+        sentences[0].steps.length !== 2 || sentences.slice(1).some(sentence => sentence.steps.length !== 1)) return false;
+    const [first, firstPlace] = sentences[0].steps;
+    const [offer] = sentences[1].steps;
+    const [bonus] = sentences[2].steps;
+    const [shuffle] = sentences[3].steps;
+    const you = { player: "you" } as const;
+    const opponents = { player: "each-opponent" } as const;
+    const searched = { searched: { zone: { zone: "library", owner: "any" }, scope: "this-way" } } as const;
+    const actualOpponents = { player: "filtered", base: opponents, filter: searched } as const;
+    const allSearchers = { player: "filtered", base: { player: "each-player" }, filter: searched } as const;
+    const move = { effect: "move-zone", what: { ref: "it" }, to: { zone: "battlefield" } } as const;
+    if (first.effect !== "search" || Object.keys(first).length !== 4 ||
+        !isDeepStrictEqual(first.who, you) || !isDeepStrictEqual(first.zones, { selection: "all", of: [{ zone: "library", owner: "your" }] }) ||
+        first.for.ref !== "filter" || Object.keys(first.for).length !== 3 ||
+        !isDeepStrictEqual(first.for.count, { amount: "fixed", value: 1 }) ||
+        first.for.filter.cls !== "card" || !isDeepStrictEqual(first.for.filter.types, ["land"]) ||
+        Object.keys(first.for.filter).some(key => !["cls", "types", "supertypes", "subtypes"].includes(key)) ||
+        !isDeepStrictEqual(firstPlace, move) || offer.effect !== "optional-group" || offer.steps.length !== 2 ||
+        !isDeepStrictEqual(offer, { effect: "optional-group", who: opponents, steps: [
+          { ...first, who: opponents, zones: { selection: "all", of: [{ zone: "library", owner: "their" }] } }, { ...move, who: opponents },
+        ] }) || bonus.effect !== "for-each" || !isDeepStrictEqual(bonus, { effect: "for-each", each: actualOpponents,
+          effects: [{ steps: [first, move] }], processing: "instruction-wise" }) ||
+        !isDeepStrictEqual(shuffle, { effect: "shuffle", who: allSearchers, library: { zone: "library", owner: allSearchers },
+          coalesceEarlierLibrarySearches: true })) return false;
+    const [opponentSearch] = offer.steps;
+    const [bonusSearch] = bonus.effects[0].steps;
+    if (opponentSearch.effect !== "search" || bonusSearch.effect !== "search") return false;
+    const rules = ["101.4", "110.2a", "608.2c", "608.2e", "608.2f", "701.23b", "701.23f", "701.23g", "701.23h"];
+    const self: Candidate = { id: context.you, domain: "player", cardinality: "one" };
+    const at = `${path}/1/steps/0`;
+    const players = this.player(opponents, child(at, "who"), context);
+    if (!players) return true;
+    const id = this.node({ id: this.id(at, "opponent-searcher"), path: at, node: "instruction-member",
+      scope: context.ability, group: players.id, domain: "player", rules });
+    const actor: Candidate = { id, domain: "player", cardinality: "one" };
+    const run = (search: Extract<Effect, { effect: "search" }>, searchPath: string, movePath: string, who: Candidate, offered = false) => {
+      const stage = this.searchStage(search, searchPath, { ...context, conditional: offered }, who, rules);
+      if (!stage) return;
+      const found = this.bound({ ref: "it" }, child(movePath, "what"), stage.found.id, rules);
+      this.bound(offered ? opponents : you, child(movePath, "who"), who.id, rules);
+      return { ...stage, place: this.event(movePath, context, "move-zone", [found, who], { requiresResult: found.id }) };
+    };
+    const open = run(first, `${path}/0/steps/0`, `${path}/0/steps/1`, self);
+    const choose = run(opponentSearch, `${at}/steps/0`, `${at}/steps/1`, actor, true);
+    const then = `${path}/2/steps/0`;
+    const repeat = run(bonusSearch, `${then}/effects/0/steps/0`, `${then}/effects/0/steps/1`, self);
+    if (!open || !choose || !repeat) return true;
+    const actual = this.eventResult(child(at, "participants"), choose.event, "player", "many", "same-objects");
+    this.bound(opponents, `${then}/each/base`, players.id, rules);
+    this.bound(actualOpponents, child(then, "each"), actual.id, rules);
+    const shufflePath = `${path}/3/steps/0`;
+    const active = this.node({ id: this.id(shufflePath, "actual-library-searchers"), path: shufflePath, node: "actual-library-searchers",
+      scope: context.ability, searches: [open.event, choose.event, repeat.event], cardinality: "many", rules });
+    const everyone = this.player({ player: "each-player" }, `${shufflePath}/who/base`, context);
+    if (everyone) this.bound({ player: "each-player" }, `${shufflePath}/library/owner/base`, everyone.id, rules);
+    const shuffling = this.bound(allSearchers, child(shufflePath, "who"), active, rules);
+    this.bound(allSearchers, `${shufflePath}/library/owner`, active, rules);
+    const finish = this.event(shufflePath, context, "shuffle", [shuffling]);
+    this.node({ id: this.id(at, "coalesced-library-search"), path: at, node: "coalesced-library-search", scope: context.ability,
+      grouping: "same-player-library-before-shuffle", actualSearchers: active, shuffle: finish,
+      stages: [
+        { search: open.event, actor: self.id, quota: { kind: "fixed", count: 1 }, found: open.found.id, place: open.place },
+        { search: choose.event, actor: id, quota: { kind: "optional-per-opponent", group: players.id }, found: choose.found.id, place: choose.place },
+        { search: repeat.event, actor: self.id, quota: { kind: "one-per-actual-searcher", source: actual.id }, found: repeat.found.id, place: repeat.place },
+      ], rules });
+    this.engineFeature("coalesced-library-search", at,
+      "Place the controller's first find, collect optional opponent searches in APNAP order and place their finds together, then apply the controller's bonus before the participating players shuffle.", rules);
+    context.objects = [];
+    context.players = [];
+    context.quantities = [];
+    context.mentionedObject = true;
+    return true;
+  }
+
   sentences(sentences: Sentence[], path: string, context: Context): void {
     if (!context.barrier && !context.previousEffect && !context.decider && !context.conditional && context.phase === "resolution" &&
         (this.copyAndReselect(sentences, path, context) || this.copiesForOpponents(sentences, path, context) ||
           this.grantOnStackCopies(sentences, path, context) || this.conditionalExilePermission(sentences, path, context) ||
           this.pairedHandExiles(sentences, path, context) || this.matchingSacrifice(sentences, path, context) ||
-          this.fightCreatedTokens(sentences, path, context))) return;
+          this.fightCreatedTokens(sentences, path, context) || this.searchesForExiledCreatures(sentences, path, context) ||
+          this.searchesForOpponentOffers(sentences, path, context))) return;
     let previousDecisions: string[] = [];
     let precedingAction: { event: string; action: "sacrifice" | "discard" } | undefined;
     let precedingSentence: Context["precedingSentence"];

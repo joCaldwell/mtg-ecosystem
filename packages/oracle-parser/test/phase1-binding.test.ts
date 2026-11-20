@@ -2522,3 +2522,55 @@ describe("actual replacement results and entering objects", () => {
     assert.ok(!graph.nodes.some(node => node.node === "exile-replacement"));
   });
 });
+
+describe("coalescing searches before a shared shuffle", () => {
+  const winds = "Exile target creature you don't control. For each creature exiled this way, its controller searches their library "
+    + "for a basic land card. Those players put those cards onto the battlefield tapped, then shuffle.\nOverload {4}{W}{W}";
+
+  it("counts each actual creature exile by its last controller and groups placements by searcher", () => {
+    const graph = analyze(winds, "Sorcery");
+    boundCard(graph);
+    const departed = graph.nodes.find(node => node.node === "exiled-creature-controllers");
+    const searches = graph.nodes.find(node => node.node === "coalesced-library-search");
+    assert.ok(departed?.information === "before-move" && searches);
+    assert.equal(departed.id, bound(graph, "/steps/0/each"));
+    assert.deepEqual(searches.stages[0].quota, { kind: "per-last-controller", source: departed.id });
+    assert.equal(searches.stages[0].found, bound(graph, "/effects/2/steps/0/what"));
+    assert.equal(searches.stages[0].entersTapped, true);
+    assert.equal(searches.actualSearchers, bound(graph, "/effects/2/steps/1/library/owner"));
+  });
+
+  it("does not replace an unrelated exile with a creature's last-controller search", () => {
+    const graph = analyze("Exile the top card of your library. " + winds, "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "coalesced-library-search"));
+  });
+
+  const discovery = "Search your library for a land card and put it onto the battlefield. Each opponent may search their library "
+    + "for a land card and put it onto the battlefield. For each opponent who searches a library this way, search your library "
+    + "for a land card and put it onto the battlefield. Then each player who searched a library this way shuffles.";
+
+  it("counts actual opponent searches and preserves both caster placement stages", () => {
+    const graph = analyze(discovery, "Sorcery");
+    boundCard(graph);
+    const plan = graph.nodes.find(node => node.node === "coalesced-library-search");
+    assert.ok(plan?.stages.length === 3);
+    assert.equal(plan.stages[0].actor, plan.stages[2].actor);
+    assert.notEqual(plan.stages[0].place, plan.stages[2].place);
+    assert.deepEqual(plan.stages[2].quota, { kind: "one-per-actual-searcher", source: bound(graph, "/steps/0/each") });
+    assert.equal(plan.grouping, "same-player-library-before-shuffle");
+    assert.equal(plan.actualSearchers, bound(graph, "/effects/3/steps/0/library/owner"));
+    assert.ok(graph.nodes.some(node => node.id === plan.actualSearchers && node.node === "actual-library-searchers" &&
+      node.searches.length === 3));
+  });
+
+  it("does not coalesce an unmatched bonus filter or an intervening shuffle", () => {
+    const changed = discovery.replace("this way, search your library for a land card", "this way, search your library for a basic land card");
+    const interrupted = discovery.replace("Each opponent may", "Then shuffle your library. Each opponent may");
+    for (const text of [changed, interrupted]) {
+      const graph = analyze(text, "Sorcery");
+      assert.equal(graph.referencesBound, false);
+      assert.ok(!graph.nodes.some(node => node.node === "coalesced-library-search"));
+    }
+  });
+});
