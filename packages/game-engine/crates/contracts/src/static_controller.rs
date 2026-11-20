@@ -80,6 +80,6 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
         .push(serde_json::json!({"properties":{"modify_creatures":{
             "if":{"required":["scope"],"properties":{"scope":{"const":"source"}}},
             "then":{"properties":{"power":{"const":"0"},"toughness":{"const":"0"},
-                "keywords":{"const":[]},"restrictions":{"const":["cant_block"]}}}
+                "keywords":{"const":[]},"restrictions":{"enum":[["cant_block"],["cant_be_blocked"],["can_block_only_flying"]]}}}
         }}}));
 }

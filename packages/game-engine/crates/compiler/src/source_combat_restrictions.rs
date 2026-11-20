@@ -7,16 +7,9 @@ use mtg_contracts::source_combat_restrictions::{
 };
 use serde_json::{Value, json};
 
-pub(super) fn lower(
-    effect: &SourceStaticEffect,
-    block: usize,
-    result: &ParseResult,
-    source: &Value,
-    binding: &Value,
-    kind: CardKind,
-) -> Result<Option<StaticAbility>, Failure> {
+pub(super) fn restriction_from_ast(effect: &SourceStaticEffect) -> Option<CreatureRestriction> {
     let operand = source_operand();
-    let restriction = match effect {
+    Some(match effect {
         SourceStaticEffect::Cant { what, action } if *what == operand && action == "be-blocked" => {
             CreatureRestriction::CantBeBlocked
         }
@@ -29,8 +22,22 @@ pub(super) fn lower(
         {
             CreatureRestriction::CanBlockOnlyFlying
         }
-        _ => return Ok(None),
+        _ => return None,
+    })
+}
+
+pub(super) fn lower(
+    effect: &SourceStaticEffect,
+    block: usize,
+    result: &ParseResult,
+    source: &Value,
+    binding: &Value,
+    kind: CardKind,
+) -> Result<Option<StaticAbility>, Failure> {
+    let Some(restriction) = restriction_from_ast(effect) else {
+        return Ok(None);
     };
+    let operand = source_operand();
     let fail = || {
         unsupported(
             "abilities.static",
