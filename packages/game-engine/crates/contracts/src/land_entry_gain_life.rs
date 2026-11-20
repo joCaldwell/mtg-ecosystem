@@ -209,7 +209,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         } else {
             json!({"not":required_static_capability})
         };
-        json!({"properties":{
+        json!({"required":tapped.then_some("static_abilities").into_iter().collect::<Vec<_>>(),"properties":{
             "triggered":{"items":{"properties":{"program":{"properties":{
                 "instructions":{"items":{"properties":{"source_block":{"const":block}}}}
             }}}}},
@@ -242,11 +242,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[
             {"properties":{"capabilities":capability}},
-            {"properties":{"characteristics":{"properties":{"kind":{"const":"land"}}},
-                "triggered":{"contains":condition}}}
+            {"required":["characteristics","triggered"],"properties":{
+                "characteristics":{"properties":{"kind":{"const":"land"}}},
+                "triggered":{"contains":condition}
+            }}
         ]},
         "then":{
-            "required":["triggered","static_abilities","mana_abilities","intrinsic_zone"],
+            "required":["triggered","mana_abilities","intrinsic_zone"],
             "oneOf":[branch(false),branch(true)],
             "properties":{
                 "characteristics":{"properties":{
