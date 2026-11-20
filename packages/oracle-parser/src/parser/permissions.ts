@@ -511,6 +511,16 @@ function parseLookAndPlay(c: Cursor, options: PlayInstructionOptions): Effect[] 
  * values explicitly. A duration grant is mandatory creation of a permission;
  * "may" describes the later choice and must not become optional:true here. */
 export function parsePlayInstruction(c: Cursor, options: PlayInstructionOptions = {}): Effect[] | null {
+  if (!options.optionalConsumed && !options.leadingDuration) {
+    const mandatory = c.attempt((c): Effect | null => {
+      if (!c.words("the", "player", "casts", "it", "without", "paying", "its", "mana", "cost", "if", "able")) return null;
+      return { effect: "play-card", instruction: {
+        who: { player: "the-player" }, action: "cast", what: { ref: "it" },
+        alternativeCost: { cost: "without-mana-cost" }, requiredIfAble: true,
+      } };
+    });
+    if (mandatory) return [mandatory];
+  }
   return c.attempt((c) => {
     const landPlays = parseLandPlayEffect(c, options);
     if (landPlays) return landPlays;
@@ -595,7 +605,38 @@ export function parsePermissionSpellAbilities(c: Cursor, permission: CardPlayIns
  * Dazzling Sphinx), whereas self-casting and unrestricted plural spell/land
  * sets describe a static permission (Gravecrawler, Omniscience, Yeva). */
 export function parsePlayPermissionStatic(c: Cursor): StaticEffect | null {
-  return parseStaticPermission(c, true);
+  return parseActivePlayersLinkedExile(c) ?? parseStaticPermission(c, true);
+}
+
+/** One shared use of the active player's permission per turn. CR 607.2a
+ * links the card pool, CR 609.4b limits the mana permission to that cast,
+ * and the rider triggers on the actual play of a card with this permission.
+ * https://magic.wizards.com/en/news/feature/adventures-forgotten-realms-release-notes-2021-07-09 */
+function parseActivePlayersLinkedExile(c: Cursor): StaticEffect | null {
+  return c.attempt(c => {
+    if (c.word("during") === null || c.word("each") === null || c.possessive("player") === null
+      || c.word("turn") === null || !c.punct(",") || !c.words("that", "player", "may", "play", "a", "land", "or",
+        "cast", "a", "spell", "from", "among")) return null;
+    const fromAmong = parseObjectRef(c);
+    if (fromAmong?.ref !== "related" || fromAmong.relation.relation !== "linked-exile"
+      || fromAmong.number !== "plural" || !c.punct(",")
+      || !c.words("and", "they", "may", "spend", "mana", "as", "though", "it", "were", "mana", "of", "any", "color", "to", "cast", "that", "spell")
+      || !c.punct(".") || !c.words("when", "they", "do") || !c.punct(",")
+      || !c.words("exile", "the", "top", "card", "of", "their", "library") || !c.punct(".") || !c.done()) return null;
+    const permission = (action: "play" | "cast"): CardPlayInstruction => ({
+      who: { player: "active-player" }, action,
+      what: { ref: "filter", count: { amount: "fixed", value: 1 },
+        filter: action === "play" ? { types: ["land"] } : { cls: "spell" } },
+      fromAmong,
+      ...(action === "cast" ? { manaPayment: "any-color" as const } : {}),
+      riders: [{ rider: "use-trigger", event: action, effects: [{ steps: [{
+        effect: "exile", what: { ref: "library-cards", position: "top", count: { amount: "fixed", value: 1 },
+          of: { zone: "library", owner: "their" } },
+      }] }] }],
+    });
+    return { static: "play-permission-choice", permissions: [permission("play"), permission("cast")],
+      useLimit: { maximum: 1, period: "turn", during: "active-player" } };
+  });
 }
 
 /** The permission and its riders, leaving any following sentence unread. */

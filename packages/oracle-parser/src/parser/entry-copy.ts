@@ -110,7 +110,16 @@ function parseException(c: Cursor, abilities: Abilities, stack = false): Excepti
       const additional = c.word('additional') !== null;
       const counter = parseCounterSpec(c);
       if (!counter || c.word('counter', 'counters') === null || !c.words('on', 'it')) return null;
-      return { exception: 'counters' as const, count, counter, ...(additional ? { additional: true as const } : {}) };
+      let entrantType: NonNullable<EntryCopy['entryExceptions']>[number]['entrantType'];
+      if (c.word('if') !== null) {
+        if (!c.word("it's") && !c.words('it', 'is')) return null;
+        if (c.word('a') === null) return null;
+        if (c.word('creature') !== null) entrantType = 'creature';
+        else if (c.word('planeswalker') !== null) entrantType = 'planeswalker';
+        else return null;
+      }
+      return { exception: 'counters' as const, count, counter, ...(additional ? { additional: true as const } : {}),
+        ...(entrantType ? { entrantType } : {}) };
     });
     if (counters) return { entryExceptions: [counters] };
     const changes = parseCharacteristics(c, stack);

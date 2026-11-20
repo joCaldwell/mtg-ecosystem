@@ -323,6 +323,9 @@ export type ProtectionScope =
   | { scope: "multicolored" }
   | { scope: "monocolored" }
   | { scope: "all-colors" }
+  /** CR 702.124c, 903.4f: the complement of the combined commander color
+   * identities. With no commander the identity is undefined. */
+  | { scope: "colors-outside-commander-identity"; whose: PlayerRef }
   | { scope: "everything" }
   | { scope: "filter"; filter: ObjectFilter }
   | { scope: "player"; player: PlayerRef };
@@ -829,7 +832,11 @@ export type Effect = EffectBase &
     | { effect: "add-phases"; after:
           | { phase: "current"; kind?: "main" | "combat" }
           | { phase: "ordinal"; kind: "main" | "combat"; ordinal: number; turn: "current" };
-        sequence: { phase: "beginning" | "main" | "combat"; count: Amount }[] }
+        sequence: ({ phase: "beginning" | "main" | "combat"; count: Amount }
+          /** CR 500.10: each added upkeep gets its own beginning phase, with
+           * its other steps skipped. CR 500.10a: add nothing when the
+           * current turn is not the effect controller's. */
+          | { phase: "beginning"; count: Amount; onlyStep: "upkeep"; who: { player: "you" }; requiresControllerTurn: true })[] }
     /** Intrinsic special procedures of CR724.1/2. Both exile the stack and
      * terminate normal resolution; ending combat is ineffective outside
      * combat, whereas ending the turn proceeds to a cleanup step. */
@@ -883,8 +890,6 @@ export type Effect = EffectBase &
      * (PlayerFilter.friendOrFoe). */
     | { effect: "choose-friend-or-foe"; who: PlayerRef; players: PlayerRef }
     | ({ effect: "choose-value"; who: PlayerRef } & ValueChoice)
-    /** CR 701.27–28: turn the existing double-faced permanent over, not a
-     * zone change and not the face-up/face-down game action. */
     | { effect: "transform" | "convert"; what: ObjectRef; who?: PlayerRef }
     /** CR 710.4: flipping a flip-card permanent is a one-way status change,
      * distinct from transforming and from turning face up/down. */
@@ -998,7 +1003,9 @@ export type Effect = EffectBase &
      * (the player chooses how many; zero is allowed). A following "When you
      * pay this cost one or more times" reflexive trigger refers to it, and
      * "that many" there is the number of times it was paid. */
-    | { effect: "pay-cost"; who: PlayerRef; costs: Cost[]; times?: "any-number" | { upTo: Amount } }
+    | { effect: "pay-cost"; who: PlayerRef; costs: Cost[]; times?: "any-number" | { upTo: Amount };
+        /** CR 107.3f: constrain X chosen for this payment on resolution. */
+        variableConstraints?: VariableConstraint[] }
     | { effect: "play-card"; instruction: CardPlayInstruction }
     | { effect: "grant-play-permission"; permission: CardPlayInstruction; duration: Duration; durationScope?: "each-permitted-card" }
     | { effect: "grant-look-permission"; permission: LookPermission; duration: Duration; durationScope?: "each-permitted-card" }
@@ -1011,8 +1018,10 @@ export type Effect = EffectBase &
     | { effect: "keyword-action"; action: "proliferate" | "populate" | "investigate"; who: PlayerRef; times?: Amount }
     /** Designations and player-level keyword actions with no further
      * parameters: CR 725.2 (become the monarch), 726.2 (take the initiative),
-     * 701.54a (the Ring tempts), 701.48a, 701.61a, 701.56a, 701.51b, 701.31b (planeswalk). */
-    | { effect: "become-monarch" | "take-initiative" | "ring-tempts" | "learn" | "forage" | "time-travel" | "open-attraction" | "planeswalk"; who: PlayerRef }
+     * 701.54a (the Ring tempts), 701.48a, 701.61a, 701.51b, 701.31b (planeswalk). */
+    | { effect: "become-monarch" | "take-initiative" | "ring-tempts" | "learn" | "forage" | "open-attraction" | "planeswalk"; who: PlayerRef }
+    /** CR 701.56a: the player makes a fresh selection on each repetition. */
+    | { effect: "time-travel"; who: PlayerRef; times?: Amount }
     /** Contraption rules are outside the CR (see the "cranks" trigger): the
      * printed "<Contraption> assembles a Contraption / a number of
      * Contraptions"; `by` is the assembling Contraption as printed. */
@@ -1109,7 +1118,7 @@ export type Effect = EffectBase &
      * nothing moves. Returned battlefield objects default to owner control.
      * https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt */
     | { effect: "exile-until"; what: ObjectRef[]; from?: ZoneRef; who?: PlayerRef;
-        until: { event: "leaves-battlefield"; what: ObjectRef };
+        until: { event: "leaves-battlefield"; what: ObjectRef } | { event: "becomes-monarch"; who: PlayerRef };
         return: { to: "previous-zone"; battlefieldController: "owner" } }
     | { effect: "counter"; what: ObjectRef; countered?: CounteredSpellDestination }
     | { effect: "move-zone"; what: ObjectRef; to: ZoneRef; from?: ZoneRef; tapped?: boolean; controller?: "you" | "owner"; order?: "any" | "random"; who?: PlayerRef; entry?: BattlefieldEntryModifiers }
@@ -1211,7 +1220,10 @@ export type Effect = EffectBase &
          * ("as steps end") and empties when the phase ends. */
         keptUntil?: { duration: "end-of-turn" | "end-of-combat" } }
     | { effect: "search"; who: PlayerRef; zones: SearchZones; for: ObjectRef }
-    | { effect: "shuffle"; who: PlayerRef; library: ZoneRef }
+    | { effect: "shuffle"; who: PlayerRef; library: ZoneRef;
+        /** CR 701.23h: a single search per library for all of the earlier
+         * selections preceding this shared shuffle. */
+        coalesceEarlierLibrarySearches?: true }
     /** One grouped move followed by a library shuffle even when no specified
      * objects move (CR 701.24c–d), not a shuffle conditional on moving a card. */
     | { effect: "shuffle-into-library"; who: PlayerRef; what: ObjectRef[]; library: ZoneRef }
@@ -1277,7 +1289,11 @@ export type Effect = EffectBase &
         retarget?: { who: PlayerRef; optional?: true };
         /** CR 707.9a–d, 707.10: "except the copy isn't legendary": copiable
          * characteristics of every copy that differ from the original's. */
-        copyExceptions?: CopyCharacteristicChange[] }
+        copyExceptions?: CopyCharacteristicChange[];
+        /** A separate continuous effect on the newly made spell copy.
+         * For a permanent spell it also applies to the resulting token
+         * (CR 400.7a, 608.3f, 707.10f); it is outside the copiable values. */
+        copyGrant?: { only: "permanent-spell"; abilities: GainedAbility[] } }
     /** CR 707.12, 112.2a: `who` makes `count` copies of EACH referenced card
      * in the zone that card is in; the card stays where it is. Nothing is
      * put onto the stack: a copy becomes a spell only if a following
@@ -1382,7 +1398,11 @@ export interface InstructionSequence { sequence: Sentence[] }
  * owner's graveyard; a spell that isn't countered doesn't move. `only`
  * limits this to matching countered spells (Desertion); `controller` is
  * printed for a battlefield destination. Never a later zone-change effect. */
-export interface CounteredSpellDestination { to: ZoneRef; only?: ObjectFilter; controller?: "you" }
+export interface CounteredSpellDestination {
+  to: ZoneRef; only?: ObjectFilter; controller?: "you";
+  /** The cards have these counters as they arrive in exile (CR 702.62a). */
+  counters?: NonNullable<Extract<Effect, { effect: "exile" }>["counters"]>;
+}
 
 export interface PileSpec { facing?: "up" | "down" }
 
@@ -1399,7 +1419,7 @@ export type ExchangeValue =
  * instructions. CR 122.6, 303.4f–h, 508.4.
  * https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt */
 export interface BattlefieldEntryModifiers {
-  counters?: { counter: CounterSpec; count: Amount; additional?: true }[];
+  counters?: { counter: CounterSpec; count: Amount; additional?: true; entrantType?: "creature" }[];
   /** CR 508.4 chooses a legal defending player, planeswalker, or battle for
    * each entering creature unless this instruction names its defender. */
   attacking?: { choice: "entering-controller" } | { defender: PlayerRef | ObjectRef };
@@ -1756,7 +1776,8 @@ export type ResolvingCharacteristicModifier =
       valueScope?: "each-affected-object" } & (
       | { power: Amount; toughness?: Amount }
       | { power?: Amount; toughness: Amount }))
-  | { modifier: "abilities"; abilities: GainedAbility[] };
+  | { modifier: "abilities"; abilities: GainedAbility[] }
+  | { modifier: "lose-abilities"; removal: AbilityRemoval };
 
 /** "phase-in"/"phase-out" (CR 702.26), "transform" (CR 701.27; also blocks
  * converting, 701.28f), "be-turned-face-up" (CR 708) and "become-suspected"
@@ -1997,7 +2018,9 @@ export interface EntryCopy {
   entry?: { tapped: true };
   /** Additional-effect exceptions are noncopiable and do not happen if a
    * further copy effect applies afterward (CR707.9e, Altered Ego). */
-  entryExceptions?: { exception: "counters"; counter: CounterSpec; count: Amount; additional?: true }[];
+  entryExceptions?: { exception: "counters"; counter: CounterSpec; count: Amount; additional?: true;
+    /** Check the prospective entrant's type with the other copy exceptions applied (CR 614.12, 707.9f). */
+    entrantType?: "creature" | "planeswalker" }[];
   duration?: Duration;
 }
 
@@ -2074,13 +2097,16 @@ export type StaticEffect =
   /** CR 603.2/603.6a: an event matching `cause` doesn't make the matching
    * abilities trigger at all. The same abilities still trigger on other
    * events, and no ability is removed or countered. */
-  | { static: "trigger-suppression"; abilities: ObjectFilter; cause: Trigger }
+  | { static: "trigger-suppression"; abilities: ObjectFilter; cause?: Trigger }
+  /** CR 120.6, 514.2: marked damage remains through cleanup on this permanent. */
+  | { static: "retain-damage-during-cleanup"; what: ObjectRef }
   | { static: "play-permission"; permission: CardPlayInstruction }
   /** "Once during each of your turns, you may play a land or cast a spell
    * from among …": each use of this permission is exactly one of the listed
    * actions, and `useLimit` counts the uses of all of them together. The
    * listed permissions carry no limit of their own. */
-  | { static: "play-permission-choice"; permissions: CardPlayInstruction[]; useLimit: NonNullable<CardPlayInstruction["useLimit"]> }
+  | { static: "play-permission-choice"; permissions: CardPlayInstruction[];
+      useLimit: NonNullable<CardPlayInstruction["useLimit"]> | { maximum: 1; period: "turn"; during: "active-player" } }
   | { static: "look-permission"; permission: LookPermission }
   /** CR 113.6e, 601.3: restricts when this particular object can begin to be
    * cast. It functions in every zone the card could be cast from and on the
@@ -2178,10 +2204,14 @@ export type StaticEffect =
    * matching spell is unaffected. `scope.occurrence` is always present;
    * unordered grants to spells stay ordinary `modify` effects. */
   | { static: "cast-spell-abilities"; scope: Extract<CostModificationScope, { action: "cast" }>; abilities: GainedAbility[] }
+  /** CR 609.4, 702.8: a timing permission scoped to the proposed cast. */
+  | { static: "cast-timing"; scope: Extract<CostModificationScope, { action: "cast" }>; timing: "as-though-flash" }
   /** CR 118.9: an optional casting payment, never a resolution instruction.
    * useLimit: this alternative cost can be chosen for only that many of the
    * matching spells in each turn (`during: "your"`: only in who's own turns). */
   | { static: "alternative-cost"; who: PlayerRef; spells: ObjectRef; costs: Cost[]; condition?: Condition;
+      /** CR 107.3c: a printed value of X used to determine eligibility. */
+      bindings?: VariableDefinition[];
       useLimit?: { maximum: number; period: "turn"; during: "your" | "any" };
       /** Limits the mana that may pay this alternative cost ("... to cast it this way"). */
       paymentRestriction?: PaymentRestriction }
@@ -2334,7 +2364,9 @@ export type CostModificationScope =
    * keyword defines: alternative (flashback 702.34a, dash 702.109a),
    * additional (buyback 702.27a), or special-action (morph 116.2b, unlock
    * 116.2m). The cost to cast a spell face down is not a morph cost. */
-  | { action: "pay-cost"; cost: "flashback" | "buyback" | "dash" | "blitz" | "morph" | "unlock"; payer?: PlayerRef };
+  | { action: "pay-cost"; cost: "flashback" | "buyback" | "dash" | "blitz" | "morph" | "unlock"; payer?: PlayerRef }
+  /** CR 116.2k, 702.170: the special action payment, never the later cast. */
+  | { action: "pay-cost"; cost: "plot"; payer: PlayerRef; from: ZoneRef };
 
 /** Which of the stated actor's matching casts or activations are adjusted.
  * An ordinal counts all of that actor's matching ones within each turn;
@@ -2373,7 +2405,15 @@ export interface CardPlayInstruction {
   from?: ZoneRef | { anyOf: ZoneRef[] };
   /** Candidate cards drawn from an existing or related set, not a zone. */
   fromAmong?: ObjectRef;
-  alternativeCost?: { cost: "without-mana-cost" } | { cost: "pay"; costs: Cost[] };
+  alternativeCost?: { cost: "without-mana-cost" } | { cost: "pay"; costs: Cost[] }
+    /** CR 118.9b, 601.2: use that ability's printed payment to cast, with
+     * no suspend special action or time counters (CR 702.62a). */
+    | { cost: "keyword-cost"; keyword: "suspend" };
+  /** An alternative option when casting with this permission. Ordinary
+   * casting payments and land plays remain available (CR 118.9). */
+  optionalAlternativeCost?: { cost: "without-mana-cost"; condition: Condition; check: "when-granted" };
+  /** CR 608.2c/g, 609.3: perform the cast during resolution if it is legal. */
+  requiredIfAble?: true;
   additionalCosts?: Cost[];
   /** Granted to the spell as it is cast using this permission, including
    * during cost determination (CR 601.2f, 702.41). This is not an instruction
@@ -2486,6 +2526,8 @@ export type ReplacementEvent =
   | { event: "damage"; source?: ObjectRef; to?: (ObjectRef | PlayerRef)[];
       kind: "all" | "combat" | "noncombat"; quantity?: Comparison }
   | { event: "gain-life" | "lose-life"; who: PlayerRef }
+  /** CR 707.10, 707.12: copying one stack spell, excluding card copies. */
+  | { event: "copy-spell"; who: PlayerRef; quantity: Comparison }
   /** CR 120.3a: damage dealt to the player would bring their life total to
    * less than `below`. The damage is still dealt; only the resulting life
    * total is replaced. */
@@ -2541,6 +2583,9 @@ export interface ReplacementInstruction {
      * tokens. An event-quantity count means TOTAL original tokens, unlike
      * multiplying each original kind's quantity in modify-quantity. */
     | { replacement: "augment-tokens"; count: Amount; token: TokenSpec }
+    /** Original copies retain their own targets and permissions. Only the
+     * additional copy gets this new-target choice (CR 707.10c). */
+    | { replacement: "add-spell-copy"; mayRetargetAdditional?: true }
     /** Replace characteristics, preserving original creation modifiers such
      * as tapped/attacking and the originating instruction's haste or delayed
      * exile. With an each-token event, count applies to EACH matching token.
@@ -2586,6 +2631,11 @@ export type PutActionSubject =
   | { match: "filter"; filter: ObjectFilter; comparison: Comparison };
 
 export type Condition =
+  /** CR 601.2a/e, 601.3e: compare the resulting proposed spell to the spell
+   * that caused the trigger, with the chosen face and casting choices. */
+  | { condition: "proposed-spell-matches-trigger-mana-value"; triggerSpell: { ref: "trigger-event-object"; event: "cast" } }
+  /** CR 508.5: identity of the defender relative to the triggering attacker. */
+  | { condition: "is-defending-player"; who: PlayerRef }
   | { condition: "put-action-history"; who: PlayerRef; subject: PutActionSubject; to: ZoneRef; scope: "contextual" | "this-way" }
   /** The currently occurring phase, not the phase in which a spell was
    * cast. Ordinals count only matching phases of this turn (CR505.1b). */
@@ -2716,7 +2766,7 @@ export type Condition =
    * `ordinal`-th spell matching `of` that `who` cast during the period,
    * counting spells as they were cast; copies are not cast (707.10). */
   | { condition: "cast-ordinal"; what: ObjectRef; who: PlayerRef; of: ObjectFilter; ordinal: number; during: "this-turn" }
-  | { condition: "cast-count"; who: PlayerRef | "all-players-combined"; what: ObjectFilter; comparison: Comparison; during: "this-turn" | "last-turn"; from?: ZoneRef }
+  | { condition: "cast-count"; who: PlayerRef | "all-players-combined"; what: ObjectFilter; comparison: Comparison; during: "this-turn" | "last-turn" | "this-game"; from?: ZoneRef }
   /** time "previous" is the referenced object's last existence before the
    * instruction just applied to it moved or destroyed it (CR 608.2h). */
   | { condition: "control"; who: PlayerRef; what: ObjectRef; time?: "previous";
@@ -2940,12 +2990,16 @@ export type PlayerRef =
    * isn't a multiplayer game between teams it means the same as you. */
   | { player: "your-team" }
   | { player: "a-player" }
+  /** CR 608.2d, 115.10: a single player chosen at resolution, without targeting. */
+  | { player: "player-of-choice"; chooser: PlayerRef }
   /** The same selection/quantifier with additional eligibility. A target in
    * base remains a target; this wrapper does not create a resolution choice. */
   | { player: "filtered"; base: PlayerRef; filter: PlayerFilter }
   | { player: "replacement-event-player"; role: "actor" | "recipient" }
   | { player: "each-player" }
   | { player: "each-opponent" }
+  /** CR 102.2–3: the referenced player's opponents, excluding their teammates. */
+  | { player: "each-opponent-of"; of: PlayerRef }
   /** `count`/`upTo` ("any number of target players", "up to two target
    * opponents"): one target word declares that many different players
    * (CR 115.3, 601.2c); each of them is affected. Absent count is one.
@@ -2976,6 +3030,10 @@ export type PlayerRef =
   | { player: "the-player" }
   /** CR 725.1: the player who currently has the monarch designation. */
   | { player: "the-monarch" }
+  /** CR 726.1: the current holder of the initiative, if there is one. */
+  | { player: "the-initiative-holder" }
+  /** The player whose turn it is (CR 102.1), selected separately each turn. */
+  | { player: "active-player" }
   /** A definite description of one player among all players: "the player
    * with the most life", "the player who controls the most creatures". It
    * denotes the single player matching `filter` when the instruction is
@@ -3510,6 +3568,9 @@ export type Amount =
   /** CR 709.5c, 709.5j: halves with an unlocked designation among the Room
    * permanents matched by `among`. */
   | { amount: "unlocked-door-count"; among: ObjectFilter }
+  /** CR 903.4f, 702.124c: undefined with no commander; otherwise count the
+   * distinct colors in the combined printed commander color identities. */
+  | { amount: "commander-color-identity-count"; whose: PlayerRef }
   /** CR 601.2c, 601.2f: the number of targets chosen for the spell or ability
    * whose total cost is being determined; that number never changes once the
    * targets are announced. `beyond` leaves that many targets uncounted ("for
@@ -3528,7 +3589,7 @@ export type Amount =
    * described as they were cast. Several players' spells are added together. */
   | { amount: "cast-count"; who: PlayerRef | "all-players-combined"; what: ObjectFilter; during: "this-turn" | "this-game";
       /** The zone the spells were cast from (a commander cast from the command zone, CR 903.8). */
-      from?: ZoneRef }
+      from?: ZoneRef; notFrom?: ZoneRef }
   /** CR 202.3e, 601.2i, 608.2i: sum the mana values at the completed casts. */
   | { amount: "cast-mana-value-sum"; who: PlayerRef; during: "this-turn"; excluding: ObjectRef }
   /** CR 107.14: energy counters `who` has paid (as a cost) or lost (to any
@@ -3638,6 +3699,9 @@ export type Amount =
    * A contextual player ("they", "that player") is evaluated for that player;
    * with a group ("your opponents have lost") their changes are added together. */
   | { amount: "life-change"; who: PlayerRef | "all-players-combined"; change: "gained" | "lost"; during: "this-turn" }
+  /** CR 201.5, 603.10a, 608.2i: actual loss from the entering object's
+   * own enters ability, read for that same battlefield incarnation. */
+  | { amount: "life-lost-on-entry"; who: PlayerRef; what: { ref: "it" } }
   | { amount: "twice"; of: Amount }
   /** `exact`: only as the operand of a comparison ("less than half your
    * starting life total"), which compares against the exact value; nothing

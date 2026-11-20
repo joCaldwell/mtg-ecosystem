@@ -210,6 +210,13 @@ export function parseProtectionScopes(c: Cursor, fromConsumed = false, allowFres
           return what && c.word("colors") !== null ? { scope: "colors-of", what } : null;
         });
         if (eachColorOf) return eachColorOf;
+        const outsideIdentity = c.attempt((c): ProtectionScope | null => {
+          if (!c.words("each", "color") || !c.word("that's") && !c.words("that", "is")
+            || !c.words("not", "in", "your") || c.possessive("commander", "commanders") === null
+            || !c.words("color", "identity")) return null;
+          return { scope: "colors-outside-commander-identity", whose: { player: "you" } };
+        });
+        if (outsideIdentity) return outsideIdentity;
         if (c.words("everything")) return { scope: "everything" };
         if (c.words("all", "colors") || c.words("each", "color")) return { scope: "all-colors" };
         if (c.words("colorless")) return { scope: "colorless" };

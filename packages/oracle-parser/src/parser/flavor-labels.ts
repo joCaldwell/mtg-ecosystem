@@ -23,6 +23,7 @@ export interface FlavorLabel { label: string; rest: Token[] }
 export function splitFlavorLabel(tokens: Token[]): FlavorLabel | null {
   let label = "";
   let words = 0;
+  let periods = 0;
   // "<words> N —" is the shape of a parameterized rule ("Descend 5", "Stage
   // 2"), not of a label; a number inside a label is followed by more words.
   let trailingParameter = false;
@@ -32,6 +33,7 @@ export function splitFlavorLabel(tokens: Token[]): FlavorLabel | null {
     if (token.kind === "punct" && token.value === "—") {
       const rest = tokens.slice(i + 1);
       const name = label.toLowerCase();
+      if (periods && (periods < 2 || tokens[0].kind !== "word" || !/^[A-Z]$/.test(tokens[0].raw) || previous?.kind !== "punct" || previous.value !== "!")) return null;
       if (!words || trailingParameter || rest.length === 0 || MECHANICAL_LABELS.has(name) || isKeywordName(name)) return null;
       // CR 701.55a: "[A player] faces a villainous choice — …" is an instruction.
       if (name.endsWith("faces a villainous choice") || name.endsWith("face a villainous choice")) return null;
@@ -47,6 +49,16 @@ export function splitFlavorLabel(tokens: Token[]): FlavorLabel | null {
       const joined = previous?.kind === "punct" && (previous.value === "-" || (previous.value === "," && tokens[i - 2]?.kind === "number"));
       label += previous && !joined ? ` ${token.raw}` : token.raw;
       if (previous?.kind === "word") trailingParameter = true;
+    } else if (token.kind === "punct" && token.value === ".") {
+      // CR 207.2d: keep dotted emphatic labels such as INITIAL. WORD. WORD!.
+      // Never cross a period after a multiword sentence or a mixed-case word.
+      const next = tokens[i + 1];
+      const earlier = tokens[i - 2];
+      if (previous?.kind !== "word" || previous.possessive || !/^[A-Z]+$/.test(previous.raw)
+        || next?.kind !== "word" || next.possessive || !/^[A-Z]+$/.test(next.raw)
+        || i > 1 && (earlier?.kind !== "punct" || earlier.value !== ".")) return null;
+      periods++;
+      label += ".";
     } else if (token.kind === "punct" && (token.value === "!" || token.value === "," || token.value === "-")) {
       if (!previous || previous.kind === "punct") return null;
       label += token.value;

@@ -300,10 +300,18 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
     const probe = new Cursor(c.tokens.slice(start));
     const introduced = probe.word("when", "whenever") !== null;
     const subject = introduced && parseTriggerPlayer(probe) ? c.tokens.slice(start + 1, start + probe.pos) : null;
-    while (introduced && c.isWord("or")) {
-      const rest = c.tokens.slice(c.pos + 1);
+    while (introduced) {
+      const comma = c.isPunct(",");
+      const marker = c.peek(comma ? 1 : 0);
+      if (marker?.kind !== "word" || marker.possessive || marker.value !== "or") break;
+      const separator = comma ? 2 : 1;
+      const rest = c.tokens.slice(c.pos + separator);
+      const firstWord = rest[0];
+      // A separately stated event must establish its own participants.
+      if (comma && firstWord?.kind === "word" && ["it", "they"].includes(firstWord.value)) return null;
       const next = c.attempt((c): Trigger | null => {
-        for (const prefix of subject ? [subject, []] : [[]]) {
+        // Separate comma alternatives must state their own subject (CR 603.2).
+        for (const prefix of subject && !comma ? [subject, []] : [[]]) {
           const tokens = [c.tokens[start], ...prefix, ...rest];
           const alternative = new Cursor(tokens);
           const event = parseSingleEvent(alternative);
@@ -311,7 +319,7 @@ function parseSingleTrigger(c: Cursor): Trigger | null {
           // "you play a land or cast a spell from anywhere other than your
           // hand": the excluded origin may qualify both actions.
           if (prefix.length && "notFrom" in event) return c.fail("unambiguous origin scope for alternative events");
-          c.pos += alternative.pos - prefix.length;
+          c.pos += alternative.pos - prefix.length + separator - 1;
           return event;
         }
         return null;

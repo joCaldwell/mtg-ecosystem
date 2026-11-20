@@ -7,9 +7,10 @@
 import type { CounteredSpellDestination, ObjectFilter, Sentence } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
 import { parseFilter, parseZoneRef } from "./refs.ts";
+import { parseExileCounters } from "./linked-exile.ts";
 
 function countedObject(c: Cursor): boolean {
-  return c.word("it") !== null || c.words("that", "card") || c.words("that", "spell");
+  return c.word("it") !== null || c.words("that", "card") || c.words("that", "spell") || c.words("the", "spell");
 }
 
 /** Folds the rider into the single preceding counter instruction and
@@ -23,7 +24,7 @@ export function foldCounterDestination(c: Cursor, previous: Sentence): boolean {
   const destination = c.attempt((c): CounteredSpellDestination | null => {
     if (c.word("if") === null) return null;
     let only: ObjectFilter | undefined;
-    if (!c.words("that", "spell")) {
+    if (!c.words("that", "spell") && !c.words("the", "spell")) {
       if (c.word("a", "an") === null) return null;
       const filter = parseFilter(c);
       if (!filter || filter.cls !== "spell") return null;
@@ -34,7 +35,8 @@ export function foldCounterDestination(c: Cursor, previous: Sentence): boolean {
     let putting = false;
     if (c.word("exile") !== null) {
       if (!countedObject(c)) return null;
-      result = { to: { zone: "exile" } };
+      const counters = parseExileCounters(c, [{ ref: "it" }]);
+      result = { to: { zone: "exile" }, ...(counters ? { counters } : {}) };
       putting = true;
     } else {
       if (c.word("put") === null || !countedObject(c) || c.word("on", "into", "onto") === null) return null;
