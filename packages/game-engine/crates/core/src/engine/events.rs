@@ -133,6 +133,9 @@ pub struct AttachmentBefore {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
+    /// CR 406.3a: these exile objects have no characteristics to capture.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub face_down_exile: Vec<(ObjectId, PlayerId)>,
     /// Exact common-prior controller counts; narrow consumed entry authority.
     #[serde(
         default,
@@ -260,6 +263,7 @@ enum FactKey {
 #[derive(Clone, Copy)]
 enum BatchAuthority<'a> {
     Ordinary,
+    SpellToStack(PlayerId),
     LandEntry(&'a PreparedEntryAuthority),
     CounterReplacement,
     PlaceCounters,
@@ -380,6 +384,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             (keys.clone(), keys)
         }
         ProposedEvent::OrderLibraryTop { player, looked, .. }
+        | ProposedEvent::Hideaway { player, looked, .. }
         | ProposedEvent::LibrarySelect { player, looked, .. }
         | ProposedEvent::Mill {
             player,
@@ -959,6 +964,7 @@ impl Game {
                     ..
                 }
                 | ProposedEvent::OrderLibraryTop { player, looked, .. }
+                | ProposedEvent::Hideaway { player, looked, .. }
                 | ProposedEvent::LibrarySelect { player, looked, .. }
                 | ProposedEvent::Mill {
                     player,
@@ -1360,26 +1366,15 @@ impl Game {
                 });
             }
         }
-        let objects = objects
-            .into_iter()
-            .map(|object| {
-                let o = self.current(object)?;
-                Ok(ObjectBefore {
-                    keyword_timestamp: o.keyword_timestamp,
-                    keywords: { self.current_keywords(object) },
-                    deathtouch_damage: o.deathtouch_damage,
-                    object,
-                    owner: self.state.rules.cards[&object.card].owner,
-                    controller: o.controller,
-                    default_controller: o.default_controller,
-                    zone: o.zone,
-                    tapped: o.tapped,
-                    marked_damage: o.marked_damage.clone(),
-                    attack_ready: o.attack_ready,
-                    characteristics: self.characteristics(object)?,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+        let mut face_down_exile = Vec::new();
+        let mut object_facts = Vec::new();
+        for id in objects {
+            if self.current(id)?.hideaway.is_some() {
+                face_down_exile.push((id, self.state.rules.cards[&id.card].owner));
+            } else {
+                object_facts.push(self.object_before(id)?);
+            }
+        }
         let players = players
             .into_iter()
             .map(|player| {
@@ -1446,6 +1441,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            face_down_exile,
             entry_basic_lands: if events.iter().any(|e| self.conditional_entry(e)) {
                 counts.clone()
             } else {
@@ -1485,7 +1481,7 @@ impl Game {
             commander_damage,
             libraries,
             turn,
-            objects,
+            objects: object_facts,
             players,
         })
     }
@@ -1617,6 +1613,15 @@ impl Game {
                 return Err("invalid targeted loss batch".into());
             }
         }
+        if events
+            .iter()
+            .any(|e| matches!(e, ProposedEvent::Hideaway { .. }))
+        {
+            let EventGroup::Occurrence { proposed } = &group else {
+                return Err("hideaway requires its single authorized occurrence".into());
+            };
+            self.authorize_hideaway_event(&cause, proposed)?;
+        }
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let authority = if placing
             || events.iter().any(|e| {
@@ -1637,6 +1642,19 @@ impl Game {
             } else {
                 BatchAuthority::PlaceCounters
             }
+        } else if let (
+            BatchCause::Casting { player, source, .. },
+            EventGroup::Occurrence {
+                proposed:
+                    ProposedEvent::Move {
+                        object,
+                        destination: Zone::Stack,
+                    },
+            },
+        ) = (&cause, &group)
+            && source == object
+        {
+            BatchAuthority::SpellToStack(*player)
         } else {
             entry
                 .as_ref()
@@ -2058,6 +2076,8 @@ impl Game {
         }
         let controller = if *destination == Zone::Battlefield {
             intended_controller.unwrap_or(o.controller)
+        } else if *destination == Zone::Stack {
+            intended_controller.unwrap_or(owner)
         } else {
             owner
         };
@@ -2090,6 +2110,7 @@ impl Game {
         self.state.rules.objects.insert(
             object.card,
             Object {
+                hideaway: None,
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
@@ -2176,6 +2197,9 @@ impl Game {
         ) {
             return Err("targeted loss requires an authorized instruction batch".into());
         }
+        if matches!(proposed, ProposedEvent::Hideaway { .. }) {
+            return Err("hideaway requires an authorized instruction batch".into());
+        }
         self.apply_prepared_occurrence(proposed, before, BatchAuthority::Ordinary)
     }
     fn apply_prepared_occurrence(
@@ -2215,6 +2239,12 @@ impl Game {
                 order,
             } => self.apply_library_order(*player, amount, looked, order)?,
             ProposedEvent::HandReturn { .. } => self.apply_hand_return(proposed, before)?,
+            ProposedEvent::Hideaway {
+                player,
+                selected,
+                bottom,
+                ..
+            } => self.apply_hideaway(*player, *selected, bottom, before)?,
             ProposedEvent::LibrarySelect { .. } => {
                 self.apply_library_selection(proposed, before)?
             }
@@ -3079,7 +3109,13 @@ impl Game {
             ProposedEvent::Move {
                 object,
                 destination,
-            } => self.apply_move(*object, *destination, None, false, before, entry)?,
+            } => {
+                let caster = match authority {
+                    BatchAuthority::SpellToStack(player) => Some(player),
+                    _ => None,
+                };
+                self.apply_move(*object, *destination, caster, false, before, entry)?
+            }
         };
         self.update_library_position_memory(proposed, &actual);
         Ok(actual)

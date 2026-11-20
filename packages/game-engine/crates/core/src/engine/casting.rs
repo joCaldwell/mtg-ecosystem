@@ -94,7 +94,21 @@ impl Game {
 
     pub(super) fn announce_resolution_spell(&mut self, progress: CastOwner) -> Result<(), String> {
         let permission = progress.permission()?;
-        if !self.resolution_offer_legal(&permission)? {
+        let legal = match &progress {
+            CastOwner::LinkedPlay {
+                progress,
+                object,
+                receipt,
+            } => {
+                self.validate_linked_play(progress, None)?;
+                matches!(&self.state.rules.frame, Frame::PlayHideawayLinked { progress: current } if current == progress)
+                    && progress.receipt_matches(receipt, *object)
+                    && self.current(*object)?.zone == Zone::Exile
+                    && self.resolution_spell_proposable(permission.caster, *object)?
+            }
+            _ => self.resolution_offer_legal(&permission)?,
+        };
+        if !legal {
             return Err("no legal resolution cast".into());
         }
         self.begin_spell_announcement(SpellAnnouncement {
@@ -451,8 +465,9 @@ impl Game {
                 .ok_or("missing reversal object")?;
             o.id = cast.original_object;
             o.zone = stack.cast_from;
-            o.controller = stack.controller;
-            o.default_controller = stack.controller;
+            let owner = self.state.rules.cards[&cast.original_object.card].owner;
+            o.controller = owner;
+            o.default_controller = owner;
             o.tapped = false;
         }
         self.state.rules.pending = None;
@@ -480,7 +495,15 @@ impl Game {
                 {
                     return Err("resolution cast reversal permission invariant".into());
                 }
-                progress.resume()
+                if let CastOwner::LinkedPlay {
+                    receipt, progress, ..
+                } = progress
+                {
+                    self.restore_hideaway_link(receipt)?;
+                    Frame::PlayHideawayLinked { progress }
+                } else {
+                    progress.resume()
+                }
             }
         };
         self.record_event(Event::CastReversed {

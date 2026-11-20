@@ -386,6 +386,32 @@ impl Game {
             self.state.rules.pending = None;
             self.state.rules.frame = *resume;
         }
+        // CR 800.4a: a surviving owner's spell cast by the departing
+        // player has no remaining controller. Its card goes to public exile.
+        let foreign_spells = self
+            .state
+            .rules
+            .stack
+            .iter()
+            .filter(|s| {
+                s.kind.is_spell() && s.controller == player && self.current(s.source).is_ok()
+            })
+            .map(|s| s.source)
+            .collect::<Vec<_>>();
+        if !foreign_spells.is_empty() {
+            self.commit_batch(
+                BatchCause::Departure { player },
+                EventGroup::Simultaneous {
+                    occurrences: foreign_spells
+                        .into_iter()
+                        .map(|object| ProposedEvent::Move {
+                            object,
+                            destination: Zone::Exile,
+                        })
+                        .collect(),
+                },
+            )?;
+        }
         let lost_stack = self
             .state
             .rules
@@ -463,7 +489,15 @@ impl Game {
             && lost_stack.contains(&cast.stack_id)
         {
             self.state.rules.pending = None;
-            self.state.rules.frame = Frame::Priority;
+            self.state.rules.frame = match cast.completion {
+                CastCompletion::Resolution {
+                    progress: CastOwner::LinkedPlay { progress, .. },
+                    ..
+                } if self.is_live(progress.frame.spell.controller) => {
+                    Frame::PlayHideawayLinked { progress }
+                }
+                _ => Frame::Priority,
+            };
             // The departure removes the unfinished spell, but does not undo
             // legal casting-time mana activations. Those interrupt CR 117.4's
             // consecutive pass round even if their controller has now left.
@@ -595,6 +629,7 @@ impl Game {
         self.revalidate_actions_departure()?;
         self.revalidate_cascade_departure()?;
         self.revalidate_reveal_departure()?;
+        self.revalidate_linked_play_departure()?;
         self.revalidate_hand_cast_departure()?;
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;

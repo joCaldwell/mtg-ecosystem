@@ -81,6 +81,9 @@ impl Game {
         kind: DecisionSourceKind,
         ability: Option<u32>,
     ) -> Option<DecisionSource> {
+        if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
+            return None;
+        }
         let definition = self.definition(object.card).ok()?;
         if kind == DecisionSourceKind::ManaAbility && definition.mana_abilities.is_empty() {
             // Use precisely the runtime's intrinsic CR 305.6 production query.
@@ -218,6 +221,9 @@ impl Game {
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
+            (Frame::PlayHideawayLinked { progress }, PlayerRequest::PlayHideawayLinked { .. }) => {
+                &progress.frame.spell
+            }
             (Frame::RevealAndCast { progress }, PlayerRequest::OptionalEffect { .. }) => {
                 &progress.frame.spell
             }
@@ -289,6 +295,7 @@ impl Game {
         }
         let block = match &self.state.rules.frame {
             Frame::RevealAndCast { progress } => Some(progress.source_block),
+            Frame::PlayHideawayLinked { progress } => Some(progress.source_block),
             Frame::ResolutionPayment { frame, .. }
             | Frame::ResolutionChoice { frame, .. }
             | Frame::OptionalDamage { frame } => {

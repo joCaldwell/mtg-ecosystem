@@ -103,6 +103,8 @@ pub(super) fn choose(
         | PlayerRequest::SearchLands { .. }
         | PlayerRequest::CascadeLandEntry { .. }
         | PlayerRequest::ChooseOpponent { .. }
+        | PlayerRequest::Hideaway { .. }
+        | PlayerRequest::PlayHideawayLinked { .. }
         | PlayerRequest::SearchLandBattlefield { .. }
         | PlayerRequest::OptionalEffect { .. }
         | PlayerRequest::OptionalRecursion { .. } => {

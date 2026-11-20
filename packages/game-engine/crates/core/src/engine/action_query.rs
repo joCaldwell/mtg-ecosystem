@@ -347,7 +347,7 @@ impl Game {
             let id = self
                 .resolve_handle(work.viewer, &handle)
                 .map_err(|_| ActionUnavailable::Invariant)?;
-            let activated = if priority {
+            let activated = if priority && self.current(id).is_ok_and(|o| o.hideaway.is_none()) {
                 self.definition(id.card)
                     .map_err(|_| ActionUnavailable::Invariant)?
                     .activated
