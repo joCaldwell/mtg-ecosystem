@@ -230,6 +230,10 @@ impl Game {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<EventOutcome, String> {
+        if self.look_top_mana_reveal_authorized(player, object) {
+            self.remember_public_library_position(object);
+            return Ok(EventOutcome::LibraryCardRevealed { player, object });
+        }
         let Frame::RevealAndCast { progress } = &self.state.rules.frame else {
             return Err("missing reveal owner".into());
         };

@@ -64,6 +64,11 @@ pub(super) enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
+    LookTopMana {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        revealed: bool,
+    },
     LibrarySelect {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -451,6 +456,13 @@ impl Game {
                     count: looked.len(),
                 })
             }
+            ResolutionChoice::LookTopMana {
+                player,
+                looked,
+                revealed,
+            } if self.is_live(*player) => {
+                Some(self.look_top_mana_request(frame, *player, looked, *revealed)?)
+            }
             ResolutionChoice::LibrarySelect { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::LibrarySelect {
                     decision_id,
@@ -531,6 +543,9 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let Some(result) = self.validate_look_top_mana_response(player, response) {
+            return Some(result);
+        }
         if let (
             Frame::ResolutionChoice {
                 choice:
@@ -834,6 +849,14 @@ impl Game {
                     return self.optional_shuffle_step(frame, player, source_block);
                 }
 
+                if let ResolutionChoice::LookTopMana {
+                    player,
+                    looked,
+                    revealed,
+                } = choice
+                {
+                    return self.look_top_mana_step(frame, player, looked, revealed);
+                }
                 if let ResolutionChoice::LibrarySelect {
                     player,
                     looked,
@@ -892,6 +915,7 @@ impl Game {
                         | ResolutionChoice::HandReturn { .. }
                         | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
+                        | ResolutionChoice::LookTopMana { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::Scry { .. }
@@ -929,6 +953,7 @@ impl Game {
                     | ResolutionChoice::HandReturn { .. }
                     | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
+                    | ResolutionChoice::LookTopMana { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::Scry { .. }
@@ -1095,6 +1120,7 @@ impl Game {
             Instruction::OptionalShuffleLibrary { source_block } => {
                 self.begin_optional_shuffle(frame, source_block)
             }
+            Instruction::LookTopMayRevealForMana { .. } => self.begin_look_top_mana(frame),
             Instruction::SelectLibraryCard {
                 amount,
                 source_block,
@@ -2033,6 +2059,16 @@ impl Game {
                     Instruction::OptionalShuffleLibrary { source_block: b },
                 ) => *player == frame.spell.controller && source_block == b,
 
+                (
+                    ResolutionChoice::LookTopMana {
+                        player,
+                        looked,
+                        revealed,
+                    },
+                    Instruction::LookTopMayRevealForMana { .. },
+                ) => self
+                    .validate_look_top_mana_choice(frame, *player, looked, *revealed)
+                    .is_ok(),
                 (
                     ResolutionChoice::LibrarySelect {
                         player,

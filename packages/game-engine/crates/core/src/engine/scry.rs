@@ -10,6 +10,7 @@ impl Game {
                 choice:
                     ResolutionChoice::LibraryOrder { player, looked, .. }
                     | ResolutionChoice::LibrarySelect { player, looked, .. }
+                    | ResolutionChoice::LookTopMana { player, looked, .. }
                     | ResolutionChoice::Scry { player, looked, .. }
                     | ResolutionChoice::Surveil { player, looked, .. },
                 ..

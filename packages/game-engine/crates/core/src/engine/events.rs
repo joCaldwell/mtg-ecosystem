@@ -2947,6 +2947,7 @@ impl Game {
                 source,
             } => {
                 if self.current(*source).is_err()
+                    && !self.retained_look_top_mana_source(*player, *source)
                     && !(self
                         .state
                         .rules

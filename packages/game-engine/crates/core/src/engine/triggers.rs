@@ -230,6 +230,7 @@ fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
         (step, turn.step),
         (BeginningStep::Upkeep, TurnStep::Upkeep)
             | (BeginningStep::Draw, TurnStep::Draw)
+            | (BeginningStep::PrecombatMain, TurnStep::PrecombatMain)
             | (BeginningStep::End, TurnStep::End)
     )
 }

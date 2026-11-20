@@ -1811,6 +1811,12 @@ impl Game {
                         })
                         .collect::<Result<_, String>>()?,
                 },
+                Request::ManaCombination { total, colors, .. } => PlayerRequest::ManaCombination {
+                    token,
+                    player: viewer,
+                    total,
+                    colors,
+                },
                 Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
                     token,
                     player: viewer,

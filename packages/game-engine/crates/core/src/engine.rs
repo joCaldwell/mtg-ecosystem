@@ -362,6 +362,7 @@ mod intrinsic_mana;
 mod library_order;
 mod library_position_memory;
 mod library_selection;
+mod look_top_mana;
 mod mana_permanents;
 #[cfg(test)]
 mod mana_tests;
