@@ -1213,3 +1213,6 @@ mod cast_payer_draw_tests;
 mod controlled_creature_spell_copy_tests;
 #[path = "demonstrate_tests.rs"]
 mod demonstrate_tests;
+
+#[path = "grant_hand_cast_cascade_tests.rs"]
+mod grant_hand_cast_cascade_tests;

@@ -2742,10 +2742,7 @@ impl Game {
                     .get(index as usize)
                     .map(|a| &a.program)
                     .ok_or_else(|| "missing triggered program".to_string()),
-                EffectiveTriggerAbility::Granted {
-                    grant_source,
-                    static_ability_index,
-                } => self.grant_program(grant_source, static_ability_index),
+                grant => self.effective_cascade_program(grant),
             },
             StackKind::Activated { ability, .. } => definition
                 .activated
@@ -3613,7 +3610,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 65,
+            snapshot_version: 67,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3655,7 +3652,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 65
+        if s.snapshot_version != 67
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
