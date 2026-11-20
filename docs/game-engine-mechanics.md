@@ -104,6 +104,10 @@ simultaneous discard, and random discard samples without replacement. Library-to
 events preserve order and cannot compose with a conflicting order write. These
 all finish before Commander SBAs; departure never redirects attempts.
 
+Ordinary spell sequences preserve the source order of eligible fixed library,
+life, removal and land-allowance instructions across printed blocks. A library
+decision resumes the same instruction before later instructions execute.
+
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
 Surviving activators retain paid abilities when a borrowed source's owner leaves.
@@ -151,6 +155,11 @@ all targets are illegal at resolution, skip the entire program, including
 compensation/draw. Target incarnation cannot rebind after bounce/reentry. Once
 resolution begins, use its frozen legal set and refresh current/LKI facts only at
 their defined boundaries.
+
+Target-controller compensation reads the announced incarnation's controller
+and supported attributes at those boundaries. A mandatory compensation step
+still executes when a legal target survives destruction. Its recipient is
+independent of the target's owner and any zone successor.
 
 ### Target status and tap/untap
 
@@ -238,6 +247,10 @@ movement never redirects a grant to a successor incarnation. Ordering never come
 from object IDs, map iteration or trace retention. Simultaneous competing
 attachments need the unimplemented ordering of CR 613.7m and reject explicitly.
 Timestamps and their allocator are canonical state and replay inputs.
+
+Continuous subtype grants evaluate each permanent's current controller and
+structural subtypes. An explicit creature restriction limits eligibility to
+creatures. Additive Golem stats apply in the creature power/toughness layer.
 
 ### Continuous permanent control from Auras
 

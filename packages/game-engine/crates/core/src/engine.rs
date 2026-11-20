@@ -84,6 +84,8 @@ mod blocking_target_tests;
 #[cfg(test)]
 mod composed_spell_tests;
 mod counter_placement;
+#[cfg(test)]
+mod phase1_sequences_tests;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;

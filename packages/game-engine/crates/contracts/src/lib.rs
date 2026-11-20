@@ -112,6 +112,7 @@ mod hand_return;
 pub mod modal_targets;
 pub mod repeated_target_modes;
 pub mod scoped_creature_stats;
+pub mod scoped_static;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
@@ -150,6 +151,7 @@ mod divided_plus_one_counters;
 mod flash_end_step_draw;
 mod greatest_power;
 mod hand_size_adjustments;
+pub mod ordinary_sequence;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
@@ -350,6 +352,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
     ComposedOrdinarySpellV1,
+    FilteredStaticModifiersV1,
     PlayerGraveyardShuffleV1,
     OpeningPlacementV1,
     ExileResolvingSpellV1,
@@ -1768,13 +1771,18 @@ pub struct StaticAbility {
 }
 /// Static scopes in the finite attachment pool (CR 611.3a, 613.1f/4c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CreatureScope {
     Equipped,
     Enchanted,
     Controller,
     /// Dynamic attacking creatures controlled by this battlefield source.
     AttackingController,
+    ControlledSubtype {
+        subtype: scoped_static::Subtype,
+        creatures_only: bool,
+        other: bool,
+    },
     Source,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2751,7 +2759,7 @@ impl Definition {
         }
         if let Some(program) = &self.spell {
             add_program_requirements(&mut set, program);
-            if composed_spell::program(program) {
+            if composed_spell::program(program) || ordinary_sequence::program(program) {
                 set.insert(Capability::ComposedOrdinarySpellV1);
             }
         }
@@ -2990,6 +2998,18 @@ impl Definition {
             {
                 set.insert(Capability::IndestructibleV1);
             }
+            if let StaticEffect::ModifyCreatures {
+                scope: CreatureScope::ControlledSubtype { .. },
+                keywords,
+                ..
+            } = &a.effect
+            {
+                set.extend(
+                    keywords
+                        .iter()
+                        .filter_map(|k| intrinsic_keyword_capability(*k)),
+                );
+            }
             let static_capability = match a.effect {
                 StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
                 StaticEffect::Bestow { .. } => Capability::BestowV1,
@@ -3065,6 +3085,10 @@ impl Definition {
                     scope: CreatureScope::Source,
                     ..
                 } => Capability::SacrificeV1,
+                StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::ControlledSubtype { .. },
+                    ..
+                } => Capability::FilteredStaticModifiersV1,
                 StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
             };
             set.insert(static_capability);
@@ -3077,6 +3101,7 @@ impl Definition {
         let source_regeneration = source_regeneration::validate(self)?;
         let activated_creature_tap = activated_creature_tap::validate(self)?;
         scoped_creature_stats::validate(self)?;
+        scoped_static::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
@@ -3102,6 +3127,7 @@ impl Definition {
         opponent_life_drain::validate_definition(self)?;
         targeted_game_loss::validate_definition(self)?;
         composed_spell::validate(self)?;
+        ordinary_sequence::validate(self)?;
         controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
@@ -4201,7 +4227,9 @@ impl Definition {
                 && !matches!(
                     a.effect,
                     StaticEffect::ModifyCreatures {
-                        scope: CreatureScope::AttackingController | CreatureScope::Controller,
+                        scope: CreatureScope::AttackingController
+                            | CreatureScope::Controller
+                            | CreatureScope::ControlledSubtype { .. },
                         ..
                     }
                 )
@@ -4879,6 +4907,7 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    let scalar_sequence = ordinary_sequence::program(p);
     if p.functioning_zone == FunctioningZone::Any {
         return Err("all-zone functioning is reserved for the self graveyard replacement".into());
     }
@@ -4901,6 +4930,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("unsupported complete targeted counted draw".into());
     }
     if hand_return::has_hand_program(p)
+        && !scalar_sequence
         && !controller_hand_return_program(p)
         && !controller_draw_discard_program(p)
         && !controller_counted_draw_program(p)
@@ -4916,7 +4946,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     if library_selection::has_selection(p) && !controller_library_selection_program(p) {
         return Err("unsupported complete library selection program".into());
     }
-    if fixed_mill::has_mill(p) && !fixed_mill_program(p) {
+    if fixed_mill::has_mill(p) && !scalar_sequence && !fixed_mill_program(p) {
         return Err("unsupported complete fixed mill program".into());
     }
     // Controller selectors require complete ordinary temporary-effect families.
@@ -4954,6 +4984,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
 
     if controller_library::has_look(p)
+        && !scalar_sequence
         && !controller_scry_program(p)
         && !controller_surveil_program(p)
         && !temporary_permanent_keyword_program(p).is_some_and(|d| d.controller_scry.is_some())
@@ -4964,6 +4995,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         return Err("unsupported temporary keyword grant program".into());
     }
     if has_permanent_owner_hand(p)
+        && !scalar_sequence
         && ((p.additional_sacrifice.is_some() || !p.optional_additional_costs.is_empty())
             || !p.modes.is_empty()
             || p.functioning_zone != FunctioningZone::Stack
@@ -5618,7 +5650,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 ))
             }
             Instruction::DiscardCards { count, .. } => {
-                if *count != Quantity::from(1) && !controller_draw_discard_program(p) {
+                if *count != Quantity::from(1)
+                    && !scalar_sequence
+                    && !controller_draw_discard_program(p)
+                {
                     return Err("unsupported draw/discard cardinality".into());
                 }
                 None
@@ -5928,6 +5963,23 @@ fn add_program_requirements_for_source_pump(
         {
             set.insert(Capability::AttachmentsV1);
         }
+        if let Instruction::CreateTokensFor {
+            recipient: EffectRecipient::TargetController { target_slot },
+            token,
+            ..
+        } = instruction
+            && program
+                .targets
+                .get(*target_slot as usize)
+                .is_some_and(|target| target.domain == TargetDomain::BattlefieldPermanent)
+        {
+            set.extend(
+                token
+                    .keywords
+                    .iter()
+                    .filter_map(|k| intrinsic_keyword_capability(*k)),
+            );
+        }
         if let Instruction::GrantKeywords { keywords, .. }
         | Instruction::GrantKeywordsSet { keywords, .. }
         | Instruction::GrantSourceKeywords { keywords, .. } = instruction
@@ -6121,7 +6173,8 @@ fn add_program_requirements_for_source_pump(
                 Capability::ControllerDrawV1
             }
             Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
-                if controller_counted_draw_program(program)
+                if ordinary_sequence::program(program)
+                    || controller_counted_draw_program(program)
                     || controller_counted_draw::standalone_controller_draw(program).is_some()
                 {
                     Capability::ControllerCountedDrawV1
@@ -6719,7 +6772,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["targets","instructions"],"properties":permanent_owner_hand},
-        "then":{"properties":{
+        "then":{"anyOf":[{"$ref":ordinary_sequence::SCHEMA},{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
@@ -6728,7 +6781,7 @@ pub fn catalog_schema() -> serde_json::Value {
                     "types":{"maxItems":0},"non_types":{"enum":[[],["land"]]},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}
                 }}
             }}}
-        }}
+        }}]}
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/PermanentOwnerHandFreeProgram"}}}}}
@@ -7612,6 +7665,7 @@ pub fn catalog_schema() -> serde_json::Value {
     opponent_life_drain::extend_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
     composed_spell::extend_schema(&mut schema);
+    ordinary_sequence::extend_schema(&mut schema);
     controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
@@ -7635,6 +7689,7 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_creature_activation::extend_schema(&mut schema);
     source_regeneration::extend_schema(&mut schema);
     scoped_creature_stats::extend_schema(&mut schema);
+    scoped_static::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -7844,6 +7899,7 @@ mod tests {
             ControlledPermanentPhasingV1,
             TargetedPhasingV1,
             ComposedOrdinarySpellV1,
+            FilteredStaticModifiersV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
@@ -8432,6 +8488,7 @@ mod tests {
         definitions.push(fixed_mill::witness());
         definitions.push(source_regeneration::witness());
         definitions.push(scoped_creature_stats::witness());
+        definitions.push(scoped_static::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());

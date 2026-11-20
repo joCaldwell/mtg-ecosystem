@@ -374,7 +374,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     }});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"not":{"$ref":"#/$defs/ScryFreeProgram"}},
-        "then":{"anyOf":[{"$ref":"#/$defs/ControllerScryProgram"},{"$ref":"#/$defs/ArtifactCreatureKeywordProgram"}]}
+        "then":{"anyOf":[{"$ref":"#/$defs/ControllerScryProgram"},{"$ref":"#/$defs/ArtifactCreatureKeywordProgram"},{"$ref":ordinary_sequence::SCHEMA}]}
     }));
     let has_scry = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/ScryFreeProgram"}}}});
     let draw_in_program = json!({"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"draw_cards"}}}}}}}});
@@ -472,7 +472,7 @@ fn extend_surveil_schema(schema: &mut serde_json::Value) {
     schema["$defs"]["SpellProgram"]["allOf"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"if":contains,"then":{"$ref":"#/$defs/ControllerSurveilProgram"}}));
+        .push(json!({"if":contains,"then":{"anyOf":[{"$ref":"#/$defs/ControllerSurveilProgram"},{"$ref":ordinary_sequence::SCHEMA}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/SurveilFreeProgram"}}}});
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
@@ -482,11 +482,13 @@ fn extend_surveil_schema(schema: &mut serde_json::Value) {
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/SurveilFreeProgram"}}}}
     }}));
     def.push(json!({"if":has,"then":{"properties":{
-        "spell":{"$ref":"#/$defs/ControllerSurveilProgram"},
+        "spell":{"anyOf":[{"$ref":"#/$defs/ControllerSurveilProgram"},{"$ref":ordinary_sequence::SCHEMA}]},
         "keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
         "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
-        "capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerSurveilV1,Capability::ControllerDrawV1]},"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerSurveilV1}}]}
+        "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::ControllerSurveilV1}}]}
     }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerSurveilV1}}}}}}));
+    def.push(json!({"if":{"allOf":[has.clone(),{"not":{"properties":{"spell":{"$ref":ordinary_sequence::SCHEMA}}}}]},
+        "then":{"properties":{"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerSurveilV1,Capability::ControllerDrawV1]}}}}}));
     def.push(json!({"if":has,"then":{"allOf":[
         {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
          "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
