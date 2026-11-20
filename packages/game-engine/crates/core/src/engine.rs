@@ -2481,6 +2481,9 @@ impl Game {
     pub fn mana_abilities(&self, object: ObjectId) -> Result<Vec<Color>, String> {
         let o = self.current(object)?;
         let d = self.definition(object.card)?;
+        if o.phased_out.is_some() {
+            return Ok(vec![]);
+        }
         if o.zone == Zone::Battlefield && !d.mana_abilities.is_empty() {
             let mut colors = Vec::new();
             for ability in &d.mana_abilities {

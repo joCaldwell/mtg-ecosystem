@@ -256,6 +256,86 @@ mod tests {
     use crate::engine::equipped_indestructible_tests::{equip, object, prepared};
 
     #[test]
+    fn paid_controller_phasing_replays_status_and_normal_untap_with_stable_handles() {
+        use crate::engine::equipped_indestructible_tests::{answer, cast, recover, request};
+        let catalog = Catalog::read(include_str!(
+            "../../../../tests/fixtures/synthetic-controlled-phasing-ir.json"
+        ))
+        .unwrap();
+        let mut config = ScenarioConfig::turns_permanents();
+        config.profile = "synthetic-controlled-phasing".into();
+        config.initial.turn_step = TurnStep::PrecombatMain;
+        config.commanders.clear();
+        config.cards.clear();
+        for (seat, zone, definition) in [
+            (0, Zone::Hand { owner: PlayerId(0) }, 0),
+            (0, Zone::Battlefield, 1),
+            (1, Zone::Battlefield, 1),
+        ] {
+            config.cards.push(CardSetup {
+                id: CardId(config.cards.len() as u32),
+                oracle_id: catalog.definitions[definition].oracle_id.clone(),
+                owner: PlayerId(seat),
+                controller: PlayerId(seat),
+                zone,
+            });
+        }
+        for seat in (0..4).map(PlayerId) {
+            for _ in 0..4 {
+                config.cards.push(CardSetup {
+                    id: CardId(config.cards.len() as u32),
+                    oracle_id: catalog.definitions[1].oracle_id.clone(),
+                    owner: seat,
+                    controller: seat,
+                    zone: Zone::Library { owner: seat },
+                });
+            }
+        }
+        let prepared = Prepared {
+            catalog_digest: digest(&catalog).unwrap(),
+            profile_digest: digest(&config).unwrap(),
+            catalog: Arc::new(catalog),
+            config,
+            match_config: None,
+        };
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        request(&mut g, 1);
+        let land = object(&g, 1);
+        let opposing = object(&g, 2);
+        let handle = g.handle_for(PlayerId(1), land).unwrap();
+        cast(&mut g, 1, 0, vec![]);
+        assert!(g.current(land).unwrap().tapped);
+        assert_eq!(
+            g.current(land).unwrap().phased_out,
+            Some(PhaseReturn::Direct {
+                controller_at_phase_out: PlayerId(0)
+            })
+        );
+        assert!(g.current(opposing).unwrap().present_on_battlefield());
+        assert!(g.mana_abilities(land).unwrap().is_empty());
+        assert_eq!(g.handle_for(PlayerId(1), land).unwrap(), handle);
+        recover(&g);
+        for _ in 0..600 {
+            if g.current(land).unwrap().present_on_battlefield() {
+                break;
+            }
+            let r = request(&mut g, 1);
+            let response = match r {
+                Request::Priority { .. } => Response::Pass,
+                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                other => panic!("unexpected turn request: {other:?}"),
+            };
+            answer(&mut g, 1, response);
+        }
+        request(&mut g, 1);
+        assert_eq!(g.state.rules.turn_owner, PlayerId(0));
+        assert!(g.current(land).unwrap().present_on_battlefield());
+        assert!(!g.current(land).unwrap().tapped);
+        assert_eq!(g.handle_for(PlayerId(1), land).unwrap(), handle);
+        recover(&g);
+    }
+
+    #[test]
     fn controlled_phasing_freezes_attachment_identity_and_return_seat_on_live_table() {
         let mut p = prepared(
             &[
@@ -305,19 +385,18 @@ mod tests {
         );
         assert_eq!(schedule.phase_in_at_untap(&game, PlayerId(3)).unwrap(), ids);
         assert_eq!(game.state, before);
-        let batch = game
-            .commit_batch(
+        assert!(
+            game.commit_batch(
                 BatchCause::Fixture,
                 EventGroup::Occurrence {
                     proposed: ProposedEvent::PhaseOutControlled {
-                        controller: PlayerId(0),
-                    },
-                },
+                        controller: PlayerId(0)
+                    }
+                }
             )
-            .unwrap();
-        assert!(
-            matches!(batch.result(&[]),Some(EventOutcome::PermanentsPhasedOut{controller:PlayerId(0),members}) if members.iter().map(|(id,_)|*id).collect::<Vec<_>>()==ids)
+            .is_err()
         );
+        game.phase_out_controller_permanents(PlayerId(0)).unwrap();
         for viewer in (0..4).map(PlayerId) {
             assert!(
                 game.visible_object(viewer, game.current(bear).unwrap())

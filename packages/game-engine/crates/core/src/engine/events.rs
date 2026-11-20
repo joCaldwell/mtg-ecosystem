@@ -1462,6 +1462,28 @@ impl Game {
             }
         }
         collect(&group, self, 0, self.event_group_limit(), &mut events)?;
+        if events
+            .iter()
+            .any(|e| matches!(e, ProposedEvent::PhaseOutControlled { .. }))
+        {
+            let Frame::Resolve { frame } = &self.state.rules.frame else {
+                return Err("phase-out requires a resolving spell".into());
+            };
+            self.validate_resolving(frame)?;
+            if !frame.spell.kind.is_spell()
+                || frame.spell.paid.is_none()
+                || frame.cursor != 0
+                || self.top()? != &frame.spell
+                || !matches!(
+                    self.program_for(&frame.spell)?.instructions.as_slice(),
+                    [Instruction::PhaseOutControllerPermanents { source_block: 0 }]
+                )
+                || cause != Self::wipe_cause(frame, 0)
+                || !matches!(&group,EventGroup::Occurrence{proposed:ProposedEvent::PhaseOutControlled{controller}} if *controller==frame.spell.controller)
+            {
+                return Err("phase-out requires the paid controller instruction".into());
+            }
+        }
         if events.iter().any(|event| {
             matches!(
                 event,
@@ -1973,6 +1995,9 @@ impl Game {
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
+        if matches!(proposed, ProposedEvent::PhaseOutControlled { .. }) {
+            return Err("phase-out requires an authorized instruction batch".into());
+        }
         if matches!(
             proposed,
             ProposedEvent::Lose {
