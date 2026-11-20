@@ -1630,3 +1630,58 @@ describe("source-incarnation linked copies and permissions", () => {
     assert.notEqual(bound(graph, "/effects/1/steps/0/permission/what"), producer?.id);
   });
 });
+
+describe("local repeated decisions and intrinsic choices", () => {
+  it("repeats the exact optional land placement and its draw", () => {
+    const graph = analyze("When this creature enters, you may put a land card from your hand onto the battlefield tapped. "
+      + "If you do, draw a card and repeat this process.", "Creature");
+    boundCard(graph);
+    const loop = graph.nodes.find(node => node.node === "repeat-hand-placement");
+    assert.ok(loop && loop.continueWhen === "placement-performed");
+    assert.ok(graph.nodes.some(node => node.id === loop.place && node.node === "event" && node.optional));
+    assert.ok(graph.nodes.some(node => node.id === loop.draw && node.node === "event" && node.operation === "draw"));
+  });
+
+  it("does not repeat an optional placement after the branch that declines it", () => {
+    const graph = analyze("When this creature enters, you may put a land card from your hand onto the battlefield tapped. "
+      + "If you don't, draw a card and repeat this process.", "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "repeat-hand-placement"));
+  });
+
+  it("bottoms the actual unchosen portion of a private look", () => {
+    const graph = analyze("Look at the top five cards of your library. You may put a land card from among them onto the battlefield tapped. "
+      + "Put the rest on the bottom of your library in a random order.", "Sorcery");
+    boundCard(graph);
+    const rest = graph.nodes.find(node => node.node === "remainder");
+    assert.ok(rest);
+    assert.equal(rest.pool, bound(graph, "/filter/fromAmong"));
+    assert.ok(graph.nodes.some(node => node.id === rest.excluding && node.node === "event-result" &&
+      node.availability === "if-produced" && node.subsetOf === rest.pool));
+  });
+
+  it("does not use a look remainder across a second look", () => {
+    const graph = analyze("Look at the top five cards of your library. You may put a land card from among them onto the battlefield tapped. "
+      + "Look at the top two cards of your library. Put the rest on the bottom of your library in a random order.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "remainder"));
+  });
+
+  it("reads the equip target's colors after announcement", () => {
+    const graph = analyze("Equip {4}. This ability costs {1} less to activate for each color of the creature it targets.", "Artifact — Equipment");
+    boundCard(graph);
+    const discount = graph.nodes.find(node => node.node === "equip-target-color-discount");
+    assert.ok(discount);
+    assert.equal(discount.timing, "after-target-announcement");
+    assert.equal(discount.scope, bound(graph, "/multiplier/among/source"));
+    assert.equal(discount.id, bound(graph, "/multiplier/among"));
+  });
+
+  it("binds a pre-exile count of other permanents to this permanent", () => {
+    const graph = analyze("At the beginning of your upkeep, exile the top X cards of your library, where X is the number of card "
+      + "types among other nonland permanents you control. You may play those cards this turn.", "Creature");
+    boundCard(graph);
+    const source = bound(graph, "/among/filter/other");
+    assert.ok(graph.nodes.some(node => node.id === source && node.node === "source"));
+  });
+});
