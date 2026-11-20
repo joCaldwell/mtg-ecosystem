@@ -7090,6 +7090,7 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_artifact_sacrifice_schema(&mut schema);
     creature_planeswalker_return::schema(&mut schema);
     modal_targets::schema(&mut schema);
+    repeated_target_modes::schema(&mut schema);
     graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);

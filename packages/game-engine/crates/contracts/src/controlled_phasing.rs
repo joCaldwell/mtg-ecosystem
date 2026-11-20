@@ -198,13 +198,14 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn schema(s: &mut Value) {
-    // Targeted phasing is reserved for a complete repeated-mode source family.
-    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(
-        json!({"properties":{"capabilities":{"not":{"contains":{"const":Capability::TargetedPhasingV1}}}}}),
-    );
-    s["$defs"]["Instruction"]["allOf"].as_array_mut().unwrap().push(
-        json!({"not":{"properties":{"op":{"const":"phase_out_target_permanent"}},"required":["op"]}}),
-    );
+    let op = json!({"required":["op"],"properties":{"op":{"const":"phase_out_target_permanent"}}});
+    let free = json!({"$ref":"#/$defs/TargetPermanentPhaseFree"});
+    s["$defs"]["TargetPermanentPhaseFree"] = json!({"properties":{"instructions":{"not":{"contains":op}},"modes":{"items":{"properties":{"program":free}}}}});
+    s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}}},
+        "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}}}},{"properties":{"spell":{"type":"object","not":free}}}]},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}},"spell":{"$ref":"#/$defs/RepeatedTargetRoot"}}}
+    }));
     for (name, capability, free_name, pattern) in [
         (
             "phase_out_controller_permanents",

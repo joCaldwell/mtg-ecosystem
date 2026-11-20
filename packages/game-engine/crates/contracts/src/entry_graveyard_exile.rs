@@ -259,7 +259,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"spell":{"not":has_op},"activated":{"items":{"not":trigger}}},
-        "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":EntryGraveyardExileV1}}}},
+        "if":{"not":{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/RepeatedTargetRoot"}}},"anyOf":[{"properties":{"capabilities":{"contains":{"const":EntryGraveyardExileV1}}}},
             {"required":["triggered"],"properties":{"triggered":{"contains":trigger}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"[^"]*exile target player's graveyard"#}}}}}
         ]},
