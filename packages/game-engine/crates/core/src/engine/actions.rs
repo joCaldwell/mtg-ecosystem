@@ -81,6 +81,11 @@ pub(super) enum ResolutionChoice {
         split: bool,
         source_block: u32,
     },
+    ColoredSearch {
+        player: PlayerId,
+        source_block: u32,
+        revealed: Option<Vec<(Color, ObjectId)>>,
+    },
     SearchSplit {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -151,17 +156,26 @@ impl Game {
         }
         match program.targets.first().map(|target| target.domain) {
             None => true,
-            Some(
-                TargetDomain::AnyDamageTarget
-                | TargetDomain::AnyPlayer
-                | TargetDomain::PlayerOrPlaneswalker,
-            ) => !self.live_players().is_empty(),
-            Some(TargetDomain::OpponentPlayer) => !self.opponents(player).is_empty(),
-            Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
-                !self
-                    .eligible_stack_targets_for(&program.targets[0], None)
-                    .is_empty()
+            Some(TargetDomain::AnyDamageTarget) => {
+                self.live_players()
+                    .into_iter()
+                    .any(|p| self.targetable_player(p))
+                    || self.state.rules.objects.values().any(|o| {
+                        self.is_battlefield_creature(o.id) && !self.protected_from(o.id, source)
+                    })
             }
+            Some(
+                domain @ (TargetDomain::AnyPlayer
+                | TargetDomain::PlayerOrPlaneswalker
+                | TargetDomain::OpponentPlayer),
+            ) => !self.eligible_players(domain, player).is_empty(),
+            Some(
+                TargetDomain::StackSpell
+                | TargetDomain::ControlledCreatureSpell
+                | TargetDomain::StackActivatedOrTriggeredAbility,
+            ) => !self
+                .eligible_stack_targets_for(&program.targets[0], player, None)
+                .is_empty(),
             Some(
                 TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
             ) => self.state.rules.objects.values().any(|o| {
@@ -210,7 +224,7 @@ impl Game {
                 .map(|(slot, target)| {
                     self.program_for(entry).is_ok_and(|program| {
                         program.targets.get(slot).is_some_and(|spec| {
-                            self.eligible_stack_targets_for(spec, Some(entry.id))
+                            self.eligible_stack_targets_for(spec, entry.controller, Some(entry.id))
                                 .contains(target)
                         })
                     })
@@ -336,7 +350,7 @@ impl Game {
         if !self.is_live(player)
             || match ability.functioning_zone {
                 FunctioningZone::Battlefield => {
-                    source.zone != Zone::Battlefield || source.controller != player
+                    !source.present_on_battlefield() || source.controller != player
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
                 FunctioningZone::Stack => true,
@@ -396,6 +410,11 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::ColoredSearch {
+                player,
+                revealed: None,
+                ..
+            } if self.is_live(*player) => Some(self.colored_request(frame, *player)?),
             ResolutionChoice::HandReturn { player, .. } if self.is_live(*player) => {
                 Some(Request::HandReturn {
                     decision_id,
@@ -513,6 +532,26 @@ impl Game {
                 Ok(())
             } else {
                 Err("invalid optional effect choice".into())
+            });
+        }
+        if let Frame::ResolutionChoice {
+            frame,
+            choice:
+                ResolutionChoice::ColoredSearch {
+                    player: actor,
+                    revealed: None,
+                    ..
+                },
+        } = &self.state.rules.frame
+        {
+            return Some(match response {
+                Response::ColoredSearch { assignments }
+                    if player == *actor && self.is_live(player) =>
+                {
+                    self.colored_found(frame, player, assignments, self.state.rules.revision)
+                        .map(|_| ())
+                }
+                _ => Err("invalid colored library decision".into()),
             });
         }
         if let Some(result) = self.validate_staples_response(player, response) {
@@ -778,10 +817,19 @@ impl Game {
                 {
                     return self.removal_choice_step(frame, player, target, source_block);
                 }
+                if let ResolutionChoice::ColoredSearch {
+                    player,
+                    source_block,
+                    revealed,
+                } = choice
+                {
+                    return self.colored_step(frame, player, source_block, revealed);
+                }
                 if matches!(
                     choice,
                     ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::ColoredSearch { .. }
                         | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
@@ -799,6 +847,7 @@ impl Game {
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::ColoredSearch { .. }
                         | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
@@ -834,6 +883,7 @@ impl Game {
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::ColoredSearch { .. }
                     | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. }
@@ -972,6 +1022,13 @@ impl Game {
             Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
                 self.register_delayed_chapter(frame)
             }
+            Instruction::OfferHandCastWithoutManaCost { .. } => {
+                self.state.rules.frame = Frame::HandCast {
+                    frame: Box::new(frame),
+                    child: None,
+                };
+                Ok(())
+            }
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,
@@ -1017,6 +1074,34 @@ impl Game {
                 amount,
                 source_block,
             } => self.begin_surveil(frame, amount, source_block),
+            Instruction::FreezeControllerLifeUntilNextTurn { source_block } => {
+                let actual = self.commit(
+                    ProposedEvent::FreezeLifeUntilNextTurn {
+                        player: frame.spell.controller,
+                    },
+                    Self::wipe_cause(&frame, source_block),
+                )?;
+                self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    },
+                )
+            }
+            Instruction::PhaseOutControllerPermanents { source_block } => {
+                let actual = self.commit(
+                    ProposedEvent::PhaseOutControlled {
+                        controller: frame.spell.controller,
+                    },
+                    Self::wipe_cause(&frame, source_block),
+                )?;
+                self.finish_instruction(
+                    frame,
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    },
+                )
+            }
             i @ (Instruction::UntapControllerLands { .. }
             | Instruction::ExileTargetGraveyard { .. }
             | Instruction::MoveSet { .. }
@@ -1057,12 +1142,17 @@ impl Game {
             | Instruction::ReturnOwnGraveyardCardToHand { .. }
             | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
+            | Instruction::SearchColoredLibrary { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
             Instruction::DistributePlusOneCounters { source_block, .. } => {
                 let allocations = self.allocated_counter_targets(&frame)?;
                 let cause = Self::staple_cause(&frame, source_block);
                 self.begin_counter_placements(frame, allocations, cause)
             }
+            Instruction::CopyControlledCreatureSpell {
+                target_slot,
+                source_block,
+            } => self.copy_creature_spell(frame, target_slot, source_block),
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
@@ -1070,8 +1160,10 @@ impl Game {
             }
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
+            | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }
+            | Instruction::GrantHandCastCascade { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
             Instruction::DrainOpponents {
                 amount,
@@ -1677,25 +1769,37 @@ impl Game {
         self.stabilize()
     }
     pub(super) fn remove_resolved_entry(&mut self, entry: &StackInstance) -> Result<(), String> {
+        if let Some(index) = self.resolving_entry_index(entry)? {
+            self.state.rules.stack.remove(index);
+        }
+        Ok(())
+    }
+    pub(super) fn resolving_entry_index(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<Option<usize>, String> {
         if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == entry.id) {
-            let child = self.resolution_child(entry.id);
+            let child = match &self.state.rules.frame {
+                Frame::Resolve { frame } if frame.stack_id == entry.id => frame.copied_child(),
+                _ => self.resolution_child(entry.id),
+            };
             if self.state.rules.stack[index] != *entry
                 || match child {
                     None => index + 1 != self.state.rules.stack.len(),
                     Some(child) => {
                         index + 2 != self.state.rules.stack.len()
                             || self.top()?.id != child
-                            || self.top()?.paid.is_none()
+                            || !self.stack_entry_complete(self.top()?)
                     }
                 }
             {
                 return Err("exact resolving owner completion invariant".into());
             }
-            self.state.rules.stack.remove(index);
+            return Ok(Some(index));
         } else if self.invocation_lives(entry) {
             return Err("missing live resolving owner".into());
         }
-        Ok(())
+        Ok(None)
     }
     pub(super) fn invocation_lives(&self, entry: &StackInstance) -> bool {
         if entry.kind.is_spell() {
@@ -1709,7 +1813,7 @@ impl Game {
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
-        self.validate_resolving_owned(frame, None)
+        self.validate_resolving_owned(frame, frame.copied_child())
     }
     pub(super) fn validate_resolving_owned(
         &self,
@@ -1729,10 +1833,24 @@ impl Game {
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
+        if let Some(copy) = frame.copied_child()
+            && (!matches!(
+                program.instructions.as_slice(),
+                [Instruction::CopyControlledCreatureSpell { .. }]
+            ) || child != Some(copy)
+                || self.invocation_lives(entry)
+                    && !self.state.rules.stack.last().is_some_and(|top| {
+                        top.id == copy
+                            && self.is_spell_copy(top)
+                            && self.state.rules.tokens[&top.source.card].source == entry.source
+                    }))
+        {
+            return Err("snapshot resolving spell copy authority".into());
+        }
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
             || !self.announced_target_count_valid(program, entry)
-            || entry.paid.as_ref() != Some(&entry.total_cost)
+            || !self.stack_entry_complete(entry)
             // Immediate loss and completion of its activated ability share one
             // atomic rule step. There is no post-loss resolving continuation.
             || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)

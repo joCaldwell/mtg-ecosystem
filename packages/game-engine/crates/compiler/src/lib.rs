@@ -13,12 +13,16 @@ mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
 mod bindings;
+mod cascade_land_entry;
 mod cast_entry;
 mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
+mod colored_library_search;
+mod combat_hand_cast;
 mod commander_modal_keyword;
+mod controlled_creature_spell_copy;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -27,6 +31,7 @@ mod controller_library;
 mod controller_scry_tests;
 #[cfg(test)]
 mod controller_surveil_tests;
+mod controller_window;
 mod counter_spell_controller_mill;
 #[cfg(test)]
 mod counter_spell_controller_mill_tests;
@@ -47,6 +52,7 @@ mod fixed_mill;
 mod fixed_mill_tests;
 mod graveyard_battlefield_return;
 mod group_discard;
+mod hand_cast_cascade;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
@@ -85,6 +91,7 @@ mod controller_land_types;
 mod cycling;
 #[cfg(test)]
 mod cycling_tests;
+mod granted_land_mana;
 mod targeted_counted_draw;
 mod targeted_discard;
 #[cfg(test)]
@@ -192,6 +199,9 @@ enum Ability {
         chapters: Vec<u32>,
         effects: Vec<serde_json::Value>,
     },
+    // The complete source and its exact graph are verified before emission.
+    #[serde(skip)]
+    ControlledCreatureSpellCopy,
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
@@ -202,6 +212,10 @@ enum Ability {
     DividedPlusOneCountersModal,
     #[serde(skip)]
     CommanderModalKeyword,
+    #[serde(skip)]
+    HandCastCascade,
+    #[serde(skip)]
+    ControllerWindowBlock,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -728,6 +742,10 @@ enum Step {
         removal: serde_json::Value,
         duration: SourceDuration,
     },
+    PlayCard {
+        instruction: serde_json::Value,
+        optional: bool,
+    },
     LoseGame {
         who: PlayerSelector,
     },
@@ -1111,6 +1129,10 @@ enum AnyTargetReference {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "static", rename_all = "kebab-case", deny_unknown_fields)]
 enum SourceStaticEffect {
+    AsCascade {
+        controller: serde_json::Value,
+        choice: serde_json::Value,
+    },
     CastSpellAbilities {
         scope: serde_json::Value,
         abilities: Vec<serde_json::Value>,
@@ -1455,7 +1477,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = if commander_modal_keyword::validate(&shape, &result, &binding)? {
+    let controller_window =
+        controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let abilities = if controller_window.is_some() {
+        vec![Ability::ControllerWindowBlock; 2]
+    } else if let Some(abilities) = hand_cast_cascade::lower(&source, &shape, &result, &binding)? {
+        abilities
+    } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
         vec![Ability::CommanderModalKeyword]
     } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
         vec![Ability::DividedPlusOneCountersModal]
@@ -1463,6 +1491,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
         vec![ability]
+    } else if controlled_creature_spell_copy::candidate(&source) {
+        vec![Ability::ControlledCreatureSpellCopy]
     } else {
         read_abilities(&canonical_abilities)?
     };
@@ -1540,6 +1570,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    cascade_land_entry::validate(&abilities, &result, &shape, &binding, &source)?;
     let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
     let mut counted_artifact_modes =
         artifact_modal::bind(&result, &shape, &binding, &r.oracle_identity)?;
@@ -1548,9 +1579,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let (color_stats, color_mana) =
         distinct_permanent_colors::lower(&abilities, &result, &binding, &source)?
             .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
+    let granted_mana = granted_land_mana::lower(&source, &shape, &result, &binding)?;
+    let grants_land_mana = granted_mana.is_some();
     let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let set_exile = set_exile::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let colored_library = colored_library_search::lower(&source, &shape, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let keyword_removal_wipe = keyword_removal_wipe::lower(&source, &shape, &result, &binding)?;
     source_dies_nonland_destroy::bind(&source, &result, &binding)?;
@@ -1688,6 +1722,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .flatten()
         .chain(opponent_land_mana)
         .chain(color_mana)
+        .chain(granted_mana)
         .collect();
     labels
         .mana
@@ -1735,11 +1770,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if controller_window.is_some() => {
+            definition.spell = controller_window;
+        }
         CardKind::Sorcery | CardKind::Instant if set_exile.is_some() => {
             definition.spell = set_exile;
         }
         CardKind::Sorcery if keyword_removal_wipe.is_some() => {
             definition.spell = keyword_removal_wipe;
+        }
+        CardKind::Sorcery if colored_library.is_some() => {
+            definition.spell = colored_library;
         }
         CardKind::Sorcery if opponent_nonland_destroy.is_some() => {
             definition.spell = opponent_nonland_destroy;
@@ -1781,6 +1822,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                 }
                 &abilities[abilities.len()..]
+            } else if grants_land_mana {
+                labels.statics.push(0);
+                definition
+                    .static_abilities
+                    .push(mtg_contracts::granted_land_mana_static());
+                &[]
             } else if let Some(stats) = color_stats {
                 // The complete family consumed the static and activated blocks.
                 labels.statics.push(1);
@@ -1794,6 +1841,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::HandCastCascade => {
+                        labels.triggered.push(source_block(block)?);
+                        definition
+                            .triggered
+                            .push(mtg_contracts::hand_cast_cascade::hand_cast_cascade_ability());
+                    }
                     Ability::CastPayerDraw { generic } => {
                         labels.triggered.push(source_block(block)?);
                         definition
@@ -2088,7 +2141,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if let Some(ability) = source_tap_trigger.take() {
+                        let ability = if block == 1
+                            && condition.is_none()
+                            && combat_hand_cast::is_offer(effects)
+                        {
+                            mtg_contracts::combat_hand_cast_trigger()
+                        } else if let Some(ability) = source_tap_trigger.take() {
                             ability
                         } else if let Some(discard) = &group_discard {
                             group_discard::entry_trigger(discard.clone())
@@ -2196,6 +2254,21 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         .push(Instruction::CounterSpellUnlessPays {
                             target_slot,
                             generic: generic.clone(),
+                            source_block: 0,
+                        });
+                    continue;
+                }
+                if let Ability::ControlledCreatureSpellCopy = ability {
+                    let target_slot = bind_target(
+                        &mut program,
+                        &mut slots,
+                        controlled_creature_spell_copy::SELECTION,
+                        TargetDomain::ControlledCreatureSpell,
+                    )?;
+                    program
+                        .instructions
+                        .push(Instruction::CopyControlledCreatureSpell {
+                            target_slot,
                             source_block: 0,
                         });
                     continue;
@@ -2579,6 +2652,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     {
         cast_mana_value_sweep::validate_binding(&definition.oracle_id, &shape, &binding)?;
     }
+    if definition
+        .capabilities
+        .contains(&Capability::ControlledCreatureSpellCopyV1)
+    {
+        controlled_creature_spell_copy::validate_binding(&definition, &shape, &binding)?;
+    }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
@@ -2586,6 +2665,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
+    combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
     {
@@ -4535,6 +4615,13 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if matches!(effect, SourceStaticEffect::AsCascade { .. }) {
+        // The complete source and occurrence graph were checked before lowering.
+        return Ok(StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::CascadeLandEntry,
+        });
+    }
     if let Some(entry) = conditional_lands::lower(effect)? {
         return Ok(entry);
     }

@@ -406,7 +406,7 @@ impl Game {
             .mana_abilities
             .get(index as usize)
             .ok_or("missing mana ability")?;
-        if o.zone != Zone::Battlefield
+        if !o.present_on_battlefield()
             || o.controller != player
             || !self.is_live(player)
             || (a.costs.tap && o.tapped)
@@ -431,18 +431,27 @@ impl Game {
         source: ObjectId,
     ) -> Result<Vec<ManaAbilityIdentity>, String> {
         let definition = self.definition(source.card)?;
-        if self.intrinsic_mana_colors(source)?.is_empty()
-            || (definition.mana_abilities.len() != 1 && !disjoint_pain_mana_family(definition))
-        {
-            return Err("missing mixed mana provider".into());
-        }
+        let grant = self.has_granted_land_mana(source)?;
+        let printed = definition.mana_abilities.len() == 1 || disjoint_pain_mana_family(definition);
         let mut choices: Vec<_> = self
             .intrinsic_choice_colors(player, source)
             .unwrap_or_default()
             .into_iter()
             .map(|color| ManaAbilityIdentity::Intrinsic { color })
             .collect();
-        for index in 0..definition.mana_abilities.len() {
+        // Identical grants are interchangeable in the closed mana rules. They
+        // stay distinct from the land's intrinsic and printed abilities.
+        if grant && self.validate_simple_tap_mana(player, source).is_ok() {
+            choices.extend(
+                Self::granted_land_mana_colors()
+                    .map(|color| ManaAbilityIdentity::GrantedLandTap { color }),
+            );
+        }
+        for index in 0..if printed {
+            definition.mana_abilities.len()
+        } else {
+            0
+        } {
             let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
             if self
                 .validate_permanent_mana_costs(player, source, index)
@@ -535,6 +544,10 @@ impl Game {
                 return Err("invalid selected mana ability".into());
             }
             return match ability {
+                ManaAbilityIdentity::GrantedLandTap { color } => {
+                    let receipt = self.commit_unrestricted_tap_mana(&input, source, color)?;
+                    self.resume_mana(resume, vec![receipt])
+                }
                 ManaAbilityIdentity::Intrinsic { color } => {
                     let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
                     self.resume_mana(resume, vec![receipt])
@@ -583,7 +596,19 @@ impl Game {
         source: ObjectId,
         resume: Frame,
     ) -> Result<(), String> {
-        if self.is_permanent_mana(source) {
+        if self.has_granted_land_mana(source)? {
+            self.validate_mana_activation(input.player, source)?;
+            if !self.mana_resume_player(&resume, input.player) {
+                return Err("invalid granted mana continuation".into());
+            }
+            self.state.rules.frame = Frame::ManaSourceChoice {
+                player: input.player,
+                source,
+                scope: ManaSourceScope::Mixed,
+                resume: Box::new(resume),
+            };
+            Ok(())
+        } else if self.is_permanent_mana(source) {
             self.begin_permanent_mana(input, source, resume)
         } else {
             self.begin_intrinsic_mana(input, source, resume)
@@ -843,7 +868,7 @@ impl Game {
         cause: BatchCause,
     ) -> Result<(), String> {
         let o = self.current(source)?;
-        if o.zone != Zone::Battlefield || o.controller != player || (costs.tap && o.tapped) {
+        if !o.present_on_battlefield() || o.controller != player || (costs.tap && o.tapped) {
             return Err("permanent cost source changed".into());
         }
         if costs
@@ -1044,6 +1069,7 @@ impl Game {
                 self.state.rules.objects.insert(
                     r.source.object.card,
                     Object {
+                        phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
                         keyword_timestamp: r.source.keyword_timestamp,
@@ -1115,10 +1141,32 @@ impl Game {
             resume,
         } = &self.state.rules.frame
         {
-            if match scope {
-                ManaSourceScope::Mixed => self.mixed_mana_choices(*player, *source).is_err(),
-                _ => self.mana_source_colors(*player, *source, *scope).is_err(),
-            } {
+            let invalid = if *scope == ManaSourceScope::Mixed {
+                match self.mixed_mana_choices(*player, *source) {
+                    Err(_) => true,
+                    Ok(choices) => {
+                        let selected = self.state.rules.pending.as_ref().and_then(|input| {
+                            match &input.response {
+                                Response::ChooseManaAbility { ability } => Some(*ability),
+                                _ => None,
+                            }
+                        });
+                        if let Some(ability) = selected
+                            && choices.contains(&ability)
+                        {
+                            false
+                        } else {
+                            self.state.rules.pending = None;
+                            !self.has_granted_land_mana(*source)?
+                                && (self.intrinsic_mana_colors(*source)?.is_empty()
+                                    || !self.is_permanent_mana(*source))
+                        }
+                    }
+                }
+            } else {
+                self.mana_source_colors(*player, *source, *scope).is_err()
+            };
+            if invalid {
                 let resume = *resume.clone();
                 self.state.rules.pending = None;
                 self.state.rules.frame = resume;

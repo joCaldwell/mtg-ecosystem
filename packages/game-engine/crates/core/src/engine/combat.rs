@@ -626,7 +626,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && o.deathtouch_damage)
+            .filter(|o| o.present_on_battlefield() && o.deathtouch_damage)
             .map(|o| o.id)
             .collect::<Vec<_>>();
         let mut occurrences = self.completed_sagas()?;
@@ -683,17 +683,14 @@ impl Game {
                 }
             }
         }
-        // CR 111.7/704.5d: the previous movement already collected dies
+        // CR 111.7/704.5d-e: the previous movement already collected dies
         // triggers using lookback. Ceasing is its own next SBA wave.
         occurrences.extend(
             self.state
                 .rules
                 .objects
                 .values()
-                .filter(|o| {
-                    self.state.rules.tokens.contains_key(&o.id.card) && o.zone != Zone::Battlefield
-                })
-                .map(|o| ProposedEvent::CeaseToken { object: o.id }),
+                .filter_map(|o| self.cessation(o)),
         );
         let losses = self
             .live_players()
@@ -796,7 +793,7 @@ impl Game {
             .copied()
             .filter(|id| {
                 self.current(*id)
-                    .is_ok_and(|o| o.zone == Zone::Battlefield && o.deathtouch_damage)
+                    .is_ok_and(|o| o.present_on_battlefield() && o.deathtouch_damage)
             })
             .collect::<Vec<_>>();
         if !objects.is_empty() {

@@ -9,6 +9,7 @@ mod reactive_tests {
         let card = |name: &str, owner: u8, zone: Zone| {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             VisibleObject {
+                phased_out: false,
                 mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
@@ -29,6 +30,7 @@ mod reactive_tests {
             }
         };
         let mut v = PermittedView {
+            known_searched_hand: vec![],
             known_library_positions: vec![],
             sacrifice_choices: vec![],
             setup: None,
@@ -47,6 +49,7 @@ mod reactive_tests {
             priority: Some(player),
             players: (0..4)
                 .map(|i| mtg_core::VisiblePlayer {
+                    life_frozen_until_next_turn: false,
                     exile: vec![],
                     library_shuffles: 0,
                     player: PlayerId(i),
@@ -214,6 +217,7 @@ mod wipe_tests {
     pub(super) fn card(c: &Catalog, name: &str, owner: u8, zone: Zone) -> VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
+            phased_out: false,
             mana_ability_used: None,
             attached_to: None,
             attachments: vec![],

@@ -46,6 +46,13 @@ pub enum VisibleTriggerAbility {
         oracle_id: String,
         static_ability_index: u32,
     },
+    TemporaryGrant {
+        source: VisibleTarget,
+        oracle_id: String,
+        triggered_ability_index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effect: Option<EffectHandle>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -74,6 +81,8 @@ pub struct DecisionToken(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisiblePlayer {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub life_frozen_until_next_turn: bool,
     /// Public viewer handles, grouped by physical owner (CR406.1–3).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exile: Vec<ObjectHandle>,
@@ -89,6 +98,8 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phased_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_ability_used: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,6 +186,8 @@ pub struct VisibleStackEntry {
     pub player_targets: Vec<PlayerId>,
     pub controller: PlayerId,
     pub cast_complete: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spell_copy: bool,
     pub targets: Vec<VisibleTarget>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -197,6 +210,8 @@ pub struct KnownLibraryPosition {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PermittedView {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_searched_hand: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -226,6 +241,11 @@ pub struct AdditionalCostChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    HandCast {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     AdditionalCosts {
         token: DecisionToken,
         player: PlayerId,
@@ -293,10 +313,22 @@ pub enum PlayerRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana_ability_source: Option<ObjectHandle>,
     },
+    CascadeLandEntry {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     SearchLandBattlefield {
         token: DecisionToken,
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
+    },
+    ColoredSearch {
+        token: DecisionToken,
+        player: PlayerId,
+        library: Vec<String>,
+        colors: Vec<Color>,
+        candidates: Vec<ColoredCardCandidate>,
     },
     SearchLands {
         token: DecisionToken,
@@ -464,7 +496,8 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::HandReturn { token, .. }
+            Self::HandCast { token, .. }
+            | Self::HandReturn { token, .. }
             | Self::LibraryOrder { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
@@ -472,7 +505,9 @@ impl PlayerRequest {
             Self::LegendRule { token, .. }
             | Self::ChooseManaAbility { token, .. }
             | Self::ManaColor { token, .. }
+            | Self::ColoredSearch { token, .. }
             | Self::SearchLands { token, .. }
+            | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
@@ -555,8 +590,14 @@ pub enum PlayerResponse {
     ManaColor {
         color: Color,
     },
+    ColoredSearch {
+        assignments: Vec<ColoredCardAssignment>,
+    },
     SearchLands {
         objects: Vec<ObjectHandle>,
+    },
+    CascadeLandEntry {
+        object: Option<ObjectHandle>,
     },
     SearchLandBattlefield {
         object: ObjectHandle,
@@ -724,6 +765,8 @@ impl ObjectHandles {
 #[serde(deny_unknown_fields)]
 pub(super) struct Knowledge {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(super) revealed_hand: BTreeSet<ObjectId>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub(super) public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) own_knowledge: Vec<OwnKnowledgeAction>,
@@ -869,39 +912,57 @@ impl Game {
         ability: EffectiveTriggerAbility,
         grant: Option<&CascadeGrantProvenance>,
     ) -> Result<VisibleTriggerAbility, String> {
-        match ability {
+        let grant_source = match ability {
             EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
-                Ok(VisibleTriggerAbility::DelayedChapter { chapter })
+                return Ok(VisibleTriggerAbility::DelayedChapter { chapter });
             }
             EffectiveTriggerAbility::Intrinsic { index } => {
-                Ok(VisibleTriggerAbility::Intrinsic { index })
+                return Ok(VisibleTriggerAbility::Intrinsic { index });
             }
+            EffectiveTriggerAbility::Granted { grant_source, .. }
+            | EffectiveTriggerAbility::TemporaryGrant { grant_source, .. } => grant_source,
+        };
+        let grant = grant.ok_or("missing public grant provenance")?;
+        let source = VisibleTarget {
+            announced: grant
+                .source_handles
+                .get(viewer.0 as usize)
+                .ok_or("missing grant source handle")?
+                .clone(),
+            current: self.handle_for(viewer, grant_source).ok(),
+        };
+        let oracle_id = self
+            .state
+            .rules
+            .cards
+            .get(&grant_source.card)
+            .ok_or("missing grant physical source")?
+            .oracle_id
+            .clone();
+        Ok(match ability {
             EffectiveTriggerAbility::Granted {
-                grant_source,
                 static_ability_index,
-            } => {
-                let grant = grant.ok_or("missing public grant provenance")?;
-                Ok(VisibleTriggerAbility::Granted {
-                    source: VisibleTarget {
-                        announced: grant
-                            .source_handles
-                            .get(viewer.0 as usize)
-                            .ok_or("missing grant source handle")?
-                            .clone(),
-                        current: self.handle_for(viewer, grant_source).ok(),
-                    },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&grant_source.card)
-                        .ok_or("missing grant physical source")?
-                        .oracle_id
-                        .clone(),
-                    static_ability_index,
-                })
-            }
-        }
+                ..
+            } => VisibleTriggerAbility::Granted {
+                source,
+                oracle_id,
+                static_ability_index,
+            },
+            EffectiveTriggerAbility::TemporaryGrant {
+                effect,
+                triggered_ability_index,
+                ..
+            } => VisibleTriggerAbility::TemporaryGrant {
+                source,
+                oracle_id,
+                triggered_ability_index,
+                effect: self
+                    .effect_handle(viewer, &EffectKey::Resolved { id: effect })
+                    .ok(),
+            },
+            EffectiveTriggerAbility::Intrinsic { .. }
+            | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
+        })
     }
     pub(super) fn player_entity(
         &self,
@@ -950,6 +1011,10 @@ impl Game {
         if matches!(&self.state.rules.frame,
             Frame::ResolutionChoice { choice: ResolutionChoice::SearchSplit { objects, .. }, .. }
             if objects.contains(&object.id))
+        {
+            return true;
+        }
+        if matches!(&self.state.rules.frame, Frame::ResolutionChoice{choice:ResolutionChoice::ColoredSearch{revealed:Some(cards),..},..} if cards.iter().any(|(_,id)|*id==object.id))
         {
             return true;
         }
@@ -1018,6 +1083,7 @@ impl Game {
             .map_err(|_| "zone count resource limit".to_string())
         };
         Ok(VisiblePlayer {
+            life_frozen_until_next_turn: p.life_frozen_until_next_turn,
             exile: vec![],
             library_shuffles: self
                 .state
@@ -1063,6 +1129,7 @@ impl Game {
             .get(&object.id.card)
             .ok_or("missing object definition")?;
         Ok(Some(VisibleObject {
+            phased_out: object.phased_out.is_some(),
             attached_to: object
                 .attached_to
                 .filter(|t| self.current(*t).is_ok())
@@ -1097,6 +1164,7 @@ impl Game {
                 .rules
                 .tokens
                 .get(&object.id.card)
+                .filter(|t| t.is_token(object))
                 .map(|t| VisibleToken {
                     name: t.definition.name.clone(),
                     keywords: t.definition.keywords.clone(),
@@ -1112,9 +1180,15 @@ impl Game {
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
-            // Tokens have no Oracle identity. Never expose their physical IDs
-            // through a synthetic Oracle string; their public row has a handle.
-            oracle_id: if self.state.rules.tokens.contains_key(&object.id.card) {
+            // A copy can show the original printed Oracle ID. An instruction-defined
+            // token has only its public handle and visible token template.
+            oracle_id: if self
+                .state
+                .rules
+                .tokens
+                .get(&object.id.card)
+                .is_some_and(|t| !t.is_copy())
+            {
                 String::new()
             } else {
                 physical.oracle_id.clone()
@@ -1275,6 +1349,7 @@ impl Game {
             player_targets: instance.player_targets.clone(),
             controller: instance.controller,
             cast_complete: instance.paid.is_some(),
+            spell_copy: self.is_spell_copy(instance),
             targets,
         })
     }
@@ -1283,6 +1358,7 @@ impl Game {
             return Err("invalid viewer".into());
         }
         Ok(PermittedView {
+            known_searched_hand: self.publicly_searched_hand(viewer)?,
             known_library_positions: self.known_library_positions(viewer)?,
             sacrifice_choices: if let Frame::ForcedSacrifice { choices, .. } =
                 &self.state.rules.frame
@@ -1491,10 +1567,30 @@ impl Game {
                 (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
             );
         }
-        if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
+        if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
             return Ok(
-                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
+                (frame.spell.controller == viewer).then_some(PlayerRequest::HandCast {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                }),
             );
+        }
+        if let Some(request) = self.cascade_request()? {
+            if request.player() != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(match request {
+                Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
+                    token,
+                    player,
+                    candidates: vec![],
+                },
+                Request::OptionalEffect { player, .. } => {
+                    PlayerRequest::OptionalEffect { token, player }
+                }
+                _ => return Err("unknown cascade decision".into()),
+            }));
         }
         if let Some(Request::Modes {
             player,
@@ -1639,6 +1735,18 @@ impl Game {
                     token,
                     player: viewer,
                     candidates: vec![],
+                },
+                Request::ColoredSearch {
+                    library,
+                    colors,
+                    candidates,
+                    ..
+                } => PlayerRequest::ColoredSearch {
+                    token,
+                    player: viewer,
+                    library,
+                    colors,
+                    candidates,
                 },
                 Request::SearchLands {
                     maximum,
@@ -1796,6 +1904,7 @@ impl Game {
                     candidates: self
                         .eligible_stack_targets_for(
                             &self.program()?.targets[0],
+                            viewer,
                             Some(self.top()?.id),
                         )
                         .into_iter()
@@ -2089,10 +2198,19 @@ impl Game {
             {
                 Some((self.state.rules.revision, 17))
             } else if self
-                .cascade_request()?
+                .hand_cast_request()?
                 .is_some_and(|r| r.player() == viewer)
             {
-                Some((self.state.rules.revision, 22))
+                Some((self.state.rules.revision, 45))
+            } else if let Some(request) = self.cascade_request()?
+                && request.player() == viewer
+            {
+                let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
+                    23
+                } else {
+                    22
+                };
+                Some((self.state.rules.revision, kind))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
                 Some((self.state.rules.revision, 13))
             } else if self
@@ -2396,11 +2514,20 @@ impl Game {
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
             }),
+            PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
+                object: object
+                    .as_ref()
+                    .map(|handle| self.resolve_handle(viewer, handle))
+                    .transpose()?,
+            }),
             PlayerResponse::SearchLandBattlefield { object } => {
                 Ok(Response::SearchLandBattlefield {
                     object: self.resolve_handle(viewer, object)?,
                 })
             }
+            PlayerResponse::ColoredSearch { assignments } => Ok(Response::ColoredSearch {
+                assignments: assignments.clone(),
+            }),
             PlayerResponse::SearchLands { objects } => Ok(Response::SearchLands {
                 objects: objects
                     .iter()

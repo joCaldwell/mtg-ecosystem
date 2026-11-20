@@ -11,7 +11,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
         {
             let definition = self.definition(object.id.card)?;
             if definition.characteristics.legendary {

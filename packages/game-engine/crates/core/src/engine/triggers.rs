@@ -25,6 +25,10 @@ pub(super) struct PendingTrigger {
     event: TriggerOccurrenceId,
     pub(super) witness: TriggerEventWitness,
 }
+enum MatchedCascadeGrant {
+    Static(ObjectBefore),
+    Temporary(CascadeGrantProvenance),
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TriggerPlacement {
@@ -392,7 +396,7 @@ impl Game {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn source_tap_witness(&self, object: ObjectId) -> Result<Option<TriggerEventWitness>, String> {
         let current = self.current(object)?;
-        Ok((current.zone == Zone::Battlefield
+        Ok((current.present_on_battlefield()
             && current.tapped
             && self
                 .definition(object.card)?
@@ -609,7 +613,7 @@ impl Game {
                     && let DamageRecipient::Player { player } = damage.recipient
                     && self
                         .current(damage.source.object)
-                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                        .is_ok_and(|o| o.present_on_battlefield())
                 {
                     group_transaction = *transaction;
                     damage_groups
@@ -757,7 +761,7 @@ impl Game {
             TriggerEventWitness::DamageDealt { damage, .. }
                 if observers
                     .current(damage.source.object)
-                    .is_ok_and(|o| o.zone == Zone::Battlefield) =>
+                    .is_ok_and(|o| o.present_on_battlefield()) =>
             {
                 Some(Box::new(observers.object_before(damage.source.object)?))
             }
@@ -771,7 +775,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield || matches!(&witness, TriggerEventWitness::SpellCast {cast} if o.zone == Zone::Stack && o.id == cast.spell.object))
+            .filter(|o| o.present_on_battlefield() || matches!(&witness, TriggerEventWitness::SpellCast {cast} if o.zone == Zone::Stack && o.id == cast.spell.object))
             .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
         {
             for (ability, definition) in observers
@@ -986,7 +990,7 @@ impl Game {
                 .rules
                 .objects
                 .values()
-                .filter(|o| o.zone == Zone::Battlefield)
+                .filter(|o| o.present_on_battlefield())
             {
                 let fact = observers.object_before(object.id)?;
                 if fact.controller != cast.caster || !observers.is_live(cast.caster) {
@@ -1012,9 +1016,41 @@ impl Game {
                             },
                             None,
                             witness.clone(),
-                            Some(fact.clone()),
+                            Some(MatchedCascadeGrant::Static(fact.clone())),
                         ));
                     }
+                }
+            }
+            // CR 611.2f/702.85c: each resolved effect independently grants
+            // one ability to a later spell put on the stack from this hand.
+            // Only this successful-cast collector creates its trigger.
+            for effect in &observers.state.rules.effects {
+                let ResolvedEffectKind::GrantHandCastCascade {
+                    triggered_ability_index,
+                    source_facts,
+                } = &effect.kind
+                else {
+                    continue;
+                };
+                let turn = effect.expires_in_cleanup_of_turn;
+                if spell_cascade_grants::hand_cast_eligible(effect.origin.controller, turn, cast) {
+                    matched.push((
+                        None,
+                        cast.spell.clone(),
+                        EffectiveTriggerAbility::TemporaryGrant {
+                            effect: effect.id,
+                            grant_source: effect.origin.source,
+                            triggered_ability_index: *triggered_ability_index,
+                            grant_stack_id: effect.origin.stack_id,
+                            turn,
+                        },
+                        None,
+                        witness.clone(),
+                        Some(MatchedCascadeGrant::Temporary(CascadeGrantProvenance {
+                            source_facts: source_facts.as_ref().clone(),
+                            source_handles: effect.origin.source_handles.clone(),
+                        })),
+                    ));
                 }
             }
         }
@@ -1100,14 +1136,14 @@ impl Game {
                 }
                 _ => self.capture_trigger_source_handles(source)?,
             };
-            let grant = grant_fact
-                .map(|fact| {
-                    Ok::<_, String>(CascadeGrantProvenance {
-                        source_handles: self.capture_trigger_source_handles(fact.object)?,
-                        source_facts: fact,
-                    })
-                })
-                .transpose()?;
+            let grant = match grant_fact {
+                Some(MatchedCascadeGrant::Static(fact)) => Some(CascadeGrantProvenance {
+                    source_handles: self.capture_trigger_source_handles(fact.object)?,
+                    source_facts: fact,
+                }),
+                Some(MatchedCascadeGrant::Temporary(grant)) => Some(grant),
+                None => None,
+            };
             self.state.rules.pending_triggers.push(PendingTrigger {
                 death_controller,
                 match_condition,
@@ -1150,7 +1186,10 @@ impl Game {
                 additional,
             }));
         }
-        // One stack ID per pending trigger, including all new siblings.
+        self.preflight_stack_ids(additional)
+    }
+    pub(super) fn preflight_stack_ids(&mut self, additional: u64) -> Result<(), String> {
+        // One stack ID per pending trigger, plus any new entries.
         let pending = u64::try_from(self.state.rules.pending_triggers.len())
             .map_err(|_| "stack ID resource limit")?;
         let requested = pending
@@ -1328,6 +1367,7 @@ impl Game {
                         cost_lock: None,
                         selected_additional_costs: None,
                         alternative_cost: None,
+                        hand_cast_permission: None,
                         x: None,
                         death_controller: trigger.death_controller,
                         sacrificed: None,
@@ -1609,11 +1649,12 @@ impl Game {
             entrant.zone,
             &entrant.characteristics,
         )?;
-        let token = self.state.rules.tokens.contains_key(&entrant.object.card);
+        let token = self.state.rules.tokens.get(&entrant.object.card);
         let actual_entry = match movement {
             Some(m) => {
-                !token
-                    && m.destination == Zone::Battlefield
+                token.is_none_or(|t| {
+                    t.is_copy() && m.from == Zone::Stack && m.previous.incarnation == 0
+                }) && m.destination == Zone::Battlefield
                     && match m.from {
                         Zone::Battlefield => false,
                         Zone::Stack | Zone::Exile => true,
@@ -1627,7 +1668,7 @@ impl Game {
                     && m.previous.incarnation.checked_add(1) == Some(m.successor.incarnation)
             }
             None => {
-                token
+                token.is_some_and(|t| !t.is_copy())
                     && entrant.object.incarnation == 0
                     && entrant.default_controller == entrant.owner
             }
@@ -1855,6 +1896,11 @@ impl Game {
                     && cast.spell.controller == cast.caster
                     && cast.spell.default_controller.0 < 4
                     && cast.spell.zone == Zone::Stack
+                    && !self
+                        .state
+                        .rules
+                        .tokens
+                        .contains_key(&cast.spell.object.card)
                     && !cast.spell.characteristics.has_type(CardKind::Land)
                     && self
                         .state
@@ -1882,7 +1928,11 @@ impl Game {
                     && death_controller.is_none()
             }
             TriggerEventWitness::TokenEntered { object } => {
-                self.state.rules.tokens.contains_key(&object.card)
+                self.state
+                    .rules
+                    .tokens
+                    .get(&object.card)
+                    .is_some_and(|t| !t.is_copy())
                     && object.incarnation == 0
                     && *condition == TriggerCondition::OtherCreatureEntersBattlefield
                     && *object != source

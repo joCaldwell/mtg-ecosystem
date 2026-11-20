@@ -180,12 +180,11 @@ Divided counters bind shares before costs and commit surviving shares simultaneo
 
 Object target slots share domain/filter because the request supplies one common
 candidate set; unequal per-slot filters reject. Entity/player/opponent/stack
-targets retain distinct domains. Only current `StackHandle` → `StackId` mappings
-authorize stack targets; exclude the announcing/incomplete entries. Countering a
-spell moves it to its owner's graveyard; an ability disappears without moving its
-source. No cost refunds or countered resolution. Typed counter filters and
-uncounterability are explicit. Aggregating counter membership cannot be put in
-an unsupported simultaneous group.
+targets retain distinct domains. Current stack handles exclude announcing and
+incomplete entries. Countered spells move to their owners' graveyards; abilities
+disappear. Costs are spent. Typed counter filters and uncounterability are
+explicit. Counter groups require typed authority. Double Major copies a
+controlled creature spell into a separately counterable, nonlegendary token spell.
 
 Target legality is checked at proposal and resolution start. Loss of target
 legality after completed proposal during payment does not reverse casting
@@ -529,7 +528,7 @@ layout and its ordinary cast-kind capability. Permanent grants exclude creature-
 Attachments/Indestructible alongside Board Wipes and ordinary/family capabilities.
 Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
 `PumpSet` retains its existing behavior and Board Wipes capability.
-Battlefield commander control unlocks both modes of Akroma's Will.
+Controlling a commander allows both Akroma's Will modes.
 Protection bars colored damage, attachments, blockers and targeting.
 
 The instruction captures one full current ordered set and creates all properties
@@ -588,8 +587,9 @@ Intrinsic indexes and grant-source incarnation/static indexes are distinct ident
 The cast spell remains rules source; caster and grant provenance freeze at collection,
 surviving later grantor departure/control changes. Whole batches preflight IDs,
 fanout, ledger and retained payloads atomically. Cast witnesses freeze pre-completion
-firstness; failed proposals/payments never consume it. Complete frozen Nexus and
-Wild-Magic Sorcerer reuse canonical cascade; Yidris remains unsupported.
+firstness; failed payments never consume it. Averna may put an exiled land in
+tapped before the cast offer. Yidris grants independent cascade triggers to
+later hand casts until cleanup.
 
 Later finite extensions cover opponent-damage conditions, optional controller
 draws, event-player discard/sacrifice, filtered sources, controller discard,

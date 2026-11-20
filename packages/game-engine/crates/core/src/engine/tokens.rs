@@ -67,13 +67,48 @@ pub struct VisibleToken {
 #[serde(deny_unknown_fields)]
 pub(super) struct TokenIdentity {
     pub source: ObjectId,
-    pub spec: CreatureToken,
+    pub spec: TokenTemplate,
     // Generated runtime characteristics, not an admitted source card. Keeping
     // this immutable after cessation preserves keyword/damage lookback facts,
     // including every grouped witness member's base power. Token identities
     // are retained under TOKEN_HISTORY_LIMIT, not reclaimed from a witness's
     // single subject(), so a multi-source trigger needs no new LKI archive.
     pub definition: Definition,
+}
+// Preserve the ordinary token template on the wire. A spell copy derives
+// its complete definition from a previous physical spell, including when
+// the target is itself a copy (CR 707.9b/10).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub(super) enum TokenTemplate {
+    Created(CreatureToken),
+    SpellCopy {
+        original: ObjectId,
+        stack_id: StackId,
+    },
+}
+
+impl TokenIdentity {
+    pub(super) fn is_copy(&self) -> bool {
+        matches!(self.spec, TokenTemplate::SpellCopy { .. })
+    }
+    pub(super) fn is_token(&self, object: &Object) -> bool {
+        !self.is_copy() || object.zone == Zone::Battlefield || object.id.incarnation == 2
+    }
+    fn valid_incarnation(&self, object: &Object) -> bool {
+        match (self.is_copy(), object.zone) {
+            (false, Zone::Battlefield) | (true, Zone::Stack) => object.id.incarnation == 0,
+            (false, Zone::Stack) => false,
+            (true, Zone::Battlefield) | (false, _) => object.id.incarnation == 1,
+            (true, _) => matches!(object.id.incarnation, 1 | 2),
+        }
+    }
+}
+
+pub(super) fn copied_creature_definition(original: &Definition) -> Definition {
+    let mut definition = original.clone();
+    definition.characteristics.legendary = false;
+    definition
 }
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {
     let mut d = source.clone();
@@ -147,7 +182,7 @@ impl Game {
     pub(super) fn event_group_limit(&self) -> usize {
         capacities::EVENT_GROUP_LIMIT
     }
-    fn check_token_capacity(&mut self, requested: u32) -> Result<(), String> {
+    pub(super) fn check_token_capacity(&mut self, requested: u32) -> Result<(), String> {
         let created =
             u32::try_from(self.allocated_capacity_count()).map_err(|_| "token count overflow")?;
         let capacity = self.token_capacity();
@@ -170,6 +205,73 @@ impl Game {
             );
         }
         Ok(())
+    }
+    pub(super) fn next_token_card(&self) -> Result<CardId, String> {
+        let offset =
+            u32::try_from(self.state.rules.tokens.len()).map_err(|_| "token identity overflow")?;
+        let card = CardId(
+            TOKEN_ID_START
+                .checked_add(offset)
+                .ok_or("token identity overflow")?,
+        );
+        if self.state.rules.cards.contains_key(&card) {
+            return Err("token/card identity collision".into());
+        }
+        Ok(card)
+    }
+    pub(super) fn insert_token_identity(
+        &mut self,
+        card: CardId,
+        controller: PlayerId,
+        zone: Zone,
+        identity: TokenIdentity,
+    ) -> ObjectId {
+        let id = ObjectId {
+            card,
+            incarnation: 0,
+        };
+        self.state.rules.cards.insert(
+            card,
+            Card {
+                owner: controller,
+                oracle_id: identity.definition.oracle_id.clone(),
+            },
+        );
+        self.state.rules.tokens.insert(card, identity);
+        self.state.rules.objects.insert(
+            card,
+            Object {
+                phased_out: None,
+                attached_to: None,
+                attachment_timestamp: None,
+                keyword_timestamp: (zone == Zone::Battlefield)
+                    .then_some(self.state.rules.next_batch_id),
+                plus_one_counters: Quantity::zero(),
+                lore_counters: Quantity::zero(),
+                marked_damage: Quantity::zero(),
+                deathtouch_damage: false,
+                attack_ready: false,
+                id,
+                controller,
+                default_controller: controller,
+                zone,
+                tapped: false,
+            },
+        );
+        id
+    }
+    // CR 111.7, 704.5d/e: a permanent spell copy is still a spell on the
+    // stack. Off it, only its resolved battlefield incarnation survives.
+    pub(super) fn cessation(&self, object: &Object) -> Option<ProposedEvent> {
+        let identity = self.state.rules.tokens.get(&object.id.card)?;
+        if matches!(object.zone, Zone::Stack | Zone::Battlefield) {
+            return None;
+        }
+        Some(if identity.is_token(object) {
+            ProposedEvent::CeaseToken { object: object.id }
+        } else {
+            ProposedEvent::CeaseSpellCopy { object: object.id }
+        })
     }
     pub(super) fn execute_token_instruction(
         &mut self,
@@ -308,54 +410,14 @@ impl Game {
                 let source_definition = self.definition(source.card)?.clone();
                 let mut objects = vec![];
                 for _ in 0..*count {
-                    let offset = u32::try_from(self.state.rules.tokens.len())
-                        .map_err(|_| "token identity overflow")?;
-                    let card = CardId(
-                        TOKEN_ID_START
-                            .checked_add(offset)
-                            .ok_or("token identity overflow")?,
-                    );
-                    if self.state.rules.cards.contains_key(&card) {
-                        return Err("token/card identity collision".into());
-                    }
-                    let definition = token_definition(&source_definition, card, token);
-                    let id = ObjectId {
-                        card,
-                        incarnation: 0,
+                    let card = self.next_token_card()?;
+                    let identity = TokenIdentity {
+                        source: *source,
+                        spec: TokenTemplate::Created(token.as_ref().clone()),
+                        definition: token_definition(&source_definition, card, token),
                     };
-                    self.state.rules.cards.insert(
-                        card,
-                        Card {
-                            owner: *controller,
-                            oracle_id: definition.oracle_id.clone(),
-                        },
-                    );
-                    self.state.rules.tokens.insert(
-                        card,
-                        TokenIdentity {
-                            source: *source,
-                            spec: token.as_ref().clone(),
-                            definition,
-                        },
-                    );
-                    self.state.rules.objects.insert(
-                        card,
-                        Object {
-                            attached_to: None,
-                            attachment_timestamp: None,
-                            keyword_timestamp: Some(self.state.rules.next_batch_id),
-                            plus_one_counters: Quantity::zero(),
-                            lore_counters: Quantity::zero(),
-                            marked_damage: Quantity::zero(),
-                            deathtouch_damage: false,
-                            attack_ready: false,
-                            id,
-                            controller: *controller,
-                            default_controller: *controller,
-                            zone: Zone::Battlefield,
-                            tapped: false,
-                        },
-                    );
+                    let id =
+                        self.insert_token_identity(card, *controller, Zone::Battlefield, identity);
                     objects.push(id);
                 }
                 Ok(EventOutcome::TokensCreated {
@@ -364,10 +426,8 @@ impl Game {
                     token: token.clone(),
                 })
             }
-            ProposedEvent::CeaseToken { object } => {
-                if !self.state.rules.tokens.contains_key(&object.card)
-                    || self.current(*object)?.zone == Zone::Battlefield
-                {
+            ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
+                if self.cessation(self.current(*object)?).as_ref() != Some(event) {
                     return Err("invalid token cessation".into());
                 }
                 self.retain_source_lki(*object)?;
@@ -375,7 +435,12 @@ impl Game {
                 for library in self.state.rules.libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }
-                Ok(EventOutcome::TokenCeased { object: *object })
+                Ok(match event {
+                    ProposedEvent::CeaseSpellCopy { .. } => {
+                        EventOutcome::SpellCopyCeased { object: *object }
+                    }
+                    _ => EventOutcome::TokenCeased { object: *object },
+                })
             }
             _ => Err("unexpected token event".into()),
         }
@@ -387,7 +452,6 @@ impl Game {
             return Err("snapshot token capacity invariant".into());
         }
         for (i, (id, t)) in self.state.rules.tokens.iter().enumerate() {
-            t.spec.validate()?;
             if Some(id.0)
                 != u32::try_from(i)
                     .ok()
@@ -401,15 +465,37 @@ impl Game {
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
                 p.instructions.iter().any(|i| matches!(i, Instruction::CreateCreatureTokens { token, .. } | Instruction::CreateTokensFor {token,..} if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
             }
-            if !source.spell.as_ref().is_some_and(|p| creates(p, &t.spec))
-                && !source
-                    .triggered
-                    .iter()
-                    .any(|a| creates(&a.program, &t.spec))
-            {
-                return Err("snapshot token differs from creating instruction".into());
-            }
-            if t.definition != token_definition(source, *id, &t.spec)
+            let expected = match &t.spec {
+                TokenTemplate::Created(spec) => {
+                    spec.validate()?;
+                    if !source.spell.as_ref().is_some_and(|p| creates(p, spec))
+                        && !source.triggered.iter().any(|a| creates(&a.program, spec))
+                    {
+                        return Err("snapshot token differs from creating instruction".into());
+                    }
+                    token_definition(source, *id, spec)
+                }
+                TokenTemplate::SpellCopy { original, stack_id } => {
+                    let original_definition = self.definition(original.card)?;
+                    if (self.state.rules.tokens.contains_key(&original.card)
+                        && original.card >= *id)
+                        || stack_id.0 >= self.state.rules.next_stack_id
+                        || !original_definition
+                            .characteristics
+                            .has_type(CardKind::Creature)
+                        || !source.spell.as_ref().is_some_and(|p| {
+                            matches!(
+                                p.instructions.as_slice(),
+                                [Instruction::CopyControlledCreatureSpell { .. }]
+                            )
+                        })
+                    {
+                        return Err("snapshot spell copy source invariant".into());
+                    }
+                    copied_creature_definition(original_definition)
+                }
+            };
+            if t.definition != expected
                 || self
                     .state
                     .rules
@@ -440,9 +526,7 @@ impl Game {
                     || o.default_controller.0 >= 4
                     || !self.is_live(o.controller)
                     || !self.is_live(self.state.rules.cards[id].owner)
-                    || o.id.incarnation > 1
-                    || (o.zone == Zone::Battlefield && o.id.incarnation != 0)
-                    || (o.zone != Zone::Battlefield && o.id.incarnation != 1)
+                    || !self.state.rules.tokens[id].valid_incarnation(o)
                     || (o.zone != Zone::Battlefield
                         && (o.tapped || o.attack_ready || o.deathtouch_damage)))
             {

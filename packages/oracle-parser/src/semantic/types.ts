@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
+import type { Amount, CascadeExiledCards, Color, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -28,12 +28,20 @@ export type ReferenceExpression = ObjectRef | CascadeExiledCards | { ref: "affec
 
 interface NodeBase { id: string; path: string; rules: string[] }
 export type BindingNode = NodeBase & (
+  /** CR 701.23b: the chosen cards in one hidden, quality-constrained search.
+   * Each ordered slot accepts zero or one card; no object may fill two slots. */
+  | { node: "distinct-library-search"; scope: string; chooser: string; libraryOwner: string;
+      slots: Color[]; allocation: "distinct-objects"; perSlot: "zero-or-one"; cardinality: "many" }
   | { node: "source"; identity: string }
   | { node: "face"; source: string; sourceFaceIndex: number; name: string; typeLine?: string; manaCost?: string; layout: string }
   | { node: "ability"; source: string; face: string; abilityKind: string; you: string }
   /** One resolving cascade whose controller matches the static ability's "you". */
   | { node: "cascade-occurrence"; scope: string; controllerMatches: string }
   | { node: "cascade-exiled-pool"; occurrence: string }
+  /** One grant created per resolution that applies as each later eligible spell is cast. */
+  | { node: "cast-keyword-grant"; scope: string; created: "resolution"; duration: "this-turn"; keyword: "cascade" }
+  | { node: "future-cast-spells"; grant: string; caster: string; from: { zone: "hand"; owner: string };
+      timing: "as-cast"; cardinality: "many" }
   | { node: "runtime-player"; scope: string; role: "static-source-controller" | "activator" | "spell-controller" | "trigger-controller" | "prospective-caster"
       | "special-action-player" | "targeting-player" | "card-owner" | "entering-controller" }
   /** One keyword instance of this ability line, with the kinds of ability it
@@ -54,7 +62,9 @@ export type BindingNode = NodeBase & (
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
   | { node: "event"; scope: string; operation: string; inputs: string[]; availability: "when-performed";
-      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true }
+      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true;
+      /** A resolution choice exists only when this preceding result was produced. */
+      requiresResult?: string }
   /** "If you do" / "If you don't": the optional instruction at path `decision`
    * of the preceding sentence (CR 608.2c-d). */
   | { node: "decision-link"; scope: string; condition: "you-do" | "you-dont"; decision: string }
@@ -73,6 +83,8 @@ export type BindingNode = NodeBase & (
   | { node: "alternatives"; scope: string; of: string[] }
   | { node: "event-result"; event: string; result: "objects" | "quantity" | "player"; cardinality: BindingCardinality;
       description?: ObjectFilter;
+      /** The stopping match belongs to this scan's processed pool, if found. */
+      subsetOf?: string;
       /** Result sets can be empty when an instruction is impossible or replaced. */
       availability: "if-produced"; identity: "same-objects" | "zone-successors" | "new-objects" | "measured-quantity" }
   | { node: "defined-number"; scope: string; definition: Amount }
@@ -114,8 +126,12 @@ export interface BindingDiagnostic {
  * - characteristic-layers: characteristic changes applied in the layer system,
  *   with the affected set fixed when the effect begins (CR 611.2c, 613).
  * - cascade-resolution: a choice bound to one resolving cascade and its exiled pool (CR 702.85).
- * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f). */
-export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution" | "permanent-spell-copy";
+ * - cast-keyword-grant: a resolution-created grant applied during later casts (CR 601.2, 611.2, 702.85).
+ * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f).
+ * - demonstrate: cast-triggered copies for the caster and chosen opponent (CR 702.144a).
+ * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
+export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
+  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

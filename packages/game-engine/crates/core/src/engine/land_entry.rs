@@ -9,12 +9,14 @@ use super::*;
 pub(super) enum EntryOrigin {
     LandPlay { player: PlayerId, decision_id: u64 },
     Search { frame: Resolving },
+    Cascade { progress: Box<CascadeProgress> },
 }
 impl EntryOrigin {
     pub(super) fn player(&self) -> PlayerId {
         match self {
             Self::LandPlay { player, .. } => *player,
             Self::Search { frame } => frame.spell.controller,
+            Self::Cascade { progress } => progress.frame.spell.controller,
         }
     }
 }
@@ -23,13 +25,13 @@ impl EntryOrigin {
 // prepare_entry_batch after complete cause/group equality and pre-debit checks.
 pub(super) struct PreparedEntryAuthority {
     player: PlayerId,
-    search: bool,
+    put_by_effect: bool,
     force_tapped: bool,
     entries: BTreeMap<ObjectId, Option<bool>>,
 }
 impl PreparedEntryAuthority {
     pub(super) fn land_play(&self, player: PlayerId) -> bool {
-        !self.search && self.player == player
+        !self.put_by_effect && self.player == player
     }
     pub(super) fn movement(
         &self,
@@ -38,7 +40,7 @@ impl PreparedEntryAuthority {
         forced: bool,
     ) -> Result<(PlayerId, bool), String> {
         let paid = self.entries.get(&object).ok_or("foreign prepared entry")?;
-        if forced != self.force_tapped || intended != self.search.then_some(self.player) {
+        if forced != self.force_tapped || intended != self.put_by_effect.then_some(self.player) {
             return Err("prepared entry producer/controller mismatch".into());
         }
         Ok((self.player, *paid == Some(false)))
@@ -116,9 +118,17 @@ impl Game {
                 self.validate_resolving(frame)?;
                 self.validate_entry_search(frame, objects)?;
             }
+            EntryOrigin::Cascade { progress } => {
+                self.validate_cascade_state()?;
+                if objects.len() != 1 || !self.cascade_land_available(progress, objects[0])? {
+                    return Err("invalid cascade land entry origin".into());
+                }
+            }
         }
         let offers = self.entry_offers(objects)?;
-        if offers.is_empty() || choices.len() > offers.len() {
+        if (offers.is_empty() && !matches!(origin, EntryOrigin::Cascade { .. }))
+            || choices.len() > offers.len()
+        {
             return Err("invalid entry choice prefix".into());
         }
         self.entry_affordable(player, &offers, choices)
@@ -137,7 +147,7 @@ impl Game {
         }
         // CR118.4: zero is payable even with synthetic negative life. Positive
         // costs permit equality; all selected costs reserve ONE common balance.
-        if total > Quantity::zero() && total > self.state.rules.players[player.0 as usize].life {
+        if !self.state.rules.players[player.0 as usize].can_pay_life(&total) {
             return Err("unaffordable combined entry life cost".into());
         }
         Ok(())
@@ -148,7 +158,8 @@ impl Game {
         mut objects: Vec<ObjectId>,
     ) -> Result<bool, String> {
         objects.sort();
-        if self.entry_offers(&objects)?.is_empty() {
+        if !matches!(origin, EntryOrigin::Cascade { .. }) && self.entry_offers(&objects)?.is_empty()
+        {
             return Ok(false);
         }
         self.state.rules.frame = Frame::LandEntry {
@@ -210,6 +221,9 @@ impl Game {
             EntryOrigin::Search { frame } => {
                 Ok(Self::staple_cause(frame, self.entry_search_block(frame)?))
             }
+            EntryOrigin::Cascade { progress } => {
+                Ok(Self::wipe_cause(&progress.frame, progress.source_block))
+            }
         }
     }
     fn entry_group(&self) -> Result<EventGroup, String> {
@@ -237,6 +251,10 @@ impl Game {
                     EntryOrigin::LandPlay { .. } => ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Battlefield,
+                    },
+                    EntryOrigin::Cascade { .. } => ProposedEvent::CascadeLandEntry {
+                        object: *object,
+                        player,
                     },
                     EntryOrigin::Search { .. } => ProposedEvent::SearchLandEntry {
                         object: *object,
@@ -273,6 +291,9 @@ impl Game {
             (EntryOrigin::Search { frame }, BatchCause::Instruction { stack_id, .. }) => {
                 *stack_id == frame.spell.id
             }
+            (EntryOrigin::Cascade { progress }, BatchCause::Instruction { stack_id, .. }) => {
+                *stack_id == progress.frame.stack_id
+            }
             _ => false,
         };
         if !originating {
@@ -289,15 +310,16 @@ impl Game {
         for ((object, _, _), paid) in self.entry_offers(objects)?.iter().zip(choices) {
             entries.insert(*object, Some(*paid));
         }
-        let (search, force_tapped) = match origin {
+        let (put_by_effect, force_tapped) = match origin {
             EntryOrigin::LandPlay { .. } => (false, false),
+            EntryOrigin::Cascade { .. } => (true, true),
             EntryOrigin::Search { frame } => (true, self.entry_search_force_tapped(frame)?),
         };
         // No Basic+Land scan here. The single simultaneous capture follows ONLY
         // life losses; no battlefield, control or entry can change its prior facts.
         Ok(Some(PreparedEntryAuthority {
             player: origin.player(),
-            search,
+            put_by_effect,
             force_tapped,
             entries,
         }))
@@ -321,7 +343,9 @@ impl Game {
             choices.push(perform);
             return Ok(());
         }
-        let origin = self.entry_frame()?.0.clone();
+        let (origin, objects, _) = self.entry_frame()?;
+        let origin = origin.clone();
+        let first = objects[0];
         self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
         match origin {
             EntryOrigin::LandPlay { .. } => {
@@ -330,6 +354,7 @@ impl Game {
                 self.stabilize()
             }
             EntryOrigin::Search { frame } => self.resume_entry_search(frame),
+            EntryOrigin::Cascade { progress } => self.resume_cascade_land(progress, Some(first)),
         }
     }
     pub(super) fn land_entry_visible_to(&self, viewer: PlayerId, object: ObjectId) -> bool {
@@ -349,7 +374,10 @@ impl Game {
         Ok(())
     }
     pub(super) fn revalidate_land_entry_departure(&mut self) -> Result<(), String> {
-        let Frame::LandEntry { origin, .. } = self.state.rules.frame.clone() else {
+        let Frame::LandEntry {
+            origin, objects, ..
+        } = self.state.rules.frame.clone()
+        else {
             return Ok(());
         };
         if !self.is_live(origin.player()) {
@@ -359,10 +387,19 @@ impl Game {
                     self.state.rules.frame = Frame::Priority;
                     Ok(())
                 }
+                EntryOrigin::Cascade { progress } => {
+                    self.finish_ability(&progress.frame.spell, false)
+                }
                 EntryOrigin::Search { frame } => {
                     self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
                 }
             };
+        }
+        if let EntryOrigin::Cascade { progress } = origin
+            && !self.cascade_land_available(&progress, objects[0])?
+        {
+            self.state.rules.pending = None;
+            return self.resume_cascade_land(progress, None);
         }
         // A departed SPELL SOURCE OWNER does not cancel a live controller's
         // frozen paid invocation. Existing resolving validation/LKI owns that case.
@@ -389,7 +426,7 @@ impl Game {
             return 0;
         };
         let separately_charged = match origin {
-            EntryOrigin::LandPlay { .. } => 0,
+            EntryOrigin::LandPlay { .. } | EntryOrigin::Cascade { .. } => 0,
             EntryOrigin::Search { frame } => costs::entry_cost_lock_charge(&frame.spell)
                 .saturating_add(spell_cascade_grants::entry_grant_charge(&frame.spell)),
         };

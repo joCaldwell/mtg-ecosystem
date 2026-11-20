@@ -13,7 +13,7 @@ impl Game {
         for object in self.state.rules.objects.values() {
             // Event and departure boundaries reconcile layer-2 control before
             // payment or queries. Frozen losing owners are virtually absent.
-            if object.zone != Zone::Battlefield
+            if !object.present_on_battlefield()
                 || !self.is_live(object.controller)
                 || !self.is_live(self.state.rules.cards[&object.id.card].owner)
             {
@@ -32,6 +32,9 @@ impl Game {
                     .iter()
                     .filter_map(|subtype| basic_land_color(subtype)),
             );
+            if self.has_granted_land_mana(object.id)? {
+                output[seat].extend(Self::granted_land_mana_colors());
+            }
             for ability in &definition.mana_abilities {
                 if ability.production == ManaProduction::OpponentLandColors {
                     has_dynamic_land[seat] = true;

@@ -30,17 +30,16 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-`226507a0` compiles **66/85 definitions**, with 19 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`02b35e35` compiles **70/85 original rows**, plus three source-identical authorized reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
 
-See the retained cascade proofs. Yidris awaits complete AST/binding; Enigma and Vega have focused witnesses. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
-values.
+Averna and Call Forth compile through source-identical authorized reparses. Yidris awaits complete rules support.
 
 ### M5 Add color and mana engines
 
-Prismatic Omen has a live land-type witness. Complete Leyline, Lantern, Selvala and Omnath.
+Prismatic Omen and Lantern have live mana witnesses. Complete Leyline, Selvala and Omnath.
 
 ### M6 Complete card advantage and flexible choices
 
@@ -54,7 +53,7 @@ Death-trigger destruction, Exterminatus, Farewell and Akroma's Will have paid wi
 
 ### M8 Add spell and permanent copies
 
-Complete Double Major, Creative Technique/demonstrate and Protege through generic
+Double Major compiles from an authorized reparse. Complete Technique/demonstrate and Protege through generic
 copyable characteristics, independent targets/choices, ownership/control and legendary
 exceptions. Revise copy/token/trigger capacity.
 
@@ -65,8 +64,7 @@ attachment transitions and Thunder's lore/chapters/final sacrifice.
 
 ### M10 Complete phasing and remaining effects
 
-Complete Teferi's Protection, Coalition's repeated modes, Progenitus replacement,
-and Archangel hand casting. Zacama and Breya have paid witnesses.
+Teferi and Archangel have paid witnesses. Complete Coalition's repeated modes and Progenitus replacement.
 
 ### M11 Qualify the exact deck and host it
 

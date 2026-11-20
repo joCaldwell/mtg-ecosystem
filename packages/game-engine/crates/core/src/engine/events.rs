@@ -353,7 +353,8 @@ mod footprint_tests {
 fn changes_control_inputs(event: &ProposedEvent) -> bool {
     matches!(
         event,
-        ProposedEvent::Move { .. }
+        ProposedEvent::PhaseOutControlled { .. }
+            | ProposedEvent::Move { .. }
             | ProposedEvent::DestroyPermanent { .. }
             | ProposedEvent::DestroyCreature { .. }
             | ProposedEvent::StateBasedGraveyard { .. }
@@ -361,6 +362,7 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::DiscardCard { .. }
             | ProposedEvent::PutOnTopOwnerLibrary { .. }
             | ProposedEvent::PutInLibraryAtPosition { .. }
+            | ProposedEvent::CascadeLandEntry { .. }
             | ProposedEvent::SearchLandEntry { .. }
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
@@ -408,7 +410,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::CeaseToken { object } => {
+        ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
             // A token put on a library (Time Ebb) ceases from that library.
             let mut keys = BTreeSet::from([FactKey::Object(object.card)]);
             if matches!(
@@ -506,6 +508,14 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             keys.extend(objects.iter().map(|o| FactKey::Object(o.card)));
             (keys.clone(), keys)
         }
+        ProposedEvent::FreezeLifeUntilNextTurn { player } => {
+            let keys = BTreeSet::from([FactKey::Life(*player)]);
+            (keys.clone(), keys)
+        }
+        ProposedEvent::PhaseOutControlled { .. } => {
+            let keys = BTreeSet::from([FactKey::Effects, FactKey::Turn]);
+            (keys.clone(), keys)
+        }
         ProposedEvent::ClearDamage => {
             let keys = BTreeSet::from([FactKey::AllDamage]);
             (keys.clone(), keys)
@@ -563,7 +573,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::SearchLandEntry { object, .. }
+        ProposedEvent::CascadeLandEntry { object, .. }
+        | ProposedEvent::SearchLandEntry { object, .. }
         | ProposedEvent::Move { object, .. }
         | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -733,6 +744,8 @@ fn collect<'a>(
                             | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
+                            | ProposedEvent::FreezeLifeUntilNextTurn { .. }
+                            | ProposedEvent::PhaseOutControlled { .. }
                             | ProposedEvent::ClearDamage
                             | ProposedEvent::ConsumeDeathtouchWindow { .. }
                             | ProposedEvent::TurnTransition { .. }
@@ -949,7 +962,7 @@ impl Game {
                 ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
                 }
-                ProposedEvent::CeaseToken { object } => {
+                ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
                     objects.insert(*object);
                     if let Zone::Library { owner } = self.current(*object)?.zone {
                         libraries.insert(owner);
@@ -961,6 +974,7 @@ impl Game {
                 }
                 ProposedEvent::DestroyPermanent { object }
                 | ProposedEvent::DestroyCreature { object }
+                | ProposedEvent::CascadeLandEntry { object, .. }
                 | ProposedEvent::SearchLandEntry { object, .. } => {
                     objects.insert(*object);
                     if let Zone::Library { owner } = self.current(*object)?.zone {
@@ -1183,6 +1197,9 @@ impl Game {
                         match d.recipient {
                             DamageRecipient::Player { player } => {
                                 players.insert(player);
+                                if self.player_protected(player) {
+                                    return Err("protection requires the damage transaction".into());
+                                }
                                 if self.state.rules.commanders.history(d.source.card).is_some() {
                                     commander_damage.insert((d.source.card, player));
                                 }
@@ -1198,6 +1215,16 @@ impl Game {
                 }
                 ProposedEvent::ConsumeDeathtouchWindow { objects: checked } => {
                     objects.extend(checked);
+                }
+                ProposedEvent::FreezeLifeUntilNextTurn { player } => {
+                    players.insert(*player);
+                }
+                ProposedEvent::PhaseOutControlled { controller } => {
+                    players.insert(*controller);
+                    objects.extend(
+                        self.installed_phasing()
+                            .phase_out_controlled(self, *controller)?,
+                    );
                 }
                 ProposedEvent::ClearDamage => {
                     objects.extend(
@@ -1249,6 +1276,10 @@ impl Game {
                     if let ProposedEvent::TurnTransition { next, owner } = event
                         && next.number != self.state.rules.turn.number
                     {
+                        objects.extend(
+                            self.installed_phasing()
+                                .phase_in_at_untap(self, self.state.rules.turn_owner)?,
+                        );
                         objects.extend(
                             self.state
                                 .rules
@@ -1483,6 +1514,44 @@ impl Game {
             }
         }
         collect(&group, self, 0, self.event_group_limit(), &mut events)?;
+        if events.iter().any(|e| {
+            matches!(
+                e,
+                ProposedEvent::PhaseOutControlled { .. }
+                    | ProposedEvent::FreezeLifeUntilNextTurn { .. }
+            )
+        }) {
+            let Frame::Resolve { frame } = &self.state.rules.frame else {
+                return Err("phase-out requires a resolving spell".into());
+            };
+            self.validate_resolving(frame)?;
+            let instruction = self
+                .program_for(&frame.spell)?
+                .instructions
+                .get(frame.cursor as usize);
+            let authorized_block = match (&group, instruction) {
+                (
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::PhaseOutControlled { controller },
+                    },
+                    Some(Instruction::PhaseOutControllerPermanents { source_block }),
+                ) if *controller == frame.spell.controller => Some(*source_block),
+                (
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::FreezeLifeUntilNextTurn { player },
+                    },
+                    Some(Instruction::FreezeControllerLifeUntilNextTurn { source_block }),
+                ) if *player == frame.spell.controller => Some(*source_block),
+                _ => None,
+            };
+            if !frame.spell.kind.is_spell()
+                || frame.spell.paid.is_none()
+                || self.top()? != &frame.spell
+                || !authorized_block.is_some_and(|block| cause == Self::wipe_cause(frame, block))
+            {
+                return Err("phase-out requires the paid controller instruction".into());
+            }
+        }
         if events.iter().any(|event| {
             matches!(
                 event,
@@ -1765,7 +1834,8 @@ impl Game {
 impl Game {
     fn conditional_entry(&self, event: &ProposedEvent) -> bool {
         let object = match event {
-            ProposedEvent::SearchLandEntry { object, .. }
+            ProposedEvent::CascadeLandEntry { object, .. }
+            | ProposedEvent::SearchLandEntry { object, .. }
             | ProposedEvent::Move {
                 object,
                 destination: Zone::Battlefield,
@@ -1798,7 +1868,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
         {
             let c = self.characteristics(o.id)?;
             if c.basic && c.has_type(CardKind::Land) {
@@ -1877,7 +1947,14 @@ impl Game {
         let destination = &replaced;
         let o = self.current(*object)?.clone();
         // CR 111.8: once a token has left the battlefield it cannot move again.
-        if self.state.rules.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield {
+        if self
+            .state
+            .rules
+            .tokens
+            .get(&object.card)
+            .is_some_and(|t| t.is_token(&o))
+            && o.zone != Zone::Battlefield
+        {
             return Err("token cannot move again after leaving battlefield".into());
         }
         self.retain_source_lki(*object)?;
@@ -1964,6 +2041,7 @@ impl Game {
         self.state.rules.objects.insert(
             object.card,
             Object {
+                phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
                 keyword_timestamp: (*destination == Zone::Battlefield)
@@ -2033,6 +2111,13 @@ impl Game {
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
     ) -> Result<EventOutcome, String> {
+        if matches!(
+            proposed,
+            ProposedEvent::PhaseOutControlled { .. }
+                | ProposedEvent::FreezeLifeUntilNextTurn { .. }
+        ) {
+            return Err("phase-out requires an authorized instruction batch".into());
+        }
         if matches!(
             proposed,
             ProposedEvent::Lose {
@@ -2132,7 +2217,7 @@ impl Game {
                     || !self.attachment_target_type_valid(object.card, target.card)?
                     || !self
                         .current(*target)
-                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                        .is_ok_and(|o| o.present_on_battlefield())
                     || !self
                         .current(*target)
                         .is_ok_and(|o| self.is_live(o.controller))
@@ -2172,7 +2257,7 @@ impl Game {
                     Some(t) => {
                         *t != *object
                             && self.current(*t).is_ok_and(|o| {
-                                o.zone == Zone::Battlefield && self.is_live(o.controller)
+                                o.present_on_battlefield() && self.is_live(o.controller)
                             })
                             && self.attachment_target_type_valid(object.card, t.card)?
                             && !self
@@ -2180,7 +2265,7 @@ impl Game {
                     }
                     None => true,
                 };
-                if self.current(*object)?.zone != Zone::Battlefield
+                if !self.current(*object)?.present_on_battlefield()
                     || !self.is_live(self.current(*object)?.controller)
                     || !self
                         .definition(object.card)?
@@ -2223,7 +2308,7 @@ impl Game {
             ProposedEvent::DestroyPermanent { object } => {
                 if !self
                     .current(*object)
-                    .is_ok_and(|o| o.zone == Zone::Battlefield)
+                    .is_ok_and(|o| o.present_on_battlefield())
                 {
                     return Err("invalid destroy permanent event".into());
                 }
@@ -2254,6 +2339,18 @@ impl Game {
                         owner: self.state.rules.cards[&object.card].owner,
                     },
                 })?
+            }
+            ProposedEvent::CascadeLandEntry { object, player } => {
+                let proof =
+                    entry.ok_or("cascade land entry requires prepared transaction authority")?;
+                self.apply_move(
+                    *object,
+                    Zone::Battlefield,
+                    Some(*player),
+                    true,
+                    before,
+                    Some(proof),
+                )?
             }
             ProposedEvent::SearchLandEntry { object, player } => {
                 let force_tapped = self.searched_land_force_tapped(*player)?;
@@ -2301,7 +2398,8 @@ impl Game {
                 }
             }
             event @ (ProposedEvent::CreateCreatureTokens { .. }
-            | ProposedEvent::CeaseToken { .. }) => self.apply_token_event(event)?,
+            | ProposedEvent::CeaseToken { .. }
+            | ProposedEvent::CeaseSpellCopy { .. }) => self.apply_token_event(event)?,
             ProposedEvent::Setup { action } => EventOutcome::Setup {
                 actual: self.apply_setup_action(action)?,
             },
@@ -2311,10 +2409,20 @@ impl Game {
             | ProposedEvent::CommitDamage { .. }
             | ProposedEvent::CleanupEffects) => self.apply_effect_event(event)?,
             ProposedEvent::NoncombatDamage { damage } => self.apply_noncombat_damage(damage)?,
+            ProposedEvent::FreezeLifeUntilNextTurn { player } => {
+                if !self.is_live(*player) {
+                    return Err("departed frozen life recipient".into());
+                }
+                self.state.rules.players[player.0 as usize].life_frozen_until_next_turn = true;
+                EventOutcome::LifeFrozenUntilNextTurn { player: *player }
+            }
             ProposedEvent::GainLife { player, amount }
             | ProposedEvent::LoseLife { player, amount } => {
                 if !self.is_live(*player) || *amount <= Quantity::zero() {
                     return Err("invalid life change".into());
+                }
+                if self.state.rules.players[player.0 as usize].life_frozen_until_next_turn {
+                    return Ok(EventOutcome::LifeChangeProhibited { player: *player });
                 }
                 let life = &mut self.state.rules.players[player.0 as usize].life;
                 let previous = life.clone();
@@ -2402,7 +2510,7 @@ impl Game {
             }
             ProposedEvent::Sacrifice { object, player } => {
                 if !self.is_live(*player)
-                    || self.current(*object)?.zone != Zone::Battlefield
+                    || !self.current(*object)?.present_on_battlefield()
                     || self.current(*object)?.controller != *player
                 {
                     return Err("invalid sacrifice event".into());
@@ -2604,6 +2712,24 @@ impl Game {
                     objects: objects.clone(),
                 }
             }
+            ProposedEvent::PhaseOutControlled { controller } => {
+                let ids = self.phase_out_controller_permanents(*controller)?;
+                let members = ids
+                    .into_iter()
+                    .map(|id| {
+                        Ok((
+                            id,
+                            self.current(id)?
+                                .phased_out
+                                .ok_or("missing phased status")?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                EventOutcome::PermanentsPhasedOut {
+                    controller: *controller,
+                    members,
+                }
+            }
             ProposedEvent::ClearDamage => {
                 let mut previous = vec![];
                 for o in self.state.rules.objects.values_mut() {
@@ -2656,7 +2782,7 @@ impl Game {
             }
             ProposedEvent::Untap { object } => {
                 let o = self.current(*object)?;
-                if o.zone != Zone::Battlefield || !o.tapped {
+                if !o.present_on_battlefield() || !o.tapped {
                     return Err("invalid untap event".into());
                 }
                 self.state
@@ -2714,6 +2840,8 @@ impl Game {
                 let previous_owner = std::mem::replace(&mut self.state.rules.turn_owner, *owner);
                 self.state.rules.active = self.is_live(*owner).then_some(*owner);
                 if next.number != previous.number {
+                    self.expire_player_protection(*owner);
+                    self.state.rules.players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.state.rules.mana_ability_uses.clear();
                     self.state.rules.cast_history =
                         std::array::from_fn(|_| triggers::TurnCastHistory::default());
@@ -2730,8 +2858,14 @@ impl Game {
                 } else {
                     vec![]
                 };
+                let phased_in = if next.step == TurnStep::Untap {
+                    self.phase_in_for_next_untap(previous_owner)?
+                } else {
+                    vec![]
+                };
                 EventOutcome::TurnTransitioned {
                     lore,
+                    phased_in,
                     previous,
                     current: next.clone(),
                     previous_owner,
@@ -2740,7 +2874,7 @@ impl Game {
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;
-                if o.zone != Zone::Battlefield || o.tapped {
+                if !o.present_on_battlefield() || o.tapped {
                     return Err("invalid tap event".into());
                 }
                 self.state
@@ -2893,7 +3027,7 @@ impl Game {
                 destination,
             } => self.apply_move(*object, *destination, None, false, before, entry)?,
         };
-        self.update_library_position_memory(proposed);
+        self.update_library_position_memory(proposed, &actual);
         Ok(actual)
     }
 }
@@ -2965,10 +3099,9 @@ impl Game {
         for ((kind, id), amount) in totals {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
-                let life = &mut self.state.rules.players[player.0 as usize].life;
-                let previous = life.clone();
-                life.subtract(&amount);
-                (DamageRecipient::Player { player }, previous, life.clone())
+                let (previous, current) =
+                    self.state.rules.players[player.0 as usize].lose_life(&amount);
+                (DamageRecipient::Player { player }, previous, current)
             } else {
                 let object = self
                     .state

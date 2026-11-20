@@ -114,6 +114,8 @@ pub struct FixtureRecord {
     pub record_sha256: String,
     pub source_sha256: String,
     pub ast_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_sha256: Option<String>,
     pub archive: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_line: Option<usize>,
@@ -240,6 +242,10 @@ fn build_with(
                 if definition.oracle_id != row.oracle_id
                     || definition.provenance.source_sha256 != row.source_sha256
                     || Some(definition.provenance.ast_sha256.as_str()) != row.ast_sha256.as_deref()
+                    || row
+                        .binding_sha256
+                        .as_deref()
+                        .is_some_and(|expected| definition.provenance.binding_sha256 != expected)
                 {
                     return Err(format!("{file}: provenance identity mismatch").into());
                 }
@@ -407,6 +413,10 @@ fn verify_archive_with(
                 || record["oracleIdentity"] != row.oracle_id
                 || record["sourceSha256"] != row.source_sha256
                 || record["astSha256"].as_str() != row.ast_sha256.as_deref()
+                || row
+                    .binding_sha256
+                    .as_deref()
+                    .is_some_and(|expected| record["bindingSha256"].as_str() != Some(expected))
             {
                 return Err(format!("{}: provenance identity/hash mismatch", row.file));
             }
@@ -661,6 +671,7 @@ fn extract_verified(
             ),
             source_sha256: record.source_sha256,
             ast_sha256,
+            binding_sha256: None,
             archive: accepted.manifest_file.clone(),
             archive_line: Some(line_number),
         });
@@ -793,23 +804,20 @@ mod guard_tests {
         );
     }
     #[test]
-    fn one_catalog_can_validate_records_from_both_accepted_archives() {
+    fn one_catalog_can_validate_records_from_multiple_accepted_archives() {
         let p: FixtureProvenance =
             strict_read(&embedded_file(Path::new("provenance.json")).unwrap()).unwrap();
         let records = accepted_archives()
             .unwrap()
             .iter()
-            .map(|a| {
-                format!(
-                    "../{}",
-                    p.records
-                        .iter()
-                        .find(|r| r.archive == a.manifest_file)
-                        .unwrap()
-                        .file
-                )
+            .filter_map(|a| {
+                p.records
+                    .iter()
+                    .find(|r| r.archive == a.manifest_file)
+                    .map(|row| format!("../{}", row.file))
             })
             .collect::<Vec<_>>();
+        assert!(records.len() >= 2);
         let raw = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":records,"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
         let (_, c) = build_with(Path::new("catalogs/mixed.json"), |path| {
             if path == Path::new("catalogs/mixed.json") {
@@ -836,6 +844,7 @@ mod guard_tests {
             "missing",
             "record",
             "identity",
+            "binding",
             "archive",
             "header",
             "version",
@@ -864,6 +873,9 @@ mod guard_tests {
                         if change == "identity" {
                             row["oracle_id"] = "wrong".into();
                         }
+                        if change == "binding" {
+                            row["binding_sha256"] = "0".repeat(64).into();
+                        }
                         if change == "archive" {
                             row["archive"] = "unknown.json".into();
                         }
@@ -882,6 +894,10 @@ mod guard_tests {
                     Ok(raw)
                 }
             });
+            if change == "binding" {
+                assert!(matches!(&result, Err(CatalogError::InvalidData { reason })
+                    if reason.contains("provenance identity mismatch")));
+            }
             assert!(result.is_err(), "{change}");
         }
     }

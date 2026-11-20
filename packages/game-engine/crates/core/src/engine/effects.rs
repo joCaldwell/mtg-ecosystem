@@ -54,6 +54,12 @@ pub struct ResolvedEffect {
     pub kind: ResolvedEffectKind,
 }
 impl ResolvedEffect {
+    fn lasts_until_controller_turn(&self) -> bool {
+        matches!(
+            self.kind,
+            ResolvedEffectKind::ProtectControllerUntilNextTurn
+        )
+    }
     pub(super) fn additional_land_plays(&self, player: PlayerId, turn: u64) -> Option<&Quantity> {
         match &self.kind {
             ResolvedEffectKind::AdditionalLandPlays { count }
@@ -68,6 +74,7 @@ impl ResolvedEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
+    ProtectControllerUntilNextTurn,
     RemoveIndestructibleSet {
         targets: Vec<ObjectId>,
         timestamp: u64,
@@ -100,6 +107,10 @@ pub enum ResolvedEffectKind {
     PreventCombatDamage,
     AdditionalLandPlays {
         count: Quantity,
+    },
+    GrantHandCastCascade {
+        triggered_ability_index: u32,
+        source_facts: Box<ObjectBefore>,
     },
     PreventNextDamage {
         target: TargetEntity,
@@ -207,7 +218,7 @@ impl Game {
             return Ok(());
         }
         let land = self.current(object)?;
-        if land.zone != Zone::Battlefield {
+        if !land.present_on_battlefield() {
             return Ok(());
         }
         for provider in self
@@ -215,7 +226,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && o.controller == land.controller)
+            .filter(|o| o.present_on_battlefield() && o.controller == land.controller)
         {
             if self
                 .definition(provider.id.card)?
@@ -250,7 +261,7 @@ impl Game {
         // Neither color identity nor the mana a permanent can produce is a color.
         let mut colors = BTreeSet::new();
         for permanent in self.state.rules.objects.values().filter(|object| {
-            object.zone == Zone::Battlefield
+            object.present_on_battlefield()
                 && match scope {
                     PermanentColorScope::Controller => object.controller == controller,
                 }
@@ -285,7 +296,7 @@ impl Game {
         // set. Source/controller/zone changes therefore need no cached grants.
         if c.kind == CardKind::Creature
             && let Ok(o) = self.current(object)
-            && o.zone == Zone::Battlefield
+            && o.present_on_battlefield()
         {
             for ability in &self.definition(object.card)?.static_abilities {
                 if let StaticEffect::ModifySourceByDistinctPermanentColors {
@@ -313,7 +324,7 @@ impl Game {
                 .rules
                 .objects
                 .values()
-                .filter(|s| s.zone == Zone::Battlefield && s.controller == o.controller)
+                .filter(|s| s.present_on_battlefield() && s.controller == o.controller)
             {
                 for a in &self.definition(source.id.card)?.static_abilities {
                     if let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect {
@@ -387,7 +398,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
             .flat_map(|o| {
                 self.definition(o.id.card).into_iter().flat_map(move |d| {
                     d.static_abilities
@@ -493,6 +504,10 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::ProtectControllerUntilNextTurn { source_block } => (
+                ResolvedEffectKind::ProtectControllerUntilNextTurn,
+                source_block,
+            ),
             Instruction::PreventCombatDamage { source_block, .. } => {
                 (ResolvedEffectKind::PreventCombatDamage, source_block)
             }
@@ -528,6 +543,27 @@ impl Game {
                     ResolvedEffectKind::PreventNextDamage {
                         target,
                         remaining: amount,
+                    },
+                    source_block,
+                )
+            }
+            Instruction::GrantHandCastCascade { source_block } => {
+                let StackKind::Triggered {
+                    ability: EffectiveTriggerAbility::Intrinsic { index },
+                    ..
+                } = frame.spell.kind
+                else {
+                    return Err("hand cast cascade requires an intrinsic trigger".into());
+                };
+                let source_facts = frame
+                    .spell
+                    .source_facts
+                    .clone()
+                    .ok_or("missing hand cast cascade source facts")?;
+                (
+                    ResolvedEffectKind::GrantHandCastCascade {
+                        triggered_ability_index: index,
+                        source_facts: Box::new(source_facts),
                     },
                     source_block,
                 )
@@ -649,7 +685,7 @@ impl Game {
         effect: &ResolvedEffect,
         object: ObjectId,
     ) -> bool {
-        self.current(object).is_ok_and(|o| o.zone == Zone::Battlefield)
+        self.current(object).is_ok_and(|o| o.present_on_battlefield())
             && (self.is_battlefield_creature(object)
                 || self.origin_programs(&effect.origin).is_ok_and(|programs| {
                     programs.into_iter().any(|program| {
@@ -909,6 +945,22 @@ impl Game {
     // with finite shields and replacement effects still matters. Prepared
     // source characteristics capture the exact source (including departure
     // LKI). Color is invariant across all admitted continuous effects.
+    pub(super) fn player_protected(&self, player: PlayerId) -> bool {
+        self.state
+            .rules
+            .effects
+            .iter()
+            .any(|e| e.lasts_until_controller_turn() && e.origin.controller == player)
+    }
+    pub(super) fn targetable_player(&self, player: PlayerId) -> bool {
+        self.is_live(player) && !self.player_protected(player)
+    }
+    pub(super) fn expire_player_protection(&mut self, player: PlayerId) {
+        self.state
+            .rules
+            .effects
+            .retain(|e| !e.lasts_until_controller_turn() || e.origin.controller != player);
+    }
     fn grant_prevents_damage(
         targets: &[ObjectId],
         keywords: &[KeywordAbility],
@@ -944,7 +996,7 @@ impl Game {
                     .static_abilities
                     .get(*ability as usize)
                     .ok_or("missing static effect")?;
-                if o.zone != Zone::Battlefield || a.functioning_zone != FunctioningZone::Battlefield
+                if !o.present_on_battlefield() || a.functioning_zone != FunctioningZone::Battlefield
                 {
                     return Err("inactive static damage effect".into());
                 }
@@ -970,35 +1022,44 @@ impl Game {
                 after.add(&d.amount);
                 (after, Quantity::zero(), None, None)
             }
-            EffectKey::Resolved { id } => match &self
-                .state
-                .rules
-                .effects
-                .iter()
-                .find(|e| e.id == *id)
-                .ok_or("missing resolved effect")?
-                .kind
-            {
-                ResolvedEffectKind::GrantKeywordsSet {
-                    targets, keywords, ..
-                } if Self::grant_prevents_damage(targets, keywords, d) => {
-                    (Quantity::zero(), d.amount.clone(), None, None)
+            EffectKey::Resolved { id } => {
+                let effect = self
+                    .state
+                    .rules
+                    .effects
+                    .iter()
+                    .find(|e| e.id == *id)
+                    .ok_or("missing resolved effect")?;
+                match &effect.kind {
+                    ResolvedEffectKind::ProtectControllerUntilNextTurn
+                        if d.recipient
+                            == (DamageRecipient::Player {
+                                player: effect.origin.controller,
+                            }) =>
+                    {
+                        (Quantity::zero(), d.amount.clone(), None, None)
+                    }
+                    ResolvedEffectKind::GrantKeywordsSet {
+                        targets, keywords, ..
+                    } if Self::grant_prevents_damage(targets, keywords, d) => {
+                        (Quantity::zero(), d.amount.clone(), None, None)
+                    }
+                    ResolvedEffectKind::PreventCombatDamage if tx.kind == DamageKind::Combat => {
+                        (Quantity::zero(), d.amount.clone(), None, None)
+                    }
+                    ResolvedEffectKind::PreventNextDamage { target, remaining }
+                        if *target == d.recipient.entity() && *remaining > Quantity::zero() =>
+                    {
+                        let prevented = std::cmp::min(remaining.clone(), d.amount.clone());
+                        let mut after = d.amount.clone();
+                        after.subtract(&prevented);
+                        let mut budget = remaining.clone();
+                        budget.subtract(&prevented);
+                        (after, prevented, Some(remaining.clone()), Some(budget))
+                    }
+                    _ => return Err("resolved effect not applicable".into()),
                 }
-                ResolvedEffectKind::PreventCombatDamage if tx.kind == DamageKind::Combat => {
-                    (Quantity::zero(), d.amount.clone(), None, None)
-                }
-                ResolvedEffectKind::PreventNextDamage { target, remaining }
-                    if *target == d.recipient.entity() && *remaining > Quantity::zero() =>
-                {
-                    let prevented = std::cmp::min(remaining.clone(), d.amount.clone());
-                    let mut after = d.amount.clone();
-                    after.subtract(&prevented);
-                    let mut budget = remaining.clone();
-                    budget.subtract(&prevented);
-                    (after, prevented, Some(remaining.clone()), Some(budget))
-                }
-                _ => return Err("resolved effect not applicable".into()),
-            },
+            }
         };
         Ok(DamageApplication {
             qualification,
@@ -1371,6 +1432,16 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::ProtectControllerUntilNextTurn { source_block },
+                        ResolvedEffectKind::ProtectControllerUntilNextTurn,
+                    ) => {
+                        *source_block == effect.origin.source_block
+                            && frame.spell.kind.is_spell()
+                            && frame.spell.paid.is_some()
+                            && self.is_live(frame.spell.controller)
+                            && effect.target_handles.is_empty()
+                    }
+                    (
                         Instruction::PreventCombatDamage { source_block, .. },
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == effect.origin.source_block,
@@ -1384,6 +1455,21 @@ impl Game {
                         frame.spell.kind.is_spell()
                             && count == granted
                             && *source_block == effect.origin.source_block
+                    }
+                    (
+                        Instruction::GrantHandCastCascade { source_block },
+                        ResolvedEffectKind::GrantHandCastCascade {
+                            triggered_ability_index,
+                            source_facts,
+                        },
+                    ) => {
+                        matches!(frame.spell.kind, StackKind::Triggered {
+                            ability: EffectiveTriggerAbility::Intrinsic { index },
+                            ..
+                        } if index == *triggered_ability_index)
+                            && frame.spell.source_facts.as_ref() == Some(source_facts.as_ref())
+                            && *source_block == effect.origin.source_block
+                            && self.is_live(effect.origin.controller)
                     }
                     (
                         Instruction::PreventNextDamage {
@@ -1521,7 +1607,14 @@ impl Game {
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
                 self.state.rules.delayed_chapters.clear();
-                let expired = self.state.rules.effects.iter().map(|e| e.id).collect();
+                let expired = self
+                    .state
+                    .rules
+                    .effects
+                    .iter()
+                    .filter(|e| !e.lasts_until_controller_turn())
+                    .map(|e| e.id)
+                    .collect();
                 let previous = self
                     .state
                     .rules
@@ -1530,7 +1623,10 @@ impl Game {
                     .filter(|o| o.marked_damage > Quantity::zero())
                     .map(|o| (o.id, o.marked_damage.clone()))
                     .collect();
-                self.state.rules.effects.clear();
+                self.state
+                    .rules
+                    .effects
+                    .retain(ResolvedEffect::lasts_until_controller_turn);
                 for o in self.state.rules.objects.values_mut() {
                     o.marked_damage = Quantity::zero();
                     o.deathtouch_damage = false;
@@ -1599,10 +1695,9 @@ impl Game {
         for ((kind, id), amount) in totals {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
-                let x = &mut self.state.rules.players[player.0 as usize].life;
-                let before = x.clone();
-                x.subtract(&amount);
-                (DamageRecipient::Player { player }, before, x.clone())
+                let (before, after) =
+                    self.state.rules.players[player.0 as usize].lose_life(&amount);
+                (DamageRecipient::Player { player }, before, after)
             } else {
                 let o = self
                     .state
@@ -1667,7 +1762,12 @@ impl Game {
             if !ids.insert(e.id)
                 || e.id.0 >= self.state.rules.next_effect_id
                 || e.origin.controller.0 >= 4
-                || e.expires_in_cleanup_of_turn != self.state.rules.turn.number
+                || if e.lasts_until_controller_turn() {
+                    e.expires_in_cleanup_of_turn == 0
+                        || e.expires_in_cleanup_of_turn > self.state.rules.turn.number
+                } else {
+                    e.expires_in_cleanup_of_turn != self.state.rules.turn.number
+                }
                 || e.origin.source_handles.len() != 4
                 || !self.state.rules.cards.contains_key(&e.origin.source.card)
             {
@@ -1675,6 +1775,27 @@ impl Game {
             }
             if e.origin.stack_id.0 >= self.state.rules.next_stack_id {
                 return Err("effect origin stack identity invariant".into());
+            }
+            if let ResolvedEffectKind::GrantHandCastCascade {
+                triggered_ability_index,
+                source_facts,
+            } = &e.kind
+            {
+                self.temporary_grant_program(e.origin.source, *triggered_ability_index)?;
+                self.validate_grant_source_facts(
+                    e.origin.source,
+                    source_facts,
+                    &e.origin.source_handles,
+                )?;
+                if e.origin.source_block != spell_cascade_grants::HAND_CAST_CASCADE_BLOCK
+                    || e.origin.cursor != 0
+                    || e.origin.activated_ability.is_some()
+                    || e.origin.mode.is_some()
+                    || !e.target_handles.is_empty()
+                {
+                    return Err("invalid hand cast cascade effect attachment".into());
+                }
+                continue;
             }
             let programs = self.origin_programs(&e.origin)?;
             let instructions = programs.iter().filter_map(|p| {
@@ -1819,6 +1940,14 @@ impl Game {
                                 == CardKind::Creature
                     }
                     (
+                        Instruction::ProtectControllerUntilNextTurn { source_block },
+                        ResolvedEffectKind::ProtectControllerUntilNextTurn,
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && e.target_handles.is_empty()
+                            && self.is_live(e.origin.controller)
+                    }
+                    (
                         Instruction::PreventCombatDamage { source_block, .. },
                         ResolvedEffectKind::PreventCombatDamage,
                     ) => *source_block == e.origin.source_block && e.target_handles.is_empty(),
@@ -1956,6 +2085,7 @@ pub enum DamageEffectKind {
     PreventCombatDamage,
     PreventNextDamage,
     ProtectionFromEachColor,
+    ProtectionFromEverything,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1990,6 +2120,10 @@ pub enum VisibleEffect {
         origin: VisibleEffectSource,
         chapter: u32,
         expires_in_cleanup_of_turn: u64,
+    },
+    ProtectControllerUntilNextTurn {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
     },
     RemoveIndestructibleSet {
         handle: EffectHandle,
@@ -2046,6 +2180,11 @@ pub enum VisibleEffect {
         handle: EffectHandle,
         origin: VisibleEffectSource,
         count: Quantity,
+        expires_in_cleanup_of_turn: u64,
+    },
+    GrantHandCastCascade {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
         expires_in_cleanup_of_turn: u64,
     },
     PreventNextDamage {
@@ -2288,6 +2427,9 @@ impl Game {
                 toughness: toughness.clone(),
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
+            ResolvedEffectKind::ProtectControllerUntilNextTurn => {
+                VisibleEffect::ProtectControllerUntilNextTurn { handle, origin }
+            }
             ResolvedEffectKind::PreventCombatDamage => VisibleEffect::PreventCombatDamage {
                 handle,
                 origin,
@@ -2298,6 +2440,13 @@ impl Game {
                     handle,
                     origin,
                     count: count.clone(),
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
+            ResolvedEffectKind::GrantHandCastCascade { .. } => {
+                VisibleEffect::GrantHandCastCascade {
+                    handle,
+                    origin,
                     expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
                 }
             }
@@ -2372,6 +2521,9 @@ impl Game {
             {
                 ResolvedEffectKind::GrantKeywordsSet { .. } => {
                     DamageEffectKind::ProtectionFromEachColor
+                }
+                ResolvedEffectKind::ProtectControllerUntilNextTurn => {
+                    DamageEffectKind::ProtectionFromEverything
                 }
                 ResolvedEffectKind::PreventCombatDamage => DamageEffectKind::PreventCombatDamage,
                 ResolvedEffectKind::PreventNextDamage { .. } => DamageEffectKind::PreventNextDamage,
@@ -2892,6 +3044,16 @@ impl Game {
                         } if a.budget_before.is_none()
                             && a.budget_after.is_none()
                             && Self::grant_prevents_damage(targets, keywords, d) =>
+                        {
+                            (Quantity::zero(), a.before.clone())
+                        }
+                        ResolvedEffectKind::ProtectControllerUntilNextTurn
+                            if d.recipient
+                                == (DamageRecipient::Player {
+                                    player: e.origin.controller,
+                                })
+                                && a.budget_before.is_none()
+                                && a.budget_after.is_none() =>
                         {
                             (Quantity::zero(), a.before.clone())
                         }

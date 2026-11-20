@@ -4,7 +4,7 @@
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import { isDeepStrictEqual } from "node:util";
-import type { Ability, Amount, CascadeExiledCards, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, Color, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -22,6 +22,26 @@ const DIRECT_CREATURE_SPELL_COPY = {
     filter: { cls: "spell", types: ["creature"], control: "you" } },
   copyExceptions: [{ change: "types", types: { supertypes: { operation: "remove", types: ["legendary"] } } }],
 } satisfies Effect;
+// The singular match, the remainder and the exile successor have different
+// identities. Only the complete sequence below establishes all three links.
+const REVEAL_AND_CAST = [
+  { steps: [
+    { effect: "shuffle", who: { player: "you" }, library: { zone: "library", owner: "your" } },
+    { effect: "scan-library", who: { player: "you" }, operation: "reveal", library: { zone: "library", owner: "your" },
+      until: { count: { amount: "fixed", value: 1 }, matching: { nonTypes: ["land"], cls: "card" } } },
+  ] },
+  { steps: [
+    { effect: "exile", what: { ref: "that", filter: { cls: "card" } } },
+    { effect: "move-zone", what: { ref: "rest" }, to: { zone: "library", owner: "your", position: "bottom" }, order: "random" },
+  ] },
+  { steps: [{ effect: "play-card", optional: true, instruction: { who: { player: "you" }, action: "cast",
+    what: { ref: "related", number: "singular", filter: { cls: "card" }, relation: { relation: "event-result", event: "exile", scope: "contextual" } },
+    alternativeCost: { cost: "without-mana-cost" } } }] },
+] as const satisfies Sentence[];
+function isRevealAndCast(ability: Extract<Ability, { kind: "spell" }>): ability is { kind: "spell"; effects: typeof REVEAL_AND_CAST } {
+  const { abilityWord, ...paragraph } = ability;
+  return abilityWord === undefined && isDeepStrictEqual(paragraph, { kind: "spell", effects: REVEAL_AND_CAST });
+}
 const SYMBOLIC_AMOUNTS = new Set(["x", "that-number", "that-much", "replacement-event-quantity"]);
 interface Candidate { id: string; cardinality: BindingCardinality; domain: "object" | "object-or-player" | "player" | "number"; description?: ObjectFilter;
   /** The departed object this one became in its new zone (CR 400.7e, 400.7j). */
@@ -115,6 +135,26 @@ function echoes(effect: unknown): boolean {
   if (!isRecord(effect)) return false;
   return ["amount", "count"].some(key => isRecord(effect[key]) && JSON.stringify(effect[key]).includes('"amount":"that-much"'));
 }
+function coloredSearchSlots(effect: Effect): Color[] | undefined {
+  if (effect.effect !== "search" || Object.keys(effect).length !== 4 || effect.who.player !== "you"
+    || Object.keys(effect.who).length !== 1 || effect.zones.selection !== "all" || effect.zones.of.length !== 1
+    || Object.keys(effect.zones).length !== 2) return;
+  const [library] = effect.zones.of;
+  const group = effect.for;
+  if (library.zone !== "library" || library.owner !== "your" || Object.keys(library).length !== 2
+    || group.ref !== "card-extraction-group" || group.combine !== "all" || group.allocation !== "distinct-objects"
+    || Object.keys(group).length !== 4 || group.members.length < 2) return;
+  const colors = new Set<Color>();
+  for (const slot of group.members) {
+    const { filter, count } = slot;
+    if (Object.keys(slot).length !== 2 || count.amount !== "fixed" || count.value !== 1 || Object.keys(count).length !== 2
+      || filter.cls !== "card" || Object.keys(filter).length !== 2 || filter.colors?.length !== 1) return;
+    const [color] = filter.colors;
+    if (!["white", "blue", "black", "red", "green"].includes(color) || colors.has(color)) return;
+    colors.add(color);
+  }
+  return [...colors];
+}
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -175,12 +215,13 @@ function description(ref: ObjectRef | CascadeExiledCards): ObjectFilter | undefi
 }
 function domain(expression: ReferenceExpression): Candidate["domain"] {
   if ("player" in expression || "implicit" in expression) return "player";
+  if ("recipient" in expression) return "object"; // Only a proven cast-spell antecedent binds this form.
   if (!("ref" in expression)) return "number";
   return expression.ref === "any-target" || ("filter" in expression && (expression.filter.orPlayer || expression.filter.orOpponent)) ? "object-or-player" : "object";
 }
 function referenceCardinality(expression: ReferenceExpression): BindingCardinality {
   return "ref" in expression ? expression.ref === "affected-object" ? "one" : expression.ref === "those-counters" ? "many" : objectCardinality(expression)
-    : "implicit" in expression || ("player" in expression && isPluralPlayerRef(expression)) ? "many" : "one";
+    : "implicit" in expression || "recipient" in expression || ("player" in expression && isPluralPlayerRef(expression)) ? "many" : "one";
 }
 /** This is an antecedent-description check, not a current-characteristics
  * predicate. A later "that" never chooses a new object by its current type. */
@@ -791,6 +832,10 @@ class Analyzer {
     const you = this.node({ id: this.id(path, "you"), path, node: "runtime-player", scope: context.ability, role: scope.role, rules: ["109.5", ...scope.rules] });
     this.node({ id: this.id(path, "keyword"), path, node: "keyword-ability", scope: context.ability, keyword: instance.keyword,
       abilities: scope.abilities, you, rules: scope.rules });
+    if (instance.keyword === "demonstrate")
+      this.engineFeature("demonstrate", path,
+        "On cast, the trigger controller may copy the spell. If they do, they choose an opponent who also copies it. Each may choose new targets for their own copy as it is put onto the stack.",
+        ["702.144a", "707.10", "707.10c"]);
     const own: Context = { ...context, you, objects: [], players: [], quantities: [], x: undefined };
     this.definitions(instance.bindings, child(path, "bindings"), own);
     for (const [key, value] of Object.entries(instance)) {
@@ -1228,7 +1273,8 @@ class Analyzer {
     const node = this.result.nodes.find(node => node.id === binding.target);
     const cardinality = node && "cardinality" in node ? node.cardinality
       : referenceCardinality(binding.expression);
-    const established = node?.node === "event-result" ? node.description
+    const established: ObjectFilter | undefined = node?.node === "distinct-library-search" ? { cls: "card" }
+      : node?.node === "event-result" ? node.description
       : node?.node === "selection" && "ref" in node.expression ? description(node.expression)
       : "ref" in binding.expression && binding.expression.ref !== "affected-object" && binding.expression.ref !== "those-counters" ? description(binding.expression) : undefined;
     return { id: binding.target, cardinality, domain: domain(binding.expression), description: established };
@@ -1256,7 +1302,7 @@ class Analyzer {
       ["608.2d", "702.85b"]);
   }
   event(path: string, context: Context, operation: string, inputs: Candidate[],
-    extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true } = {}): string {
+    extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true; requiresResult?: string } = {}): string {
     return this.node({ id: this.id(path, "event"), path, node: "event", scope: context.ability,
       operation, inputs: inputs.map(input => input.id), availability: "when-performed", ...extra, rules: ["608.2c"] });
   }
@@ -1530,10 +1576,42 @@ class Analyzer {
     return { id, cardinality: "one", domain: "player" };
   }
   eventResult(path: string, event: string, result: "objects" | "quantity" | "player", cardinality: BindingCardinality,
-    identity: Extract<BindingNode, { node: "event-result" }>["identity"], description?: ObjectFilter): Candidate {
+    identity: Extract<BindingNode, { node: "event-result" }>["identity"], description?: ObjectFilter, subsetOf?: string): Candidate {
     const id = this.node({ id: this.id(path, result), path, node: "event-result", event, result, cardinality,
-      availability: "if-produced", identity, ...(description ? { description } : {}), rules: identity === "zone-successors" ? ["400.7j"] : ["608.2h"] });
+      availability: "if-produced", identity, ...(description ? { description } : {}), ...(subsetOf ? { subsetOf } : {}),
+      rules: identity === "zone-successors" ? ["400.7j"] : ["608.2h"] });
     return { id, cardinality, domain: result === "objects" ? "object" : result === "player" ? "player" : "number", description };
+  }
+  revealAndCast(effects: typeof REVEAL_AND_CAST, path: string, context: Context): void {
+    const [shuffle, scan] = effects[0].steps;
+    const [exile, bottom] = effects[1].steps;
+    const [cast] = effects[2].steps;
+    this.effect(shuffle, `${path}/0/steps/0`, context);
+
+    const scanPath = `${path}/0/steps/1`;
+    this.walkChildren(scan, scanPath, context);
+    const controller = this.at(child(scanPath, "who"))!;
+    const event = this.event(scanPath, context, scan.effect, [controller]);
+    const pool = this.eventResult(scanPath, event, "objects", "many", "same-objects", { cls: "card" });
+    const hit = this.eventResult(child(scanPath, "until"), event, "objects", "one", "same-objects", scan.until.matching, pool.id);
+    context.objects = [hit];
+
+    const exilePath = `${path}/1/steps/0`;
+    this.effect(exile, exilePath, context);
+    // "The rest" excludes the revealed library object, not its successor in exile.
+    this.poolSelections.set(context.ability, { pool, selected: hit, path: exilePath });
+    this.effect(bottom, `${path}/1/steps/1`, context);
+
+    const castPath = `${path}/2/steps/0`;
+    const instruction = child(castPath, "instruction");
+    const successor = this.id(exilePath, "objects");
+    this.walk(cast.instruction.who, child(instruction, "who"), context);
+    const card = this.bound(cast.instruction.what, child(instruction, "what"), successor, ["400.7j", "608.2c"]);
+    this.walk(cast.instruction.alternativeCost, child(instruction, "alternativeCost"), context);
+    this.event(castPath, context, cast.effect, [card, controller], { optional: true, decider: controller.id, requiresResult: successor });
+    this.engineFeature("reveal-and-cast", path,
+      "Shuffle the controller's library, reveal through the first nonland or exhaustion, exile the match and put the other revealed cards on the bottom in random order. If the exile successor exists, the resolving spell's controller may cast that card during resolution without paying its mana cost if legal.",
+      ["400.7j", "601.2", "608.2c", "608.2d", "608.2g", "609.3", "701.20", "701.24"]);
   }
   definitions(bindings: Sentence["bindings"], path: string, context: Context): void {
     if (!bindings) return;
@@ -1638,6 +1716,29 @@ class Analyzer {
     }
   }
   effect(effect: Effect, path: string, context: Context): void {
+    if (effect.effect === "grant-cast-keyword") {
+      const caster = this.player(effect.caster, child(path, "caster"), context);
+      const from = child(path, "from");
+      this.walk(effect.from, from, context);
+      const owner = this.at(child(from, "owner"));
+      const what = child(path, "what");
+      if (!caster || !owner) {
+        this.unresolved(effect.what, what, "unresolved-dependency",
+          "The recipient spells require a bound caster and hand owner.", ["109.5", "400.1", "601.2a"]);
+        return;
+      }
+      const grant = this.node({ id: this.id(path, "grant"), path, node: "cast-keyword-grant",
+        scope: context.ability, created: "resolution", duration: effect.duration.duration, keyword: effect.keyword,
+        rules: ["113.7a", "514.2", "603.3a", "611.2a", "611.2c", "611.2f"] });
+      const spells = this.node({ id: this.id(what, "spells"), path: what, node: "future-cast-spells",
+        grant, caster: caster.id, from: { zone: effect.from.zone, owner: owner.id }, timing: effect.timing,
+        cardinality: "many", rules: ["601.2a", "601.2i", "611.2f"] });
+      this.bound(effect.what, what, spells, ["601.2a", "611.2f", "702.85a"]);
+      this.engineFeature("cast-keyword-grant", path,
+        "Keep one source-independent grant per resolution and expire it during cleanup. Apply each grant to that controller's later completed casts from hand before collecting cast triggers.",
+        ["109.5", "113.7a", "514.2", "601.2i", "603.3a", "611.2a", "611.2f", "702.85a", "702.85c"]);
+      return;
+    }
     if (effect.effect === "modify-characteristics") {
       // "Target land becomes a 3/3 creature": the engine applies the change in
       // the layer system with the affected set fixed as it begins (CR 611.2c,
@@ -1692,7 +1793,16 @@ class Analyzer {
       return;
     }
     if (effect.optional) this.beforeDecision.set(path, context.objects);
-    this.walk(effect, path, context);
+    const slots = plain && !context.barrier && context.phase === "resolution" ? coloredSearchSlots(effect) : undefined;
+    if (slots && effect.effect === "search") {
+      const selection = child(path, "for");
+      this.walk(effect.who, child(path, "who"), context);
+      this.walk(effect.zones, child(path, "zones"), context);
+      const allocation = this.node({ node: "distinct-library-search", id: this.id(selection, "allocation"), path: selection,
+        scope: context.ability, chooser: context.you, libraryOwner: context.you, slots, allocation: "distinct-objects",
+        perSlot: "zero-or-one", cardinality: "many", rules: ["608.2d", "701.23b"] });
+      this.bound(effect.for, selection, allocation, ["608.2d", "701.23b"]);
+    } else this.walk(effect, path, context);
     // CR 608.2d: "[player] may" is decided while the instruction is applied;
     // declining it produces no results, as any impossible instruction would.
     const decider = effect.optional ? (effect.decidedBy ? this.at(child(path, "decidedBy"))?.id : context.you)
@@ -2111,7 +2221,7 @@ class Analyzer {
       }
     }
   }
-  ability(ability: Ability, path: string, face: string, source: string, soleCardAbility = false): void {
+  ability(ability: Ability, path: string, face: string, source: string, cardAbilities?: Ability[]): void {
     const id = this.id(path, "ability");
     const you = this.id(path, "you");
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
@@ -2195,11 +2305,17 @@ class Analyzer {
         break;
       case "spell": {
         const first = ability.effects[0]?.steps[0];
-        if (soleCardAbility && first?.effect === "copy-stack-object") {
+        if (cardAbilities?.length === 1 && first?.effect === "copy-stack-object") {
           const { abilityWord, ...paragraph } = ability;
           if (abilityWord === undefined && isDeepStrictEqual(paragraph, {
             kind: "spell", effects: [{ steps: [DIRECT_CREATURE_SPELL_COPY] }],
           })) context.directCreatureSpellCopy = first;
+        }
+        if (first?.effect === "shuffle" && cardAbilities?.length === 2 &&
+            cardAbilities[1] === ability && isDeepStrictEqual(cardAbilities[0], { kind: "keywords", keywords: [{ keyword: "demonstrate" }] }) &&
+            isRevealAndCast(ability)) {
+          this.revealAndCast(ability.effects, child(path, "effects"), context);
+          return;
         }
         const previous = this.spellParagraph?.face === face ? this.spellParagraph.context : undefined;
         if (previous) Object.assign(context, { objects: previous.objects, players: previous.players, quantities: previous.quantities,
@@ -2399,7 +2515,7 @@ export function analyzeCardBindings(input: CardBindingInput): CardBindingAnalysi
       continue;
     }
     result.abilities.forEach((ability, abilityIndex) => analyzer.ability(ability,
-      child(child(path, "abilities"), abilityIndex), face, source, faces.length === 1 && result.abilities.length === 1));
+      child(child(path, "abilities"), abilityIndex), face, source, faces.length === 1 ? result.abilities : undefined));
   }
   for (const face of input.faces) if (!Number.isInteger(face.sourceFaceIndex) || face.sourceFaceIndex < 0 || face.sourceFaceIndex >= faces.length)
     analyzer.diagnostic("face-mismatch", "/faces", "A supplied parse references a nonexistent source face.", []);

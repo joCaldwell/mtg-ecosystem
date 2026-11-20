@@ -12,7 +12,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && o.controller == player)
+            .filter(|o| o.present_on_battlefield() && o.controller == player)
             .filter(|o| {
                 self.characteristics(o.id).is_ok_and(|c| {
                     (filter.types.is_empty() || filter.types.iter().any(|k| c.has_type(*k)))
@@ -304,9 +304,9 @@ impl Game {
                         .into_iter()
                         .filter(|(p, o)| {
                             self.is_live(*p)
-                                && self.current(*o).is_ok_and(|v| {
-                                    v.zone == Zone::Battlefield && v.controller == *p
-                                })
+                                && self
+                                    .current(*o)
+                                    .is_ok_and(|v| v.present_on_battlefield() && v.controller == *p)
                         })
                         .map(|(player, object)| ProposedEvent::Sacrifice { player, object })
                         .collect::<Vec<_>>();
@@ -472,10 +472,10 @@ impl Game {
                 self.validate_characteristic_identity(f.object, f.zone, &f.characteristics)?;
             }
             let count = self.invocation_sacrifice(e).map_or(0, |(_, count)| count);
-            if e.paid.is_some() && count == 1 && e.sacrificed.is_none() {
+            if self.stack_entry_complete(e) && count == 1 && e.sacrificed.is_none() {
                 return Err("snapshot missing sacrifice cost facts".into());
             }
-            let expected = if count > 1 && e.paid.is_some() {
+            let expected = if count > 1 && self.stack_entry_complete(e) {
                 count
             } else {
                 0

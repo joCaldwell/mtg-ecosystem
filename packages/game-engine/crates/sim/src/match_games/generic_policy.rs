@@ -1489,6 +1489,7 @@ impl Strategy<'_> {
             return false;
         }
         p.targets.iter().all(|t| match t.domain {
+            TargetDomain::ControlledCreatureSpell => false,
             TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
                 self.stack_target(v, t, None).is_some()
             }

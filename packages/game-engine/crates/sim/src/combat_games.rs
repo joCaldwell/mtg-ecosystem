@@ -69,7 +69,8 @@ impl Policy {
                 return Err("counter placement replacement choices outside this policy".into());
             }
 
-            PlayerRequest::HandReturn { .. }
+            PlayerRequest::HandCast { .. }
+            | PlayerRequest::HandReturn { .. }
             | PlayerRequest::LibraryOrder { .. }
             | PlayerRequest::LibrarySelect { .. }
             | PlayerRequest::Scry { .. }
@@ -90,7 +91,9 @@ impl Policy {
             }
             PlayerRequest::ChooseManaAbility { .. }
             | PlayerRequest::ManaColor { .. }
+            | PlayerRequest::ColoredSearch { .. }
             | PlayerRequest::SearchLands { .. }
+            | PlayerRequest::CascadeLandEntry { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {

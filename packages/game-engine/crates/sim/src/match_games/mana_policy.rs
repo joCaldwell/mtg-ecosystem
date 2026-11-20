@@ -166,6 +166,7 @@ mod tests {
         let card = |name: &str, zone: Zone| {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
             mtg_core::VisibleObject {
+                phased_out: false,
                 mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
@@ -197,6 +198,7 @@ mod tests {
             decision_context: None,
             decision: None,
             view: mtg_core::PermittedView {
+                known_searched_hand: vec![],
                 known_library_positions: vec![],
                 sacrifice_choices: vec![],
                 setup: None,
@@ -214,6 +216,7 @@ mod tests {
                 commanders: vec![],
                 priority: Some(player),
                 players: vec![mtg_core::VisiblePlayer {
+                    life_frozen_until_next_turn: false,
                     exile: vec![],
                     library_shuffles: 0,
                     player,

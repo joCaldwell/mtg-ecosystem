@@ -43,7 +43,7 @@ impl Game {
     ) -> Result<Vec<LoreChange>, String> {
         let mut changes = vec![];
         for object in self.state.rules.objects.values() {
-            if object.zone == Zone::Battlefield
+            if object.present_on_battlefield()
                 && object.controller == active
                 && self.saga_final_chapter(object.id.card)?.is_some()
             {
@@ -87,7 +87,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
         {
             let Some(final_chapter) = self.saga_final_chapter(object.id.card)? else {
                 continue;
