@@ -177,7 +177,8 @@ impl Game {
         if expected != source_block {
             return Err("selection completion block".into());
         }
-        let actual = self.commit(
+        self.complete_library_effect(
+            frame,
             ProposedEvent::LibrarySelect {
                 player,
                 amount,
@@ -187,25 +188,14 @@ impl Game {
                 remainder,
                 hand_to_command: to_command,
             },
-            BatchCause::Instruction {
-                stack_id: frame.spell.id,
-                player,
-                source: frame.spell.source,
-                cursor: frame.cursor,
-                source_block,
-            },
-        )?;
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Effect {
-                actual: Some(actual),
-            },
+            source_block,
         )
     }
     pub(super) fn apply_library_selection(
         &mut self,
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
+        replacement: Option<&BTreeMap<ObjectId, Zone>>,
     ) -> Result<EventOutcome, String> {
         let ProposedEvent::LibrarySelect {
             player,
@@ -266,7 +256,8 @@ impl Game {
         };
         let graveyard = match destination {
             LibraryRemainder::Graveyard => {
-                let m = self.move_library_cards_to_graveyard(player, remainder, before)?;
+                let m =
+                    self.move_library_cards_to_graveyard(player, remainder, before, replacement)?;
                 self.remember_library_selection(player, &[])?;
                 m
             }

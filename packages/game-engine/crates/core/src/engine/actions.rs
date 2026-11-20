@@ -362,7 +362,7 @@ impl Game {
                     !source.present_on_battlefield() || source.controller != player
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
-                FunctioningZone::Stack => true,
+                FunctioningZone::Stack | FunctioningZone::Any => true,
             }
         {
             return Err("invalid activated ability source/permission".into());
@@ -994,22 +994,23 @@ impl Game {
                     cursor: frame.cursor,
                     source_block,
                 };
-                let outcome = match input.response {
+                match input.response {
                     Response::Sacrifice { object } => {
-                        let EventOutcome::Sacrificed { movement, .. } = self.commit(
-                            ProposedEvent::Sacrifice {
-                                object,
-                                player: request.player(),
-                            },
+                        return self.complete_graveyard_group(
                             cause,
-                        )?
-                        else {
-                            return Err("missing sacrifice outcome".into());
-                        };
-                        InstructionOutcome::Sacrificed {
-                            player: request.player(),
-                            movement: Some(movement),
-                        }
+                            EventGroup::Occurrence {
+                                proposed: ProposedEvent::Sacrifice {
+                                    object,
+                                    player: request.player(),
+                                },
+                            },
+                            GroupFinish::Instruction {
+                                frame,
+                                result: GroupResult::Sacrifice {
+                                    player: request.player(),
+                                },
+                            },
+                        );
                     }
                     Response::ResolveDiscard { objects } => {
                         if let Some(group) = &mut frame.group_discard {
@@ -1017,11 +1018,15 @@ impl Game {
                             self.state.rules.frame = Frame::Resolve { frame };
                             return Ok(());
                         }
-                        self.discard_batch(cause, request.player(), objects)?
+                        return self.complete_resolving_discards(
+                            frame,
+                            cause,
+                            request.player(),
+                            objects,
+                        );
                     }
                     _ => return Err("resolution response invariant".into()),
                 };
-                self.finish_instruction(frame, outcome)?;
             }
             _ => return Err("action frame invariant".into()),
         }
@@ -1038,34 +1043,34 @@ impl Game {
             && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
             && objects.iter().all(|o| hand.contains(o))
     }
-    pub(super) fn discard_batch(
+    pub(super) fn complete_resolving_discards(
         &mut self,
+        frame: Resolving,
         cause: BatchCause,
         player: PlayerId,
         objects: Vec<ObjectId>,
-    ) -> Result<InstructionOutcome, String> {
-        let movements = if objects.is_empty() {
-            vec![]
-        } else {
-            let result = self.commit_batch(
-                cause,
-                EventGroup::Simultaneous {
-                    occurrences: objects
-                        .into_iter()
-                        .map(|object| ProposedEvent::DiscardCard { object, player })
-                        .collect(),
+    ) -> Result<(), String> {
+        if objects.is_empty() {
+            return self.finish_instruction(
+                frame,
+                InstructionOutcome::Discarded {
+                    player,
+                    movements: vec![],
                 },
-            )?;
-            result
-                .occurrences
-                .iter()
-                .map(|r| match &r.actual {
-                    EventOutcome::CardDiscarded { movement, .. } => Ok(movement.clone()),
-                    _ => Err("missing simultaneous discard outcome".to_string()),
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        Ok(InstructionOutcome::Discarded { player, movements })
+            );
+        }
+        let occurrences = objects
+            .into_iter()
+            .map(|object| ProposedEvent::DiscardCard { object, player })
+            .collect();
+        self.complete_graveyard_group(
+            cause,
+            EventGroup::Simultaneous { occurrences },
+            GroupFinish::Instruction {
+                frame,
+                result: GroupResult::Discard { player },
+            },
+        )
     }
     fn validate_choice_input(
         &self,

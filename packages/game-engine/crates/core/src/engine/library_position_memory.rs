@@ -12,7 +12,13 @@ impl Game {
         event: &ProposedEvent,
         actual: &EventOutcome,
     ) {
+        let revealed_move = matches!(actual, EventOutcome::Moved { movement }
+            if self.replacement_reveals(movement.previous));
         let objects = &self.state.rules.objects;
+        let fixed = match &self.state.rules.frame {
+            Frame::GraveyardReplacement { transaction } => transaction.reserved_top(),
+            _ => &[],
+        };
         for (seat, knowledge) in self.state.knowledge.visibility.iter_mut().enumerate() {
             // A secret choice from hand into a hidden zone cannot identify
             // which previously revealed card stayed. Forget that hand's rows.
@@ -31,7 +37,11 @@ impl Game {
                 }
                 (ProposedEvent::Move { .. }, EventOutcome::Moved { movement }) => {
                     match (movement.from, movement.destination) {
-                        (Zone::Hand { owner }, Zone::Library { .. }) => Some(owner),
+                        // A printed replacement has already identified the
+                        // card publicly. Other known hand cards stay known.
+                        (Zone::Hand { owner }, Zone::Library { .. }) if !revealed_move => {
+                            Some(owner)
+                        }
                         _ => None,
                     }
                 }
@@ -65,8 +75,10 @@ impl Game {
                 }
                 match event {
                     ProposedEvent::FinishLibraryShuffle { player }
-                    | ProposedEvent::ShuffleLibraryWord { player, .. }
-                    | ProposedEvent::SearchLandEntry { player, .. } => player != owner,
+                    | ProposedEvent::ShuffleLibraryWord { player, .. } => {
+                        player != owner || fixed.contains(id)
+                    }
+                    ProposedEvent::SearchLandEntry { player, .. } => player != owner,
                     // Scry can hide the size of the portion sent to the
                     // bottom. Opponents cannot update positions from that count.
                     ProposedEvent::Scry { player, looked, .. } => {

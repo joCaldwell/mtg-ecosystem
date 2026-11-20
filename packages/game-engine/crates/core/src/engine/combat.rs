@@ -398,7 +398,7 @@ impl Game {
                 let Response::Discard { objects } = input.response else {
                     return Err("discard response".into());
                 };
-                self.commit_batch(
+                self.complete_graveyard_group(
                     BatchCause::Cleanup,
                     EventGroup::Simultaneous {
                         occurrences: objects
@@ -409,8 +409,8 @@ impl Game {
                             })
                             .collect(),
                     },
+                    GroupFinish::Cleanup,
                 )?;
-                self.state.rules.frame = Frame::CleanupClear;
             }
             Frame::CleanupClear => {
                 self.commit(ProposedEvent::CleanupEffects, BatchCause::Cleanup)?;
@@ -637,22 +637,7 @@ impl Game {
             .values()
             .filter(|o| self.is_battlefield_creature(o.id))
         {
-            let toughness = self
-                .characteristics(o.id)?
-                .toughness
-                .ok_or("missing toughness")?;
-            let reason = if toughness <= Quantity::zero() {
-                Some(CreatureLossReason::ZeroToughness)
-            } else if self.has_keyword(o.id, KeywordAbility::Indestructible) {
-                // CR 702.12b/704.5g-h: ignore destructive SBAs entirely.
-                None
-            } else if o.marked_damage >= toughness {
-                Some(CreatureLossReason::LethalDamage)
-            } else if o.deathtouch_damage {
-                Some(CreatureLossReason::Deathtouch)
-            } else {
-                None
-            };
+            let reason = self.creature_sba_reason(o.id)?;
             if let Some(reason) = reason {
                 occurrences.push(ProposedEvent::StateBasedGraveyard {
                     object: o.id,
@@ -770,24 +755,50 @@ impl Game {
             player: *player,
             reason: *reason,
         }));
-        let batch = self.commit_batch(
+        self.complete_graveyard_group(
             BatchCause::StateBased,
             EventGroup::Simultaneous { occurrences },
-        )?;
-        // Victim validation must still see the flag in the simultaneous SBA.
-        // Only exact-incarnation survivors consume their checked window afterward.
-        self.consume_checked_deathtouch(&checked_deathtouch)?;
-        if self.finish_committed_player_losses(&batch)? {
-            return Ok(());
-        }
-        self.state.rules.frame = Frame::Stabilize {
-            resume: Box::new(resume),
-            cleanup,
-            changed: true,
-        };
-        Ok(())
+            GroupFinish::StateBased {
+                resume: Box::new(Frame::Stabilize {
+                    resume: Box::new(resume),
+                    cleanup,
+                    changed: true,
+                }),
+                checked: checked_deathtouch,
+                kept: kept.unwrap_or_default(),
+            },
+        )
     }
-    fn consume_checked_deathtouch(&mut self, checked: &[ObjectId]) -> Result<(), String> {
+    pub(super) fn creature_sba_reason(
+        &self,
+        object: ObjectId,
+    ) -> Result<Option<CreatureLossReason>, String> {
+        if !self.is_battlefield_creature(object) {
+            return Ok(None);
+        }
+        let o = self.current(object)?;
+        let toughness = self
+            .characteristics(object)?
+            .toughness
+            .ok_or("missing toughness")?;
+        let reason = if toughness <= Quantity::zero() {
+            Some(CreatureLossReason::ZeroToughness)
+        } else if self.has_keyword(object, KeywordAbility::Indestructible) {
+            // CR 702.12b/704.5g-h: ignore destructive SBAs entirely.
+            None
+        } else if o.marked_damage >= toughness {
+            Some(CreatureLossReason::LethalDamage)
+        } else if o.deathtouch_damage {
+            Some(CreatureLossReason::Deathtouch)
+        } else {
+            None
+        };
+        Ok(reason)
+    }
+    pub(super) fn consume_checked_deathtouch(
+        &mut self,
+        checked: &[ObjectId],
+    ) -> Result<(), String> {
         let objects = checked
             .iter()
             .copied()

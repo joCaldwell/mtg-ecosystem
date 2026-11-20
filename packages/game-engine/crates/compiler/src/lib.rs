@@ -79,6 +79,7 @@ mod pain_mana;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod saga;
+mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
@@ -208,6 +209,11 @@ enum Ability {
     Demonstrate,
     #[serde(skip)]
     RevealAndCast,
+    // Constructed together after closing the printed creature and replacement graph.
+    #[serde(skip)]
+    PrintedProtectionFromEverything,
+    #[serde(skip)]
+    SelfGraveyardRevealShuffle,
     // The complete source and its exact graph are verified before emission.
     #[serde(skip)]
     ControlledCreatureSpellCopy,
@@ -1491,6 +1497,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
+    let self_graveyard_shuffle =
+        self_graveyard_shuffle::validate(&source, &shape, &result, &binding)?;
     let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
     let canonical_abilities = self_reference::canonicalize(
         result.abilities.get(),
@@ -1506,6 +1514,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         (0..4).map(|_| Ability::LinkedHideaway).collect()
     } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
+    } else if self_graveyard_shuffle {
+        vec![
+            Ability::PrintedProtectionFromEverything,
+            Ability::SelfGraveyardRevealShuffle,
+        ]
     } else if creative_technique::candidate(&source, &shape) {
         vec![Ability::Demonstrate, Ability::RevealAndCast]
     } else if let Some(abilities) = hand_cast_cascade::lower(&source, &shape, &result, &binding)? {
@@ -1908,6 +1921,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::PrintedProtectionFromEverything => {
+                        definition
+                            .keywords
+                            .push(KeywordAbility::ProtectionFromEverything);
+                    }
+                    Ability::SelfGraveyardRevealShuffle => {
+                        labels.statics.push(source_block(block)?);
+                        definition
+                            .static_abilities
+                            .push(mtg_contracts::self_graveyard_shuffle::static_ability());
+                    }
                     Ability::HandCastCascade => {
                         labels.triggered.push(source_block(block)?);
                         definition
@@ -2835,11 +2859,17 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     definition
         .validate()
         .map_err(|e| unsupported("definition", e))?;
-    if archive.manifest_file == entry_copy::MANIFEST_FILE
+    if (self_graveyard_shuffle || archive.manifest_file == entry_copy::MANIFEST_FILE)
         && !archive
             .record_sha256
             .contains(&sha256(record.trim_end().as_bytes()))
     {
+        if self_graveyard_shuffle {
+            return Err(unsupported(
+                "record",
+                "self graveyard replacement requires its accepted exact archive row",
+            ));
+        }
         return Err(invalid("record", "unregistered entry-copy archive row"));
     }
     Ok(definition)

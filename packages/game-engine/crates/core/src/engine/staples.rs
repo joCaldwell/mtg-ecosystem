@@ -379,10 +379,16 @@ impl Game {
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
                     && self.is_battlefield_creature(target)
                 {
-                    self.commit(
-                        ProposedEvent::DestroyCreature { object: target },
+                    return self.complete_graveyard_group(
                         Self::staple_cause(&frame, source_block),
-                    )?;
+                        EventGroup::Occurrence {
+                            proposed: ProposedEvent::DestroyCreature { object: target },
+                        },
+                        GroupFinish::Instruction {
+                            frame,
+                            result: GroupResult::Effect,
+                        },
+                    );
                 }
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
@@ -825,23 +831,35 @@ impl Game {
         &mut self,
         player: PlayerId,
         index: u32,
+        replacement_offset: Option<usize>,
     ) -> Result<EventOutcome, String> {
-        if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
+        let offset = if let Some(offset) = replacement_offset {
+            offset
+        } else if matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
         {
+            0
+        } else {
             return Err("shuffle continuation invariant".into());
-        }
+        };
         let library = self
             .state
             .rules
             .libraries
             .get_mut(&player)
             .ok_or("missing search library")?;
-        if index == 0 || index as usize >= library.len() {
+        if index == 0 || index as usize >= library.len().saturating_sub(offset) {
             return Err("shuffle range".into());
         }
         // A tucked commander can bring the physical library to all 100 owned
         // cards. The shared sampler uses that common bound, not setup's 99.
-        if library.len() > capacities::OWNED_LIMIT {
+        // A countered copy or a tucked token may share a library with all
+        // physical cards until the next SBA check (CR 704.5d/e).
+        let limit = if replacement_offset.is_some() {
+            capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize
+        } else {
+            capacities::OWNED_LIMIT
+        };
+        if library.len() > limit {
             return Err("shuffle library exceeds the physical-card sampler range".into());
         }
         let random = &mut self
@@ -853,9 +871,9 @@ impl Game {
             .random;
         let before = random.word_position;
         let word = random.word()?;
-        let selected = setup::sample_shuffle_word(word, index + 1);
+        let selected = setup::sample_bounded_word(word, index + 1);
         if let Some(j) = selected {
-            library.swap(index as usize, j as usize);
+            library.swap(offset + index as usize, offset + j as usize);
         }
         Ok(EventOutcome::LibraryShuffledWord {
             player,
