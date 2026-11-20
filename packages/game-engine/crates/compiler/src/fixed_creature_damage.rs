@@ -42,6 +42,12 @@ mod tests {
         let CompileResult::Lowered { definition } = compile(manifest, record) else {
             panic!("exact frozen source did not lower");
         };
+        let existing_activation =
+            include_str!("../../../tests/fixtures/ramos/23270e4a-a222-4ffb-a946-d0e20d665187.json");
+        assert!(matches!(
+            compile(manifest, existing_activation),
+            CompileResult::Lowered { .. }
+        ));
         let spell = definition.spell.as_ref().unwrap();
         assert!(matches!(spell.targets.as_slice(), [target]
             if target.domain == TargetDomain::BattlefieldCreature && target.selection_id == "line:0:5"));

@@ -64,9 +64,9 @@ fn uses(p: &SpellProgram) -> bool {
     }) || p.modes.iter().any(|mode| uses(&mode.program))
 }
 
-pub(super) fn validate(d: &Definition) -> Result<(), String> {
+pub(super) fn validate(d: &Definition, fixed_activations: bool) -> Result<(), String> {
     let fail = || "requires the complete ordinary fixed creature damage spell".to_string();
-    if d.activated.iter().any(|a| uses(&a.program))
+    if (!fixed_activations && d.activated.iter().any(|a| uses(&a.program)))
         || d.triggered.iter().any(|a| uses(&a.program))
         || d.static_abilities.iter().any(
             |a| matches!(&a.effect, StaticEffect::GrantSpellCascade { program, .. } if uses(program)),

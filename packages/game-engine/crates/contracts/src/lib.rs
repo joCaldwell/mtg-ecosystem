@@ -3392,7 +3392,7 @@ impl Definition {
         }
         basic_landwalk::validate_definition(self)?;
         creature_planeswalker_return::validate(self)?;
-        fixed_creature_damage::validate(self)?;
+        fixed_creature_damage::validate(self, fixed_activations)?;
         cycling::validate_spell_source(self)?;
         modal_targets::validate_definition(self)?;
         graveyard_shuffle::validate_definition(self)?;
