@@ -76,6 +76,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || !c.legendary
         || c.snow
         || !c.additional_types.is_empty()
+        || !c.hybrid_mana.is_empty()
         || d.x_mana_cost
         || d.intrinsic_zone.is_some()
         || !d.activated.is_empty()
@@ -150,7 +151,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "capabilities":{"items":{"enum":caps},"minItems":caps.len(),"maxItems":caps.len(),"uniqueItems":true},
             "intrinsic_zone":{"type":"null"},"x_mana_cost":{"const":false},
             "characteristics":{"properties":{"kind":{"const":"creature"},"legendary":{"const":true},
-                "basic":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0}}},
+                "basic":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0},"hybrid_mana":{"maxItems":0}}},
             "keywords":{"const":["trample"]},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
             "static_abilities":{"maxItems":0},
             "spell":{"type":"object","properties":{"resolution":{"const":"permanent"},"timing":{"const":"main_phase"},
@@ -189,6 +190,7 @@ pub(super) fn witness() -> Definition {
             generic: 0.into(),
             colored: vec![Color::U, Color::B, Color::R, Color::G],
         },
+        hybrid_mana: vec![],
         colors: vec![Color::B, Color::G, Color::R, Color::U],
         color_identity: vec![Color::B, Color::G, Color::R, Color::U],
         power: Some(5.into()),
