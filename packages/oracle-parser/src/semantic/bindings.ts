@@ -378,6 +378,7 @@ interface Context {
   exchangeEntrant?: Candidate;
   quotedFightSide?: { paths: string[]; source: string };
   ownLeaveEvent?: string;
+  exileCounterFromSelected?: string;
   castActors?: { caster: Candidate; filter: ObjectFilter };
   stackPlacement?: Candidate;
   singleTargetStackGuard?: true;
@@ -1275,6 +1276,28 @@ class Analyzer {
         this.diagnostic("unsupported-scope", path, "The permission and its duration must refer to the same exile result.", rules);
       }
       this.walk(value.decidedBy, child(path, "decidedBy"), context);
+      return;
+    }
+    if (value.effect === "grant-play-permission" && isRecord(value.permission) && isRecord(value.permission.what) &&
+        (value.permission.what.ref === "it" || isDeepStrictEqual(value.permission.what, { ref: "that", filter: { cls: "card" } }))) {
+      this.walkChildren(value, path, context);
+      const at = `${path}/permission/what`;
+      const subject = this.at(at);
+      if (subject?.description && impliesPermanent(subject.description))
+        this.diagnostic("unsupported-reference", at, "Playing a card requires a card outside the battlefield.", ["305.1", "601.2a"]);
+      if (subject && context.exileResults?.some(capture => capture.faceDown && capture.result.id === subject.id) &&
+          !this.result.nodes.some(node => node.node === "exile-play-lifetime" && node.path === path && node.exile === subject.id)) {
+        const rules = ["400.7j", "406.3a", "611.2a"];
+        const duration = isRecord(value.duration) ? value.duration.duration : undefined;
+        if (!context.uncertainExileOrigin && subject.cardinality === "one" &&
+            isDeepStrictEqual({ ...value.permission, what: undefined }, { who: { player: "you" }, action: "play", what: undefined }) &&
+            (duration === "end-of-turn" || duration === "this-turn" || duration === "your-next-end-step")) {
+          this.node({ id: this.id(path, "exile-play-lifetime"), path, node: "exile-play-lifetime", scope: context.ability,
+            exile: subject.id, player: context.you, duration: duration === "your-next-end-step" ? duration : "end-of-turn",
+            visibility: "turn-face-up-before-announcement-unless-cast-face-down", rules });
+          this.engineFeature("linked-exile-play", path, "Turn the permitted card face up before announcement unless cast face down.", rules);
+        } else this.diagnostic("unsupported-scope", at, "Playing the face-down card requires an explicit visibility and permission lifetime binding.", rules);
+      }
       return;
     }
     if ((value.action === "cast" || value.action === "play") && isRecord(value.who) && isRecord(value.what)
@@ -2321,8 +2344,10 @@ class Analyzer {
     for (const [entry, nested] of Object.entries(value)) {
       if (first.includes(entry) || (chosenDraw && entry === "amount") ||
           (damageAmount && (entry === "to" || entry === "amount"))) continue;
+      const exiling = entry === "counters" && context.exileCounterFromSelected === path ? this.at(child(path, "what")) : undefined;
       const scoped = entry === "filter" && tested?.domain === "object" && tested.cardinality === "one"
-        ? { ...context, characteristicSubject: tested.id } : context;
+        ? { ...context, characteristicSubject: tested.id } : exiling?.cardinality === "one"
+          ? { ...context, boundOperand: { path: `${path}/counters/0/count/of`, candidate: exiling, rules: ["202.3", "400.7", "608.2h"] } } : context;
       this.walk(nested, child(path, entry), scoped);
     }
     Object.assign(context, saved);
@@ -3104,7 +3129,8 @@ class Analyzer {
       copiedCards: undefined, linkedCopies: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, targetPlayerGroup: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined, lifeGain: undefined, resolutionPaymentX: undefined,
       linkedExile: undefined, countedLinkedPool: undefined, namedVote: undefined, weightedMode: undefined,
-      exchangeEntrant: undefined, quotedFightSide: undefined, ownLeaveEvent: undefined, lexicalAbilityPath: undefined, delayedSchedule: kind === "delayed-triggered",
+      exchangeEntrant: undefined, quotedFightSide: undefined, ownLeaveEvent: undefined, exileCounterFromSelected: undefined,
+      lexicalAbilityPath: undefined, delayedSchedule: kind === "delayed-triggered",
       declaredTargets: undefined, uncertainTargetOrigin: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
@@ -3523,7 +3549,7 @@ class Analyzer {
     const at = `${path}/steps/0`;
     const opponents = this.player(loss.who, child(at, "who"), context);
     if (!opponents) return false;
-    const rules = ["101.4", "118.11", "118.12a", "608.2e", "608.2f", "701.9a"];
+    const rules = ["101.4", "101.4a", "118.11", "118.12", "118.12a", "608.2e", "608.2f", "701.9a"];
     const conditionPath = child(path, "condition");
     const id = this.node({ id: this.id(conditionPath, "paying-opponent"), path: conditionPath,
       node: "instruction-member", scope: context.ability, group: opponents.id, domain: "player", rules });
@@ -3539,11 +3565,17 @@ class Analyzer {
     const event = this.event(at, context, "lose-life", [member], { conditional: true });
     this.node({ id: this.id(path, "opponent-discard-or-life"), path, node: "opponent-discard-or-life",
       scope: context.ability, opponents: opponents.id, payer: member.id, payment,
-      loss: event, cards: cost.what.count.value, life: loss.amount.value,
-      order: "apnap-choices-simultaneous-actions", rules });
+      loss: event, cards: cost.what.count.value, life: loss.amount.value, lossWhen: "did-not-pay",
+      order: "apnap-private-choices-then-discards-then-losses", rules });
     this.engineFeature("multiplayer-choice", path,
       "For each opponent, offer the printed discard in APNAP order, then apply the payment and life-loss instructions to their respective participants.", rules);
+    context.objects = context.objects.map(candidate => ({ ...candidate, qualifiedOnly: true }));
+    context.departed = context.departed?.map(candidate => ({ ...candidate, qualifiedOnly: true }));
+    context.players = [];
+    context.definiteEventPlayer = undefined;
     context.quantities = [];
+    context.uncertainMeasureOrigin = true;
+    context.mentionedObject = true;
     return true;
   }
 
@@ -3646,7 +3678,7 @@ class Analyzer {
     const original = this.at(child(from, "what"));
     if (!original || !this.announced(original)) return true;
     const copyPath = `${path}/1/steps/0`;
-    const rules = ["115.7e", "115.7f", "115.8", "115.9c", "608.2b", "707.10", "707.10c"];
+    const rules = ["115.7e", "115.7f", "115.8", "115.9b", "115.9c", "608.2b", "609.3", "707.10", "707.10c"];
     const chooser = this.bound(you, child(copyPath, "who"), context.you, rules);
     this.bound(spell, child(copyPath, "what"), original.id, rules);
     const copyEvent = this.event(copyPath, context, "copy-stack-object", [original, chooser]);
@@ -3664,7 +3696,7 @@ class Analyzer {
     const event = this.event(changePath, context, "change-targets", [original, result, chooser, permanents]);
     this.node({ id: this.id(changePath, "paired-random-reselection"), path: changePath, node: "paired-random-reselection",
       scope: context.ability, event, original: original.id, copy: result.id, chooser: chooser.id,
-      exclude: [chooser.id, permanents.id], unit: "target-slot", whenUnavailable: "keep", rules });
+      exclude: [chooser.id, permanents.id], unit: "target-slot", whenUnavailable: "keep", whenNoCopy: "reselect-original", rules });
     this.engineFeature("stack-instruction", changePath,
       "Copy the announced spell, then reselect every slot of the original and copy using each stack object's current controller and legal target set. Exclude the stated player and permanents they control.", rules);
     context.objects = [];
@@ -3717,7 +3749,8 @@ class Analyzer {
     const final = this.event(follow, context, "copy-stack-object", [original, creator, performed]);
     this.node({ id: this.id(follow, "opponent-copy-count"), path: follow, node: "opponent-copy-count",
       scope: context.ability, original: original.id, opponents: group.id, member, opponentEvent, participants: performed.id,
-      final, controller: creator.id, extra: 1, order: "apnap-opponents-then-controller", retarget: "optional-per-copy", rules });
+      final, controller: creator.id, extra: 1, order: "apnap-opponents-then-controller",
+      opponentPlacement: "before-next-opponent", retarget: "optional-per-copy", rules });
     this.engineFeature("stack-instruction", follow,
       "Give each opponent their own copy and retargeting choices in order. Then make one copy for the controller plus one per opponent who copied, each with its own retargeting choice.", rules);
     context.objects = [];
@@ -3730,8 +3763,10 @@ class Analyzer {
    * entering or leaving the later guard cannot expose it after a decline.
    * CR 707.10c fixes retargeting at creation, before the separate grant. */
   private grantOnStackCopies(sentences: Sentence[], path: string, context: Context): boolean {
-    if (context.triggerObject?.event !== "cast" || !context.castActors?.filter.singleTarget ||
-        context.castActors.caster.id !== context.you || sentences.length !== 3 ||
+    if (context.triggerObject?.event !== "cast" || context.castActors?.caster.id !== context.you ||
+        !isDeepStrictEqual(context.castActors.filter, {
+          allOf: [{ anyOf: [{ types: ["instant"] }, { types: ["sorcery"] }] }], cls: "spell", singleTarget: true,
+        }) || sentences.length !== 3 ||
         sentences.some(sentence => sentence.steps.length !== 1)) return false;
     const [[copy], [gain], [retarget]] = sentences.map(sentence => sentence.steps);
     const you = { player: "you" } as const;
@@ -3756,7 +3791,7 @@ class Analyzer {
       sentences.slice(1).forEach((sentence, index) => this.walk(sentence, child(path, index + 1), { ...context, barrier }));
       return true;
     }
-    const rules = ["115.7d", "118.12", "608.2c", "611.2c", "702.80", "707.10", "707.10c"];
+    const rules = ["115.7d", "115.9a", "118.12", "400.7", "608.2c", "608.2h", "611.2c", "702.80", "707.10", "707.10c"];
     const affected = `${path}/1/steps/0`;
     const retargetPath = `${path}/2/steps/0`;
     const union = this.node({ id: this.id(affected, "copy-and-original"), path: affected, node: "result-union", scope: context.ability,
@@ -3772,7 +3807,8 @@ class Analyzer {
       scope: context.ability, subject: capture.result.id, chooser: context.you,
       action: { kind: "choose-new-targets", timing: "copy-creation", copyEvent: capture.event }, rules });
     this.node({ id: this.id(affected, "contingent-copy-grant"), path: affected, node: "contingent-copy-grant",
-      scope: context.ability, event, copy: capture.result.id, chosenTargets: choose, affected: union, keyword: "wither", rules });
+      scope: context.ability, event, copy: capture.result.id, chosenTargets: choose, affected: union, keyword: "wither",
+      copyFrom: "current-or-last-known", grantTo: "still-on-stack", rules });
     this.engineFeature("stack-instruction", affected,
       "After making the optional copy with its legal target choices, grant wither to that copy and the original spell.", rules);
     context.objects = [];
@@ -3782,10 +3818,190 @@ class Analyzer {
     return true;
   }
 
+  /** A scope marker is immaterial only here: granting permission for the
+   * branch's sole actual choice has no effect if that choice did not occur.
+   * CR 118.12, 608.2c–d and 611.2a. */
+  private conditionalExilePermission(sentences: Sentence[], path: string, context: Context): boolean {
+    if (sentences.length !== 3 || sentences[0].steps.length !== 1 || sentences[1].steps.length !== 2 ||
+        sentences[2].steps.length !== 1 || Object.keys(sentences[0]).length !== 1 ||
+        Object.keys(sentences[1]).length !== 3 || Object.keys(sentences[2]).length !== 2 ||
+        sentences[1].conditionKind !== "if" || !isDeepStrictEqual(sentences[1].condition, { condition: "you-do" }) ||
+        sentences[1].otherwise || sentences[1].afterConditional || sentences[2].afterConditional !== "scope-unresolved" ||
+        context.exileResults?.length || context.uncertainExileOrigin) return false;
+    const [discard] = sentences[0].steps;
+    const [exile, choose] = sentences[1].steps;
+    const [grant] = sentences[2].steps;
+    const you = { player: "you" } as const;
+    if (discard.effect !== "discard" || discard.random ||
+        !isDeepStrictEqual({ ...discard, random: undefined }, { effect: "discard", who: you, optional: true, random: undefined,
+          what: { ref: "filter", filter: { cls: "card" }, count: { amount: "fixed", value: 1 } } }) ||
+        !isDeepStrictEqual(exile, { effect: "exile", what: {
+          ref: "library-cards", position: "top", count: { amount: "fixed", value: 2 }, of: { zone: "library", owner: "your" },
+        } }) || !isDeepStrictEqual(choose, { effect: "choose-object", who: you,
+          what: { ref: "from-pool", pool: { ref: "them" }, count: { amount: "fixed", value: 1 } } }) ||
+        !isDeepStrictEqual(grant, { effect: "grant-play-permission", duration: { duration: "this-turn" },
+          permission: { who: you, action: "play", what: { ref: "that", filter: { cls: "card" } } },
+        })) return false;
+    const decision = `${path}/0/steps/0`;
+    this.effect(discard, decision, context);
+    const guard = `${path}/1/condition`;
+    const rules = ["118.11", "118.12", "400.7j", "608.2c", "608.2d", "611.2a"];
+    this.node({ id: this.id(guard, "decision-link"), path: guard, node: "decision-link", scope: context.ability,
+      condition: "you-do", decision, rules });
+    const branch = { ...this.branch(context), conditional: true };
+    this.effect(exile, `${path}/1/steps/0`, branch);
+    const select = `${path}/1/steps/1`;
+    this.effect(choose, select, branch);
+    const chosen = branch.directCardChoice;
+    const at = `${path}/2/steps/0`;
+    if (!chosen || chosen.path !== select) {
+      this.diagnostic("unsupported-scope", at, "The play permission requires the conditional branch's actual chosen exile object.", rules);
+      return true;
+    }
+    this.effect(grant, at, branch);
+    this.node({ id: this.id(at, "exile-play-lifetime"), path: at, node: "exile-play-lifetime", scope: context.ability,
+      exile: chosen.result.id, player: context.you, duration: "end-of-turn", requiresDecision: decision, rules });
+    this.engineFeature("linked-exile-play", at,
+      "If the discard was paid and an exiled card was chosen, grant normal play permission for that exact exile object this turn.", rules);
+    this.blockBranchCaptures(context, [branch]);
+    context.objects = [];
+    context.quantities = [];
+    return true;
+  }
+
+  /** CR 202.3, 400.7j and 608.2c–d. Each optional player chooses from
+   * their own hand, and the grant sees only this pair of actual exiles. */
+  private pairedHandExiles(sentences: Sentence[], path: string, context: Context): boolean {
+    if (!context.spellAbility || context.uncertainExileOrigin || context.exileResults?.length ||
+        sentences.length !== 3 || sentences.some(sentence => Object.keys(sentence).length !== 1) ||
+        sentences[0].steps.length !== 2 || sentences[1].steps.length !== 2 || sentences[2].steps.length !== 1) return false;
+    const [drawSelf, exileSelf] = sentences[0].steps;
+    const [drawOther, exileOther] = sentences[1].steps;
+    const [grant] = sentences[2].steps;
+    const you = { player: "you" } as const;
+    const opponent = { player: "that-player" } as const;
+    const two = { amount: "fixed", value: 2 } as const;
+    const counters = [{ counter: { type: "time" }, count: { amount: "attribute", of: { ref: "it" }, attribute: "mana-value" } }];
+    const hand = (owner: "your" | typeof opponent) => ({ ref: "filter", filter: { nonTypes: ["land"], cls: "card", zone: { zone: "hand", owner } },
+      count: { amount: "fixed", value: 1 } });
+    const performed = { ref: "related", number: "plural", filter: { cls: "card" },
+      relation: { relation: "event-result", event: "exile", scope: "this-way" } } as const;
+    if (!isDeepStrictEqual(drawSelf, { effect: "draw", who: you, amount: two }) ||
+        drawOther.effect !== "draw" || drawOther.who.player !== "target-opponent" || !drawOther.who.selectionId ||
+        !isDeepStrictEqual(drawOther, { effect: "draw", who: { player: "target-opponent", selectionId: drawOther.who.selectionId }, amount: two }) ||
+        !isDeepStrictEqual(exileSelf, { effect: "exile", what: hand("your"), counters, optional: true }) ||
+        !isDeepStrictEqual(exileOther, { effect: "exile", what: hand(opponent), counters, optional: true, who: opponent, decidedBy: opponent }) ||
+        !isDeepStrictEqual(grant, { effect: "gain-abilities", what: {
+          ref: "each", filter: { cls: "card", withoutAbility: ["suspend"], fromAmong: performed },
+        }, abilities: [{ gained: "keyword", keyword: { keyword: "suspend" } }] })) return false;
+    const captures: Candidate[] = [];
+    for (const [index, pair] of [[drawSelf, exileSelf], [drawOther, exileOther]].entries()) {
+      const draw = `${path}/${index}/steps/0`;
+      const at = `${path}/${index}/steps/1`;
+      const scope = { ...this.branch(context), exileCounterFromSelected: at };
+      this.effect(pair[0], draw, scope);
+      this.effect(pair[1], at, scope);
+      const actual = scope.exileResults?.length === 1 ? scope.exileResults[0] : undefined;
+      if (actual?.event === this.id(at, "event")) captures.push(actual.result);
+    }
+    const rules = ["118.12", "202.3", "400.7j", "608.2c", "608.2d", "702.62b"];
+    const at = `${path}/2/steps/0`;
+    if (captures.length !== 2) {
+      this.diagnostic("unsupported-scope", at, "The two hand exiles must establish independent actual results.", rules);
+      return true;
+    }
+    const pool = this.node({ id: this.id(at, "two-hand-exiles"), path: at, node: "result-union", scope: context.ability,
+      from: captures.map(candidate => candidate.id), cardinality: "many", rules });
+    this.effect(grant, at, { ...context, objects: [], quantities: [],
+      boundOperand: { path: `${at}/what/filter/fromAmong`, candidate: { id: pool, domain: "object", cardinality: "many",
+        description: { cls: "card" } }, rules } });
+    this.engineFeature("exile-and-search-results", at,
+      "Record the two independent optional hand exile outcomes with their own chosen-card mana values. Give suspend only to the resulting cards without it.", rules);
+    context.objects = [];
+    context.quantities = [];
+    context.mentionedObject = true;
+    context.uncertainExileOrigin = true;
+    return true;
+  }
+
+  /** Compare to the exact permanent paid by the controller, then track
+   * each opponent's own optional payment separately. CR 118.12, 608.2e–h. */
+  private matchingSacrifice(sentences: Sentence[], path: string, context: Context): boolean {
+    if (sentences.length !== 3 || sentences.some(sentence => sentence.steps.length !== 1) ||
+        Object.keys(sentences[0]).length !== 1 || Object.keys(sentences[1]).length !== 3 || Object.keys(sentences[2]).length !== 1 ||
+        sentences[1].conditionKind !== "if" || !isDeepStrictEqual(sentences[1].condition, { condition: "you-do" }) ||
+        sentences[1].otherwise || sentences[1].afterConditional) return false;
+    const [[payment], [matching], [outcome]] = sentences.map(sentence => sentence.steps);
+    const you = { player: "you" } as const;
+    const opponents = { player: "each-opponent" } as const;
+    const ref = { ref: "it" } as const;
+    const test = { relation: "shared-value", characteristic: "card-type", with: { operand: "object", what: ref } } as const;
+    const nonPayers = { player: "filtered", base: opponents, filter: { precedingAction: "not-performed" } } as const;
+    if (payment.effect !== "sacrifice" || payment.what.ref !== "filter" || objectCardinality(payment.what) !== "one" ||
+        !impliesPermanent(payment.what.filter) || !isDeepStrictEqual(payment, { effect: "sacrifice", who: you, what: payment.what, optional: true }) ||
+        matching.effect !== "sacrifice" || !isDeepStrictEqual(matching, { effect: "sacrifice", who: opponents,
+          what: { ref: "filter", filter: { cls: "permanent", characteristicRelations: [test] }, count: { amount: "fixed", value: 1 } },
+          chosenBy: opponents, decidedBy: opponents, optional: true,
+        }) || outcome.effect !== "for-each" || outcome.effects.length !== 1 || Object.keys(outcome.effects[0]).length !== 1 ||
+        !isDeepStrictEqual(outcome, { effect: "for-each", each: nonPayers, processing: "instruction-wise", effects: outcome.effects })) return false;
+    const [loss, draw] = outcome.effects[0].steps;
+    if (outcome.effects[0].steps.length !== 2 || loss.effect !== "lose-life" || draw.effect !== "draw" ||
+        loss.amount.amount !== "fixed" || draw.amount.amount !== "fixed" ||
+        !isDeepStrictEqual(loss, { effect: "lose-life", who: { player: "that-player" }, amount: loss.amount }) ||
+        !isDeepStrictEqual(draw, { effect: "draw", who: you, amount: draw.amount })) return false;
+    const at = `${path}/0/steps/0`;
+    this.effect(payment, at, context);
+    const source = this.at(child(at, "what"));
+    if (!source) return true;
+    const rules = ["101.4", "118.11", "118.12", "121.2", "608.2e", "608.2f", "608.2h", "701.21a"];
+    const guard = `${path}/1/condition`;
+    this.node({ id: this.id(guard, "decision-link"), path: guard, node: "decision-link", scope: context.ability,
+      condition: "you-do", decision: at, rules });
+    const choice = `${path}/1/steps/0`;
+    const group = this.player(opponents, child(choice, "who"), context);
+    if (!group) return true;
+    const payer = this.node({ id: this.id(choice, "sacrifice-member"), path: choice, node: "instruction-member",
+      scope: context.ability, group: group.id, domain: "player", rules });
+    this.bound(opponents, child(choice, "chosenBy"), payer, rules);
+    this.bound(opponents, child(choice, "decidedBy"), payer, rules);
+    const actor: Candidate = { id: payer, domain: "player", cardinality: "one" };
+    const what = child(choice, "what");
+    const selected = this.object(matching.what, what, { ...context, actor,
+      boundOperand: { path: `${what}/filter/characteristicRelations/0/with/what`, candidate: source, rules } });
+    if (!selected) return true;
+    const each = this.event(choice, context, "sacrifice", [selected, actor], { optional: true, decider: payer, conditional: true });
+    const next = `${path}/2/steps/0`;
+    const result = this.node({ id: this.id(next, "nonpaying-opponents"), path: next, node: "optional-action-participants",
+      scope: context.ability, event: each, group: group.id, outcome: "did-not-pay", activation: this.id(at, "event"),
+      cardinality: "many", rules });
+    this.bound(opponents, `${next}/each/base`, group.id, rules);
+    this.bound(nonPayers, child(next, "each"), result, rules);
+    const member = this.node({ id: this.id(next, "nonpayer-member"), path: next, node: "instruction-member",
+      scope: context.ability, group: result, domain: "player", rules });
+    const lossPath = `${next}/effects/0/steps/0`;
+    const drawPath = `${next}/effects/0/steps/1`;
+    const receiver = this.bound({ player: "that-player" }, child(lossPath, "who"), member, rules);
+    const drawer = this.bound(you, child(drawPath, "who"), context.you, rules);
+    const lose = this.event(lossPath, context, "lose-life", [receiver], { conditional: true });
+    const cards = this.event(drawPath, context, "draw", [drawer, receiver], { conditional: true });
+    this.node({ id: this.id(next, "optional-matching-sacrifice"), path: next, node: "optional-matching-sacrifice",
+      scope: context.ability, controllerPayment: this.id(at, "event"), original: source.id, opponents: group.id,
+      opponentPayment: each, nonpayers: result, lose, life: loss.amount.value, draw: cards, cards: draw.amount.value,
+      requireOriginalPayment: true, rules });
+    this.engineFeature("multiplayer-choice", next,
+      "Only after the controller pays, each opponent may sacrifice a permanent sharing a type with the paid permanent. Apply loss and draw a card per nonpayer.", rules);
+    context.objects = [];
+    context.departed = [];
+    context.players = [];
+    context.quantities = [];
+    return true;
+  }
+
   sentences(sentences: Sentence[], path: string, context: Context): void {
     if (!context.barrier && !context.previousEffect && !context.decider && !context.conditional && context.phase === "resolution" &&
         (this.copyAndReselect(sentences, path, context) || this.copiesForOpponents(sentences, path, context) ||
-          this.grantOnStackCopies(sentences, path, context))) return;
+          this.grantOnStackCopies(sentences, path, context) || this.conditionalExilePermission(sentences, path, context) ||
+          this.pairedHandExiles(sentences, path, context) || this.matchingSacrifice(sentences, path, context))) return;
     let previousDecisions: string[] = [];
     let precedingAction: { event: string; action: "sacrifice" | "discard" } | undefined;
     let precedingSentence: Context["precedingSentence"];
@@ -4064,26 +4280,29 @@ class Analyzer {
     return true;
   }
 
-  /** CR 400.7j and 611.2a. A permission following an exact face-up exile
+  /** CR 400.7j and 611.2a. A permission following an exact exile
    * of one card uses that incarnation, including when other participants
    * of the ability were battlefield permanents. */
   private immediateExilePlay(effect: Effect, path: string, context: Context, precedingEffect?: string): Context["boundOperand"] {
     if (context.barrier || context.decider || context.conditional || context.uncertainExileOrigin ||
         effect.effect !== "grant-play-permission" || Object.keys(effect).length !== 3 ||
-        !isDeepStrictEqual(effect.permission, { who: { player: "you" }, action: "play", what: { ref: "it" } }) ||
-        !["your-next-end-step", "end-of-turn"].includes(effect.duration.duration) ||
+        !isDeepStrictEqual({ ...effect.permission, what: undefined }, { who: { player: "you" }, action: "play", what: undefined }) ||
+        !(effect.permission.what.ref === "it" || isDeepStrictEqual(effect.permission.what, { ref: "that", filter: { cls: "card" } })) ||
+        !["your-next-end-step", "end-of-turn", "this-turn"].includes(effect.duration.duration) ||
         context.exileResults?.length !== 1 || !precedingEffect || context.precedingSentence?.steps.length !== 1) return;
     const [previous] = context.precedingSentence.steps;
     const [exile] = context.exileResults;
-    if (!isDeepStrictEqual(previous, { effect: "exile", what: {
+    if (previous.effect !== "exile" || !isDeepStrictEqual({ ...previous, faceDown: undefined }, { effect: "exile", faceDown: undefined, what: {
           ref: "library-cards", position: "top", count: { amount: "fixed", value: 1 }, of: { zone: "library", owner: "your" },
-        } }) || exile.event !== this.id(precedingEffect, "event") || exile.faceDown || exile.result.cardinality !== "one" ||
+        } }) || exile.event !== this.id(precedingEffect, "event") || exile.result.cardinality !== "one" ||
+        (!exile.faceDown && (effect.permission.what.ref !== "it" || effect.duration.duration === "this-turn")) ||
         context.objects.some(candidate => candidate.id !== exile.result.id &&
           (!candidate.description || !impliesPermanent(candidate.description)))) return;
-    const rules = ["400.7", "400.7j", "305.1", "601.3", "611.2a"];
+    const rules = ["400.7", "400.7j", "305.1", "601.3", "611.2a", ...(exile.faceDown ? ["406.3a"] : [])];
     this.node({ id: this.id(path, "exile-play-lifetime"), path, node: "exile-play-lifetime", scope: context.ability,
       exile: exile.result.id, player: context.you,
-      duration: effect.duration.duration === "end-of-turn" ? "end-of-turn" : "your-next-end-step", rules });
+      duration: effect.duration.duration === "your-next-end-step" ? "your-next-end-step" : "end-of-turn",
+      ...(exile.faceDown ? { visibility: "turn-face-up-before-announcement-unless-cast-face-down" as const } : {}), rules });
     this.engineFeature("linked-exile-play", path,
       "Allow the player to play that exact exile card with normal timing and costs up to the printed deadline.", rules);
     return { path: `${path}/permission/what`, candidate: exile.result, rules };

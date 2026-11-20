@@ -2298,3 +2298,110 @@ describe("copying distinct stack objects and retargeting them", () => {
     assert.ok(!graph.nodes.some(node => node.node === "contingent-copy-grant"));
   });
 });
+
+describe("isolating optional choices and their actual outcomes", () => {
+  const party = "At the beginning of your first main phase, you may discard a card. "
+    + "If you do, exile the top two cards of your library, then choose one of them. You may play that card this turn.";
+
+  it("links the marked play continuation to the branch's actual choice", () => {
+    const graph = analyze(party, "Creature");
+    boundCard(graph);
+    const play = graph.nodes.find(node => node.node === "exile-play-lifetime");
+    assert.ok(play?.requiresDecision && play.duration === "end-of-turn");
+    assert.equal(play.exile, bound(graph, "/permission/what"));
+    assert.notEqual(play.exile, bound(graph, "/effects/0/steps/0/what"));
+    assert.ok(graph.nodes.some(node => node.id === play.exile && node.node === "event-result" &&
+      node.event.endsWith("/effects/1/steps/1#event") && node.availability === "if-produced"));
+  });
+
+  it("keeps an additional action behind the unresolved continuation marker", () => {
+    const graph = analyze(party.replace("this turn.", "this turn, then draw a card."), "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "exile-play-lifetime"));
+  });
+
+  const exchange = "Draw two cards, then you may exile a nonland card from your hand with a number of time counters on it "
+    + "equal to its mana value. Then target opponent does the same. Cards exiled this way that don't have suspend gain suspend.\nTime travel.";
+
+  it("applies the two exile choices independently and uses their actual successors for the grant", () => {
+    const graph = analyze(exchange, "Sorcery");
+    boundCard(graph);
+    const pool = graph.nodes.find(node => node.node === "result-union");
+    assert.ok(pool?.from.length === 2 && pool.from[0] !== pool.from[1]);
+    for (const [index, result] of pool.from.entries()) {
+      assert.ok(graph.nodes.some(node => node.id === result && node.node === "event-result" && node.identity === "zone-successors"));
+      assert.equal(bound(graph, `/effects/${index}/steps/1/counters/0/count/of`), bound(graph, `/effects/${index}/steps/1/what`));
+    }
+    assert.equal(pool.id, bound(graph, "/filter/fromAmong"));
+    assert.equal(bound(graph, "/effects/1/steps/1/decidedBy"), bound(graph, "/effects/1/steps/0/who"));
+  });
+
+  it("does not absorb an additional exile paragraph into the shared suspend grant", () => {
+    const graph = analyze("Exile the top card of your library.\n" + exchange, "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "result-union"));
+  });
+
+  const sacrifice = "At the beginning of your end step, you may sacrifice an artifact, creature, enchantment, land, or planeswalker. "
+    + "If you do, each opponent may sacrifice a permanent of their choice that shares a card type with it. "
+    + "For each opponent who doesn't, that player loses 2 life and you draw a card.";
+
+  it("uses the chosen sacrifice's types and pays off only for nonpayers after the initial payment", () => {
+    const graph = analyze(sacrifice, "Creature");
+    boundCard(graph);
+    const payment = graph.nodes.find(node => node.node === "optional-matching-sacrifice");
+    assert.ok(payment?.requireOriginalPayment);
+    assert.equal(payment.original, bound(graph, "/with/what"));
+    assert.equal(payment.original, bound(graph, "/effects/0/steps/0/what"));
+    assert.equal(payment.nonpayers, bound(graph, "/steps/0/each"));
+    assert.ok(graph.nodes.some(node => node.id === payment.nonpayers && node.node === "optional-action-participants" &&
+      node.outcome === "did-not-pay" && node.event === payment.opponentPayment));
+  });
+
+  it("does not join a branch explicitly conditioned on declining the initial sacrifice", () => {
+    const graph = analyze(sacrifice.replace("If you do,", "If you don't,"), "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "optional-matching-sacrifice"));
+  });
+
+  it("does not fall back to a battlefield permanent after an optional exile was declined", () => {
+    const graph = analyze("Target creature gets +3/+1 and gains haste until end of turn. You may exile the top card of your library. "
+      + "If you don't, you may play it until your next end step.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "exile-play-lifetime"));
+  });
+
+  it("does not borrow stale bare object and player antecedents after per-opponent discards", () => {
+    for (const text of [
+      "Target creature gets +1/+1 until end of turn. Each opponent loses 3 life unless they discard a card. Return it to its owner's hand.",
+      "Target opponent loses 1 life. Each opponent loses 3 life unless they discard a card. That player discards a card.",
+    ]) {
+      const graph = analyze(text, "Instant");
+      assert.equal(graph.referencesBound, false);
+      const payment = graph.nodes.find(node => node.node === "opponent-discard-or-life");
+      assert.ok(payment?.lossWhen === "did-not-pay" && payment.order === "apnap-private-choices-then-discards-then-losses");
+    }
+  });
+
+  it("does not apply the instant-or-sorcery copy grant to permanent spells", () => {
+    const graph = analyze("Whenever you cast a creature spell with a single target, you may copy it. "
+      + "If you do, those spells gain wither. You may choose new targets for the copy.", "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "contingent-copy-grant"));
+  });
+});
+
+it("does not reuse an unrelated measured loss after the opponent payment outcome", () => {
+  const graph = analyze("Target opponent loses 3 life. Each opponent loses 2 life unless they discard a card. "
+    + "You gain life equal to the total life lost this way.", "Instant");
+  assert.equal(graph.referencesBound, false);
+  assert.ok(!graph.nodes.some(node => node.node === "event-aggregate"));
+});
+
+it("keeps the face-down announcement rule on a timed exile permission", () => {
+  const graph = analyze("Exile the top card of your library face down. You may play that card this turn.", "Instant");
+  boundCard(graph);
+  const grant = graph.nodes.find(node => node.node === "exile-play-lifetime");
+  assert.ok(grant?.duration === "end-of-turn" && grant.visibility === "turn-face-up-before-announcement-unless-cast-face-down");
+  assert.equal(grant.exile, bound(graph, "/permission/what"));
+});

@@ -173,11 +173,12 @@ export type BindingNode = NodeBase & (
       retarget: "optional-per-copy" }
   | { node: "permanent-spell-copy-grant"; scope: string; copy: string; applies: "permanent-spell-and-resulting-token"; cardinality: "one" }
   | { node: "paired-random-reselection"; scope: string; event: string; original: string; copy: string;
-      chooser: string; exclude: [string, string]; unit: "target-slot"; whenUnavailable: "keep" }
+      chooser: string; exclude: [string, string]; unit: "target-slot"; whenUnavailable: "keep"; whenNoCopy: "reselect-original" }
   | { node: "opponent-copy-count"; scope: string; original: string; opponents: string; member: string; opponentEvent: string;
-      participants: string; final: string; controller: string; extra: 1; order: "apnap-opponents-then-controller"; retarget: "optional-per-copy" }
+      participants: string; final: string; controller: string; extra: 1; order: "apnap-opponents-then-controller";
+      opponentPlacement: "before-next-opponent"; retarget: "optional-per-copy" }
   | { node: "contingent-copy-grant"; scope: string; event: string; copy: string; chosenTargets: string;
-      affected: string; keyword: "wither" }
+      affected: string; keyword: "wither"; copyFrom: "current-or-last-known"; grantTo: "still-on-stack" }
   | { node: "random-target-reselection"; scope: string; event: string; subject: string; guard: "single-target-intervening-if" }
   | { node: "face-down-exile-look"; scope: string; viewer: string; card: string; event: string;
       duration: Extract<Effect, { effect: "grant-look-permission" }>["duration"]; continuedUntil: "leaves-exile-or-shuffled" }
@@ -206,7 +207,12 @@ export type BindingNode = NodeBase & (
         | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise"; ordering?: "each-owner-private-simultaneous" } }
   /** The targets that are still legal when this set of per-player targets resolves. */
   | { node: "opponent-discard-or-life"; scope: string; opponents: string; payer: string; payment: string; loss: string;
-      cards: number; life: number; order: "apnap-choices-simultaneous-actions" }
+      cards: number; life: number; lossWhen: "did-not-pay"; order: "apnap-private-choices-then-discards-then-losses" }
+  | { node: "optional-action-participants"; scope: string; event: string; group: string;
+      outcome: "did-not-pay"; activation: string; cardinality: "many" }
+  | { node: "optional-matching-sacrifice"; scope: string; controllerPayment: string; original: string; opponents: string;
+      opponentPayment: string; nonpayers: string; lose: string; life: number; draw: string; cards: number;
+      requireOriginalPayment: true }
   | { node: "replacement-search-result"; scope: string; original: string; replacement: string;
       condition: Condition; cardinality: "many" }
   | { node: "simultaneous-search-partition"; scope: string; pool: string; selected: string; remaining: string;
@@ -223,7 +229,7 @@ export type BindingNode = NodeBase & (
   | { node: "vote-outcome"; scope: string; event: string; choice: string; comparison: "strict-majority" }
   | { node: "linked-pool-condition"; scope: string; pool: string; comparison: "nonempty"; timing: "trigger-check-and-resolution" }
   | { node: "exile-play-lifetime"; scope: string; exile: string; player: string; duration: "while-that-object-is-exiled" | "end-of-turn" | "your-next-end-step";
-      visibility?: "turn-face-up-before-announcement-unless-cast-face-down" }
+      visibility?: "turn-face-up-before-announcement-unless-cast-face-down"; requiresDecision?: string }
   | { node: "actual-destination-count"; scope: string; event: string; result: string; destination: "graveyard" }
   | { node: "weighted-modal"; scope: string; chooser: string; maximum: number; weights: number[]; repeat: boolean;
       timing: "stack-announcement"; order: "printed-mode-order" }
