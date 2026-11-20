@@ -14,6 +14,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod basic_land_fetch;
 mod basic_landwalk;
 mod bestow;
 mod bindings;
@@ -1678,7 +1679,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
-    typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
+    let basic_ramp_spell = basic_land_fetch::spell(&result, &shape, &binding, &source)?;
+    if basic_fetch.is_none() {
+        typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
+    }
     cycling::bind(&abilities, &binding, &r.oracle_identity, &source, &result)?;
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     for (line, ability) in result.lines.iter().zip(&original) {
@@ -1711,7 +1716,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
     for (ability, raw) in abilities.iter().zip(&original) {
         typed_land_search::validate_raw_actors(ability, raw.get())?;
-        typed_fetchland::validate_raw(ability, raw.get())?;
+        if basic_fetch.is_none() {
+            typed_fetchland::validate_raw(ability, raw.get())?;
+        }
     }
     controller_library::validate_fixed_cast_effects(
         &abilities,
@@ -1939,6 +1946,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if basic_ramp_spell.is_some() => {
+            definition.spell = basic_ramp_spell;
+        }
         CardKind::Sorcery | CardKind::Instant if fixed_creature_damage.is_some() => {
             definition.spell = fixed_creature_damage;
         }
@@ -2365,7 +2375,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 "~",
                                 source_block(block)?,
                             );
-                            let activated = if let Some(loss) = artifact_loss.take() {
+                            let activated = if let Some(fetch) = basic_fetch.take() {
+                                fetch
+                            } else if let Some(loss) = artifact_loss.take() {
                                 loss
                             } else if let Some(bound) = counted_artifact_modes.remove(&block) {
                                 bound

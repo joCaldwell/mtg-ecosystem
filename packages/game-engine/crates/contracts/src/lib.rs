@@ -56,6 +56,8 @@ mod creative_technique;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
+mod basic_land_fetch;
+pub use basic_land_fetch::basic_land_fetch_program;
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 /// Engine build identity excludes card/profile data and hosting code. Retained
@@ -545,6 +547,7 @@ pub enum Capability {
     GraveyardBattlefieldReturnV1,
     OwnGraveyardCardReturnV1,
     BasicLandSearchV1,
+    BasicLandFetchV1,
     BasicLandSplitSearchV1,
     ColoredLibrarySearchV1,
     TypedLandSearchV1,
@@ -1129,6 +1132,10 @@ pub enum Instruction {
         maximum: u32,
         source_block: u32,
     },
+    FetchBasicLand {
+        force_tapped: bool,
+        source_block: u32,
+    },
     CreateCreatureTokens {
         count: u32,
         token: CreatureToken,
@@ -1447,7 +1454,8 @@ impl Instruction {
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
-            Self::SearchBasicLands { source_block, .. } => *source_block,
+            Self::SearchBasicLands { source_block, .. }
+            | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
@@ -3081,7 +3089,10 @@ impl Definition {
         scoped_creature_stats::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
-        typed_land_search::validate_definition(self)?;
+        let basic_land_fetch = basic_land_fetch::validate_definition(self)?;
+        if !basic_land_fetch {
+            typed_land_search::validate_definition(self)?;
+        }
         activated_source_keyword::validate(self)?;
         conditional_lands::validate_definition(self)?;
         cascade_land_entry::validate_definition(self)?;
@@ -3610,6 +3621,7 @@ impl Definition {
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
             && !typed_land_search::activation_definition(self)
+            && !basic_land_fetch
             && !self.capabilities.contains(&Capability::LinkedExilePlayV1)
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
@@ -3692,7 +3704,10 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
-            if typed_land_search::activation(ability) || *ability == linked_hideaway::play() {
+            if basic_land_fetch
+                || typed_land_search::activation(ability)
+                || *ability == linked_hideaway::play()
+            {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
@@ -4383,6 +4398,7 @@ impl Definition {
                     if c.subtypes.is_empty() || listed_mana_choice::descriptive_land_subtype(self) {
                         self.mana_abilities.is_empty()
                             && !typed_land_search::activation_definition(self)
+                            && !basic_land_fetch
                     } else {
                         !self.mana_abilities.is_empty()
                             || c.subtypes.iter().any(|s| basic_land_color(s).is_none())
@@ -5355,6 +5371,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 }
                 None
             }
+            Instruction::FetchBasicLand { .. } => None,
             Instruction::CreateCreatureTokens { count, token, .. } => {
                 if *count == 0 {
                     return Err("token count must be positive".into());
@@ -6059,6 +6076,7 @@ fn add_program_requirements_for_source_pump(
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
             Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
             Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
                 Capability::AnnouncedXEffectsV1
             }
@@ -7571,6 +7589,7 @@ pub fn catalog_schema() -> serde_json::Value {
     repeated_target_modes::schema(&mut schema);
     graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
+    basic_land_fetch::extend_schema(&mut schema);
     controller_library::extend_schema(&mut schema);
     opponent_mana::extend_schema(&mut schema);
     distinct_permanent_colors::extend_schema(&mut schema);
@@ -7965,6 +7984,7 @@ mod tests {
             GraveyardBattlefieldReturnV1,
             OwnGraveyardCardReturnV1,
             BasicLandSearchV1,
+            BasicLandFetchV1,
             BasicLandSplitSearchV1,
             ColoredLibrarySearchV1,
             TypedLandSearchV1,
