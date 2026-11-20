@@ -115,6 +115,7 @@ fn characteristics() -> Characteristics {
             generic: Quantity::zero(),
             colored: vec![W, W, U, U, B, B, R, R, G, G],
         },
+        hybrid_mana: vec![],
         colors: COLORS.to_vec(),
         color_identity: COLORS.to_vec(),
         power: Some(10.into()),
