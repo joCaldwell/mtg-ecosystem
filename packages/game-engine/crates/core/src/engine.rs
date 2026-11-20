@@ -370,6 +370,7 @@ mod successor_tuck;
 #[cfg(test)]
 mod successor_tuck_tests;
 mod surveil;
+mod unspent_mana;
 pub use mana_permanents::PermanentManaUndo;
 use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
 mod stack_costs;
@@ -2119,6 +2120,8 @@ pub enum EventOutcome {
     ManaCleared {
         player: PlayerId,
         previous: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retained_as: Option<Color>,
     },
     LandPlayCounted {
         player: PlayerId,

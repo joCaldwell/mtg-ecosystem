@@ -3,6 +3,7 @@ pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod cascade_land_entry;
 mod granted_land_mana;
+mod unspent_mana;
 pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
@@ -335,6 +336,7 @@ pub enum Capability {
     ConditionalBasicLandEntryV1,
     OptionalLifeLandEntryV1,
     TypedNonbasicIntrinsicManaV1,
+    UnspentManaConversionV1,
     ControllerLandGrantedManaV1,
     ControllerLandBasicTypesV1,
     FlashV1,
@@ -1419,6 +1421,7 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    KeepUnspentManaAsBlack,
     GrantControllerLandsAnyColorMana,
     GrantControllerLandsAllBasicTypes,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
@@ -2651,6 +2654,7 @@ impl Definition {
                 StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
                 StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
                 StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
+                StaticEffect::KeepUnspentManaAsBlack => Capability::UnspentManaConversionV1,
                 StaticEffect::GrantControllerLandsAnyColorMana => {
                     Capability::ControllerLandGrantedManaV1
                 }
@@ -3122,6 +3126,7 @@ impl Definition {
         commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        unspent_mana::validate(self)?;
         granted_land_mana::validate_definition(self)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
@@ -3726,6 +3731,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::CascadeLandEntry
+                    | StaticEffect::KeepUnspentManaAsBlack
                     | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
@@ -7012,6 +7018,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    unspent_mana::extend_schema(&mut schema);
     granted_land_mana::extend_schema(&mut schema);
     keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
@@ -7343,6 +7350,7 @@ mod tests {
             OptionalLifeLandEntryV1,
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
+            UnspentManaConversionV1,
             ControllerLandGrantedManaV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
@@ -8071,6 +8079,12 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(granted_land_mana::witness(artifact));
+        let source = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        definitions.push(unspent_mana::witness(source));
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")
