@@ -223,6 +223,23 @@ impl Strategy<'_> {
                 }
                 PlayerResponse::ChooseManaAbility { ability }
             }
+            PlayerRequest::ManaCombination { total, colors, .. } => {
+                let mut amounts = std::array::from_fn(|_| Quantity::zero());
+                if *total > Quantity::zero() {
+                    let color = self
+                        .mana_color
+                        .take()
+                        .filter(|c| colors.contains(c))
+                        .or_else(|| colors.first().copied())
+                        .ok_or("empty combination domain")?;
+                    let index = mtg_contracts::MANA_COMBINATION_COLORS
+                        .iter()
+                        .position(|c| *c == color)
+                        .ok_or("invalid mana combination color")?;
+                    amounts[index] = total.clone();
+                }
+                PlayerResponse::ManaCombination { amounts }
+            }
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
                 color: self
                     .mana_color

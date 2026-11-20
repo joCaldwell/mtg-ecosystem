@@ -12,6 +12,7 @@ pub(super) struct PlannedMana {
 struct Source {
     handle: ObjectHandle,
     land: bool,
+    amount: Quantity,
     production: ManaProduction,
     colors: Vec<Color>,
     cost: Option<ManaCost>,
@@ -70,7 +71,7 @@ impl Planner {
                 _ => color.into_iter().collect(),
             };
             for c in symbols {
-                self.pool.entry(c).or_default().add(&1.into());
+                self.pool.entry(c).or_default().add(&source.amount);
             }
             self.plan.push(PlannedMana {
                 source: source.handle,
@@ -97,45 +98,89 @@ pub(super) fn plan(
     for o in &v.objects {
         if o.zone != Zone::Battlefield
             || o.controller != v.viewer
-            || o.tapped
+            || o.phased_out
             || o.token.is_some()
             || exclude == Some(&o.handle)
         {
             continue;
         }
         let d = definition(catalog, &o.oracle_id).ok()?;
-        if d.characteristics.kind == CardKind::Creature
-            && !o.attack_ready
-            && !({ o.keywords.contains(&KeywordAbility::Haste) })
-        {
-            continue;
-        }
-        let (production, cost) = match d.mana_abilities.as_slice() {
-            [ability] if ability.self_damage.is_none() => {
-                (ability.production.clone(), ability.costs.mana.clone())
+        let (production, cost, tap) = match d.mana_abilities.as_slice() {
+            [ability]
+                if ability.self_damage.is_none()
+                    && !ability.costs.sacrifice
+                    && !ability
+                        .costs
+                        .remove_source_plus_one_counters
+                        .as_ref()
+                        .is_some_and(|n| o.plus_one_counters < *n)
+                    && !(ability.restriction.is_some() && o.mana_ability_used == Some(true)) =>
+            {
+                (
+                    ability.production.clone(),
+                    ability.costs.mana.clone(),
+                    ability.costs.tap,
+                )
             }
             [] if d.characteristics.kind == CardKind::Land && d.characteristics.basic => (
                 ManaProduction::Fixed {
                     symbols: vec![*d.characteristics.color_identity.first()?],
                 },
                 None,
+                true,
             ),
-            // This planner has no branch or damage-cost model.
             _ => continue,
+        };
+        if tap
+            && (o.tapped
+                || (o
+                    .characteristics
+                    .as_ref()
+                    .is_some_and(|c| c.has_type(CardKind::Creature))
+                    && !o.attack_ready
+                    && !o.keywords.contains(&KeywordAbility::Haste)))
+        {
+            continue;
+        }
+        let amount = if production == ManaProduction::GreatestControlledPowerCombination {
+            let amount = v
+                .objects
+                .iter()
+                .filter(|object| {
+                    object.zone == Zone::Battlefield
+                        && !object.phased_out
+                        && object.controller == v.viewer
+                })
+                .filter_map(|object| object.characteristics.as_ref())
+                .filter(|c| c.has_type(CardKind::Creature))
+                .filter_map(|c| c.power.as_ref())
+                .max()
+                .cloned()
+                .unwrap_or_default();
+            if amount <= Quantity::zero() {
+                continue;
+            }
+            amount
+        } else {
+            1.into()
         };
         let colors = match &production {
             ManaProduction::Fixed { symbols } => symbols.clone(),
-            ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+            ManaProduction::GreatestControlledPowerCombination | ManaProduction::AnyColor => {
+                vec![Color::W, Color::U, Color::B, Color::R, Color::G]
+            }
             ManaProduction::CommanderColor => identity.clone(),
-            ManaProduction::Choice { .. }
-            | ManaProduction::OpponentLandColors
-            | ManaProduction::EachPermanentColor { .. } => continue,
+            ManaProduction::Choice { colors } => colors.clone(),
+            ManaProduction::OpponentLandColors | ManaProduction::EachPermanentColor { .. } => {
+                continue;
+            }
         };
         if colors.is_empty() {
             continue;
         }
         sources.push(Source {
             handle: o.handle.clone(),
+            amount,
             land: d.characteristics.kind == CardKind::Land,
             production,
             colors,
