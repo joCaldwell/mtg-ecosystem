@@ -37,7 +37,7 @@ pub(super) enum GraveyardCompletion {
 enum ReplacementPhase {
     BeforeMovement,
     Shuffling {
-        actual: Box<EventOutcome>,
+        actual: Option<Box<EventOutcome>>,
         remaining: usize,
         index: u32,
     },
@@ -60,8 +60,16 @@ fn library_members(proposed: &ProposedEvent) -> Option<(PlayerId, &[ObjectId])> 
 }
 
 impl GraveyardReplacement {
+    fn counter_target_left(&self, game: &Game) -> bool {
+        matches!(&self.completion, GraveyardCompletion::Counter { target, source, .. }
+            if !game.state.rules.stack.iter().any(|entry| entry.id == *target && entry.source == *source))
+    }
+
     fn request(&self, game: &Game) -> Option<Request> {
-        if !matches!(self.phase, ReplacementPhase::BeforeMovement) || !game.is_live(self.owner) {
+        if !matches!(self.phase, ReplacementPhase::BeforeMovement)
+            || !game.is_live(self.owner)
+            || self.counter_target_left(game)
+        {
             return None;
         }
         let object = *self.commanders.get(self.choices.len())?;
@@ -82,10 +90,10 @@ impl GraveyardReplacement {
             .collect()
     }
 
-    fn reserved_top(&self) -> usize {
+    pub(super) fn reserved_top(&self) -> &[ObjectId] {
         match &self.proposed {
-            ProposedEvent::Surveil { top, .. } => top.len(),
-            _ => 0,
+            ProposedEvent::Surveil { top, .. } => top,
+            _ => &[],
         }
     }
 
@@ -97,7 +105,7 @@ impl GraveyardReplacement {
             .get(&self.owner)
             .map_or(0, Vec::len);
         let available = len
-            .checked_sub(self.reserved_top())
+            .checked_sub(self.reserved_top().len())
             .ok_or("replacement shuffle reserved prefix")?;
         u32::try_from(available.saturating_sub(1))
             .map_err(|_| "replacement shuffle library size".into())
@@ -159,7 +167,7 @@ impl Game {
             }
         }
         let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
-        self.finish_graveyard_effect(frame, source_block, actual, completion)
+        self.finish_graveyard_effect(frame, source_block, Some(actual), completion)
     }
 
     pub(super) fn begin_graveyard_effect(
@@ -203,16 +211,13 @@ impl Game {
         &mut self,
         frame: Resolving,
         source_block: u32,
-        actual: EventOutcome,
+        actual: Option<EventOutcome>,
         completion: GraveyardCompletion,
     ) -> Result<(), String> {
         match completion {
-            GraveyardCompletion::Library => self.finish_instruction(
-                frame,
-                InstructionOutcome::Effect {
-                    actual: Some(actual),
-                },
-            ),
+            GraveyardCompletion::Library => {
+                self.finish_instruction(frame, InstructionOutcome::Effect { actual })
+            }
             GraveyardCompletion::MillAfterCounter { outcome } => {
                 self.finish_instruction(frame, *outcome)
             }
@@ -295,7 +300,7 @@ impl Game {
             return None;
         };
         matches!(transaction.phase, ReplacementPhase::Shuffling { index: i, .. } if i == index && transaction.owner == player)
-            .then(|| transaction.reserved_top())
+            .then(|| transaction.reserved_top().len())
     }
 
     pub(super) fn graveyard_replacement_step(
@@ -305,13 +310,21 @@ impl Game {
         if !self.is_live(tx.owner) {
             self.state.rules.pending = None;
             return match tx.phase {
-                ReplacementPhase::Shuffling { actual, .. } => {
-                    self.finish_graveyard_effect(tx.frame, tx.source_block, *actual, tx.completion)
-                }
+                ReplacementPhase::Shuffling { actual, .. } => self.finish_graveyard_effect(
+                    tx.frame,
+                    tx.source_block,
+                    actual.map(|event| *event),
+                    tx.completion,
+                ),
                 ReplacementPhase::BeforeMovement => {
                     let outcome = match tx.completion {
-                        GraveyardCompletion::Counter { target, .. } => {
-                            InstructionOutcome::StackObjectNoLongerPresent { target }
+                        completion @ GraveyardCompletion::Counter { .. } => {
+                            return self.finish_graveyard_effect(
+                                tx.frame,
+                                tx.source_block,
+                                None,
+                                completion,
+                            );
                         }
                         GraveyardCompletion::MillAfterCounter { outcome } => *outcome,
                         GraveyardCompletion::Library => {
@@ -324,6 +337,14 @@ impl Game {
         }
         let cause = Self::staple_cause(&tx.frame, tx.source_block);
         match &tx.phase {
+            ReplacementPhase::BeforeMovement if tx.counter_target_left(self) => {
+                self.state.rules.pending = None;
+                tx.phase = ReplacementPhase::Shuffling {
+                    actual: None,
+                    remaining: tx.revealed.len(),
+                    index: tx.last_index(self)?,
+                };
+            }
             ReplacementPhase::BeforeMovement if tx.choices.len() < tx.commanders.len() => {
                 let input = self
                     .state
@@ -342,7 +363,7 @@ impl Game {
             ReplacementPhase::BeforeMovement => {
                 let actual = self.commit(tx.proposed.clone(), cause)?;
                 tx.phase = ReplacementPhase::Shuffling {
-                    actual: Box::new(actual),
+                    actual: Some(Box::new(actual)),
                     remaining: tx.revealed.len(),
                     index: tx.last_index(self)?,
                 };
@@ -365,7 +386,7 @@ impl Game {
                     return self.finish_graveyard_effect(
                         tx.frame,
                         tx.source_block,
-                        *actual.clone(),
+                        actual.clone().map(|event| *event),
                         tx.completion,
                     );
                 }
@@ -458,7 +479,10 @@ impl Game {
                 {
                     return Err("counter replacement announcement invariant".into());
                 }
-                if matches!(tx.phase, ReplacementPhase::BeforeMovement) && self.is_live(tx.owner) {
+                if matches!(tx.phase, ReplacementPhase::BeforeMovement)
+                    && self.is_live(tx.owner)
+                    && !tx.counter_target_left(self)
+                {
                     let entry = self
                         .state
                         .rules
@@ -539,13 +563,17 @@ impl Game {
         if self.is_live(owner) {
             match &tx.phase {
                 ReplacementPhase::BeforeMovement
-                    if members.iter().any(|id| self.zone(*id) != Some(from)) =>
+                    if !tx.counter_target_left(self)
+                        && members.iter().any(|id| self.zone(*id) != Some(from)) =>
                 {
                     return Err("stale replacement proposal".into());
                 }
                 ReplacementPhase::Shuffling {
-                    remaining, index, ..
-                } if tx.choices.len() != tx.commanders.len()
+                    remaining,
+                    index,
+                    actual,
+                } if (actual.is_some() && tx.choices.len() != tx.commanders.len())
+                    || (actual.is_none() && !tx.counter_target_left(self))
                     || *remaining == 0
                     || *remaining > expected.len()
                     || *index > tx.last_index(self)? =>

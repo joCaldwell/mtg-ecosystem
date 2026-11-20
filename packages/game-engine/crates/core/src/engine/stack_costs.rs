@@ -660,7 +660,14 @@ impl Game {
             );
         }
         let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
-        self.complete_counter_outcome(frame, source_block, target, controller, mill_count, actual)
+        self.complete_counter_outcome(
+            frame,
+            source_block,
+            target,
+            controller,
+            mill_count,
+            Some(actual),
+        )
     }
 
     pub(super) fn complete_counter_outcome(
@@ -670,15 +677,16 @@ impl Game {
         target: StackId,
         controller: PlayerId,
         mill_count: Option<Quantity>,
-        actual: EventOutcome,
+        actual: Option<EventOutcome>,
     ) -> Result<(), String> {
         let outcome = match actual {
-            EventOutcome::StackObjectCountered { movement, .. } => {
+            Some(EventOutcome::StackObjectCountered { movement, .. }) => {
                 InstructionOutcome::Countered { target, movement }
             }
-            EventOutcome::CounterPrevented { .. } => {
+            Some(EventOutcome::CounterPrevented { .. }) => {
                 InstructionOutcome::CounterPrevented { target }
             }
+            None => InstructionOutcome::StackObjectNoLongerPresent { target },
             _ => return Err("missing counter outcome".into()),
         };
         if let Some(count) = mill_count {
