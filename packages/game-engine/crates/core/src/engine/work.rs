@@ -387,6 +387,13 @@ impl Game {
                     .visible_object(viewer, object)
                     .map_err(|_| QueryRejection::Invariant)?
             {
+                if let Some(PlayerRequest::HandCast { candidates, .. }) = &mut b.decision
+                    && self
+                        .eligible_hand_spell(object, viewer)
+                        .map_err(|_| QueryRejection::Invariant)?
+                {
+                    candidates.push(visible.handle.clone());
+                }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = &mut b.decision
                     && object.zone == (Zone::Hand { owner: viewer })
                 {
@@ -677,6 +684,21 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= 4 + self.state.rules.objects.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
+                if let Some(PlayerRequest::HandCast { candidates, .. }) = request {
+                    if let Some(object) = cache.next_object(self)
+                        && self
+                            .eligible_hand_spell(object, *viewer)
+                            .map_err(|_| QueryRejection::Invariant)?
+                    {
+                        candidates.push(
+                            self.handle_for(*viewer, object.id)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= self.state.rules.objects.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
@@ -1218,9 +1240,11 @@ impl Game {
         let body_units: Result<u64, String> = match query {
             Query::Observe { viewer } => self.observation_work_units(*viewer),
             Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
-                Some(PlayerRequest::Targets { .. } | PlayerRequest::BottomOpening { .. }) => {
-                    std::cmp::max(1, self.state.rules.objects.len() as u64)
-                }
+                Some(
+                    PlayerRequest::HandCast { .. }
+                    | PlayerRequest::Targets { .. }
+                    | PlayerRequest::BottomOpening { .. },
+                ) => std::cmp::max(1, self.state.rules.objects.len() as u64),
                 Some(PlayerRequest::EntityTargets { .. }) => 4u64
                     .checked_add(self.state.rules.objects.len() as u64)
                     .ok_or("decision work resource limit")?,

@@ -3421,6 +3421,14 @@ impl Definition {
                     "cast-entry condition requires the entering creature's own trigger".into(),
                 );
             }
+            if matches!(
+                p.instructions.as_slice(),
+                [Instruction::OfferHandCastWithoutManaCost { .. }]
+            ) {
+                // The whole definition gate binds this one operation to the source's own combat event.
+                validate_instruction_program(p)?;
+                continue;
+            }
             if ability.condition == TriggerCondition::SelfBecomesTapped {
                 // The complete source and trigger shape was checked above.
                 validate_instruction_program(p)?;
@@ -5700,7 +5708,15 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         .collect();
     let no: Vec<_> = requirements
         .iter()
-        .map(|cap| serde_json::json!({"not":{"contains":{"const":cap}}}))
+        .map(|cap| {
+            let absent = serde_json::json!({"not":{"contains":{"const":cap}}});
+            if *cap == Capability::ResolutionCastV1 {
+                serde_json::json!({"if":{"contains":{"const":Capability::CombatHandCastV1}},
+                "then":{"contains":{"const":cap}},"else":absent})
+            } else {
+                absent
+            }
+        })
         .collect();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),

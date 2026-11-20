@@ -90,20 +90,29 @@ impl Game {
         Ok(())
     }
 
+    pub(super) fn eligible_hand_spell(
+        &self,
+        object: &Object,
+        player: PlayerId,
+    ) -> Result<bool, String> {
+        if object.zone != (Zone::Hand { owner: player }) {
+            return Ok(false);
+        }
+        let definition = self.definition(object.id.card)?;
+        Ok(!definition.characteristics.has_type(CardKind::Land)
+            && definition
+                .spell
+                .as_ref()
+                .is_some_and(|program| self.spell_proposal_obstacle(program, player).is_none()))
+    }
+
     pub(super) fn hand_cast_candidates(&self, frame: &Resolving) -> Result<Vec<ObjectId>, String> {
         self.validate_hand_cast_issuer(&frame.spell)?;
         let player = frame.spell.controller;
         let mut candidates = vec![];
         if self.is_live(player) && !self.cast_is_prohibited(player)? {
             for object in self.state.rules.objects.values() {
-                if object.zone != (Zone::Hand { owner: player }) {
-                    continue;
-                }
-                let definition = self.definition(object.id.card)?;
-                if !definition.characteristics.has_type(CardKind::Land)
-                    && let Some(program) = &definition.spell
-                    && self.spell_proposal_obstacle(program, player).is_none()
-                {
+                if self.eligible_hand_spell(object, player)? {
                     candidates.push(object.id);
                 }
             }
@@ -208,6 +217,23 @@ impl Game {
         }
     }
 
+    pub(super) fn revalidate_hand_cast_departure(&mut self) -> Result<(), String> {
+        if let Frame::HandCast { frame, child: None } = &self.state.rules.frame
+            && let Some(input) = &self.state.rules.pending
+            && input.player == frame.spell.controller
+        {
+            let candidates = self.hand_cast_candidates(frame)?;
+            let invalid = match input.response {
+                Response::Pass => candidates.is_empty(),
+                Response::Cast { card } => !candidates.iter().any(|object| object.card == card),
+                _ => return Err("unexpected retained hand cast response".into()),
+            };
+            if invalid {
+                self.state.rules.pending = None;
+            }
+        }
+        Ok(())
+    }
     pub(super) fn hand_cast_step(
         &mut self,
         frame: Box<Resolving>,

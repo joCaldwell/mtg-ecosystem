@@ -1466,21 +1466,14 @@ impl Game {
                 (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
             );
         }
-        if let Some(Request::HandCast {
-            player, candidates, ..
-        }) = self.hand_cast_request()?
-        {
-            if viewer != player {
-                return Ok(None);
-            }
-            return Ok(Some(PlayerRequest::HandCast {
-                token,
-                player,
-                candidates: candidates
-                    .into_iter()
-                    .map(|object| self.handle_for(viewer, object))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }));
+        if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
+            return Ok(
+                (frame.spell.controller == viewer).then_some(PlayerRequest::HandCast {
+                    token,
+                    player: viewer,
+                    candidates: vec![],
+                }),
+            );
         }
         if let Some(Request::OptionalEffect { player, .. }) = self.cascade_request()? {
             return Ok(
