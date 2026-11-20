@@ -2,7 +2,6 @@
 //! CR 118.11, 601.2h, 614.6, 700.4, 701.24c, 903.9b.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use crate::engine::targeted_discard_tests::public_answer;
 
 fn prepared() -> Prepared {
     let archive = std::fs::read_to_string(
@@ -158,11 +157,20 @@ fn printed_replacement_pays_village_rites_sacrifice_and_shuffles_before_draw() {
             if *cause == payment_cause && objects.as_slice() == [progenitus]
     )));
 
-    public_answer(
-        &mut game,
+    let QueryResult::Complete(QueryValue::Decision(Some(choice))) =
+        game.player_decision_for(owner, Budget::unlimited())
+    else {
+        panic!("missing public Commander choice");
+    };
+    let QueryResult::Complete(QueryValue::Validated(receipt)) = game.check_player_response(
         owner,
+        choice.token().clone(),
         PlayerResponse::CommanderReturn { to_command: true },
-    );
+        Budget::unlimited(),
+    ) else {
+        panic!("owner's Commander choice should validate");
+    };
+    game.submit(receipt).unwrap();
     assert!(matches!(request(&mut game), Request::Priority { player, .. } if player == owner));
     let spell = game.top().unwrap();
     assert_eq!(spell.source.card, rites.card);
