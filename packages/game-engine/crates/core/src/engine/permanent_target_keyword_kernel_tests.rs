@@ -107,6 +107,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
         death_controller: None,
         sacrificed: None,
         sacrificed_set: vec![],
+        mode_subset: None,
         mode: None,
         effect_source_handles: g.capture_trigger_source_handles(source).unwrap(),
         source_facts: None,

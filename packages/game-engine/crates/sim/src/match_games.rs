@@ -1441,6 +1441,7 @@ mod admission_and_host_tests {
             selected_additional_costs: None,
             x: None,
             mana_value: None,
+            selected_modes: vec![],
             mode: None,
             triggered: Some(mtg_core::VisibleTriggered {
                 handle: mtg_core::StackHandle(name.into()),

@@ -101,7 +101,7 @@ fn offered_land(game: &Game, viewer: PlayerId, card: CardId) -> bool {
     else {
         panic!("missing observation");
     };
-    assert_eq!(observation.observation_version, 34);
+    assert_eq!(observation.observation_version, 36);
     let token = observation.decision.unwrap().token().clone();
     let land = game
         .handle_for(viewer, game.object_id(card).unwrap())

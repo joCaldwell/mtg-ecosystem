@@ -212,7 +212,7 @@ fn m4d_no_observer_ledger_strict_codec_digest_and_replay_forgery() {
     public_proof(&g);
     let bytes = g.snapshot().unwrap();
     let value: serde_json::Value = strict_read(&bytes).unwrap();
-    assert_eq!(value["snapshot_version"], 56);
+    assert_eq!(value["snapshot_version"], 58);
     assert_eq!(
         state_digest::state_digest(&g.state).unwrap(),
         digest(&g.state).unwrap()

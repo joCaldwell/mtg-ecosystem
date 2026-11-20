@@ -48,6 +48,7 @@ mod group_discard;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
+mod keyword_removal_wipe;
 mod library_order;
 #[cfg(test)]
 mod library_order_tests;
@@ -67,6 +68,7 @@ mod power_entry_draw;
 mod power_filtered_removal;
 mod self_reference;
 mod self_spell_protection;
+mod set_exile;
 mod source_dies_nonland_destroy;
 mod source_tap_damage;
 mod spell_cascade_grants;
@@ -284,8 +286,15 @@ impl<'de> Deserialize<'de> for SourceKeyword {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ModeCount {
-    exactly: u32,
+#[serde(untagged)]
+enum ModeCount {
+    Exact {
+        exactly: u32,
+    },
+    Minimum {
+        #[serde(rename = "atLeast")]
+        minimum: u32,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -704,6 +713,11 @@ struct Sentence {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "effect", rename_all = "kebab-case")]
 enum Step {
+    LoseAbilities {
+        what: serde_json::Value,
+        removal: serde_json::Value,
+        duration: SourceDuration,
+    },
     LoseGame {
         who: PlayerSelector,
     },
@@ -1523,7 +1537,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
     let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
+    let set_exile = set_exile::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
+    let keyword_removal_wipe = keyword_removal_wipe::lower(&source, &shape, &result, &binding)?;
     source_dies_nonland_destroy::bind(&source, &result, &binding)?;
     let mut draw_land_allowance =
         draw_land_allowance::lower(&abilities, &result, &binding, &source)?;
@@ -1705,6 +1721,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if set_exile.is_some() => {
+            definition.spell = set_exile;
+        }
+        CardKind::Sorcery if keyword_removal_wipe.is_some() => {
+            definition.spell = keyword_removal_wipe;
+        }
         CardKind::Sorcery if opponent_nonland_destroy.is_some() => {
             definition.spell = opponent_nonland_destroy;
         }
@@ -2772,7 +2794,13 @@ fn append_spell_effects(
                 "bindings on standalone modal instructions are unsupported",
             ));
         }
-        if count.exactly != 1
+        if let ModeCount::Minimum { minimum } = count {
+            return Err(unsupported(
+                "effects.modal",
+                format!("atLeast {minimum} requires a complete supported standalone mode family"),
+            ));
+        }
+        if !matches!(count, ModeCount::Exact { exactly: 1 })
             || options.len() < 2
             || !program.modes.is_empty()
             || !program.targets.is_empty()
@@ -8099,7 +8127,7 @@ mod tests {
             condition_kind: None,
             bindings: vec![],
             steps: vec![Step::Modal {
-                count: ModeCount { exactly: 1 },
+                count: ModeCount::Exact { exactly: 1 },
                 options: vec![
                     ModeOption {
                         effects: effects.clone()
