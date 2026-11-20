@@ -248,6 +248,8 @@ enum Ability {
     HandCastCascade,
     #[serde(skip)]
     ControllerWindowBlock,
+    #[serde(skip)]
+    BasicLandwalkBlock,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1558,7 +1560,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
     } else if landwalk.is_some() {
-        vec![]
+        vec![Ability::BasicLandwalkBlock; result.lines.len()]
     } else if self_graveyard_shuffle {
         vec![
             Ability::PrintedProtectionFromEverything,
@@ -1983,6 +1985,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::BasicLandwalkBlock => {}
                     Ability::PrintedProtectionFromEverything => {
                         definition
                             .keywords

@@ -7639,6 +7639,7 @@ mod tests {
             ProtectionFromEverythingV1,
             SelfGraveyardRevealShuffleV1,
             BasicLandwalkV1,
+            EnterAsCopyOfPermanentEnteredThisTurnV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             HandCastCascadeGrantV1,
@@ -8218,6 +8219,7 @@ mod tests {
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(land_entry_gain_life::witness());
+        definitions.push(entry_copy::registry_witness());
         definitions.push(saga::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
