@@ -30,6 +30,7 @@ pub use fixed_creature_activation::{
 mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
+mod controlled_creature_spell_copy;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -384,6 +385,7 @@ pub enum Capability {
     CounterStackObjectV1,
     CounterSpellControllerMillV1,
     CounterUnlessGenericV1,
+    ControlledCreatureSpellCopyV1,
     TapSourceCostV1,
     PayLifeCostV1,
     ManaActivationCostV1,
@@ -489,6 +491,7 @@ pub enum TargetDomain {
     OwnGraveyardCard,
     OpponentPlayer,
     StackSpell,
+    ControlledCreatureSpell,
     StackActivatedOrTriggeredAbility,
     /// CR 115.4: creatures, players, planeswalkers and battles. The closed
     /// scenario admits only creature/player inhabitants, not a narrower domain.
@@ -1160,6 +1163,14 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
+    /// Copy one legal controlled creature spell as nonlegendary, with its
+    /// original decisions. CR 608.2b, 707.9, 707.10 and 707.10f.
+    CopyControlledCreatureSpell {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     /// Noncombat damage from this invocation's physical source (CR 120.2b).
     DealDamage {
         target_slot: u32,
@@ -1270,7 +1281,8 @@ impl Instruction {
             | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterSpellAndMillController { source_block, .. }
             | Self::CounterSpellUnlessPays { source_block, .. }
-            | Self::CounterStackObject { source_block, .. } => *source_block,
+            | Self::CounterStackObject { source_block, .. }
+            | Self::CopyControlledCreatureSpell { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
@@ -2681,6 +2693,7 @@ impl Definition {
         opponent_life_drain::validate_definition(self)?;
         targeted_game_loss::validate_definition(self)?;
         counter_unless_generic::validate_definition(self)?;
+        controlled_creature_spell_copy::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -4895,6 +4908,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::CounterSpellUnlessPays { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::StackSpell))
             }
+            Instruction::CopyControlledCreatureSpell { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::ControlledCreatureSpell))
+            }
             Instruction::CounterStackObject { target_slot, .. } => {
                 let domain = p
                     .targets
@@ -5273,7 +5289,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
             TargetDomain::OwnGraveyardCard => Capability::OwnGraveyardCardReturnV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
-            TargetDomain::StackSpell => Capability::StackSpellTargetV1,
+            TargetDomain::StackSpell | TargetDomain::ControlledCreatureSpell => {
+                Capability::StackSpellTargetV1
+            }
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
             TargetDomain::AnyDamageTarget => Capability::AnyDamageTargetV1,
             TargetDomain::PlayerOrPlaneswalker => Capability::PlayerOrPlaneswalkerTargetV1,
@@ -5495,6 +5513,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
             Instruction::CounterSpellUnlessPays { .. } => Capability::CounterUnlessGenericV1,
+            Instruction::CopyControlledCreatureSpell { .. } => {
+                Capability::ControlledCreatureSpellCopyV1
+            }
             Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
                 Capability::NoncombatDamageV1
             }
@@ -6912,6 +6933,7 @@ pub fn catalog_schema() -> serde_json::Value {
     opponent_life_drain::extend_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
+    controlled_creature_spell_copy::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -7153,6 +7175,7 @@ mod tests {
             CounterStackObjectV1,
             CounterSpellControllerMillV1,
             CounterUnlessGenericV1,
+            ControlledCreatureSpellCopyV1,
             TapSourceCostV1,
             PayLifeCostV1,
             ManaActivationCostV1,
@@ -7669,6 +7692,7 @@ mod tests {
         definitions.push(opponent_life_drain::witness());
         definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
+        definitions.push(controlled_creature_spell_copy::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());

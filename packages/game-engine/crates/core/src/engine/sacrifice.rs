@@ -472,10 +472,10 @@ impl Game {
                 self.validate_characteristic_identity(f.object, f.zone, &f.characteristics)?;
             }
             let count = self.invocation_sacrifice(e).map_or(0, |(_, count)| count);
-            if e.paid.is_some() && count == 1 && e.sacrificed.is_none() {
+            if self.stack_entry_complete(e) && count == 1 && e.sacrificed.is_none() {
                 return Err("snapshot missing sacrifice cost facts".into());
             }
-            let expected = if count > 1 && e.paid.is_some() {
+            let expected = if count > 1 && self.stack_entry_complete(e) {
                 count
             } else {
                 0

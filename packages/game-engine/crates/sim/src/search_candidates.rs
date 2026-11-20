@@ -305,6 +305,7 @@ fn target_plans(
             .collect(),
         TargetDomain::BattlefieldPermanent
         | TargetDomain::StackSpell
+        | TargetDomain::ControlledCreatureSpell
         | TargetDomain::StackActivatedOrTriggeredAbility => vec![],
     };
     let mut plans = vec![TargetPlan::None];

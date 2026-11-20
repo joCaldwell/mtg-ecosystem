@@ -81,6 +81,7 @@ pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
 mod staples;
 pub use counter_placement::*;
 use land_entry::{EntryOrigin, PreparedEntryAuthority};
+mod spell_copy;
 mod tokens;
 pub use staples::VisibleSearchLand;
 pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
@@ -1723,6 +1724,9 @@ pub enum ProposedEvent {
         object: ObjectId,
         amount: Quantity,
     },
+    CeaseSpellCopy {
+        object: ObjectId,
+    },
     CeaseToken {
         object: ObjectId,
     },
@@ -1943,6 +1947,9 @@ pub enum EventOutcome {
         previous: Quantity,
         current: Quantity,
     },
+    SpellCopyCeased {
+        object: ObjectId,
+    },
     TokenCeased {
         object: ObjectId,
     },
@@ -2095,6 +2102,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    SpellCopied {
+        copy: StackId,
+    },
     CounterPlacements {
         actual: Vec<EventOutcome>,
     },
@@ -2161,6 +2171,12 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    SpellCopied {
+        cause: BatchCause,
+        target: StackId,
+        copy: StackId,
+        object: ObjectId,
+    },
     XAnnounced {
         stack_id: StackId,
         player: PlayerId,
@@ -2682,8 +2698,11 @@ impl Game {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
-                candidates: self
-                    .eligible_stack_targets_for(&self.program()?.targets[0], Some(self.top()?.id)),
+                candidates: self.eligible_stack_targets_for(
+                    &self.program()?.targets[0],
+                    self.top()?.controller,
+                    Some(self.top()?.id),
+                ),
             },
             Frame::TriggerTargets { .. }
                 if self.program()?.targets.first().is_some_and(|t| {
@@ -3353,9 +3372,9 @@ impl Game {
         }
         let owner = self.state.rules.cards[&stack.source.card].owner;
         if self.current(stack.source).is_ok() {
-            if self.top()?.id != stack.id {
-                return Err("completion is not the top stack entry".into());
-            }
+            let index = self
+                .resolving_entry_index(stack)?
+                .ok_or("missing resolving spell")?;
             // CR 608.3a: a resolving permanent spell becomes a permanent;
             // targetless spells do not fail the targeted-spell legality test.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -3389,7 +3408,7 @@ impl Game {
                     },
                 )?;
             }
-            self.state.rules.stack.pop();
+            self.state.rules.stack.remove(index);
         } else if self.is_live(owner) || self.state.rules.stack.iter().any(|s| s.id == stack.id) {
             return Err("unsupported resolving-source movement".into());
         }
@@ -3456,7 +3475,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 63,
+            snapshot_version: 64,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3498,7 +3517,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 63
+        if s.snapshot_version != 64
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3671,10 +3690,11 @@ impl Game {
                 ) || (matches!(
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::Finished { .. } | Frame::Fault { .. }
-                ) && stack.paid.is_none()));
+                ) && stack.paid.is_none()
+                    && !self.is_spell_copy(stack)));
             if !incomplete_top
                 && (!self.announced_target_count_valid(program, stack)
-                    || stack.paid.as_ref() != Some(&stack.total_cost))
+                    || !self.stack_entry_complete(stack))
             {
                 return Err("snapshot completed lower/top cast invariant".into());
             }
@@ -3733,7 +3753,7 @@ impl Game {
                 }
                 let sources: BTreeSet<_> = cast.mana_activations.iter().map(|a| a.object).collect();
                 if sources.len() != cast.mana_activations.len()
-                    || cast.mana_activations.len() > self.prepared.config.cards.len()
+                    || cast.mana_activations.len() > s.rules.cards.len()
                     || cast.mana_activations.iter().any(|a| {
                         a.player != top.controller
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
