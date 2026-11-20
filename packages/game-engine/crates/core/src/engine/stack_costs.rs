@@ -441,7 +441,7 @@ impl Game {
         self.validate_additional_cost_entry(entry)?;
         if entry.alternative_cost.is_some()
             && (!entry.kind.is_spell()
-                || entry.cast_from != Zone::Exile
+                || (!self.is_spell_copy(entry) && entry.cast_from != Zone::Exile)
                 || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
             || (entry.kind.is_spell()
                 && entry.cast_from == Zone::Exile

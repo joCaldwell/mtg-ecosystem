@@ -409,7 +409,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             (keys.clone(), keys)
         }
-        ProposedEvent::CeaseToken { object } => {
+        ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
             // A token put on a library (Time Ebb) ceases from that library.
             let mut keys = BTreeSet::from([FactKey::Object(object.card)]);
             if matches!(
@@ -935,7 +935,7 @@ impl Game {
                 ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
                 }
-                ProposedEvent::CeaseToken { object } => {
+                ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
                     objects.insert(*object);
                     if let Zone::Library { owner } = self.current(*object)?.zone {
                         libraries.insert(owner);
@@ -1865,7 +1865,14 @@ impl Game {
         let destination = &replaced;
         let o = self.current(*object)?.clone();
         // CR 111.8: once a token has left the battlefield it cannot move again.
-        if self.state.rules.tokens.contains_key(&object.card) && o.zone != Zone::Battlefield {
+        if self
+            .state
+            .rules
+            .tokens
+            .get(&object.card)
+            .is_some_and(|t| t.is_token(&o))
+            && o.zone != Zone::Battlefield
+        {
             return Err("token cannot move again after leaving battlefield".into());
         }
         self.retain_source_lki(*object)?;
@@ -2293,7 +2300,8 @@ impl Game {
                 }
             }
             event @ (ProposedEvent::CreateCreatureTokens { .. }
-            | ProposedEvent::CeaseToken { .. }) => self.apply_token_event(event)?,
+            | ProposedEvent::CeaseToken { .. }
+            | ProposedEvent::CeaseSpellCopy { .. }) => self.apply_token_event(event)?,
             ProposedEvent::Setup { action } => EventOutcome::Setup {
                 actual: self.apply_setup_action(action)?,
             },
