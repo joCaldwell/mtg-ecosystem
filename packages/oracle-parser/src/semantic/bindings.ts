@@ -4302,13 +4302,174 @@ class Analyzer {
     return true;
   }
 
+  /** A marked sentence can still have an explicit, earlier reveal pool.
+   * Here the intervening condition grants a keyword only to the exile
+   * successor and cannot affect that pool. CR 400.7j, 608.2c and 701.20. */
+  private independentRevealRemainder(sentence: Sentence, prior: Sentence | undefined, priorPath: string, context: Context): boolean {
+    const original = { ref: "related", number: "plural", filter: { cls: "card" },
+      relation: { relation: "event-result", event: "reveal", scope: "contextual" } };
+    const [scan] = context.scans ?? [];
+    if (!scan || scan.operation !== "reveal" || context.scans?.length !== 1 || context.uncertainScanOrigin || context.uncertainRevealOrigin ||
+        context.uncertainExileOrigin || context.exileResults?.length !== 1 || Object.keys(sentence).length !== 2 ||
+        !isDeepStrictEqual(sentence.steps, [{ effect: "move-zone", what: { ref: "rest", of: original },
+          to: { zone: "library", owner: "your", position: "bottom" }, order: "random",
+        }]) || !isDeepStrictEqual(prior, {
+          condition: { condition: "not", of: { condition: "has-keyword", what: { ref: "it" }, keyword: "suspend" } },
+          conditionKind: "if", steps: [{ effect: "gain-abilities", what: { ref: "it" }, abilities: [{ gained: "keyword", keyword: { keyword: "suspend" } }] }],
+        })) return false;
+    const exile = context.exileResults[0];
+    const source = this.result.nodes.find(node => node.id === exile.event);
+    return this.at(`${priorPath}/steps/0/what`)?.id === exile.result.id &&
+      source?.node === "event" && source.operation === "exile" && source.inputs.includes(scan.matches.id);
+  }
+
+  private makeExileLedger(path: string, context: Context, writers: { event: string; result: string }[], rules: string[]): string {
+    return this.node({ id: this.id(path, "linked-exile-ledger"), path, node: "linked-exile-ledger",
+      scope: context.ability, source: context.source, writers, membership: "still-in-exile", identity: "source-incarnation",
+      cardinality: "many", rules });
+  }
+
+  /** CR 608.2h: the scan compares to the triggering spell as it
+   * last existed, even if exiling it failed. Only the actual match can be cast. */
+  private scanAgainstCastSpell(ability: Extract<Ability, { kind: "triggered" }>, path: string, context: Context,
+    siblings?: Ability[]): boolean {
+    const { trigger, effects } = ability;
+    const cast = context.triggerObject;
+    const caster = context.castActors?.caster;
+    const player = { player: "that-player" } as const;
+    const it = { ref: "it" } as const;
+    const match = { ref: "that", filter: { cls: "card" } } as const;
+    const source = { ref: "this", noun: "enchantment" } as const;
+    const linked = { relation: "linked-exile", source } as const;
+    if (context.barrier || ability.condition || !context.permanentSource || cast?.event !== "cast" || !caster ||
+        siblings?.filter(hasExileInstruction).length !== 1 ||
+        !isDeepStrictEqual(trigger, { trigger: "cast", who: { player: "a-player" }, what: { cls: "spell" },
+          from: { zone: "hand", owner: "their" } }) ||
+        effects.length !== 3 || effects.some(sentence => Object.keys(sentence).length !== 1) ||
+        effects[0].steps.length !== 2 || effects[1].steps.length !== 1 || effects[2].steps.length !== 1) return false;
+    const [exile, scan] = effects[0].steps;
+    const [play] = effects[1].steps;
+    const [clean] = effects[2].steps;
+    if (!isDeepStrictEqual(exile, { effect: "exile", what: it, who: player }) || scan.effect !== "scan-library" ||
+        !isDeepStrictEqual(scan, { effect: "scan-library", who: player, operation: "exile", library: { zone: "library", owner: "their" },
+          until: { count: { amount: "fixed", value: 1 }, matching: { cls: "card", characteristicRelations: [
+            { relation: "shared-value", characteristic: "card-type", with: { operand: "object", what: it } },
+          ] } },
+        }) || !isDeepStrictEqual(play, { effect: "play-card", optional: true, decidedBy: player,
+          instruction: { who: player, action: "cast", what: match, alternativeCost: { cost: "without-mana-cost" } },
+        }) || clean.effect !== "move-zone" || !isDeepStrictEqual(clean, { effect: "move-zone",
+          what: { ref: "all", filter: { cls: "card", relation: linked } }, to: { zone: "library", owner: "their", position: "bottom" },
+          order: "random", who: { player: "they" },
+        })) return false;
+
+    const rules = ["400.3", "400.7j", "607.1c", "607.2a", "607.5", "608.2g", "608.2h", "609.3", "701.13"];
+    const at = `${path}/effects/0/steps/0`;
+    this.effect(exile, at, { ...context, actor: caster, boundOperand: { path: child(at, "what"), candidate: cast.candidate, rules } });
+    const exileEvent = this.id(at, "event");
+    const first = this.id(at, "objects");
+    const scanPath = `${path}/effects/0/steps/1`;
+    const scanScope: Context = { ...context, actor: caster, boundOperand: {
+      path: `${scanPath}/until/matching/characteristicRelations/0/with/what`, candidate: cast.candidate, rules,
+    } };
+    if (!this.libraryScan(scan, scanPath, scanScope) || scanScope.scans?.length !== 1) {
+      this.diagnostic("unsupported-scope", scanPath, "The scan must produce a distinct full exile group and a singleton match.", rules);
+      return true;
+    }
+    const capture = scanScope.scans[0];
+    const playPath = `${path}/effects/1/steps/0`;
+    this.effect(play, playPath, { ...context, actor: caster,
+      boundOperand: { path: `${playPath}/instruction/what`, candidate: capture.matches, rules } });
+    const cleanPath = `${path}/effects/2/steps/0`;
+    const ledger = this.makeExileLedger(cleanPath, context, [{ event: exileEvent, result: first },
+      { event: capture.event, result: capture.pool.id }], rules);
+    this.walk(source, `${cleanPath}/what/filter/relation/source`, context);
+    this.node({ id: this.id(`${cleanPath}/what/filter/relation`, "linked-exile-filter"),
+      path: `${cleanPath}/what/filter/relation`, node: "linked-exile-filter", scope: context.ability, pool: ledger, rules });
+    this.effect(clean, cleanPath, { ...context, actor: caster, boundOperand: {
+      path: child(cleanPath, "what"), candidate: { id: ledger, domain: "object", cardinality: "many", description: { cls: "card" } }, rules,
+    } });
+    this.node({ id: this.id(cleanPath, "linked-scan-cleanup"), path: cleanPath, node: "linked-scan-cleanup",
+      scope: context.ability, ledger, caster: caster.id, spell: cast.candidate.id, match: capture.matches.id,
+      cast: this.id(playPath, "event"), cleanup: this.id(cleanPath, "event"), destination: "owners-libraries-random",
+      rules });
+    this.engineFeature("linked-exile-pool", cleanPath,
+      "Keep both exile origins in the same source incarnation's ledger. Compare the scan to the original spell's stack characteristics, offer only the actual singleton match, and bottom the remaining linked cards in their owners' libraries.", rules);
+    return true;
+  }
+
+  /** CR 608.2d–h and 701.13. Scan each library independently and offer
+   * only the complete actual exile pool minus the one overridden choice. */
+  private scansWithOneExcludedCard(sentences: Sentence[], path: string, context: Context): boolean {
+    if (sentences.length !== 3 || sentences.some(sentence => Object.keys(sentence).length !== 1 || sentence.steps.length !== 1)) return false;
+    const [[scan], [choice], [play]] = sentences.map(sentence => sentence.steps);
+    const each = { player: "each-player" } as const;
+    const opponent = { player: "an-opponent" } as const;
+    const you = { player: "you" } as const;
+    const predicate = { nonTypes: ["land"], cls: "card" } satisfies ObjectFilter;
+    const relation = { relation: "event-result", event: "exile", scope: "this-way" } as const;
+    const one = { amount: "fixed", value: 1 } as const;
+    const selector = { ref: "filter", filter: { ...predicate, relation }, count: one } satisfies ObjectRef;
+    const eligible = { ref: "related", number: "plural", filter: { other: true, cls: "card" }, relation } as const;
+    if (scan.effect !== "scan-library" || !isDeepStrictEqual(scan, { effect: "scan-library", who: each, operation: "exile",
+          library: { zone: "library", owner: "their" }, until: { count: one, matching: predicate } }) ||
+        !isDeepStrictEqual(choice, { effect: "choose-object", who: opponent, what: selector }) ||
+        play.effect !== "play-card" || !isDeepStrictEqual(play, { effect: "play-card", optional: true,
+          instruction: { who: you, action: "cast", what: { ref: "filter", filter: { cls: "spell" },
+            count: { amount: "fixed", value: 2 }, upTo: true }, fromAmong: eligible, alternativeCost: { cost: "without-mana-cost" } },
+        })) return false;
+    const rules = ["101.4", "400.7j", "608.2d", "608.2f", "608.2g", "608.2h", "609.3", "701.13"];
+    const at = `${path}/0/steps/0`;
+    const players = this.player(each, child(at, "who"), context);
+    if (!players) return true;
+    const member = this.node({ id: this.id(at, "library-member"), path: at, node: "instruction-member",
+      scope: context.ability, group: players.id, domain: "player", rules });
+    const owner: Candidate = { id: member, domain: "player", cardinality: "one" };
+    this.walk(scan.library, child(at, "library"), { ...context, actor: owner });
+    const scanEvent = this.event(at, context, "library-scan:exile", [players]);
+    const pool = this.eventResult(at, scanEvent, "objects", "many", "zone-successors", { cls: "card" });
+    const matches = this.eventResult(child(at, "until"), scanEvent, "objects", "many", "zone-successors", predicate, pool.id);
+    this.node({ id: this.id(at, "grouped-library-scan"), path: at, node: "grouped-library-scan", scope: context.ability,
+      event: scanEvent, group: players.id, member, pool: pool.id, matches: matches.id,
+      matching: predicate, maximumMatchesPerLibrary: 1, rules });
+    const choicePath = `${path}/1/steps/0`;
+    const choose = this.player(opponent, child(choicePath, "who"), context);
+    if (!choose) return true;
+    const potential = this.node({ id: this.id(choicePath, "eligible-exile-block"), path: child(choicePath, "what"),
+      node: "filtered-result-group", scope: context.ability, pool: pool.id, filter: predicate, cardinality: "many", rules });
+    this.bound(selector, child(choicePath, "what"), potential, rules);
+    const candidates: Candidate = { id: potential, domain: "object", cardinality: "many", description: predicate };
+    const choiceEvent = this.event(choicePath, context, "choose-object", [choose, candidates]);
+    const excluded = this.eventResult(choicePath, choiceEvent, "objects", "one", "same-objects", predicate, potential);
+    const playPath = `${path}/2/steps/0`;
+    const available = `${playPath}/instruction/fromAmong`;
+    const remainder = this.node({ id: this.id(available, "remainder"), path: available, node: "remainder",
+      scope: context.ability, pool: pool.id, excluding: excluded.id, rules });
+    this.bound({ ref: "it" }, `${available}/filter/other`, excluded.id, rules);
+    this.effect(play, playPath, { ...context, boundOperand: { path: available, candidate: {
+      id: remainder, domain: "object", cardinality: "many", description: { cls: "card" },
+    }, rules } });
+    this.node({ id: this.id(playPath, "excluded-scan-cast"), path: playPath, node: "excluded-scan-cast", scope: context.ability,
+      chooser: context.you, opponent: choose.id, exclude: excluded.id, pool: remainder, cast: this.id(playPath, "event"),
+      maximum: 2, order: "one-legal-cast-at-a-time", rules });
+    this.engineFeature("library-scan", at,
+      "Scan each player's library separately and retain the full actual exile set. The ability's controller picks the opponent who removes one eligible card from the casting choices.", rules);
+    this.engineFeature("sequential-cast", playPath,
+      "Allow up to two legal casts one at a time from the complete exile pool other than the chosen card.", rules);
+    context.objects = [];
+    context.players = [];
+    context.quantities = [];
+    context.uncertainExileOrigin = true;
+    context.uncertainScanOrigin = true;
+    return true;
+  }
+
   sentences(sentences: Sentence[], path: string, context: Context): void {
     if (!context.barrier && !context.previousEffect && !context.decider && !context.conditional && context.phase === "resolution" &&
         (this.copyAndReselect(sentences, path, context) || this.copiesForOpponents(sentences, path, context) ||
           this.grantOnStackCopies(sentences, path, context) || this.conditionalExilePermission(sentences, path, context) ||
           this.pairedHandExiles(sentences, path, context) || this.matchingSacrifice(sentences, path, context) ||
           this.fightCreatedTokens(sentences, path, context) || this.searchesForExiledCreatures(sentences, path, context) ||
-          this.searchesForOpponentOffers(sentences, path, context))) return;
+          this.searchesForOpponentOffers(sentences, path, context) || this.scansWithOneExcludedCard(sentences, path, context))) return;
     let previousDecisions: string[] = [];
     let precedingAction: { event: string; action: "sacrifice" | "discard" } | undefined;
     let precedingSentence: Context["precedingSentence"];
@@ -4365,7 +4526,8 @@ class Analyzer {
       if (!trailing && !paymentCondition) this.walk(condition, child(at, "condition"), suspended
         ? { ...context, boundOperand: { path: `${at}/condition/of/what`, candidate: suspended.result, rules: ["400.7j", "608.2c", "702.62"] } }
         : linked || paid ? { ...context, linkedDecision: true } : context);
-      if (sentence.afterConditional)
+      if (sentence.afterConditional &&
+          !this.independentRevealRemainder(sentence, sentences[index - 1], child(path, index - 1), context))
         this.diagnostic("unsupported-scope", at, "This sentence refers back to a conditional sentence; whether that condition governs it is not decided.", ["608.2c"]);
       if (condition || sentence.otherwise || sentence.afterConditional) {
         context.previousEffect = undefined;
@@ -5286,7 +5448,16 @@ class Analyzer {
     const subject = effect.what;
     if (effect.effect === "choose-new-targets" && effect.timing === "copy-creation") {
       const [copy] = context.stackCopies ?? [];
-      if (context.stackCopies?.length !== 1 || copy.path !== precedingEffect || context.uncertainStackOrigin || copy.inlineRetarget || copy.chooser !== context.you ||
+      const previous = context.precedingSentence;
+      // "Return ... then choose new targets for the copy" still specifies
+      // an option at copy creation (CR 707.10c). The return's identity is
+      // validated independently and doesn't supply a new copy.
+      const afterReturn = previous?.steps.length === 2 && copy?.path === `${previous.path}/steps/0` &&
+        precedingEffect === `${previous.path}/steps/1` && previous.steps[0].effect === "copy-stack-object" &&
+        previous.steps[1].effect === "return-to-hand" && previous.steps[1].to === "owner" &&
+        Object.keys(previous.steps[1]).length === 3;
+      if (context.stackCopies?.length !== 1 || (copy.path !== precedingEffect && !afterReturn) ||
+          context.uncertainStackOrigin || copy.inlineRetarget || copy.chooser !== context.you ||
           context.conditional || context.decider || !effect.optional || subject.ref !== "copy-result" ||
           copy.result.cardinality !== (subject.number === "singular" ? "one" : "many")) return false;
       const rules = ["115.7d", "115.7e", "115.7f", "707.10c"];
@@ -6429,7 +6600,7 @@ class Analyzer {
       case "triggered":
         if (this.attackDeclarationGuard(ability, path, context)) break;
         this.trigger(ability.trigger, child(path, "trigger"), context);
-        if (this.entrantExchange(ability, path, context)) break;
+        if (this.entrantExchange(ability, path, context) || this.scanAgainstCastSpell(ability, path, context, cardAbilities)) break;
         const kickers = this.kickers.get(context.face);
         if (!context.announcedX && kickers?.length === 1 && kickers[0].announcedX && !definesX(ability) &&
             ability.trigger.trigger === "enters" && (ability.trigger.what.ref === "self" || ability.trigger.what.ref === "this") &&

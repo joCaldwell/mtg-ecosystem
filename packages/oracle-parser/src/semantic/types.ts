@@ -207,6 +207,14 @@ export type BindingNode = NodeBase & (
   | { node: "library-scan"; scope: string; actor: string; owner: string; event: string;
       operation: "reveal" | "exile"; filter: ObjectFilter; count: number;
       pool: string; matches: string }
+  | { node: "linked-exile-ledger"; scope: string; source: string; writers: { event: string; result: string }[];
+      membership: "still-in-exile"; identity: "source-incarnation"; cardinality: "many" }
+  | { node: "linked-scan-cleanup"; scope: string; ledger: string; caster: string; spell: string; match: string;
+      cast: string; cleanup: string; destination: "owners-libraries-random" }
+  | { node: "grouped-library-scan"; scope: string; event: string; group: string; member: string; pool: string; matches: string;
+      matching: ObjectFilter; maximumMatchesPerLibrary: 1 }
+  | { node: "excluded-scan-cast"; scope: string; chooser: string; opponent: string; exclude: string; pool: string; cast: string;
+      maximum: 2; order: "one-legal-cast-at-a-time" }
   | { node: "card-copy"; scope: string; event: string; card: string; chooser: string; result: string; count: number }
   | { node: "group-instruction"; scope: string; event?: string;
       execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }

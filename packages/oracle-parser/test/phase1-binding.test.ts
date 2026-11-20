@@ -2574,3 +2574,87 @@ describe("coalescing searches before a shared shuffle", () => {
     }
   });
 });
+
+describe("distinct library scan and spell-copy results", () => {
+  const storm = "Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their "
+    + "library until they exile a card that shares a card type with it. That player may cast that card without paying its mana "
+    + "cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.";
+
+  it("uses the original cast spell for the comparator, the scan match for casting, and both ledger writers for cleanup", () => {
+    const graph = analyze(storm, "Enchantment");
+    boundCard(graph);
+    const scan = graph.nodes.find(node => node.node === "library-scan");
+    const cleanup = graph.nodes.find(node => node.node === "linked-scan-cleanup");
+    const ledger = graph.nodes.find(node => node.node === "linked-exile-ledger");
+    assert.ok(scan && cleanup && ledger?.writers.length === 2);
+    assert.equal(cleanup.spell, bound(graph, "/until/matching/characteristicRelations/0/with/what"));
+    assert.notEqual(cleanup.spell, ledger.writers[0].result);
+    assert.equal(scan.pool, ledger.writers[1].result);
+    assert.equal(scan.matches, cleanup.match);
+    assert.equal(cleanup.match, bound(graph, "/instruction/what"));
+    assert.equal(ledger.id, bound(graph, "/effects/2/steps/0/what"));
+    assert.equal(cleanup.destination, "owners-libraries-random");
+  });
+
+  it("does not sweep another printed exile producer into the two-writer scan ledger", () => {
+    const graph = analyze(storm + "\nAt the beginning of your upkeep, exile the top card of your library.", "Enchantment");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "linked-exile-ledger"));
+  });
+
+  const scans = "At the beginning of your upkeep, each player exiles cards from the top of their library until they exile a nonland "
+    + "card. An opponent chooses a nonland card exiled this way. You may cast up to two spells from among the other cards "
+    + "exiled this way without paying their mana costs.";
+
+  it("excludes the opponent's actual choice from the full scan pool without dropping other exiled cards", () => {
+    const graph = analyze(scans, "Creature");
+    boundCard(graph);
+    const scan = graph.nodes.find(node => node.node === "grouped-library-scan");
+    const cast = graph.nodes.find(node => node.node === "excluded-scan-cast");
+    assert.ok(scan && cast && scan.pool !== scan.matches);
+    assert.equal(scan.member, bound(graph, "/library/owner"));
+    assert.equal(cast.pool, bound(graph, "/instruction/fromAmong"));
+    const available = graph.nodes.find(node => node.id === cast.pool);
+    assert.ok(available?.node === "remainder" && available.pool === scan.pool && available.excluding === cast.exclude);
+    assert.equal(cast.order, "one-legal-cast-at-a-time");
+  });
+
+  it("does not use the singleton exclusion rule for multiple opponents making choices", () => {
+    const graph = analyze(scans.replace("An opponent chooses", "Each opponent chooses"), "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "excluded-scan-cast"));
+  });
+
+  const rest = "When this creature enters, reveal cards from the top of your library until you reveal a nonland card "
+    + "with mana value 3 or greater. Exile that card with three time counters on it. If it doesn't have suspend, "
+    + "it gains suspend. Put the rest of the revealed cards on the bottom of your library in a random order.";
+
+  it("uses the explicit earlier revealed pool independently of the exile successor's suspend grant", () => {
+    const graph = analyze(rest, "Creature");
+    boundCard(graph);
+    const scan = graph.nodes.find(node => node.node === "library-scan");
+    const remainder = graph.nodes.find(node => node.node === "remainder");
+    assert.ok(scan && remainder && remainder.pool === scan.pool && remainder.excluding === scan.matches);
+    const grant = graph.nodes.find(node => node.node === "event" && node.operation === "gain-abilities");
+    const cleanup = graph.nodes.find(node => node.node === "event" && node.operation === "move-zone");
+    assert.ok(grant?.node === "event" && grant.conditional);
+    assert.ok(cleanup?.node === "event" && !cleanup.conditional);
+  });
+
+  it("does not discharge the marker for an unqualified post-condition set", () => {
+    const graph = analyze(rest.replace("the rest of the revealed cards", "those cards"), "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.path.endsWith("/effects/3") && diagnostic.code === "unsupported-scope"));
+  });
+
+  it("retargets the explicit copy while leaving an ambiguous return unbound", () => {
+    const graph = analyze("Copy target instant or sorcery spell, then return it to its owner's hand. You may choose new targets "
+      + "for the copy.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.path.endsWith("/effects/0/steps/1/what") &&
+      diagnostic.code === "ambiguous-antecedent"));
+    const retarget = graph.nodes.find(node => node.node === "stack-instruction" && node.action.kind === "choose-new-targets");
+    assert.ok(retarget?.node === "stack-instruction");
+    assert.equal(retarget.subject, bound(graph, "/effects/1/steps/0/what"));
+  });
+});
