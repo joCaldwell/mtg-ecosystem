@@ -143,6 +143,11 @@ allowance. Leaving exile ends that incarnation's permission. An undone cast
 restores the original incarnation. A next-turn window expires in the cleanup
 of the beneficiary's next actual turn (CR 400.7j, 514.2, 611.2a).
 
+Fixed controller-relative stat modifiers reselect their recipients by live
+controller and creature type in layer 7c. Signed modifiers and independently
+verified intrinsic keyword blocks use the same layer from creature, artifact,
+and enchantment sources (CR 611.3, 613.4c).
+
 Stack projections run bottom to top. Saved announcement handles are historical
 and never bind successor incarnations; reversal restores living players' passes.
 Resolving frames retain frozen instances through supported source departure

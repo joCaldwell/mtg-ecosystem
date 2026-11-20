@@ -4880,6 +4880,8 @@ mod tests {
 #[cfg(test)]
 mod indestructible_tests;
 #[cfg(test)]
+mod scoped_creature_stats_tests;
+#[cfg(test)]
 mod static_permanent_indestructible_tests;
 
 #[cfg(test)]
