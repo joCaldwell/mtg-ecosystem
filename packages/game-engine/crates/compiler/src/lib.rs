@@ -12,6 +12,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod bestow;
 mod bindings;
 mod cascade_land_entry;
 mod cast_entry;
@@ -286,14 +287,14 @@ impl<'de> Deserialize<'de> for SourceKeyword {
         };
         if !matches!(
             keyword.as_str(),
-            "equip" | "enchant" | "cascade" | "kicker" | "affinity" | "cycling"
+            "bestow" | "equip" | "enchant" | "cascade" | "kicker" | "affinity" | "cycling"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "equip" | "kicker" | "cycling" => ["keyword", "cost"].as_slice(),
+            "bestow" | "equip" | "kicker" | "cycling" => ["keyword", "cost"].as_slice(),
             "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
@@ -1484,6 +1485,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
+    let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
     let canonical_abilities = self_reference::canonicalize(
         result.abilities.get(),
         &binding,
@@ -1922,6 +1924,19 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             return Err(unsupported("abilities.keywords", "empty keyword block"));
                         }
                         for (keyword_index, keyword) in keywords.iter().enumerate() {
+                            if keyword.keyword == "bestow"
+                                && let Some(plan) = &bestow
+                            {
+                                labels.statics.push(source_block(block)?);
+                                definition.static_abilities.push(StaticAbility {
+                                    functioning_zone: FunctioningZone::Stack,
+                                    effect: StaticEffect::Bestow {
+                                        cost: plan.base_cost(BestowForm::Aura).clone(),
+                                        program: canonical_bestow_program(),
+                                    },
+                                });
+                                continue;
+                            }
                             if keyword.keyword == "cycling" {
                                 labels.activated.push(source_block(block)?);
                                 definition

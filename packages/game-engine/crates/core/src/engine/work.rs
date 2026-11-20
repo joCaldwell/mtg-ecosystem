@@ -1005,6 +1005,7 @@ impl Game {
                             PlayerResponse::ActivateMana { .. }
                             | PlayerResponse::ActivateAbility { .. }
                             | PlayerResponse::Cast { .. }
+                            | PlayerResponse::Bestow { .. }
                             | PlayerResponse::PlayLand { .. }
                             | PlayerResponse::Pass,
                         ) => true,

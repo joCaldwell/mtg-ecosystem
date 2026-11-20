@@ -165,6 +165,8 @@ pub enum VisibleEntityTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleStackEntry {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bestowed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -731,6 +733,9 @@ pub enum PlayerResponse {
     },
     ActivateMana {
         object: ObjectHandle,
+    },
+    Bestow {
+        card: ObjectHandle,
     },
     Cast {
         card: ObjectHandle,
@@ -1407,6 +1412,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            bestowed: instance.alternative_cost == Some(cascade::AlternativeCost::Bestow),
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
@@ -2784,6 +2790,9 @@ impl Game {
             }),
             PlayerResponse::ActivateMana { object } => Ok(Response::ActivateMana {
                 object: self.resolve_handle(viewer, object)?,
+            }),
+            PlayerResponse::Bestow { card } => Ok(Response::Bestow {
+                card: self.resolve_handle(viewer, card)?.card,
             }),
             PlayerResponse::Cast { card } => Ok(Response::Cast {
                 card: self.resolve_handle(viewer, card)?.card,

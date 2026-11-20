@@ -243,13 +243,33 @@ impl Game {
         }
         Ok(())
     }
+    pub(super) fn structural_characteristics(
+        &self,
+        object: ObjectId,
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let definition = self.definition(object.card)?;
+        let bestowed = self.current(object).is_ok_and(|o| match o.zone {
+            Zone::Battlefield => {
+                o.attached_to.is_some() && mtg_contracts::bestow_alternative(definition).is_some()
+            }
+            Zone::Stack => self.is_bestowed_spell(object),
+            _ => false,
+        });
+        if bestowed {
+            Ok(std::borrow::Cow::Owned(
+                self.proposed_cast_characteristics(object.card, true)?,
+            ))
+        } else {
+            Ok(std::borrow::Cow::Borrowed(&definition.characteristics))
+        }
+    }
     // CR 105.2, 611.3, 613.1b/e: battlefield membership and control
     // have already been reconciled before the color layer is evaluated.
     pub(super) fn color_layer(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        let base = &self.definition(object.card)?.characteristics;
+        let base = self.structural_characteristics(object)?;
         if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
             let target = self.current(object)?;
             if target.present_on_battlefield() {
@@ -269,14 +289,14 @@ impl Game {
                                 && a.functioning_zone == FunctioningZone::Battlefield
                         })
                     {
-                        let mut effective = base.clone();
+                        let mut effective = base.into_owned();
                         effective.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
                         return Ok(std::borrow::Cow::Owned(effective));
                     }
                 }
             }
         }
-        Ok(std::borrow::Cow::Borrowed(base))
+        Ok(base)
     }
 
     pub(super) fn permanent_colors(
@@ -2643,7 +2663,15 @@ impl Game {
         zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
-        let mut base = self.definition(source.card)?.characteristics.clone();
+        // Historical appearances may precede detachment of this same incarnation.
+        let mut base = if matches!(zone, Zone::Stack | Zone::Battlefield)
+            && c.subtypes == ["Aura"]
+            && mtg_contracts::bestow_alternative(self.definition(source.card)?).is_some()
+        {
+            self.proposed_cast_characteristics(source.card, true)?
+        } else {
+            self.definition(source.card)?.characteristics.clone()
+        };
         if base.power.is_some() != c.power.is_some()
             || base.toughness.is_some() != c.toughness.is_some()
         {
