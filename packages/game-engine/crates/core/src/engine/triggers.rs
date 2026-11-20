@@ -50,11 +50,12 @@ pub struct CastOccurrenceId {
 }
 /// Semantic successful-cast ledger, independent of observers and tracing.
 /// Original physical seats never compact on departure (CR 601.2i/800.4).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TurnCastHistory {
     pub(super) any_cast: bool,
     pub(super) exile_cast: bool,
+    pub(super) mana_value: Quantity,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -687,6 +688,9 @@ impl Game {
         // Inside the full collector transaction, including the zero-match case.
         // Never consume on proposal, failed payment or a failed sibling batch.
         if let TriggerEventWitness::SpellCast { cast } = &witness {
+            // CR 202.3e, 608.2i: measure mana value on the stack with paid X,
+            // independently of costs and the card's later zone.
+            let mana_value = self.stack_mana_value(self.top()?)?;
             let row = self
                 .state
                 .rules
@@ -695,6 +699,7 @@ impl Game {
                 .ok_or("invalid cast history seat")?;
             row.any_cast = true;
             row.exile_cast |= cast.cast_from == Zone::Exile;
+            row.mana_value.add(&mana_value);
         }
         let dies = witness.dies();
         let enters = witness.enters();
@@ -1509,7 +1514,7 @@ impl Game {
             return Err("snapshot trigger source invariant".into());
         }
         {
-            self.validate_characteristic_identity(source, &fact.characteristics)?;
+            self.validate_characteristic_identity(source, fact.zone, &fact.characteristics)?;
         }
         Ok(())
     }
@@ -1548,9 +1553,14 @@ impl Game {
                     let damage = &member.damage;
                     let fact = &damage.source;
                     let appearance = &member.match_source;
-                    self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                    self.validate_characteristic_identity(
+                        fact.object,
+                        fact.zone,
+                        &fact.characteristics,
+                    )?;
                     self.validate_characteristic_identity(
                         appearance.object,
+                        appearance.zone,
                         &appearance.characteristics,
                     )?;
                     if (damage.id.0 as usize) >= self.damage_limit()
@@ -1591,10 +1601,15 @@ impl Game {
                 match_source,
             } => {
                 let fact = &damage.source;
-                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                self.validate_characteristic_identity(
+                    fact.object,
+                    fact.zone,
+                    &fact.characteristics,
+                )?;
                 if let Some(appearance) = match_source {
                     self.validate_characteristic_identity(
                         appearance.object,
+                        appearance.zone,
                         &appearance.characteristics,
                     )?;
                     if appearance.object != fact.object
@@ -1643,7 +1658,11 @@ impl Game {
                 attacker,
                 defender_player_id,
             } => {
-                self.validate_characteristic_identity(attacker.object, &attacker.characteristics)?;
+                self.validate_characteristic_identity(
+                    attacker.object,
+                    attacker.zone,
+                    &attacker.characteristics,
+                )?;
                 attacker.zone == Zone::Battlefield
                     && !attacker.tapped
                     && (attacker.attack_ready || attacker.keywords.contains(&KeywordAbility::Haste))
@@ -1668,6 +1687,7 @@ impl Game {
             TriggerEventWitness::SpellCast { cast } => {
                 self.validate_characteristic_identity(
                     cast.spell.object,
+                    cast.spell.zone,
                     &cast.spell.characteristics,
                 )?;
                 cast.history.turn_number > 0
@@ -1723,7 +1743,11 @@ impl Game {
                     && death_controller.is_none()
             }
             TriggerEventWitness::CreatureEnteredWithPower { entrant, movement } => {
-                self.validate_characteristic_identity(entrant.object, &entrant.characteristics)?;
+                self.validate_characteristic_identity(
+                    entrant.object,
+                    entrant.zone,
+                    &entrant.characteristics,
+                )?;
                 let token = self.state.rules.tokens.contains_key(&entrant.object.card);
                 let actual_entry = match movement {
                     Some(m) => {

@@ -891,11 +891,11 @@ impl Strategy<'_> {
                                 .find(|o| &o.handle == object)
                                 .is_some_and(|o| sets.iter().any(|set| self.in_set(v, o, set))),
                         };
-                        if hit {
-                            damage.add(&self.scaled_damage(
-                                v,
-                                &self.wipe_amount(v, amount, &s.x.clone().unwrap_or_default()),
-                            ));
+                        if hit
+                            && let Some(amount) =
+                                self.wipe_amount(v, amount, &s.x.clone().unwrap_or_default())
+                        {
+                            damage.add(&self.scaled_damage(v, &amount));
                         }
                     }
                     _ => {}
@@ -1230,17 +1230,23 @@ impl Strategy<'_> {
                 }
             }
     }
-    fn wipe_amount(&self, v: &PermittedView, amount: &WipeAmount, x: &Quantity) -> Quantity {
-        match amount {
+    fn wipe_amount(
+        &self,
+        v: &PermittedView,
+        amount: &WipeAmount,
+        x: &Quantity,
+    ) -> Option<Quantity> {
+        Some(match amount {
             WipeAmount::Fixed { value } => value.clone(),
             WipeAmount::AnnouncedX => x.clone(),
+            WipeAmount::OtherCastsManaValue => return None,
             WipeAmount::CreatureCount => Quantity::from(
                 v.objects
                     .iter()
                     .filter(|o| self.in_set(v, o, &ObjectSet::Creatures))
                     .count() as i64,
             ),
-        }
+        })
     }
     fn wipe_score(&self, v: &PermittedView, p: &SpellProgram, x: &Quantity) -> Option<Quantity> {
         let mut found = false;
@@ -1261,7 +1267,7 @@ impl Strategy<'_> {
                     amount,
                     ..
                 } => {
-                    let damage = self.scaled_damage(v, &self.wipe_amount(v, amount, x));
+                    let damage = self.scaled_damage(v, &self.wipe_amount(v, amount, x)?);
                     if *each_player {
                         if v.players
                             .iter()

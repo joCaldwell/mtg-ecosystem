@@ -303,45 +303,26 @@ pub(super) fn instant_keywords(
     keywords: &[SourceKeyword],
     block: usize,
 ) -> Result<(), Failure> {
-    let [keyword] = keywords else {
+    if !(1..=2).contains(&keywords.len())
+        || keywords
+            .iter()
+            .any(|k| k.keyword != "cascade" || k.cost.is_some() || k.filter.is_some())
+        || !definition.triggered.is_empty()
+    {
         return Err(unsupported(
             "abilities.keywords",
             "unsupported spell keyword combination",
         ));
-    };
-    // This narrower complete-source instant/sorcery family still admits one
-    // direct self instance; permanent keyword multiplicity is independent.
-    if keyword.keyword != "cascade"
-        || keyword.cost.is_some()
-        || keyword.filter.is_some()
-        || definition
-            .triggered
-            .iter()
-            .any(|a| a.condition == TriggerCondition::SelfSpellCast)
-    {
-        return Err(unsupported(
-            "abilities.keywords",
-            "unsupported instant/sorcery keyword or multiple cascade",
-        ));
     }
-    definition.triggered.push(TriggeredAbility {
-        functioning_zone: FunctioningZone::Stack,
-        condition: TriggerCondition::SelfSpellCast,
-        intervening_if: None,
-        death_filter: None,
-        program: SpellProgram {
-            optional_additional_costs: vec![],
-            additional_sacrifice: None,
-            timing: SpellTiming::Instant,
-            resolution: SpellResolution::Instructions,
+    let block = source_block(block)?;
+    for _ in keywords {
+        definition.triggered.push(TriggeredAbility {
             functioning_zone: FunctioningZone::Stack,
-            targets: vec![],
-            modes: vec![],
-            instructions: vec![Instruction::Cascade {
-                threshold: CascadeThreshold::SourceSpellManaValue,
-                source_block: source_block(block)?,
-            }],
-        },
-    });
+            condition: TriggerCondition::SelfSpellCast,
+            intervening_if: None,
+            death_filter: None,
+            program: canonical_cascade_program(block),
+        });
+    }
     Ok(())
 }

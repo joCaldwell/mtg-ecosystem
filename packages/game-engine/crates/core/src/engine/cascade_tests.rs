@@ -294,6 +294,103 @@ fn offer(g: &mut Game) {
     }
     panic!("offer not reached");
 }
+
+#[test]
+fn cast_mana_value_sweep_counts_paid_and_free_casts_at_resolution() {
+    let mut prepared = prepared("Grizzly Bears", &["Sol Ring", "Wall of Wood"]);
+    let wounded = m4a_tests::replace(
+        &mut prepared,
+        PlayerId(1),
+        "Wall of Wood",
+        Zone::Battlefield,
+    );
+    let caster = PlayerId(0);
+    let archive = std::env::var_os("MTG_CAST_MANA_VALUE_SWEEP_ARCHIVE_PROBE")
+        .map(|path| std::fs::read_to_string(path).expect("read the pinned one-record archive"));
+    if let Some(archive) = &archive {
+        let mut lines = archive.lines();
+        let manifest = lines.next().unwrap();
+        let record = lines.next().unwrap();
+        assert!(lines.next().is_none());
+        assert_eq!(
+            mtg_contracts::sha256(record.as_bytes()),
+            "2df6ba718258e19da7296786458c8f24f3bf56421272b6e15a63b4baea44a4ab",
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } =
+            mtg_compiler::compile(manifest, record)
+        else {
+            panic!("the exact source must lower");
+        };
+        let catalog = Arc::make_mut(&mut prepared.catalog);
+        catalog.definitions.push(*definition);
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog.validate().unwrap();
+        prepared.catalog_digest = digest(catalog).unwrap();
+        m4a_tests::replace(
+            &mut prepared,
+            caster,
+            "Call Forth the Tempest",
+            Zone::Hand { owner: caster },
+        );
+        for _ in 0..3 {
+            m4a_tests::replace(&mut prepared, caster, "Mountain", Zone::Battlefield);
+        }
+    }
+    prepared.profile_digest = digest(&prepared.config).unwrap();
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let prior = paid(&mut game, "Grizzly Bears");
+    let own_creature = game.top().unwrap().source.card;
+    m4a_tests::resolve_entry(&mut game, prior);
+    assert_eq!(game.state.rules.cast_history[0].mana_value, 2.into());
+    if archive.is_none() {
+        // The ordinary paid ledger witness runs even without the private archive.
+        prove(&game);
+        return;
+    }
+    let original = paid(&mut game, "Call Forth the Tempest");
+    assert_eq!(game.state.rules.cast_history[0].mana_value, 10.into());
+    for _ in 0..2 {
+        offer(&mut game);
+        answer(&mut game, Response::OptionalEffect { perform: true });
+        assert!(matches!(request(&mut game), Request::Priority { .. }));
+        let child = game.top().unwrap();
+        assert_eq!(child.cast_from, Zone::Exile);
+        assert_eq!(child.paid.as_ref(), Some(&zero_mana_cost()));
+        assert_eq!(game.stack_mana_value(child).unwrap(), 1.into());
+        let child_id = child.id;
+        m4a_tests::resolve_entry(&mut game, child_id);
+    }
+    assert_eq!(game.state.rules.cast_history[0].mana_value, 12.into());
+    let mut restored =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+    m4a_tests::resolve_entry(&mut game, original);
+    m4a_tests::resolve_entry(&mut restored, original);
+    assert_eq!(game.state, restored.state);
+    assert_eq!(game.trace, restored.trace);
+    assert_eq!(
+        game.state.rules.objects[&own_creature].zone,
+        Zone::Battlefield
+    );
+    assert_eq!(
+        game.state.rules.objects[&wounded].zone,
+        Zone::Graveyard { owner: PlayerId(1) }
+    );
+    let damage = game.trace.records.iter().find_map(|record| {
+        let EvidenceRecord::Batch { batch } = &record.record else { return None };
+        if !matches!(batch.cause, BatchCause::Instruction { stack_id, source_block: 1, .. } if stack_id == original) {
+            return None;
+        }
+        batch.occurrences.iter().find_map(|r| match &r.actual {
+            EventOutcome::DamageCommitted { actual, .. } => Some(actual),
+            _ => None,
+        })
+    }).expect("damage from the original spell");
+    assert_eq!(damage.len(), 1);
+    assert_eq!(damage[0].amount, 4.into());
+}
+
 #[test]
 fn cascade_paid_original_free_creature_exact_parent_and_replay() {
     for raw_name in ["Shardless Agent", "Bloodbraid Elf"] {
