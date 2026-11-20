@@ -67,7 +67,7 @@ export type BindingNode = NodeBase & (
       /** Explicit player binding for the announced target when established. */
       chooser?: string;
       countChoice?: string;
-      timing: BindingPhase | "stack-announcement"; selection: "target" | "evaluate-reference" | "event-participant-filter" }
+      timing: BindingPhase | "stack-announcement"; selection: "target" | "evaluate-reference" | "event-participant-filter" | "resolution-choice" }
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
   | { node: "event"; scope: string; operation: string; inputs: string[]; availability: "when-performed";
@@ -119,7 +119,10 @@ export type BindingNode = NodeBase & (
       lifetime: { kind: "resolution" } | { kind: "source-incarnation"; source: string; lookup: "current-or-last-known" } }
   | { node: "player-state-condition"; scope: string; who: string;
       query: "designation" | "completed-dungeon" | "opponent-count" | "turn-of" }
-  | { node: "target-count"; scope: string; chooser: string; minimum: number }
+  | { node: "target-count"; scope: string; chooser: string; minimum: number; maximum?: number }
+  | { node: "resolution-count"; scope: string; chooser: string; minimum: number; maximum?: number;
+      operation: "discard" | "sacrifice" | "move-from-hand" | "search" }
+  | { node: "recipient-member"; scope: string; group: string; use: "damage-amount" }
   | { node: "devotion"; scope: string; who: string; colors: Extract<Amount, { amount: "devotion" }>["colors"] }
   /** The proposed event and the scalar change made when this replacement applies. */
   | { node: "quantity-replacement"; scope: string; source: string; match: ReplacementInstruction["event"];
@@ -186,7 +189,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

@@ -203,6 +203,33 @@ function stackClasses(filter: ObjectFilter | undefined): StackObjectClass | unde
   return alternatives.every(kind => kind === alternatives[0]) ? alternatives[0] : "spell-or-ability";
 }
 
+type ResolutionCountOperation = Extract<BindingNode, { node: "resolution-count" }>["operation"];
+
+function chosenRange(amount: Amount | undefined): { minimum: number; maximum?: number } | undefined {
+  if (amount?.amount !== "chosen" || !Number.isSafeInteger(amount.minimum) || amount.minimum < 0) return;
+  if (amount.maximum === undefined) return { minimum: amount.minimum };
+  if (amount.maximum.amount === "fixed" && Number.isSafeInteger(amount.maximum.value) &&
+      amount.maximum.value >= amount.minimum) return { minimum: amount.minimum, maximum: amount.maximum.value };
+}
+
+function resolutionCount(effect: Effect, path: string): Context["resolutionCount"] {
+  if (effect.forEach || effect.forEachVote || effect.decidedBy) return;
+  if (effect.effect === "discard" && !effect.random && effect.who.player === "you" &&
+      effect.what !== "hand" && effect.what.ref === "filter" && effect.what.filter.cls === "card")
+    return { path: child(path, "what"), operation: "discard" };
+  if (effect.effect === "sacrifice" && !effect.chosenBy && effect.who.player === "you" && effect.what.ref === "filter")
+    return { path: child(path, "what"), operation: "sacrifice" };
+  if (effect.effect === "move-zone" && (!effect.who || effect.who.player === "you") &&
+      effect.to.zone === "battlefield" && !effect.order && !effect.from &&
+      effect.what.ref === "filter" && effect.what.filter.cls === "card" &&
+      effect.what.filter.zone?.zone === "hand" && effect.what.filter.zone.owner === "your")
+    return { path: child(path, "what"), operation: "move-from-hand" };
+  if (effect.effect === "search" && effect.who.player === "you" && effect.zones.selection === "all" &&
+      effect.zones.of.length === 1 && effect.zones.of[0].zone === "library" && effect.zones.of[0].owner === "your" &&
+      effect.for.ref === "filter" && effect.for.filter.cls === "card" && !effect.for.groupConstraints?.length)
+    return { path: child(path, "for"), operation: "search" };
+}
+
 interface Context {
   source: string; face: string; ability: string; you: string; phase: BindingPhase;
   objects: Candidate[]; players: Candidate[]; quantities: Candidate[]; x?: string;
@@ -222,6 +249,11 @@ interface Context {
   sourceExclusionPath?: string;
   sacrificedCost?: Candidate;
   stackCopies?: StackCopyCapture[];
+  resolutionCount?: { path: string; operation: ResolutionCountOperation };
+  distributedCount?: boolean;
+  exileResults?: { event: string; result: Candidate }[];
+  uncertainExileOrigin?: boolean;
+  uncertainStackOrigin?: boolean;
   entryChoice?: ChoiceOrigin;
   resolutionChoice?: ChoiceOrigin;
   availableChoice?: ChoiceOrigin;
@@ -342,14 +374,14 @@ function costHasX(value: unknown): boolean {
   return /"X"|"amount":"x"/.test(JSON.stringify(value ?? null));
 }
 function soleObjectPayment(costs: Cost[]): number {
-  const index = costs.findIndex(cost => cost.cost === "sacrifice" && cost.what.ref === "filter");
+  const index = costs.findIndex(cost => (cost.cost === "sacrifice" || cost.cost === "exile") && cost.what.ref === "filter");
   return costs.every((cost, at) => at === index ||
     cost.cost === "mana" || cost.cost === "tap-self" || cost.cost === "untap-self" ||
     (cost.cost === "pay-life" && cost.amount.amount === "fixed")) ? index : -1;
 }
-function performsSacrifice(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(performsSacrifice);
-  return isRecord(value) && (value.effect === "sacrifice" || Object.values(value).some(performsSacrifice));
+function containsEffect(value: unknown, effect: string): boolean {
+  if (Array.isArray(value)) return value.some(entry => containsEffect(entry, effect));
+  return isRecord(value) && (value.effect === effect || Object.values(value).some(entry => containsEffect(entry, effect)));
 }
 
 /** Printed keyword parameters that are paid or chosen as the keyword's cost. */
@@ -1287,6 +1319,34 @@ class Analyzer {
       this.node({ id, path, node: "derived-object", scope: context.ability, role: "attached-to", of: context.source, rules: ["301.5f", "303.4m"] });
     return id;
   }
+  private walkDamageAmount(effect: Extract<Effect, { effect: "damage" }>, path: string, context: Context): boolean {
+    if (context.barrier || effect.to.to !== "player") return false;
+    const quantity = effect.amount.amount === "twice" ? effect.amount.of : effect.amount;
+    if (quantity.amount !== "count" || !(quantity.of.control === "that-player" ||
+        quantity.of.controlledBy?.player === "they" || quantity.of.controlledBy?.player === "that-player")) return false;
+    const { ref } = effect.to;
+    if (ref.player !== "defending-player" && ref.player !== "target-player" && ref.player !== "target-opponent" &&
+        ref.player !== "each-player" && ref.player !== "each-opponent") return false;
+    const at = child(path, "to");
+    this.walk(effect.to, at, context);
+    const recipient = this.at(child(at, "ref"));
+    if (!recipient) return true; // The operand has its own diagnostic.
+    const amount = child(path, "amount");
+    if (recipient.cardinality === "one") this.walk(effect.amount, amount, { ...context, actor: recipient });
+    else if (ref.player === "each-player" || ref.player === "each-opponent") {
+      const rules = ["608.2f", "608.2h", "608.2k"];
+      const member = this.node({ id: this.id(amount, "recipient-member"), path: amount, node: "recipient-member",
+        scope: context.ability, group: recipient.id, use: "damage-amount", rules });
+      this.walk(effect.amount, amount, { ...context, actor: { id: member, domain: "player", cardinality: "one" } });
+      this.engineFeature("recipient-dependent-damage", path,
+        "Calculate each recipient's scalar damage amount from that recipient before applying the simultaneous damage event.", rules);
+    } else {
+      this.diagnostic("unsupported-scope", amount, "The damage amount needs an explicit member of its recipient set.", ["608.2f", "608.2h"]);
+      this.walk(effect.amount, amount, { ...context, barrier: "The damage amount needs an explicit member of its recipient set." });
+    }
+    return true;
+  }
+
   /** Walk a node's children, binding `what` (or a player recipient) before
    * the abilities it is given, so a granted ability knows its recipient. */
   walkWithRecipient(value: Record<string, unknown>, path: string, context: Context): void {
@@ -1333,7 +1393,9 @@ class Analyzer {
       // "Creatures target opponent controls don't untap during their next untap step".
       if (instruction) context.players = combine(context.players, this.targetPlayersUnder(child(path, recipientKey), context));
     }
-    for (const [entry, nested] of Object.entries(value)) if (!first.includes(entry)) this.walk(nested, child(path, entry), context);
+    const damageAmount = value.effect === "damage" && this.walkDamageAmount(value as unknown as Extract<Effect, { effect: "damage" }>, path, context);
+    for (const [entry, nested] of Object.entries(value))
+      if (!first.includes(entry) && !(damageAmount && (entry === "to" || entry === "amount"))) this.walk(nested, child(path, entry), context);
     Object.assign(context, saved);
   }
 
@@ -1395,6 +1457,17 @@ class Analyzer {
     if (grant.gained === "keyword" && grant.costDefinition) this.walk(grant.costDefinition, child(path, "costDefinition"), { ...granted, phase: "payment" });
   }
   object(expression: ObjectRef, path: string, context: Context): Candidate | undefined {
+    if (expression.ref === "related" && expression.relation.relation === "event-result" &&
+        expression.relation.event === "exile" && expression.filter.cls === "card" &&
+        Object.keys(expression.filter).length === 1 && !context.barrier && !context.uncertainExileOrigin &&
+        context.exileResults?.length === 1) {
+      const [capture] = context.exileResults;
+      const rules = ["400.7j", "608.2c"];
+      const at = child(path, "relation");
+      this.node({ id: this.id(at, "event-link"), path: at, node: "event-link", scope: context.ability,
+        action: "exile", event: capture.event, rules });
+      return this.antecedent(expression, path, [capture.result], objectCardinality(expression), rules);
+    }
     // A paid sacrifice and a later zone successor are different objects.
     // This contextual reference is supported only for information about the
     // uniquely identified original object (CR 400.7, 608.2h, 701.21a).
@@ -1409,7 +1482,7 @@ class Analyzer {
     if (expression.ref === "card-extraction-group") context = { ...context, barrier: "Separate card-extraction slots require distinct allocation, shared-pool, branch-choice and aggregate result bindings." };
     const target = expression.ref === "target" || expression.ref === "any-target";
     const operands = target ? { ...context, announcementOperand: true } : context;
-    const count = this.boundTargetCount(expression, context);
+    const count = this.boundTargetCount(expression, context) ?? this.boundResolutionCount(expression, path, context);
     for (const [key, value] of Object.entries(expression)) {
       if (key !== "count" || !count) this.walk(value, child(path, key), operands);
     }
@@ -1647,11 +1720,14 @@ class Analyzer {
     return this.selection(expression, path, context,
       expression.player === "target-player" || expression.player === "target-opponent");
   }
-  boundTargetCount(expression: ObjectRef | PlayerRef, context: Context): Extract<Amount, { amount: "chosen" }> | undefined {
-    if (!context.barrier && context.phase === "resolution" && "ref" in expression && expression.ref === "target" &&
-        expression.selectionId && !expression.chosenBy && !expression.random && expression.count?.amount === "chosen" &&
-        expression.count.minimum === 0 && expression.count.maximum === undefined)
-      return expression.count;
+  boundTargetCount(expression: ObjectRef | PlayerRef, context: Context): ReturnType<typeof chosenRange> {
+    if (!context.barrier && !context.distributedCount && context.phase === "resolution" && "ref" in expression &&
+        expression.ref === "target" && expression.selectionId && !expression.chosenBy && !expression.random)
+      return chosenRange(expression.count);
+  }
+  boundResolutionCount(expression: ObjectRef | PlayerRef, path: string, context: Context): ReturnType<typeof chosenRange> {
+    if (!context.barrier && context.phase === "resolution" && context.resolutionCount?.path === path &&
+        "ref" in expression && expression.ref === "filter") return chosenRange(expression.count);
   }
   selection(expression: ObjectRef | PlayerRef, path: string, context: Context, targeted: boolean): Candidate | undefined {
     if (targeted && context.phase !== "resolution") {
@@ -1688,10 +1764,18 @@ class Analyzer {
         if (announcing?.node === "ability") {
           const at = child(path, "count");
           countChoice = this.node({ id: `${id}/count`, path: at, node: "target-count", scope, chooser: announcing.you,
-            minimum: count.minimum, rules: ["115.3", "601.2c", "602.2b", "603.3d"] });
+            ...count, rules: ["115.3", "601.2c", "602.2b", "603.3d"] });
         } else this.diagnostic("unsupported-number-binding", child(path, "count"),
           "The target count requires its announcing ability.", ["601.2c"]);
       }
+    }
+    const resolution = this.boundResolutionCount(expression, path, context);
+    if (resolution && context.resolutionCount) {
+      const at = child(path, "count");
+      const operation = context.resolutionCount.operation;
+      countChoice = this.node({ id: this.id(at, "resolution-count"), path: at, node: "resolution-count",
+        scope: context.ability, chooser: context.you, ...resolution, operation,
+        rules: operation === "search" ? ["608.2d", "701.23b"] : ["608.2c", "608.2d"] });
     }
     const predicateRules = context.eventPredicate ? ["603.2c"] : context.phase === "replacement-match" ? ["614.1a"] : undefined;
     const rules = targeted ? ["601.2c"] : predicateRules ?? ["608.2h"];
@@ -1699,7 +1783,7 @@ class Analyzer {
       ...(context.directCreatureSpellCopy?.what === expression ? { chooser: context.you } : {}),
       ...(countChoice ? { countChoice } : {}),
       timing: targeted ? "stack-announcement" : context.phase,
-      selection: targeted ? "target" : predicateRules ? "event-participant-filter" : "evaluate-reference", rules });
+      selection: targeted ? "target" : resolution ? "resolution-choice" : predicateRules ? "event-participant-filter" : "evaluate-reference", rules });
     const candidate = this.bound(expression, path, id, rules);
     return { ...candidate, cardinality };
   }
@@ -1750,6 +1834,12 @@ class Analyzer {
   branch(context: Context): Context {
     return { ...context, objects: [...context.objects], players: [...context.players], quantities: [...context.quantities] };
   }
+  private blockBranchCaptures(context: Context, branches: Context[]): void {
+    context.uncertainExileOrigin ||= branches.some(branch =>
+      branch.uncertainExileOrigin || branch.exileResults !== context.exileResults);
+    context.uncertainStackOrigin ||= branches.some(branch =>
+      branch.uncertainStackOrigin || branch.stackCopies !== context.stackCopies);
+  }
   /** CR 700.2a-c: modes are chosen as the spell or ability is put on the stack,
    * and a mode's targets exist only if it was chosen. Each mode binds in its own
    * branch; a later instruction cannot rely on a result of an unchosen mode. */
@@ -1760,14 +1850,17 @@ class Analyzer {
     this.walk(effect.conditionalCount, child(path, "conditionalCount"), announcement);
     this.walk(effect.chooser, child(path, "chooser"), announcement);
     let sourceMoved = context.sourceMoved;
+    const branches: Context[] = [];
     effect.options.forEach((option, index) => {
       const at = child(child(path, "options"), index);
       const branch = this.branch(context);
       this.walk(option.additionalCost, child(at, "additionalCost"), { ...branch, phase: "payment" });
       this.sentences(option.effects, child(at, "effects"), branch);
       sourceMoved ||= branch.sourceMoved;
+      branches.push(branch);
     });
     context.sourceMoved = sourceMoved;
+    this.blockBranchCaptures(context, branches);
     context.objects = []; context.players = []; context.quantities = [];
   }
   /** Players targeted anywhere in the instruction at `path` ("target
@@ -1827,13 +1920,16 @@ class Analyzer {
     this.event(path, context, "flip-coin", flipper ? [flipper] : [], context.conditional ? { conditional: true } : {});
     let announced: Candidate[] = [];
     let sourceMoved = context.sourceMoved;
+    const branches: Context[] = [];
     (effect.outcomes ?? []).forEach((outcome, index) => {
       const branch: Context = { ...this.branch(context), conditional: true };
       branch.objects = combine(branch.objects, announced);
       this.sentences(outcome.effects, child(child(child(path, "outcomes"), index), "effects"), branch);
       announced = combine(announced, branch.objects.filter(candidate => this.announced(candidate)));
       sourceMoved ||= branch.sourceMoved;
+      branches.push(branch);
     });
+    this.blockBranchCaptures(context, branches);
     context.sourceMoved = sourceMoved;
     context.objects = combine(context.objects, announced);
   }
@@ -1846,6 +1942,7 @@ class Analyzer {
     this.event(path, context, "roll-dice", roller ? [roller] : [], context.conditional ? { conditional: true } : {});
     let announced: Candidate[] = [];
     let sourceMoved = context.sourceMoved;
+    const branches: Context[] = [];
     effect.table!.rows.forEach((row, index) => {
       const at = child(child(child(path, "table"), "rows"), index);
       const branch: Context = { ...this.branch(context), conditional: true };
@@ -1854,7 +1951,9 @@ class Analyzer {
       this.sentences(row.effects, child(at, "effects"), branch);
       announced = combine(announced, branch.objects.filter(candidate => this.announced(candidate)));
       sourceMoved ||= branch.sourceMoved;
+      branches.push(branch);
     });
+    this.blockBranchCaptures(context, branches);
     context.sourceMoved = sourceMoved;
     context.objects = combine(context.objects, announced);
   }
@@ -1864,11 +1963,14 @@ class Analyzer {
     this.walk(effect.who, child(path, "who"), context);
     const decider = this.at(child(path, "who"))?.id;
     let sourceMoved = context.sourceMoved;
+    const branches: Context[] = [];
     effect.options.forEach((option, index) => {
       const branch = { ...this.branch(context), ...(decider ? { decider } : {}) };
       this.effect(option, child(child(path, "options"), index), branch);
       sourceMoved ||= branch.sourceMoved;
+      branches.push(branch);
     });
+    this.blockBranchCaptures(context, branches);
     context.sourceMoved = sourceMoved;
     context.objects = []; context.players = []; context.quantities = [];
   }
@@ -1877,15 +1979,18 @@ class Analyzer {
   simultaneous(effect: Extract<Effect, { effect: "simultaneous" }>, path: string, context: Context): void {
     const start = this.branch(context);
     const after = this.branch(context);
+    const branches: Context[] = [];
     effect.steps.forEach((step, index) => {
       const branch = this.branch(start);
       this.effect(step, child(child(path, "steps"), index), branch);
+      branches.push(branch);
       after.objects = combine(after.objects, branch.objects);
       after.players = combine(after.players, branch.players);
       after.quantities = combine(after.quantities, branch.quantities);
       after.sourceMoved ||= branch.sourceMoved;
       after.departed = combine(after.departed ?? [], branch.departed ?? []);
     });
+    this.blockBranchCaptures(context, branches);
     Object.assign(context, { objects: after.objects, players: after.players, quantities: after.quantities, sourceMoved: after.sourceMoved, departed: after.departed });
   }
   /** A triggered ability created now (CR 603.7): its source is the creating
@@ -1898,7 +2003,8 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined, stackCopies: undefined };
+      sacrificedCost: undefined, stackCopies: undefined, exileResults: undefined,
+      uncertainExileOrigin: undefined, uncertainStackOrigin: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
     const delayed = this.nestedAbility(path, context, "delayed-triggered", ["603.7"]);
@@ -1967,6 +2073,7 @@ class Analyzer {
       }
     }
     const instead = run(effect.instead, child(path, "instead"));
+    this.blockBranchCaptures(context, [original, instead]);
     context.sourceMoved = context.sourceMoved || original.sourceMoved || instead.sourceMoved;
     context.mentionedObject = context.mentionedObject || original.mentionedObject || instead.mentionedObject;
     context.objects = []; context.players = []; context.quantities = [];
@@ -1999,6 +2106,7 @@ class Analyzer {
     const decider = this.at(child(path, "who"))?.id;
     const group: Context = { ...context, decider: decider ?? "unresolved" };
     effect.steps.forEach((step, index) => this.effect(step, child(child(path, "steps"), index), group));
+    this.blockBranchCaptures(context, [group]);
     Object.assign(context, { objects: group.objects, players: group.players, quantities: group.quantities, sourceMoved: group.sourceMoved, sourceSuccessor: group.sourceSuccessor, x: group.x });
     context.decisions?.push(path);
   }
@@ -2193,6 +2301,7 @@ class Analyzer {
           context.objects = combine(context.objects, branch.objects.filter(lasting));
           context.players = combine(context.players, branch.players.filter(lasting));
         }
+        this.blockBranchCaptures(context, branches);
         context.sourceMoved = context.sourceMoved || branches.some(branch => branch.sourceMoved);
         context.mentionedObject = context.mentionedObject || branches.some(branch => branch.mentionedObject);
       } else {
@@ -2224,7 +2333,7 @@ class Analyzer {
     const subject = effect.what;
     if (effect.effect === "choose-new-targets" && effect.timing === "copy-creation") {
       const [copy] = context.stackCopies ?? [];
-      if (context.stackCopies?.length !== 1 || copy.inlineRetarget || copy.chooser !== context.you ||
+      if (context.stackCopies?.length !== 1 || context.uncertainStackOrigin || copy.inlineRetarget || copy.chooser !== context.you ||
           context.conditional || context.decider || !effect.optional || subject.ref !== "copy-result" ||
           copy.result.cardinality !== (subject.number === "singular" ? "one" : "many")) return false;
       const rules = ["115.7d", "115.7e", "115.7f", "707.10c"];
@@ -2347,6 +2456,8 @@ class Analyzer {
       const barrier = "Quantified instructions require member references, original-ability target multiplicity, membership timing, and aggregated result bindings.";
       this.diagnostic("unsupported-scope", path, barrier, ["608.2e", "608.2f", "101.4", "115.3"]);
       this.walk(effect, path, { ...context, barrier });
+      context.uncertainExileOrigin ||= containsEffect(effect, "exile") || containsEffect(effect, "exile-until");
+      context.uncertainStackOrigin ||= containsEffect(effect, "copy-stack-object");
       context.objects = []; context.players = []; context.quantities = [];
       return;
     }
@@ -2354,6 +2465,8 @@ class Analyzer {
       const barrier = "Grouped actions preserve participant occurrences and shared-event multiplicity; result identities need explicit per-role aggregation.";
       this.diagnostic("unsupported-scope", path, barrier, ["101.4", "121.2c", "608.2e", "608.2f"]);
       this.walk(effect, path, { ...context, barrier });
+      context.uncertainExileOrigin ||= containsEffect(effect, "exile") || containsEffect(effect, "exile-until");
+      context.uncertainStackOrigin ||= containsEffect(effect, "copy-stack-object");
       context.objects = []; context.players = []; context.quantities = [];
       return;
     }
@@ -2384,6 +2497,8 @@ class Analyzer {
       const barrier = "Nested, optional, simultaneous, or delayed instruction scopes need explicit capture and merge rules.";
       this.diagnostic("unsupported-scope", path, barrier, ["603.7", "608.2c"]);
       this.walk(effect, path, { ...context, barrier });
+      context.uncertainExileOrigin ||= containsEffect(effect, "exile") || containsEffect(effect, "exile-until");
+      context.uncertainStackOrigin ||= containsEffect(effect, "copy-stack-object");
       context.objects = []; context.players = []; context.quantities = [];
       return;
     }
@@ -2397,7 +2512,11 @@ class Analyzer {
         scope: context.ability, chooser: context.you, libraryOwner: context.you, slots, allocation: "distinct-objects",
         perSlot: "zero-or-one", cardinality: "many", rules: ["608.2d", "701.23b"] });
       this.bound(effect.for, selection, allocation, ["608.2d", "701.23b"]);
-    } else this.walk(effect, path, context);
+    } else {
+      const count = resolutionCount(effect, path);
+      this.walk(effect, path, count || effect.effect === "distribute-counters"
+        ? { ...context, resolutionCount: count, distributedCount: effect.effect === "distribute-counters" } : context);
+    }
     // CR 608.2d: "[player] may" is decided while the instruction is applied;
     // declining it produces no results, as any impossible instruction would.
     const decider = effect.optional ? (effect.decidedBy ? this.at(child(path, "decidedBy"))?.id : context.you)
@@ -2524,6 +2643,7 @@ class Analyzer {
           break;
         }
         this.diagnostic("unsupported-scope", path, "Stack-copy results and copy target-selection timing require their own binding scope.", ["707.10", "115.7"]);
+        if (effect.effect !== "choose-new-targets") context.uncertainStackOrigin = true;
         context.objects = []; context.players = []; context.quantities = [];
         return;
       case "change-text":
@@ -2620,6 +2740,13 @@ class Analyzer {
         : effect.effect === "create-token" ? { cls: "token", ...("types" in effect.token && effect.token.types.length ? { types: effect.token.types as NonNullable<ObjectFilter["types"]> } : {}) }
         : ["look-at", "mill", "draw", "reveal"].includes(effect.effect) ? { cls: "card" } : undefined;
       const result = this.eventResult(path, event, produces, cardinality, identity, established);
+      if (effect.effect === "exile") {
+        const fromPool = effect.what.ref === "from-pool" ? this.at(`${path}/what/pool`) : undefined;
+        if (objects[0]?.description?.cls === "card" || fromPool?.description?.cls === "card")
+          context.exileResults = [...(context.exileResults ?? []), { event, result }];
+        else context.uncertainExileOrigin = true;
+      } else if (effect.effect === "exile-until" || effect.effect === "airbend" ||
+          (effect.effect === "move-zone" && effect.to.zone === "exile")) context.uncertainExileOrigin = true;
       // Each player's action is its own event (CR 101.4); a later reference to
       // their results would need a per-player aggregate. Only such a reference
       // is unresolved; the instruction itself is not.
@@ -2937,7 +3064,8 @@ class Analyzer {
             ability.keyword === "forecast" ? ["702.57"] : ["702"]);
         const costs = child(path, ability.kind === "activated" ? "costs" : "cost");
         const solePayment = ability.kind === "activated" ? soleObjectPayment(ability.costs) : -1;
-        if (solePayment >= 0) payment.sourceExclusionPath = `${costs}/${solePayment}/what/filter`;
+        if (ability.kind === "activated" && ability.costs[solePayment]?.cost === "sacrifice")
+          payment.sourceExclusionPath = `${costs}/${solePayment}/what/filter`;
         this.walk(ability.kind === "activated" ? ability.costs : ability.cost, costs, payment);
         this.walk(ability.restriction, child(path, "restriction"), payment);
         this.walk(ability.permission, child(path, "permission"), payment);
@@ -2960,8 +3088,17 @@ class Analyzer {
           const selected = this.at(child(child(child(path, "costs"), index), "what"));
           if (!selected || selected.id === context.source || selected.domain !== "object") return;
           this.costObjects.add(selected.id);
-          if (index === solePayment && cost.cost === "sacrifice" && selected.cardinality === "one" &&
-              !performsSacrifice(ability.effects)) context.sacrificedCost = selected;
+          if (index === solePayment && selected.cardinality === "one") {
+            if (cost.cost === "sacrifice" && !containsEffect(ability.effects, "sacrifice")) context.sacrificedCost = selected;
+            else if (cost.cost === "exile" && selected.description?.cls === "card") {
+              const at = `${costs}/${index}`;
+              const event = this.id(at, "event");
+              const paid = this.result.nodes.find(node => node.id === event);
+              if (paid?.node === "event") paid.inputs.push(selected.id);
+              const result = this.eventResult(at, event, "objects", "one", "zone-successors", { cls: "card" });
+              context.exileResults = [{ event, result }];
+            }
+          }
           if (["sacrifice", "exile", "discard", "return", "move-zone"].includes(cost.cost)) context.departed = combine(context.departed ?? [], [selected]);
           else if (["tap-objects", "untap-objects", "exert", "reveal"].includes(cost.cost)) context.objects = combine(context.objects, [selected]);
         });
@@ -2997,7 +3134,9 @@ class Analyzer {
         }
         const previous = this.spellParagraph?.face === face ? this.spellParagraph.context : undefined;
         if (previous) Object.assign(context, { objects: previous.objects, players: previous.players, quantities: previous.quantities,
-          departed: previous.departed, sourceMoved: previous.sourceMoved, mentionedObject: previous.mentionedObject, sourceNamed: previous.sourceNamed });
+          departed: previous.departed, sourceMoved: previous.sourceMoved, mentionedObject: previous.mentionedObject, sourceNamed: previous.sourceNamed,
+          exileResults: previous.exileResults, uncertainExileOrigin: previous.uncertainExileOrigin,
+          stackCopies: previous.stackCopies, uncertainStackOrigin: previous.uncertainStackOrigin });
         this.sentences(ability.effects, child(path, "effects"), context);
         this.spellParagraph = { face, context };
         return;
@@ -3138,6 +3277,7 @@ class Analyzer {
             this.result.references.some(reference => reference.path.startsWith(`${node.path}/`) && reference.binding === "unresolved") ||
             this.result.diagnostics.some(diagnostic => diagnostic.path === node.path || diagnostic.path.startsWith(`${node.path}/`))
           : node.node === "value-choice" ? this.invalidNodes.has(node.event) || this.invalidNodes.has(node.chooser)
+          : node.node === "recipient-member" ? this.invalidNodes.has(node.group)
           : node.node === "event-result" ? this.invalidNodes.has(node.event)
           : node.node === "derived-player" ? this.invalidNodes.has(node.of)
           : node.node === "selection" || node.node === "defined-number"

@@ -207,3 +207,65 @@ describe("private information and player roles", () => {
     assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "ambiguous-antecedent"));
   });
 });
+
+describe("counts and public-zone successor captures", () => {
+  it("keeps a resolution choice separate from the number actually discarded", () => {
+    const graph = analyze("Discard any number of cards, then draw that many cards.", "Sorcery");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "resolution-count");
+    assert.ok(choice && choice.operation === "discard" && choice.minimum === 0);
+    const measured = graph.nodes.find(node => node.id === bound(graph, "/steps/1/amount"));
+    assert.ok(measured?.node === "event-result" && measured.identity === "measured-quantity");
+    assert.notEqual(measured.id, choice.id);
+  });
+
+  it("announces bounded ordinary targets without supporting divided distribution", () => {
+    const graph = analyze("Put one, two, or three target creature cards from graveyards onto the battlefield under your control.", "Sorcery");
+    boundCard(graph);
+    const count = graph.nodes.find(node => node.node === "target-count");
+    assert.deepEqual([count?.minimum, count?.maximum], [1, 3]);
+    const divided = analyze("Distribute two +1/+1 counters among one or two target creatures.", "Instant");
+    assert.ok(!divided.nodes.some(node => node.node === "target-count"));
+    assert.ok(divided.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
+  });
+
+  it("uses the actual exile successors in a later permission", () => {
+    const graph = analyze("Exile the top five cards of your library. You may play cards exiled this way until the end of your next turn.", "Sorcery");
+    boundCard(graph);
+    const successor = graph.nodes.find(node => node.id === bound(graph, "/permission/what"));
+    assert.ok(successor?.node === "event-result" && successor.identity === "zone-successors");
+    assert.notEqual(successor.id, bound(graph, "/effects/0/steps/0/what"));
+  });
+
+  it("does not choose a producer when another exile might have supplied the card", () => {
+    const graph = analyze("Exile the top card of your library. If you control a creature, exile the top card of your library. "
+      + "You may play the exiled card this turn.", "Sorcery");
+    assert.ok(graph.references.some(reference => reference.path.endsWith("/permission/what") && reference.binding === "unresolved"));
+  });
+
+  it("finds the public successor of the card that paid an exile cost", () => {
+    const graph = analyze("{2}, Exile a nonland card from your hand: Put four time counters on the exiled card.", "Creature");
+    boundCard(graph);
+    const successor = graph.nodes.find(node => node.id === bound(graph, "/steps/0/on"));
+    assert.ok(successor?.node === "event-result" && successor.identity === "zone-successors");
+    assert.notEqual(successor.id, bound(graph, "/costs/1/what"));
+  });
+});
+
+describe("recipient-dependent damage amounts", () => {
+  it("uses each recipient's own count for the simultaneous event", () => {
+    const graph = analyze("This spell deals damage to each player equal to twice the number of nonbasic lands that player controls.", "Instant");
+    boundCard(graph);
+    const member = graph.nodes.find(node => node.node === "recipient-member");
+    assert.ok(member);
+    assert.equal(member.group, bound(graph, "/to/ref"));
+    assert.equal(member.id, bound(graph, "/of/control"));
+    assert.equal(graph.engineFeatures[0]?.feature, "recipient-dependent-damage");
+  });
+
+  it("does not turn an object-or-player damage recipient into a player", () => {
+    const graph = analyze("This spell deals damage to any target equal to the number of artifacts that player controls.", "Instant");
+    assert.ok(!graph.nodes.some(node => node.node === "recipient-member"));
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "missing-antecedent"));
+  });
+});

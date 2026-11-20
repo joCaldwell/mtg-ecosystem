@@ -533,7 +533,8 @@ describe("announced target counts (CR 115.3, 601.2c, 602.2b, 603.3d)", () => {
 
   it("does not use a target-count binding for a resolution choice", () => {
     const graph = analyze("Discard any number of cards, then draw that many cards.", "Sorcery");
-    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
+    fully(graph);
+    assert.ok(graph.nodes.some(node => node.node === "resolution-count" && node.operation === "discard"));
     assert.ok(!graph.nodes.some(node => node.node === "target-count"));
   });
 });
