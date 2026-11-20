@@ -9,6 +9,8 @@ mod reactive_tests {
         let card = |name: &str, owner: u8, zone: Zone| {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             VisibleObject {
+                face_down: false,
+                exiled_by: None,
                 phased_out: false,
                 mana_ability_used: None,
                 attached_to: None,
@@ -216,6 +218,8 @@ mod wipe_tests {
     pub(super) fn card(c: &Catalog, name: &str, owner: u8, zone: Zone) -> VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
+            face_down: false,
+            exiled_by: None,
             phased_out: false,
             mana_ability_used: None,
             attached_to: None,

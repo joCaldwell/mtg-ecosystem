@@ -267,6 +267,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
     },
+    PlayHideawayLinked {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     LibrarySelect {
         token: DecisionToken,
         player: PlayerId,
@@ -509,6 +514,7 @@ impl PlayerRequest {
             | Self::HandReturn { token, .. }
             | Self::LibraryOrder { token, .. }
             | Self::Hideaway { token, .. }
+            | Self::PlayHideawayLinked { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
@@ -573,6 +579,9 @@ pub enum PlayerResponse {
     },
     Hideaway {
         object: ObjectHandle,
+    },
+    PlayHideawayLinked {
+        object: Option<ObjectHandle>,
     },
     LibrarySelect {
         hand: Vec<ObjectHandle>,
@@ -1622,6 +1631,11 @@ impl Game {
                 return Ok(None);
             }
             return Ok(Some(match request {
+                Request::PlayHideawayLinked { player, .. } => PlayerRequest::PlayHideawayLinked {
+                    token,
+                    player,
+                    candidates: vec![],
+                },
                 Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
                     token,
                     player,
@@ -2274,10 +2288,10 @@ impl Game {
             } else if let Some(request) = self.resolution_cast_request()?
                 && request.player() == viewer
             {
-                let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
-                    23
-                } else {
-                    22
+                let kind = match request {
+                    Request::CascadeLandEntry { .. } => 23,
+                    Request::PlayHideawayLinked { .. } => 46,
+                    _ => 22,
                 };
                 Some((self.state.rules.revision, kind))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
@@ -2585,6 +2599,12 @@ impl Game {
             }),
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
+            }),
+            PlayerResponse::PlayHideawayLinked { object } => Ok(Response::PlayHideawayLinked {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
             }),
             PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
                 object: object
