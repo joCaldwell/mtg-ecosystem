@@ -116,12 +116,20 @@ fn own_graveyard_card_return_paid_entry_restores_optional_noncreature_return() {
             .is_err()
         );
     }
+    let QueryResult::Incomplete { work, .. } = game.player_decision_for(chooser, Budget::new(0))
+    else {
+        panic!("target decision query suspends without a budget");
+    };
+    let saved = game.save_work(&work).unwrap();
+    let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(saved_value["work_version"], 29);
+    let work = game.restore_work(&saved).unwrap();
     let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::Targets {
         token,
         occurrences,
         candidates,
         ..
-    }))) = game.player_decision_for(chooser, Budget::unlimited())
+    }))) = game.resume_work(work, Budget::unlimited())
     else {
         panic!("controller receives public object-target request");
     };
