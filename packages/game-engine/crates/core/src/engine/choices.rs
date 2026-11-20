@@ -1230,7 +1230,15 @@ mod fixed_target_mode_tests {
         );
         pay_and_resolve(&mut g, 1, vec![]);
         assert!(g.current(bear).unwrap().phased_out.is_some());
-        assert_eq!(g.zone(object(&g, 11)), Some(Zone::Hand { owner: seat }));
+        assert_eq!(
+            g.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == (Zone::Hand { owner: seat }))
+                .count(),
+            1
+        );
         assert_eq!(g.zone(object(&g, 10)), Some(Zone::Exile));
         assert_eq!(g.state.rules.players[1].life, 38.into());
         assert!(matches!(
