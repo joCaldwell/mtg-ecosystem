@@ -339,7 +339,7 @@ alt; reserve aspect/space before load/failure and hide credits if the image fail
 | banner | Phone header, 224 px minimum | Eager |
 | showcase | Public page, 176 px; 112 px phone | Eager/high priority |
 | backdrop | Sign-in/empty-account panel, one exact-source land per visit | Eager, no rotation |
-| feature | Full-width Home and Play art behind a lower caption fade | Eager |
+| feature | Home and Play art with a caption-local scrim | Eager |
 | thumbnail | Sidebar/drawer 16 px | Deferred; keep native-size frame |
 
 Gallery captions sit directly on art without a panel edge. Eased multi-stop black
