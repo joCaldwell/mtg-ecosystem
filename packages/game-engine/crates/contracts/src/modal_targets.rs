@@ -231,7 +231,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         _ if !uses => return Ok(()),
         _ => return Err(fail()),
     };
-    let candidate = fixed_player_modes(text, &ast, timing);
+    let candidate =
+        fixed_player_modes(text, &ast, timing).or_else(|| mixed_target_modes(text, &ast, timing));
     let source_candidate = text
         .lines()
         .next()
@@ -239,7 +240,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         && text.lines().skip(1).all(|l| {
             l.starts_with("• Target player gains ") || l.starts_with("• Target player loses ")
         });
-    if !uses && !source_candidate {
+    if !uses && !source_candidate && candidate.is_none() {
         return Ok(());
     }
     let c = &d.characteristics;

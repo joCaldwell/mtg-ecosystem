@@ -142,6 +142,12 @@ fn reserves(program: &SpellProgram) -> bool {
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     let fail = || "requires the complete targeted graveyard shuffle".to_string();
     if d.activated.iter().any(|a|reserves(&a.program))||d.triggered.iter().any(|a|reserves(&a.program))||d.static_abilities.iter().any(|a|matches!(&a.effect,StaticEffect::GrantSpellCascade{program,..} if reserves(program))){return Err(fail());}
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseModes { .. }))
+    {
+        return crate::modal_targets::validate_definition(d);
+    }
     let src: Value = if d.spell.as_ref().is_some_and(reserves)
         || d.provenance.source_json.contains("shuffles up to")
         || d.provenance.abilities_json.contains("shuffle-into-library")

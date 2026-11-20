@@ -51,6 +51,12 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     {
         return Err(fail());
     }
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseModes { .. }))
+    {
+        return crate::modal_targets::validate_definition(d);
+    }
     let active = d.spell.as_ref().is_some_and(uses);
     if !active && !d.provenance.source_json.contains(CLAUSE) {
         return Ok(());
