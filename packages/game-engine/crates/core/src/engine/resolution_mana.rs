@@ -36,6 +36,7 @@ impl Game {
                     player: controller,
                     color,
                     amount,
+                    restriction: None,
                     source: frame.spell.source,
                 },
                 BatchCause::Instruction {
