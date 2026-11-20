@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {chromium} from 'playwright-core';
 import {CHECKS_ROOT} from './lib/paths.mjs';
 import {BROWSER_ARGS,VIEWPORTS,newContext,watchPage,settle,axe,shoot} from './lib/browser.mjs';
-import {ROW_LABELS} from '../web/src/domain/table.ts';
+import {ROW_LABELS} from '../../multiverse/web/src/domain/table.ts';
 const opt=n=>{const i=process.argv.indexOf('--'+n);return i<0?undefined:process.argv[i+1];};
 const origin=opt('origin')??'http://127.0.0.1:8853',baseline=process.argv.includes('--baseline'),out=opt('out')??join(CHECKS_ROOT,'manual',baseline?'full-lane-baseline':'full-lane');assert.equal(new URL(origin).hostname,'127.0.0.1');mkdirSync(out,{recursive:true});
 const api=async path=>(await(await fetch(origin+path,{headers:{Cookie:'checks_user=1'}})).json());
@@ -13,7 +13,12 @@ const deckBefore=(await api('/api/decks/2')).state,browser=await chromium.launch
 try{for(const width of opt('width')?[Number(opt('width'))]:baseline?[1440]:[1280,1440,1920,2560]){
  const context=await newContext(browser,{origin,vp:VIEWPORTS[width],user:1,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}}),page=await context.newPage(),watch=watchPage(page),moves=[];
  page.on('request',request=>{if(request.method()==='POST'&&request.url().endsWith('/playtest/actions')){const action=request.postDataJSON()?.action;if(action?.type==='move')moves.push(action);}});
- await page.goto(origin+'/deck/2/playtest');await settle(page,watch);await page.keyboard.press('Escape');await settle(page,watch);
+ await page.goto(origin+'/deck/2/playtest');await settle(page,watch);
+ const startGame = page.getByRole('button',{name:'Shuffle and draw seven',exact:true});
+ if (await startGame.count()) { await startGame.click(); await settle(page,watch); }
+ const keepHand = page.getByRole('button',{name:'Keep hand',exact:true});
+ if (await keepHand.count()) { await keepHand.click(); await settle(page,watch); }
+ await page.keyboard.press('Escape');await settle(page,watch);
  const read=async()=>(await api('/api/decks/2/playtest')).playtest;
  const initial=await read();assert(initial&&initial.session.frame.opening.stage==='playing');assert.equal(initial.session.frame.zones.battlefield.length,0,'use a fresh fixture copy with an empty saved board');
  const hand=page.getByRole('region',{name:'Hand',exact:true}),field=page.locator('[aria-label="Battlefield"]'),lanes=field.locator(':scope > section'),rowKeys=Object.keys(ROW_LABELS);assert.equal(await lanes.count(),3);

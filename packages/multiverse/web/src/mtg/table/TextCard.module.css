@@ -1,30 +1,10 @@
 .card {
   --sym-size: 16px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-lg);
-  background: var(--surface);
   padding: var(--s-5);
-  min-width: 0;
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
-  color: var(--text);
   cursor: pointer;
-  transition: border-color var(--fast), background var(--fast), opacity var(--fast);
-}
-.card:hover {
-  border-color: var(--line-hover);
-  background: var(--hover);
-}
-.card:focus-visible {
-  outline: 2px solid var(--sel);
-  outline-offset: 2px;
-}
-.card[data-selected="true"] {
-  border-color: var(--sel);
-  background: var(--sel-bg);
-  box-shadow: inset 0 0 0 1px var(--sel);
 }
 /* Tapped reads as set aside: a dashed edge and quieter text, never rotated. */
 .card[data-tapped="true"] {
@@ -87,6 +67,13 @@
   color: var(--text-soft);
   overflow-wrap: anywhere;
 }
+.rules.previewRules {
+  --oracle-size: var(--game-text-small);
+  --oracle-leading: 1.45;
+  font-size: var(--oracle-size);
+  line-height: var(--oracle-leading);
+  padding-block-start: var(--game-space-2);
+}
 .facts {
   display: flex;
   align-items: center;
@@ -118,7 +105,7 @@
   border-style: dashed;
   border-color: var(--sel-line);
 }
-.full {
+.full, .preview {
   width: var(--text-card-w);
   flex: 0 0 var(--text-card-w);
 }

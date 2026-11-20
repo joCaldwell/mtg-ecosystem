@@ -27,18 +27,43 @@ try{
   const kept=await api('/api/decks/2/playtest');let playingMoves=0;
   if(await next.count()){
    while(await next.isEnabled()&&playingMoves<15){await next.focus();await next.press('Enter');await settle(page,watch);playingMoves++;}
-   assert.equal(await next.isDisabled(),true,'playing hand can reach its far edge, including vertical rules-text overflow');
+   assert.equal(await next.isDisabled(),true,'playing hand can reach its far edge');
    let backMoves=0;while(await previous.isEnabled()&&backMoves<15){await previous.focus();await previous.press('Space');await settle(page,watch);backMoves++;}assert.equal(await previous.isDisabled(),true);
   }
   assert.deepEqual(await api('/api/decks/2/playtest'),kept);await shoot(page,join(out,`playing-${width}.png`),{full:false});
-  await cards.last().focus();await cards.last().press('Enter');await settle(page,watch);assert.equal(await cards.last().getAttribute('data-selected'),'true');
-  const identity=await cards.last().locator('header').boundingBox(),viewport=await scroller.boundingBox();assert(identity&&viewport);
+  const rules = '[class*="_rules_"]';
+  const previews = await cards.evaluateAll(nodes => nodes.map(node => {
+    const preview = node.querySelector('[class*="_previewRules_"] > span');
+    return preview && {
+      height: preview.getBoundingClientRect().height,
+      threeLines: 3 * parseFloat(getComputedStyle(preview).lineHeight),
+      clipped: preview.scrollHeight > preview.clientHeight + 1,
+      text: preview.textContent,
+    };
+  }));
+  assert(previews.every(preview => !preview || preview.height <= preview.threeLines + 1), 'rules previews occupy at most three lines');
+  const longIndex = previews.findIndex(preview => preview?.clipped);
+  assert(longIndex >= 0, 'source fixture includes rules that exceed the preview');
+  const picked = cards.nth(longIndex), pickedId = await picked.getAttribute('data-object-id');
+  const handHeight = (await hand.boundingBox()).height;
+  await picked.focus();await picked.press('Enter');await settle(page,watch);assert.equal(await picked.getAttribute('data-selected'),'true');
+  const fullRules = page.getByRole('complementary', {name: 'Inspection panel'}).locator(`[data-object-id="${pickedId}"] ${rules}`);
+  assert.equal(await fullRules.textContent(), previews[longIndex].text, 'inspection renders the same complete rules');
+  assert(await fullRules.evaluate(el => el.clientHeight >= el.scrollHeight - 1), 'inspection rules are unclamped');
+  assert.equal((await hand.boundingBox()).height, handHeight, 'selection leaves the hand height stable');
+  const handPosition = await hand.boundingBox();
+  await page.getByRole('button', {name: /^Library /}).click();
+  await page.getByRole('region', {name: 'Library viewer'}).waitFor();
+  assert.deepEqual(await hand.boundingBox(), handPosition, 'the Library overlays the board without shifting the hand');
+  await page.getByRole('button', {name: 'Close viewer'}).click();
+  await picked.focus();
+  const identity=await picked.locator('header').boundingBox(),viewport=await scroller.boundingBox();assert(identity&&viewport);
   assert(identity.y>=viewport.y-1&&identity.y+identity.height<=viewport.y+viewport.height+1,'selected card name, mana and type remain visible after native focus scroll');
-  const openingRules=await cards.last().locator('[class*="_rules_"]').boundingBox();assert(openingRules&&openingRules.y>=identity.y+identity.height-1,'native card focus shows the opening rules below the identity');
+  const openingRules=await picked.locator(rules).boundingBox();assert(openingRules&&openingRules.y>=identity.y+identity.height-1,'native card focus shows the rules preview below the identity');
   const headers=await hand.locator('[data-object-id] > header').evaluateAll(nodes=>nodes.map(h=>{const rect=h.getBoundingClientRect(),type=h.querySelector('[class*="_type_"]').getBoundingClientRect(),style=getComputedStyle(h);return {fullIdentity:type.bottom<=rect.bottom+1,background:style.backgroundColor,opaque:!style.backgroundColor.startsWith('rgba('),opacity:style.opacity,shrink:style.flexShrink};}));
   assert(headers.every(h=>h.fullIdentity&&h.opaque&&h.opacity==='1'&&h.shrink==='0'),'every hand identity retains full type height and an opaque background over scrolled rules');
-  await shoot(page,join(out,`selected-identity-${width}.png`),{full:false});await cards.last().press('Shift+F10');await page.getByRole('menu').waitFor();await page.keyboard.press('Escape');await settle(page,watch);assert.equal((await axe(page)).length,0);assert.equal(watch.errors.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-  results.push({width,geometry,forward_clicks:forward,playing_moves:playingMoves,all_seven_cards_visible:true,scroll_is_presentation_only:true,native_enter_space:true,selection_and_menu_preserved:true,axe:0,overflow:false});await context.close();
+  await shoot(page,join(out,`selected-identity-${width}.png`),{full:false});await picked.press('Shift+F10');await page.getByRole('menu').waitFor();await page.keyboard.press('Escape');await settle(page,watch);assert.equal((await axe(page)).length,0);assert.equal(watch.errors.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  results.push({width,geometry,forward_clicks:forward,playing_moves:playingMoves,all_seven_cards_visible:true,scroll_is_presentation_only:true,native_enter_space:true,selection_and_menu_preserved:true,rules_preview_and_full_inspection:true,axe:0,overflow:false});await context.close();
   const empty=await newContext(browser,{origin,vp:VIEWPORTS[width],user:2,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}}),p=await empty.newPage(),w=watchPage(p);
   await p.goto(origin+'/inbox');await settle(p,w);await p.getByRole('heading',{name:'Nothing is waiting on you',level:2}).waitFor();assert.equal(await p.locator('[class*="_split_"]').count(),0);
   const h1=await p.getByRole('heading',{name:'Inbox',level:1}).boundingBox(),emptyBox=await p.getByRole('heading',{name:'Nothing is waiting on you'}).locator('..').boundingBox();assert(Math.abs(h1.x-emptyBox.x)<1,'empty state aligns with the content frame instead of an unused list column');await shoot(p,join(out,`inbox-empty-${width}.png`),{full:false});

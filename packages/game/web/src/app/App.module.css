@@ -4,7 +4,7 @@
 .status { margin-left: auto; font-size: var(--text-small); color: var(--muted); white-space: nowrap; }
 .page { max-width: 760px; padding: var(--space-6); }.page h1 { font-size: 1.5rem; margin-top: 0; }.page p { color: var(--soft); }.page h2 { margin-top: var(--space-6); font-size: var(--text-title); }
 .liveSurface { height: 100%; display: flex; flex-direction: column; }.liveSurface > :first-child { flex: 0 0 auto; }.liveSurface > :last-child { flex: 1; min-height: 0; }
-@media (max-width: 1099px) { .liveSurface { height: auto; min-height: 100%; } }
+@media (max-width: 719px) { .liveSurface { height: auto; min-height: 100%; } }
 @media (max-width: 719px) { .header { flex-wrap: wrap; padding-inline: var(--space-3); gap: var(--space-2) var(--space-4); }.header nav { order: 3; width: 100%; gap: var(--space-4); }.header nav a { min-height: 44px; display: flex; align-items: center; }.page { padding: var(--space-5) var(--space-4); } }
 
 @media (pointer: coarse) { .header nav a { min-block-size: 2.75rem; display: inline-flex; align-items: center; } }

@@ -68,9 +68,9 @@ try {
     await card.focus(); await page.keyboard.press('Enter');
     const inspector = page.getByRole('complementary', { name: 'Card inspector', exact: true });
     await inspector.getByRole('heading', { name: 'Plains', exact: true }).waitFor();
-    assert.ok(await keep.isChecked());
     await page.keyboard.press('Escape');
     assert.ok(await card.evaluate(element => element === document.activeElement));
+    assert.ok(await keep.isChecked());
     await page.screenshot({ path: join(out, 'preview-1440.png'), fullPage: true });
     await page.reload(); await heading(page, 'Table preview');
     assert.equal(await keep.isChecked(), false);
@@ -159,6 +159,28 @@ try {
       await noOverflow(page);
       await page.screenshot({ path: join(out, `setup-${width}.png`), fullPage: true });
     }
+  });
+  await check('Tablet table uses the viewport and keeps decisions after inspection', async () => {
+    await page.setViewportSize({ width: 800, height: 850 });
+    await page.goto(`/play/preview?deck=${deck.id}`);
+    await heading(page, 'Table preview');
+    const hand = page.getByRole('region', { name: 'Your hand', exact: true });
+    const slot = page.getByRole('region', { name: 'Opening hand', exact: true });
+    const keep = slot.getByRole('radio', { name: 'Keep hand', exact: true });
+    const handBefore = await hand.boundingBox(), slotBefore = await slot.boundingBox();
+    assert.ok(handBefore && slotBefore);
+    assert.ok(Math.abs(handBefore.y + handBefore.height - 850) < 2, 'hand ends at the viewport edge');
+    await keep.check();
+    await hand.getByRole('button').first().click();
+    const inspector = page.getByRole('complementary', { name: 'Card inspector' });
+    await inspector.getByRole('heading', { name: 'Plains', exact: true }).waitFor();
+    const open = await inspector.boundingBox();
+    assert.ok(open && Math.abs(open.y - slotBefore.y) < 2, 'inspection takes the decision slot');
+    assert.deepEqual(await hand.boundingBox(), handBefore);
+    await page.getByRole('button', { name: 'Jump to decision', exact: false }).click();
+    assert.ok(await slot.evaluate(element => element === document.activeElement));
+    assert.ok(await keep.isChecked());
+    await noOverflow(page);
   });
   assert.deepEqual(errors, []);
   await owner.close();

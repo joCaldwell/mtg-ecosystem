@@ -74,7 +74,7 @@ export function TableExamples() {
           <div className={styles.examples}>
             <TextCard
               observation={{ visibility: "known", card, object: obj }}
-              full
+              variant="full"
               selected={selected}
               onSelect={() => setSelected((v) => !v)}
               footer={
@@ -153,7 +153,7 @@ export function TableExamples() {
                   ) : (
                     <TextCard
                       observation={{ visibility: "known", card }}
-                      full
+                      variant="preview"
                     />
                   )}
                 </TableZone>
@@ -167,7 +167,7 @@ export function TableExamples() {
                 card,
                 controller: "Player 2",
               }}
-              full
+              variant="full"
             />
             <Button disabled title="Finish choosing a target first">
               Pass priority

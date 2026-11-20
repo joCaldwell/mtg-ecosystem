@@ -15,7 +15,7 @@ export function CardInspection({
   return (
     <section className={styles.inspection} aria-label={`Inspecting · ${context}`}>
       <p className={styles.context}>{context}</p>
-      <TextCard observation={observation} full />
+      <TextCard observation={observation} variant="full" />
       {children}
     </section>
   );
