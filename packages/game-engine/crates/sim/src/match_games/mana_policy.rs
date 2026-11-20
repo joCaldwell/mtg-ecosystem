@@ -21,13 +21,15 @@ struct Source<'a> {
     amount: Quantity,
     production: ManaProduction,
     colors: Vec<Color>,
-    cost: Option<&'a ManaCost>,
+    cost: Option<ManaCost>,
+    filter_input: Option<Color>,
 }
 struct Planner<'a> {
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
+    filter_retries: usize,
 }
 impl Planner<'_> {
     fn fund(&mut self, cost: &ManaCost) -> bool {
@@ -53,64 +55,69 @@ impl Planner<'_> {
                         self.sources[*i].colors.len(),
                         self.sources[*i].land,
                         usize::from(self.sources[*i].cost.is_some()),
+                        self.sources[*i]
+                            .cost
+                            .as_ref()
+                            .is_some_and(|cost| spend(cost, &self.pool).is_none()),
+                        self.sources[*i]
+                            .filter_input
+                            .is_some_and(|color| Some(color) == deficit),
                         *i,
                     )
                 });
             let Some(i) = chosen else { return false };
             self.used[self.sources[i].object_index] = true;
-            if let Some(cost) = self.sources[i].cost {
-                if !self.fund(cost) {
-                    return false;
-                }
-                let payment = spend(cost, &self.pool).expect("funded inner cost");
-                for (c, n) in payment {
-                    self.pool.get_mut(&c).unwrap().subtract(&n);
-                }
-            }
+            let Some(i) = self.fund_source_cost(i) else {
+                return false;
+            };
             let source = &self.sources[i];
             let color = match source.production {
                 ManaProduction::Fixed { .. } => None,
+                ManaProduction::HybridFilter { .. } => source.filter_input,
                 _ => deficit.or_else(|| source.colors.first().copied()),
             };
-            let combination =
-                if source.production == ManaProduction::GreatestControlledPowerCombination {
-                    let mut amounts = std::array::from_fn(|_| Quantity::zero());
-                    let mut left = source.amount.clone();
-                    for (i, c) in mtg_contracts::MANA_COMBINATION_COLORS.iter().enumerate() {
-                        if !source.colors.contains(c) {
-                            continue;
-                        }
-                        let mut need = required.get(c).cloned().unwrap_or_default();
-                        need.subtract(&self.pool.get(c).cloned().unwrap_or_default());
-                        amounts[i] = need.max(Quantity::zero()).min(left.clone());
-                        left.subtract(&amounts[i]);
+            let combination = if matches!(
+                source.production,
+                ManaProduction::GreatestControlledPowerCombination
+                    | ManaProduction::HybridFilter { .. }
+            ) {
+                let mut amounts = std::array::from_fn(|_| Quantity::zero());
+                let mut left = source.amount.clone();
+                for (i, c) in mtg_contracts::MANA_COMBINATION_COLORS.iter().enumerate() {
+                    if !source.colors.contains(c) {
+                        continue;
                     }
-                    let Some(surplus) = mtg_contracts::MANA_COMBINATION_COLORS
-                        .iter()
-                        .position(|c| source.colors.contains(c))
-                    else {
-                        return false;
-                    };
-                    amounts[surplus].add(&left);
-                    for (c, n) in mtg_contracts::MANA_COMBINATION_COLORS
-                        .into_iter()
-                        .zip(&amounts)
-                    {
-                        if *n > Quantity::zero() {
-                            self.pool.entry(c).or_default().add(n);
-                        }
-                    }
-                    Some(amounts)
-                } else {
-                    let symbols = match &source.production {
-                        ManaProduction::Fixed { symbols } => symbols.as_slice(),
-                        _ => color.as_slice(),
-                    };
-                    for &c in symbols {
-                        self.pool.entry(c).or_default().add(&source.amount);
-                    }
-                    None
+                    let mut need = required.get(c).cloned().unwrap_or_default();
+                    need.subtract(&self.pool.get(c).cloned().unwrap_or_default());
+                    amounts[i] = need.max(Quantity::zero()).min(left.clone());
+                    left.subtract(&amounts[i]);
+                }
+                let Some(surplus) = mtg_contracts::MANA_COMBINATION_COLORS
+                    .iter()
+                    .position(|c| source.colors.contains(c))
+                else {
+                    return false;
                 };
+                amounts[surplus].add(&left);
+                for (c, n) in mtg_contracts::MANA_COMBINATION_COLORS
+                    .into_iter()
+                    .zip(&amounts)
+                {
+                    if *n > Quantity::zero() {
+                        self.pool.entry(c).or_default().add(n);
+                    }
+                }
+                Some(amounts)
+            } else {
+                let symbols = match &source.production {
+                    ManaProduction::Fixed { symbols } => symbols.as_slice(),
+                    _ => color.as_slice(),
+                };
+                for &c in symbols {
+                    self.pool.entry(c).or_default().add(&source.amount);
+                }
+                None
+            };
             self.plan.push(PlannedMana {
                 source: source.handle.clone(),
                 ability: Some(source.ability),
@@ -119,6 +126,44 @@ impl Planner<'_> {
             });
         }
         false
+    }
+
+    fn fund_source_cost(&mut self, index: usize) -> Option<usize> {
+        let Some(cost) = self.sources[index].cost.clone() else {
+            return Some(index);
+        };
+        let mut funded = index;
+        let mut cost = cost;
+        if spend(&cost, &self.pool).is_none() {
+            let alternate = self.sources[index].filter_input.and_then(|input| {
+                let source = &self.sources[index];
+                self.sources.iter().position(|other| {
+                    other.object_index == source.object_index
+                        && other.ability == source.ability
+                        && other.filter_input.is_some_and(|color| color != input)
+                })
+            });
+            let checkpoint =
+                alternate.map(|_| (self.used.clone(), self.pool.clone(), self.plan.len()));
+            if !self.fund(&cost) {
+                // Charge retries across the entire search, including any
+                // recursively attempted branch that is rolled back.
+                let (used, pool, length) = checkpoint?;
+                self.filter_retries = self.filter_retries.checked_sub(1)?;
+                self.used = used;
+                self.pool = pool;
+                self.plan.truncate(length);
+                funded = alternate?;
+                cost = self.sources[funded].cost.clone()?;
+                if !self.fund(&cost) {
+                    return None;
+                }
+            }
+        }
+        for (color, quantity) in spend(&cost, &self.pool)? {
+            self.pool.get_mut(&color)?.subtract(&quantity);
+        }
+        Some(funded)
     }
 }
 fn commander_colors<'a>(catalog: &'a Catalog, view: &PermittedView) -> &'a [Color] {
@@ -164,6 +209,10 @@ fn production(
     let colors = match mana {
         ManaProduction::Fixed { symbols } => symbols.clone(),
         ManaProduction::Choice { colors } => colors.clone(),
+        ManaProduction::HybridFilter { colors } => {
+            amount = Quantity::from(2);
+            colors.to_vec()
+        }
         ManaProduction::AnyColor => mtg_contracts::MANA_COMBINATION_COLORS.to_vec(),
         ManaProduction::AnyOneColor {
             amount: single_color,
@@ -276,18 +325,34 @@ pub(super) fn plan(
             if colors.is_empty() || amount <= Quantity::zero() {
                 continue;
             }
-            sources.push(Source {
-                object_index,
-                ability: ManaAbilityIdentity::Printed {
-                    index: index as u32,
-                },
-                handle: &o.handle,
-                amount,
-                land,
-                production,
-                colors,
-                cost: ability.costs.mana.as_ref(),
-            });
+            let mut push_source = |cost, filter_input| {
+                sources.push(Source {
+                    object_index,
+                    ability: ManaAbilityIdentity::Printed {
+                        index: index as u32,
+                    },
+                    handle: &o.handle,
+                    amount: amount.clone(),
+                    land,
+                    production: production.clone(),
+                    colors: colors.clone(),
+                    cost,
+                    filter_input,
+                })
+            };
+            if let ManaProduction::HybridFilter { colors } = production {
+                for input in colors {
+                    push_source(
+                        Some(ManaCost {
+                            generic: Quantity::zero(),
+                            colored: vec![input],
+                        }),
+                        Some(input),
+                    );
+                }
+            } else {
+                push_source(ability.costs.mana.clone(), None);
+            }
         }
         if land && available_tap(o) {
             let c = o.characteristics.as_ref().unwrap_or(&d.characteristics);
@@ -307,11 +372,13 @@ pub(super) fn plan(
                     },
                     colors: vec![color],
                     cost: None,
+                    filter_input: None,
                 });
             }
         }
     }
     let mut planner = Planner {
+        filter_retries: sources.len(),
         sources,
         used: vec![false; view.objects.len()],
         pool: pool.clone(),
@@ -377,10 +444,12 @@ mod tests {
                 production: ManaProduction::GreatestControlledPowerCombination,
                 colors: mtg_contracts::MANA_COMBINATION_COLORS.to_vec(),
                 cost: None,
+                filter_input: None,
             }],
             used: vec![false],
             pool: BTreeMap::new(),
             plan: vec![],
+            filter_retries: 1,
         };
         let cost = ManaCost {
             generic: 0.into(),
@@ -491,6 +560,63 @@ mod tests {
                 object: ObjectHandle("Commander's Sphere".into()),
                 ability: 0
             }
+        );
+    }
+
+    #[test]
+    fn hybrid_filter_mana_retries_the_unfundable_input_before_using_the_output() {
+        let filter = ObjectHandle("filter".into());
+        let land = ObjectHandle("colored-provider".into());
+        let source = |color| Source {
+            object_index: 0,
+            ability: ManaAbilityIdentity::Printed { index: 1 },
+            handle: &filter,
+            land: true,
+            amount: 2.into(),
+            production: ManaProduction::HybridFilter {
+                colors: [Color::U, Color::R],
+            },
+            colors: vec![Color::U, Color::R],
+            cost: Some(ManaCost {
+                generic: 0.into(),
+                colored: vec![color],
+            }),
+            filter_input: Some(color),
+        };
+        let mut planner = Planner {
+            sources: vec![
+                source(Color::U),
+                source(Color::R),
+                Source {
+                    object_index: 1,
+                    ability: ManaAbilityIdentity::Printed { index: 0 },
+                    handle: &land,
+                    land: true,
+                    amount: 1.into(),
+                    production: ManaProduction::Choice {
+                        colors: vec![Color::U, Color::W, Color::G],
+                    },
+                    colors: vec![Color::U, Color::W, Color::G],
+                    cost: None,
+                    filter_input: None,
+                },
+            ],
+            used: vec![false; 2],
+            pool: BTreeMap::new(),
+            plan: vec![],
+            filter_retries: 3,
+        };
+        assert!(planner.fund(&ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::U, Color::U]
+        }));
+        assert_eq!(planner.plan.len(), 2);
+        assert_eq!(planner.plan[0].source, land);
+        assert_eq!(planner.plan[1].source, filter);
+        assert_eq!(planner.plan[1].color, Some(Color::U));
+        assert_eq!(
+            planner.plan[1].combination,
+            Some([0_i64, 2, 0, 0, 0].map(Quantity::from))
         );
     }
 }

@@ -93,6 +93,8 @@ mod entry_copy;
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
+mod opponent_count_entry;
+mod reveal_land_entry;
 pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
 mod staples;
 pub use counter_placement::*;
@@ -424,12 +426,14 @@ mod turns;
 pub use saga::{DelayedChapterRegistration, LoreChange};
 pub use turns::*;
 mod events;
+mod fetched_land_untap;
 mod trace;
 #[cfg(test)]
 mod turns_tests;
 pub use events::*;
 pub use trace::*;
 mod control;
+mod controlled_land_entry;
 mod multiplayer;
 pub use multiplayer::*;
 mod permitted_history;
@@ -1125,7 +1129,7 @@ enum Frame {
     LandEntry {
         origin: EntryOrigin,
         objects: Vec<ObjectId>,
-        choices: Vec<bool>,
+        choices: Vec<land_entry::EntryChoice>,
     },
     /// CR305.6/605.3: select an intrinsic ability before activation or costs.
     ManaSourceChoice {
@@ -1339,6 +1343,9 @@ pub enum Response {
     },
     CascadeLandEntry {
         object: Option<ObjectId>,
+    },
+    EntryReveal {
+        card: Option<ObjectId>,
     },
     SearchLandBattlefield {
         object: ObjectId,
@@ -1575,6 +1582,12 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
     },
+    EntryReveal {
+        decision_id: u64,
+        player: PlayerId,
+        source: ObjectId,
+        candidates: Vec<ObjectId>,
+    },
     SearchLandBattlefield {
         decision_id: u64,
         player: PlayerId,
@@ -1768,6 +1781,7 @@ impl Request {
             | Self::EntryCopy { decision_id, .. }
             | Self::EntryAttachment { decision_id, .. }
             | Self::CascadeLandEntry { decision_id, .. }
+            | Self::EntryReveal { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
@@ -1821,6 +1835,7 @@ impl Request {
             | Self::EntryCopy { player, .. }
             | Self::EntryAttachment { player, .. }
             | Self::CascadeLandEntry { player, .. }
+            | Self::EntryReveal { player, .. }
             | Self::SearchLandBattlefield { player, .. }
             | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
@@ -1873,6 +1888,10 @@ pub enum ProposedEvent {
     },
     PhaseOutTarget {
         object: ObjectId,
+    },
+    RevealHandCardForEntry {
+        player: PlayerId,
+        card: ObjectId,
     },
     RevealSearchLands {
         player: PlayerId,
@@ -2132,6 +2151,10 @@ pub enum EventOutcome {
     RevealedCardsBottomed {
         player: PlayerId,
         order: Vec<ObjectId>,
+    },
+    HandCardRevealedForEntry {
+        player: PlayerId,
+        card: ObjectId,
     },
     SearchLandsRevealed {
         player: PlayerId,

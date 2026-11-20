@@ -217,6 +217,16 @@ impl Game {
         player: PlayerId,
         source_block: u32,
     ) -> Result<(), String> {
+        self.begin_player_library_shuffle_after_search(frame, player, source_block, None)
+    }
+
+    pub(super) fn begin_player_library_shuffle_after_search(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        source_block: u32,
+        fetched_land: Option<MoveOutcome>,
+    ) -> Result<(), String> {
         let index = u32::try_from(
             self.state
                 .rules
@@ -231,6 +241,7 @@ impl Game {
                 player,
                 index,
                 source_block,
+                fetched_land,
             },
         };
         Ok(())

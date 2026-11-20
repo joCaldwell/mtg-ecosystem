@@ -832,7 +832,10 @@ fn optional_entry_private_restore_rejects_foreign_prefix_source_origin_and_dupli
             panic!()
         };
         match case {
-            0 => choices.extend([true, true]),
+            0 => choices.extend([
+                land_entry::EntryChoice::Life(true),
+                land_entry::EntryChoice::Life(true),
+            ]),
             1 => {
                 objects.push(objects[0]);
             }
@@ -847,7 +850,7 @@ fn optional_entry_private_restore_rejects_foreign_prefix_source_origin_and_dupli
                     *decision_id = u64::MAX;
                 }
             }
-            _ => choices.push(true), // structurally valid but absent accepted input
+            _ => choices.push(land_entry::EntryChoice::Life(true)), // structurally valid but absent accepted input
         }
         s.state_sha256 = digest(&s.state).unwrap();
         assert!(Game::restore(p.clone(), &canonical(&s).unwrap()).is_err());

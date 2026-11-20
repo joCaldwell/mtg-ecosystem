@@ -31,6 +31,7 @@ mod combat_hand_cast;
 mod commander_modal_keyword;
 mod composed_spell;
 mod controlled_creature_spell_copy;
+mod controlled_land_entry;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -59,6 +60,7 @@ mod draw_land_allowance;
 mod each_player_draw;
 mod entry_copy;
 mod entry_graveyard_exile;
+mod fetched_land_untap;
 mod fixed_color_protection;
 mod fixed_creature_damage;
 mod fixed_mill;
@@ -73,8 +75,10 @@ mod hand_cast_cascade;
 mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
+mod hybrid_filter_mana;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
+mod land_entry_scry;
 mod land_sacrifice_draw;
 mod library_order;
 #[cfg(test)]
@@ -86,6 +90,7 @@ mod linked_hideaway;
 mod listed_mana;
 mod nonland_exile_life;
 mod normalization;
+mod opponent_count_entry;
 mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
@@ -100,6 +105,7 @@ mod phase1_sequences_tests;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
+mod reveal_land_entry;
 mod saga;
 mod same_color_mana;
 mod scoped_creature_stats;
@@ -1214,7 +1220,7 @@ enum SourceStaticEffect {
     EntryChoice {
         what: serde_json::Value,
         who: serde_json::Value,
-        costs: Vec<conditional_lands::EntryLifeCost>,
+        costs: Vec<conditional_lands::SourceEntryCost>,
         declined: serde_json::Value,
     },
     EntryCopy {
@@ -1611,7 +1617,19 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             &archive.parser_source_sha256,
         )?,
     };
-    let abilities = if let Some(program) = composition {
+    let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
+    let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
+        matches!(
+            activation.program.instructions.as_slice(),
+            [Instruction::FetchBasicLand {
+                minimum_lands_to_untap: Some(_),
+                ..
+            }]
+        )
+    });
+    let abilities = if has_conditional_fetch {
+        fetched_land_untap::decoded_activation(&canonical_abilities)?
+    } else if let Some(program) = composition {
         vec![Ability::ComposedSpell(program)]
     } else if has_linked_hideaway {
         (0..4).map(|_| Ability::LinkedHideaway).collect()
@@ -1647,8 +1665,18 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     } else {
         read_abilities(&canonical_abilities)?
     };
+    let mut opponent_entry_mana = opponent_count_entry::bind(
+        &abilities,
+        result.abilities.get(),
+        &shape,
+        &binding,
+        &r.oracle_identity,
+    )?;
     let disjoint_mana =
-        pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
+        match hybrid_filter_mana::lower(&abilities, &result, &shape, &binding, &source)? {
+            Some(filter) => Some(filter),
+            None => pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?,
+        };
     let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
     // CR 207.2c: labels carry no rules meaning. All underlying fields must
     // still decode and lower, including conditions, costs and player relations.
@@ -1721,7 +1749,6 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         }
     }
     conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
-    let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let basic_ramp_spell = basic_land_fetch::spell(&result, &shape, &binding, &source)?;
     if basic_fetch.is_none() {
         typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
@@ -2398,14 +2425,18 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                         restriction,
                         ..
                     } => {
-                        let mana = match same_color_mana::lower(
-                            ability,
-                            &result,
-                            &shape,
-                            &binding,
-                            &definition.oracle_id,
-                            &source.oracle_text,
-                        )? {
+                        let mana = match opponent_entry_mana.take() {
+                            Some(mana) => Some(mana),
+                            None => same_color_mana::lower(
+                                ability,
+                                &result,
+                                &shape,
+                                &binding,
+                                &definition.oracle_id,
+                                &source.oracle_text,
+                            )?,
+                        };
+                        let mana = match mana {
                             Some(mana) => Some(mana),
                             None => listed_mana::lower(
                                 ability,
@@ -3054,7 +3085,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
+    land_entry_scry::validate_binding(&definition, &shape, &binding)?;
+    controlled_land_entry::bind(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
+    reveal_land_entry::validate_binding(&definition, &shape, &binding)?;
     checkland_entry::validate_binding(&definition, &shape, &binding)?;
     land_sacrifice_draw::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
@@ -5869,6 +5903,12 @@ fn lower_trigger(
         entry_graveyard_exile::lower_trigger(trigger, effects, intervening, block)
     {
         return Ok(ability);
+    }
+    if let Some(ability) = controlled_land_entry::lower(trigger, effects, intervening, block)? {
+        return Ok(ability);
+    }
+    if land_entry_scry::matches(trigger, effects, intervening, block) {
+        return Ok(land_entry_scry_trigger());
     }
     if let Some(ability) = land_entry_gain_life::lower(trigger, effects, intervening, block)? {
         return Ok(ability);

@@ -891,11 +891,25 @@ mod optional_life_entry_tests;
 #[path = "pain_mana_tests.rs"]
 mod pain_mana_tests;
 
+#[path = "opponent_count_entry_tests.rs"]
+mod opponent_count_entry_tests;
+
 #[path = "checkland_entry_tests.rs"]
 mod checkland_entry_tests;
+#[path = "reveal_land_entry_tests.rs"]
+mod reveal_land_entry_tests;
 
 #[path = "basic_land_fetch_tests.rs"]
 mod basic_land_fetch_tests;
 
 #[path = "same_color_mana_tests.rs"]
 mod same_color_mana_tests;
+
+#[path = "fetched_land_untap_tests.rs"]
+mod fetched_land_untap_tests;
+
+#[path = "land_entry_scry_tests.rs"]
+mod land_entry_scry_tests;
+
+#[path = "controlled_land_entry_tests.rs"]
+mod controlled_land_entry_tests;

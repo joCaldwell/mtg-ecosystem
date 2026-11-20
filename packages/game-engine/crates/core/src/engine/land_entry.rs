@@ -1,8 +1,40 @@
-//! Pure optional-life entry, CR118.4, 305.1, 614.12 (2026-09-25).
+//! Optional battlefield entry choices under CR 118.4, 305.1, and 614.12 (2026-09-25).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 //! Choices precede every debit/entry. Only the exact originating batch can
 //! obtain ephemeral authority; neither snapshots nor callers supply that proof.
 use super::*;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub(super) enum EntryChoice {
+    Life(bool),
+    Reveal {
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        card: Option<ObjectId>,
+    },
+}
+
+impl EntryChoice {
+    fn accepted(&self) -> bool {
+        match self {
+            Self::Life(paid) => *paid,
+            Self::Reveal { card } => card.is_some(),
+        }
+    }
+
+    fn from_response(response: &Response) -> Option<Self> {
+        match response {
+            Response::OptionalEffect { perform } => Some(Self::Life(*perform)),
+            Response::EntryReveal { card } => Some(Self::Reveal { card: *card }),
+            _ => None,
+        }
+    }
+}
+
+pub(super) enum EntryCost {
+    Life(Quantity),
+    Reveal([BasicLandType; 2]),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
@@ -47,8 +79,13 @@ pub(super) struct PreparedEntryAuthority {
     put_by_effect: bool,
     force_tapped: bool,
     entries: BTreeMap<ObjectId, Option<bool>>,
+    revealed: BTreeSet<ObjectId>,
 }
 impl PreparedEntryAuthority {
+    pub(super) fn reveals(&self, player: PlayerId, card: ObjectId) -> bool {
+        player == self.player && self.revealed.contains(&card)
+    }
+
     pub(super) fn land_play(&self, player: PlayerId) -> bool {
         self.from_land_play && self.player == player
     }
@@ -72,27 +109,36 @@ impl Game {
     pub(super) fn optional_entry_cost(
         &self,
         object: ObjectId,
-    ) -> Result<Option<(u32, &Quantity)>, String> {
+    ) -> Result<Option<(u32, EntryCost)>, String> {
         let d = self.copiable_definition(object)?;
         let mut found = None;
         for (index, a) in d.static_abilities.iter().enumerate() {
-            if let StaticEffect::EntersTappedUnlessPayLife { amount } = &a.effect {
-                if found.is_some()
-                    || d.static_abilities.len() != 1
-                    || amount.is_negative()
-                    || a.functioning_zone != FunctioningZone::Battlefield
-                {
-                    return Err("unsupported optional entry composition".into());
+            let cost = match &a.effect {
+                StaticEffect::EntersTappedUnlessPayLife { amount } => {
+                    if amount.is_negative() {
+                        return Err("unsupported optional entry composition".into());
+                    }
+                    EntryCost::Life(amount.clone())
                 }
-                found = Some((
-                    u32::try_from(index).map_err(|_| "entry static index limit")?,
-                    amount,
-                ));
+                StaticEffect::EntersTappedUnlessRevealLandTypes { subtypes } => {
+                    EntryCost::Reveal(*subtypes)
+                }
+                _ => continue,
+            };
+            if found.is_some()
+                || d.static_abilities.len() != 1
+                || a.functioning_zone != FunctioningZone::Battlefield
+            {
+                return Err("unsupported optional entry composition".into());
             }
+            found = Some((
+                u32::try_from(index).map_err(|_| "entry static index limit")?,
+                cost,
+            ));
         }
         Ok(found)
     }
-    fn entry_frame(&self) -> Result<(&EntryOrigin, &[ObjectId], &[bool]), String> {
+    fn entry_frame(&self) -> Result<(&EntryOrigin, &[ObjectId], &[EntryChoice]), String> {
         let Frame::LandEntry {
             origin,
             objects,
@@ -103,12 +149,15 @@ impl Game {
         };
         Ok((origin, objects, choices))
     }
-    fn entry_offers(&self, objects: &[ObjectId]) -> Result<Vec<(ObjectId, u32, Quantity)>, String> {
+    fn entry_offers(
+        &self,
+        objects: &[ObjectId],
+    ) -> Result<Vec<(ObjectId, u32, EntryCost)>, String> {
         let mut offers = vec![];
         for object in objects {
             let model = self.entry_copy_model(*object).unwrap_or(*object);
-            if let Some((ability, amount)) = self.optional_entry_cost(model)? {
-                offers.push((*object, ability, amount.clone()));
+            if let Some((ability, cost)) = self.optional_entry_cost(model)? {
+                offers.push((*object, ability, cost));
             }
         }
         Ok(offers)
@@ -140,7 +189,7 @@ impl Game {
             EntryOrigin::Copy { frame, selection } => {
                 self.validate_copy_entry(frame, objects, selection)?;
                 if !choices.is_empty() && self.copy_entry_request()?.is_some() {
-                    return Err("life choice precedes copy or attachment".into());
+                    return Err("optional entry choice precedes copy or attachment".into());
                 }
             }
             EntryOrigin::Search { frame } => {
@@ -184,13 +233,18 @@ impl Game {
     fn entry_affordable(
         &self,
         player: PlayerId,
-        offers: &[(ObjectId, u32, Quantity)],
-        choices: &[bool],
+        offers: &[(ObjectId, u32, EntryCost)],
+        choices: &[EntryChoice],
     ) -> Result<(), String> {
         let mut total = Quantity::zero();
-        for ((_, _, amount), paid) in offers.iter().zip(choices) {
-            if *paid {
-                total.add(amount);
+        for ((_, _, cost), choice) in offers.iter().zip(choices) {
+            match (cost, choice) {
+                (EntryCost::Life(amount), EntryChoice::Life(true)) => total.add(amount),
+                (EntryCost::Life(_), EntryChoice::Life(false))
+                | (EntryCost::Reveal(_), EntryChoice::Reveal { card: None }) => {}
+                (EntryCost::Reveal(subtypes), EntryChoice::Reveal { card: Some(card) })
+                    if self.entry_reveal_eligible(player, *card, *subtypes) => {}
+                _ => return Err("entry choice does not pay the available cost".into()),
             }
         }
         // CR118.4: zero is payable even with synthetic negative life. Positive
@@ -221,7 +275,7 @@ impl Game {
         self.validate_entry_plan()?;
         Ok(true)
     }
-    pub(super) fn land_entry_offer(&self) -> Result<Option<(PlayerId, ObjectId, u32)>, String> {
+    fn next_entry_offer(&self) -> Result<Option<(PlayerId, ObjectId, u32, EntryCost)>, String> {
         if !matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return Ok(None);
         }
@@ -232,25 +286,43 @@ impl Game {
         let (origin, objects, choices) = self.entry_frame()?;
         Ok(self
             .entry_offers(objects)?
-            .get(choices.len())
-            .map(|(object, ability, _)| {
+            .into_iter()
+            .nth(choices.len())
+            .map(|(object, ability, cost)| {
                 (
                     origin.player(),
-                    self.entry_copy_model(*object).unwrap_or(*object),
-                    *ability,
+                    self.entry_copy_model(object).unwrap_or(object),
+                    ability,
+                    cost,
                 )
             }))
     }
+
+    pub(super) fn land_entry_offer(&self) -> Result<Option<(PlayerId, ObjectId, u32)>, String> {
+        Ok(self
+            .next_entry_offer()?
+            .map(|(player, source, ability, _)| (player, source, ability)))
+    }
+
     pub(super) fn land_entry_request(&self) -> Result<Option<Request>, String> {
         if let Some(request) = self.copy_entry_request()? {
             self.validate_entry_plan()?;
             return Ok(Some(request));
         }
+        let decision_id = self.state.rules.revision;
         Ok(self
-            .land_entry_offer()?
-            .map(|(player, _, _)| Request::OptionalEffect {
-                decision_id: self.state.rules.revision,
-                player,
+            .next_entry_offer()?
+            .map(|(player, source, _, cost)| match cost {
+                EntryCost::Life(_) => Request::OptionalEffect {
+                    decision_id,
+                    player,
+                },
+                EntryCost::Reveal(subtypes) => Request::EntryReveal {
+                    decision_id,
+                    player,
+                    source,
+                    candidates: self.entry_reveal_candidates(player, subtypes),
+                },
             }))
     }
     pub(super) fn validate_land_entry_response(
@@ -263,15 +335,13 @@ impl Game {
         if let Some(request) = self.copy_entry_request()? {
             return self.validate_copy_entry_response(player, response, &request);
         }
-        let Response::OptionalEffect { perform } = response else {
-            return Err("invalid entry response".into());
-        };
+        let choice = EntryChoice::from_response(response).ok_or("invalid entry response")?;
         let offers = self.entry_offers(objects)?;
         if origin.player() != player || choices.len() >= offers.len() {
             return Err("wrong entry chooser/phase".into());
         }
         let mut proposed = choices.to_vec();
-        proposed.push(*perform);
+        proposed.push(choice);
         self.entry_affordable(player, &offers, &proposed)
     }
     fn entry_cause(&self) -> Result<BatchCause, String> {
@@ -305,15 +375,25 @@ impl Game {
         }
         let player = origin.player();
         let mut children = vec![];
-        for ((_, _, amount), paid) in offers.iter().zip(choices) {
-            if *paid && *amount > Quantity::zero() {
-                children.push(EventGroup::Occurrence {
-                    proposed: ProposedEvent::LoseLife {
+        for ((_, _, cost), choice) in offers.iter().zip(choices) {
+            let proposed = match (cost, choice) {
+                (EntryCost::Life(amount), EntryChoice::Life(true))
+                    if *amount > Quantity::zero() =>
+                {
+                    ProposedEvent::LoseLife {
                         player,
                         amount: amount.clone(),
-                    },
-                });
-            }
+                    }
+                }
+                (EntryCost::Reveal(_), EntryChoice::Reveal { card: Some(card) }) => {
+                    ProposedEvent::RevealHandCardForEntry {
+                        player,
+                        card: *card,
+                    }
+                }
+                _ => continue,
+            };
+            children.push(EventGroup::Occurrence { proposed });
         }
         if let EntryOrigin::Copy { selection, .. } = origin {
             if self.copy_entry_request()?.is_some() {
@@ -403,8 +483,8 @@ impl Game {
             .iter()
             .map(|o| (*o, None))
             .collect::<BTreeMap<_, _>>();
-        for ((object, _, _), paid) in self.entry_offers(objects)?.iter().zip(choices) {
-            entries.insert(*object, Some(*paid));
+        for ((object, _, _), choice) in self.entry_offers(objects)?.iter().zip(choices) {
+            entries.insert(*object, Some(choice.accepted()));
         }
         let (put_by_effect, force_tapped) = match origin {
             EntryOrigin::LandPlay { .. }
@@ -425,6 +505,13 @@ impl Game {
             put_by_effect,
             force_tapped,
             entries,
+            revealed: choices
+                .iter()
+                .filter_map(|choice| match choice {
+                    EntryChoice::Reveal { card } => *card,
+                    EntryChoice::Life(_) => None,
+                })
+                .collect(),
         }))
     }
     pub(super) fn land_entry_step(&mut self) -> Result<(), String> {
@@ -440,13 +527,12 @@ impl Game {
                 .take()
                 .ok_or("missing entry decision")?;
             self.validate_land_entry_response(input.player, &input.response)?;
-            let Response::OptionalEffect { perform } = input.response else {
-                return Err("entry input invariant".into());
-            };
+            let choice =
+                EntryChoice::from_response(&input.response).ok_or("entry input invariant")?;
             let Frame::LandEntry { choices, .. } = &mut self.state.rules.frame else {
                 unreachable!()
             };
-            choices.push(perform);
+            choices.push(choice);
             return Ok(());
         }
         let (origin, objects, _) = self.entry_frame()?;
@@ -463,7 +549,7 @@ impl Game {
             };
             return self.finish_copy_entry(frame.clone(), &batch);
         }
-        self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
+        let batch = self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
         match origin {
             EntryOrigin::LandPlay { .. } => {
                 self.state.rules.frame = Frame::Priority;
@@ -475,7 +561,7 @@ impl Game {
                 Ok(())
             }
             EntryOrigin::Copy { .. } => unreachable!(),
-            EntryOrigin::Search { frame } => self.resume_entry_search(frame),
+            EntryOrigin::Search { frame } => self.resume_entry_search(frame, &batch),
             EntryOrigin::Cascade { progress } => self.resume_cascade_land(progress, Some(first)),
         }
     }
