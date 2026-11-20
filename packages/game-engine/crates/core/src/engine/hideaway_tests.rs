@@ -6,6 +6,27 @@ const BRIDGE: &str =
 const ACTOR: PlayerId = PlayerId(0);
 const OPPONENT: PlayerId = PlayerId(1);
 
+fn bridge_definition() -> Definition {
+    let path = std::env::var_os("MTG_LINKED_HIDEAWAY_ARCHIVE_PROBE")
+        .expect("supply frozen hideaway archive");
+    let archive = std::fs::read_to_string(path).expect("read frozen hideaway archive");
+    assert_eq!(
+        sha256(archive.as_bytes()),
+        "114f814949a6c0ddf680ac569113b15452e9a9efb025cbd79e04f58220d9fe4f"
+    );
+    let mut rows = archive.lines();
+    let manifest = rows.next().unwrap();
+    let record = rows.next().unwrap();
+    assert!(rows.next().is_none());
+    let frozen: serde_json::Value = serde_json::from_str(BRIDGE).unwrap();
+    let rebound: serde_json::Value = serde_json::from_str(record).unwrap();
+    assert_eq!(rebound["source"], frozen["source"]);
+    match mtg_compiler::compile(manifest, record) {
+        mtg_compiler::CompileResult::Lowered { definition } => *definition,
+        failure => panic!("complete rebound Mosswort Bridge: {failure:?}"),
+    }
+}
+
 fn observe(g: &Game, p: PlayerId) -> Observation {
     let QueryValue::Observation(view) = finish_query(g, g.observe(p, Budget::new(1))) else {
         panic!("expected observation")
@@ -70,18 +91,14 @@ fn choose(g: &mut Game, index: usize) {
 }
 
 #[test]
+#[ignore = "requires MTG_LINKED_HIDEAWAY_ARCHIVE_PROBE"]
 fn mosswort_hideaway_real_setup_random_bottom_and_exact_link() {
     let catalog = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-staples-ir.json"
     ))
     .unwrap();
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
-        BRIDGE,
-    ) else {
-        panic!("complete Mosswort Bridge must lower")
-    };
-    let (pod, bridge) = super::random_discard_tests::seeded_pod_with_card(catalog, *definition);
+    let (pod, bridge) =
+        super::random_discard_tests::seeded_pod_with_card(catalog, bridge_definition());
     let mut g = Game::with_trace(pod, TraceMode::Off);
     enter(&mut g, bridge);
     let looked = reach_choice(&mut g);
@@ -199,7 +216,16 @@ fn mosswort_hideaway_real_setup_random_bottom_and_exact_link() {
 }
 
 fn short_library(size: usize) -> Game {
-    let mut p = prepared_with_sources(&[("Mosswort Bridge", 0, 0, true)], &[BRIDGE]);
+    let mut p = prepared(&[("Forest", 0, 0, true)]);
+    let bridge = bridge_definition();
+    p.config.cards[0].oracle_id = bridge.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(bridge);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
     let mut kept = 0;
     let island = p
         .catalog
@@ -224,6 +250,7 @@ fn short_library(size: usize) -> Game {
 }
 
 #[test]
+#[ignore = "requires MTG_LINKED_HIDEAWAY_ARCHIVE_PROBE"]
 fn mosswort_hideaway_short_library_absent_source_and_private_alternatives() {
     let mut g = short_library(2);
     enter(&mut g, CardId(0));
@@ -267,6 +294,7 @@ fn mosswort_hideaway_short_library_absent_source_and_private_alternatives() {
 }
 
 #[test]
+#[ignore = "requires MTG_LINKED_HIDEAWAY_ARCHIVE_PROBE"]
 fn mosswort_hideaway_empty_library_and_departed_chooser() {
     let mut g = short_library(0);
     enter(&mut g, CardId(0));
