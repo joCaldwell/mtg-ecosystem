@@ -154,6 +154,8 @@ export function parseValueChoice(c: Cursor, parseFilter?: FilterParser): ValueCh
     });
     if (colors) return colors;
     if (c.words("odd", "or", "even")) return { category: "parity" };
+    // CR 110.4: only the six permanent card types, in every zone.
+    if (c.words("a", "permanent", "type")) return { category: "card-type", within: "permanent-types" };
     const category = c.attempt(c => {
       if (c.word("a") === null) return null;
       if (c.words("basic", "land", "type")) return "basic-land-type" as const;

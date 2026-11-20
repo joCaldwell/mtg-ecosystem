@@ -309,6 +309,8 @@ export type CompanionCondition =
   | { deck: "group"; of: ObjectFilter; constraint: GroupConstraint };
 
 export type ProtectionScope =
+  /** The fresh color fixed by another modifier of this same effect (CR 611.2d). */
+  | { scope: "color-chosen-by-characteristic-effect" }
   | { scope: "color"; color: Color }
   | { scope: "chosen-value"; value: ChosenValueRef }
   /** One fresh choice for this occurrence of the granting instruction (shared
@@ -451,7 +453,7 @@ export type Trigger = {
   /** CR 701.18a/b: playing a land is the special action, not a land entering
    * by an effect; playing a card is that land play or casting it as a spell.
    * from is the zone the card was played from, not its zone afterwards. */
-  | { trigger: "plays"; who: PlayerRef; what: ObjectFilter | ObjectRef; from?: ZoneRef }
+  | { trigger: "plays"; who: PlayerRef; what: ObjectFilter | ObjectRef; from?: ZoneRef; notFrom?: ZoneRef }
   /** alongside: the same declaration also contains this many other attackers
    * matching the filter, besides the subject (CR 508.1, 508.3a). */
   | { trigger: "attacks"; what: ObjectRef; alone?: boolean; whom?: (PlayerRef | ObjectRef)[];
@@ -670,7 +672,11 @@ export type Trigger = {
   /** CR 106.12/106.12a: a mana ability with {T} in its cost resolves and
    * produces mana. who, if printed, is the player who activated it. producing
    * ("tapped for {C}"): the mana produced includes that type (106.12a). */
-  | { trigger: "taps-for-mana"; what: ObjectRef; who?: PlayerRef; producing?: "W" | "U" | "B" | "R" | "G" | "C" });
+  | { trigger: "taps-for-mana"; what: ObjectRef; who?: PlayerRef; producing?: "W" | "U" | "B" | "R" | "G" | "C";
+      producingChosenColor?: ChosenValueRef<"color"> }
+  /** CR 605.1b: mana production caused by an ability of the specified source. */
+  | { trigger: "adds-mana-from-ability"; who: PlayerRef; abilitySource: ObjectRef;
+      color: ChosenValueRef<"color">; quantity: Comparison });
 
 export type TriggerEventGate =
   | { gate: "condition"; condition: Condition }
@@ -851,7 +857,10 @@ export type Effect = EffectBase &
      * Sentences after the loop's own sentence are outside it and done once.
      * When they refer back, it is in the plural to what every member's
      * single object produced together ("Those tokens gain haste."). */
-    | { effect: "for-each"; each: ObjectRef | PlayerRef; effects: Sentence[]; processing: "instruction-wise" }
+    | { effect: "for-each"; each: ObjectRef | PlayerRef; effects: Sentence[]; processing: "instruction-wise";
+        /** CR 608.2h, 701.23h: assign search counts to each exiled object's
+         * last controller and combine the counts per searched library. */
+        groupedSearch?: "last-controllers-of-exiled-creatures" }
     | { effect: "roll-dice"; who: PlayerRef; die: DieSpec; count: Amount;
         adjustments?: { operation: "add" | "subtract"; appliesTo: "single-result"; amount: Amount }[];
         /** Ignored dice never produce roll events or usable results (706.6).
@@ -882,7 +891,10 @@ export type Effect = EffectBase &
      * spell" evaluates the target's qualification only then; it is not
      * measured again when legality is rechecked on resolution (608.2b). */
     | { effect: "declare-target"; what: ObjectRef | PlayerRef; asOf?: AnnouncementTime }
-    | { effect: "choose-object"; who: PlayerRef; what: ObjectRef | PlayerRef }
+    | { effect: "choose-object"; who: PlayerRef; what: ObjectRef | PlayerRef;
+        /** CR 110.4, 205.2b, 608.2d: at most one from the pool per permanent
+         * type, with the same multitype permanent eligible for multiple types. */
+        perPermanentType?: { skipMissing: true; sameObjectForMultipleTypes: true } }
     /** "For each player, choose friend or foe": as this instruction resolves,
      * `who` labels every player of `players` (you included) either friend or
      * foe (CR 608.2d); it is neither a target nor a vote. Later "each friend"
@@ -1175,7 +1187,10 @@ export type Effect = EffectBase &
     | { effect: "untap-step-suppression"; what: ObjectRef; step: UntapStepWindow }
     | { effect: "sacrifice"; who: PlayerRef; what: ObjectRef; chosenBy?: PlayerRef }
     | { effect: "discard"; who: PlayerRef; what: ObjectRef | "hand"; random?: boolean }
-    | { effect: "mill"; who: PlayerRef; amount: Amount }
+    | { effect: "mill"; who: PlayerRef; amount: Amount;
+        /** CR 105.2, 608.2c, 701.17a: check the two cards from this iteration
+         * only. Repeat the mill on the same player while they share a color. */
+        repeatWhile?: { from: "last-iteration"; condition: "two-cards-share-color" } }
     | { effect: "scry" | "surveil"; amount: Amount; who?: PlayerRef }
     /** CR 701.29a: `who` looks at the top `amount` cards of an opponent's library
      * (the opponent is chosen as it is performed) and rearranges them. */
@@ -1204,7 +1219,10 @@ export type Effect = EffectBase &
      * `those-counters` is the printed reference to counters an earlier clause
      * of the same ability named ("if it had counters on it, put those
      * counters on …"); that antecedent is not resolved here. */
-    | { effect: "put-counters-of"; counters: { of: ObjectRef } | { ref: "those-counters"; scope: "contextual" }; on: ObjectRef }
+    | { effect: "put-counters-of"; counters: { of: ObjectRef } | { ref: "those-counters"; scope: "contextual" }
+        /** Pick one counter kind already on that object, then optionally add
+         * one more of that kind. No kind is available on an empty object. */
+        | { of: ObjectRef; select: "one-existing-counter-kind"; placement: "optional"; phaseOrder: "choose-all-then-place" }; on: ObjectRef }
     /** CR 122.5: remove counters from `from`, then put them onto `to`. If either
      * half is impossible nothing moves. `"any"` is any kind of counter; with a
      * count of 1 the kind is chosen on resolution, with "all" every kind moves. */
@@ -1256,7 +1274,10 @@ export type Effect = EffectBase &
         library: { zone: "library"; owner: "your" };
         revealIf: { op: "ge"; value: Extract<Amount, { amount: "fixed" }> };
         mana: Extract<Amount, { amount: "fixed" }>; to: { zone: "hand"; owner: "your" } }
-    | { effect: "fight"; a: ObjectRef; b: ObjectRef }
+    | { effect: "fight"; a: ObjectRef; b: ObjectRef;
+        /** CR 608.2d–e, 701.14: pair the result tokens and original input
+         * creatures one-to-one, then perform the fights simultaneously. */
+        pairing?: { kind: "distinct-pairs"; who: PlayerRef; inputs: "preceding-token-loop"; unmatched: "omit" } }
     /** CR 701.14a: two already identified creatures ("those creatures",
      * "the chosen creatures") fight each other; each deals damage equal to
      * its power to the other. `what` is the plural reference to the pair. */
@@ -1290,6 +1311,10 @@ export type Effect = EffectBase &
         /** CR 707.9a–d, 707.10: "except the copy isn't legendary": copiable
          * characteristics of every copy that differ from the original's. */
         copyExceptions?: CopyCharacteristicChange[];
+        /** CR 707.10d: make one copy per eligible alternate target; its
+         * every target slot targets that object. */
+        fixedTargets?: { kind: "one-per-legal-target"; filter: ObjectFilter; exclude: "original-target";
+          allTargetSlots: true; order: "copy-controller" };
         /** A separate continuous effect on the newly made spell copy.
          * For a permanent spell it also applies to the resulting token
          * (CR 400.7a, 608.3f, 707.10f); it is outside the copiable values. */
@@ -1312,7 +1337,13 @@ export type Effect = EffectBase &
      * number of them). `to` is the only permitted new target; `newTarget` is
      * a printed restriction on it. Not choose-new-targets (115.7d), where
      * leaving targets unchanged is always a free choice. */
-    | { effect: "change-targets"; what: ObjectRef; who: PlayerRef; scope: "all" | "one" | "any";
+    | { effect: "change-targets"; what: ObjectRef; who: PlayerRef; scope: "all" | "one" | "any" | "each";
+        /** CR 115.7e–f, 115.8: random reselection independently considers
+         * each target slot without changing modes, division, or choices. */
+        reselection?: { method: "random"; unit: "target-slot"; whenUnavailable: "keep";
+          excluding?: (PlayerRef | ObjectRef)[] };
+        /** The same reselection applies independently to these other stack objects. */
+        also?: ObjectRef[];
         to?: ObjectRef | PlayerRef; newTarget?: { kind: "player" } | { kind: "object"; filter: ObjectFilter } }
     /** CR 612.1–2, 613.1c (layer 3): a text-changing continuous effect on
      * the referenced objects. `who` chooses one of the listed replacements
@@ -1802,12 +1833,18 @@ export type CantAction = "attack" | "block" | "attack-or-block" | "be-blocked" |
 export type CombatDefender =
   | { defender: "player"; who: PlayerRef }
   | { defender: "object"; what: ObjectRef }
-  | { defender: "player-other-than"; who: PlayerRef };
+  | { defender: "player-other-than"; who: PlayerRef }
+  /** With the object controlled by a member of this selected pair, the
+   * applicable defender is its other member (CR 115.3, 508.1d). */
+  | { defender: "other-player-in-pair"; pair: { player: "those-players" }; comparedTo: "attacker-controller" };
 
 /** CR 508.1c–d, 509.1a–c: restrictions, requirements, and capacities have
  * different effects on combat legality. Conditions are continuously checked,
  * not one-time tests when an effect that creates the rule resolves. */
 export type CombatRule = { condition?: Condition; conditionKind?: "if" | "unless" } & (
+  /** CR 508.7: retain attacking status; choose a legal defending player
+   * or permanent without declaring the creature as an attacker again. */
+  | { rule: "reselect-attack-defender"; candidates: "player-or-permanent" }
   | { rule: "blocker-filter"; mode: "exclude" | "only"; blockers: ObjectRef }
   /** Constrains only NONEMPTY blocking assignments to this attacker. Even a
    * minimum allowed number never requires any creature to block it. */
@@ -1909,6 +1946,8 @@ export type CombatPretense =
   | { pretend: "untapped"; of: "affected-creature" };
 
 export type ManaProduction =
+  /** The color of mana qualified by this triggering event (CR 605.1b). */
+  | { mana: "trigger-event-color"; amount: Amount }
   | { mana: "fixed"; symbols: string[] }                    // Add {G}{G}
   | { mana: "choice"; options: ManaProduction[] }           // Add {R} or one mana of the chosen color
   | { mana: "chosen-color"; amount: Amount; choice: ChosenValueRef<"color"> }
@@ -2028,6 +2067,13 @@ export interface EntryCopy {
 export type CascadeExiledCards = { ref: "cascade-exiled-cards" };
 
 export type StaticEffect =
+  /** CR 205.3i, 305.6, 702.14, 611.3: a separate landwalk ability for
+   * each distinct basic land type present among the matching lands. */
+  | { static: "landwalk-for-basic-land-types"; what: ObjectRef; among: ObjectRef }
+  /** CR 602.5b, 702.142: changes the use limit of each boast ability,
+   * retaining its attacked-this-turn requirement. */
+  | { static: "keyword-activation-limit"; what: ObjectRef; keyword: "boast";
+      maximum: 2; normally: 1; during: "your-turn" }
   | { static: "group"; effects: StaticEffect[] }
   /** CR 702.85b: the matched cascade controller may act after exiling, before
    * the cast decision or, with no hit, before putting the cards on the bottom. */
@@ -2439,7 +2485,10 @@ export interface CardPlayInstruction {
    * A generic counted filter in a lasting permission is selected when the
    * permission is used, not when created; the cap covers the entire grant. */
   useLimit?: { maximum: number; period: "turn"; during: "your" | "any" }
-    | { maximum: Amount; period: "permission" };
+    | { maximum: Amount; period: "permission" }
+    /** At casting, assign each cast to one eligible type of the proposed
+     * spell; each nonland type has its own slot (CR 601.2, 611.2a). */
+    | { maximum: 1; period: "permission"; per: "nonland-card-type" };
   /** Alters acceptable payment only; does not change mana actually spent. */
   manaPayment?: "any-color" | "any-type";
   riders?: PermissionRider[];
@@ -2510,9 +2559,11 @@ export interface LandPlayAllowance {
  * https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt */
 export type ReplacementEvent =
   | { event: "move-zone"; what: ObjectRef; from?: ZoneRef | "anywhere"; to?: ZoneRef;
-      /** "… as it resolves" (CR 608.2n): only the instant or sorcery spell's
-       * own move to the graveyard as the final part of its resolution, not a
-       * spell countered or otherwise leaving the stack. */
+      /** CR 109.4, 614.1: checked before the move, including objects
+       * without a controller. */
+      notControlledByBefore?: PlayerRef;
+      /** "… as it resolves" (CR 608.2n, 608.3): only the spell's own move
+       * during resolution, excluding a counter or another removal. */
       resolving?: true }
   /** CR 701.8a, 704.5g–h: the permanent would be destroyed, by an effect or
    * by a state-based action; not sacrificed. In a static replacement,
@@ -2613,6 +2664,8 @@ export interface ReplacementInstruction {
      * follows an optional skip ("If you do, …") and happens only when the
      * skip was chosen, as the first thing in the next occurrence (614.10b). */
     | { replacement: "skip"; after?: Sentence[] }
+    /** CR 614.1c, 614.12: modify that same move onto the battlefield. */
+    | { replacement: "entry-modifiers"; modifiers: BattlefieldEntryModifiers }
     | { replacement: "effects"; effects: Sentence[] };
 }
 
@@ -2966,7 +3019,7 @@ export type ValueChoice =
   /** `among`: "a color of a permanent you control" — only a color that some
    * matching object is; with none, there is no color to choose (CR 106.5). */
   | { category: "color"; count?: number; excluding?: Color[]; options?: Color[]; among?: ObjectFilter }
-  | { category: "card-type"; excluding?: string[] }
+  | { category: "card-type"; excluding?: string[]; within?: "permanent-types" }
   /** CR 205.3e: excluding lists creature types that can't be chosen. */
   | { category: "creature-type"; excluding?: string[] }
   | { category: "basic-land-type" | "land-type" }
@@ -2994,7 +3047,7 @@ export type PlayerRef =
   | { player: "player-of-choice"; chooser: PlayerRef }
   /** The same selection/quantifier with additional eligibility. A target in
    * base remains a target; this wrapper does not create a resolution choice. */
-  | { player: "filtered"; base: PlayerRef; filter: PlayerFilter }
+  | { player: "filtered"; base: PlayerRef; filter: PlayerFilter; random?: true }
   | { player: "replacement-event-player"; role: "actor" | "recipient" }
   | { player: "each-player" }
   | { player: "each-opponent" }
@@ -3161,7 +3214,7 @@ export type ObjectRef =
   | { ref: "choice-result"; number: "singular" | "plural"; filter: ObjectFilter; which: "chosen" | "last-chosen"; scope: "contextual" }
   /** The unique object of this lexical trigger occurrence, proven by the
    * parser for an immediate first copy instruction; never the latest noun. */
-  | { ref: "trigger-event-object"; event: "cast" | "activate" }
+  | { ref: "trigger-event-object"; event: "cast" | "activate" | "enter" }
   | { ref: "library-cards"; position: "top" | "bottom"; count: Amount; of: ZoneRef }
   /** CR 404.1–404.2: a graveyard is an ordered pile with the most recently
    * added card on top. The `count` cards nearest the top; with `matching`,
@@ -3211,7 +3264,7 @@ export type ObjectRef =
    * it is paired with. Denotes nothing while `of` is unpaired. */
   | { ref: "soulbond-pair"; of: ObjectRef }
   /** Complement of the selected objects in the contextual or stated pool. */
-  | { ref: "rest"; of?: ObjectRef }
+  | { ref: "rest"; of?: ObjectRef; exclude?: "own-preceding-choices" }
   /** All cards in the named player's personal zone, not the zone itself. */
   | { ref: "zone-cards"; zone: "graveyard" | "hand" | "library"; owner: PlayerRef }
   /** CR 702.124e: if both commanders qualify, choice occurs as the effect applies. */
@@ -3265,6 +3318,18 @@ export type ObjectRelation = {
    * instruction sequence; otherwise `period` is the window. */
   | { relation: "zone-change"; to: ZoneRef; from?: ZoneRef | "anywhere"; scope?: "this-way" }
   | { relation: "linked-exile"; source: ObjectRef }
+  /** CR 603.7c, 712.21c, 730.3c: capture all card successors of this
+   * replacement application’s exile when its delayed trigger is created. */
+  | { relation: "replacement-exile-results" }
+  /** CR 400.7j, 609.3, 701.23b, 712.21c, 730.3c: all card successors of
+   * the exiled creature and the found card, with their identities fixed. */
+  | { relation: "exile-and-search-results"; from: "preceding-sentence" }
+  /** CR 701.23h: the cards found by each searching participant's combined
+   * searches. Preserve the association before subsequent placement/shuffle. */
+  | { relation: "grouped-search-results"; from: "preceding-search-loop"; by: "searching-player" }
+  /** CR 101.4, 608.2e, 701.20: use the cards associated with each
+   * member's own reveal, and keep subsequent placement stages separate. */
+  | { relation: "grouped-reveal-results"; by: "revealing-player"; afterPlacement?: "exclude-successful-battlefield-moves" }
   /** CR 702.167c: "exiled cards used to craft it" — the cards exiled as the
    * craft cost of `of`'s ability was paid (the materials). */
   | { relation: "craft-material"; of: ObjectRef }
@@ -3358,6 +3423,9 @@ export interface ObjectFilter {
   /** CR 508.1b, 506.4c: currently attacking one of these players or
    * permanents; an attacker whose planeswalker/battle left combat matches none. */
   attacking?: CombatDefender[];
+  /** An attacker from the triggering declaration uses its last known
+   * attack relation if it already left the battlefield (CR 608.2h). */
+  attackingLookup?: "current-or-last-known";
   /** Permanent card/spell: has a permanent card type, independent of zone. */
   permanent?: true;
   /** CR 903.3: persistent card designation, not a card type or subtype. */
@@ -3702,6 +3770,15 @@ export type Amount =
   /** CR 201.5, 603.10a, 608.2i: actual loss from the entering object's
    * own enters ability, read for that same battlefield incarnation. */
   | { amount: "life-lost-on-entry"; who: PlayerRef; what: { ref: "it" } }
+  /** CR 120.4, 608.2i: sum damage actually dealt to the referenced
+   * incarnation. Read each source's controller as that damage was dealt. */
+  | { amount: "damage-history-total"; to: ObjectRef; during: "this-turn"; sourceControllerAtDamage: PlayerRef }
+  /** CR 122.2, 603.10a: captured from the permanent as it died; the
+   * graveyard card has no counters to count. */
+  | { amount: "counter-count-before-zone-change"; counter: CounterSpec; of: ObjectRef; event: "dies" }
+  /** CR 608.2h and 614.6: count the player's permanents that left in
+   * that shuffle instruction, including tokens and changed destinations. */
+  | { amount: "permanents-moved-by-shuffle"; scope: "for-each-shuffling-player" }
   | { amount: "twice"; of: Amount }
   /** `exact`: only as the operand of a comparison ("less than half your
    * starting life total"), which compares against the exact value; nothing

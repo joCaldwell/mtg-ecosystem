@@ -59,7 +59,16 @@ function parsePlayerAction(c: Cursor, lastPlayer?: PlayerRef): Effect | null {
     if (!what) return null;
     if (verb === "attach") {
       if (c.word("to") === null) return null;
-      const to = parseEndpoint(c);
+      // CR 303.4b, 303.4j, 701.3: the already enchanted player is
+      // excluded, and the randomly selected endpoint is not a target.
+      // https://magic.wizards.com/en/news/feature/adventures-forgotten-realms-release-notes-2021-07-09
+      const otherOpponent = c.attempt((c): PlayerRef | null => {
+        if (what.ref !== "this" || what.noun !== "aura" ||
+          !c.words("another", "one", "of", "your", "opponents", "chosen", "at", "random")) return null;
+        return { player: "filtered", base: { player: "an-opponent" },
+          filter: { otherThan: { player: "enchanted-player" } }, random: true };
+      });
+      const to = otherOpponent ?? parseEndpoint(c);
       return to && { effect: "attach", what, to, who };
     }
     // Meld uses a named resulting face and its own zone-changing action;
