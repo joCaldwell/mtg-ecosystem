@@ -27,6 +27,7 @@ pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_entry;
+mod entry_copy;
 mod fixed_creature_activation;
 pub use fixed_creature_activation::{
     FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
@@ -359,6 +360,7 @@ pub enum Capability {
     ControllerLandBasicTypesV1,
     ControllerNonlandColorsV1,
     FlashV1,
+    EnterAsCopyOfPermanentEnteredThisTurnV1,
     CastArtifactV1,
     PermanentManaV1,
     OpponentLandManaV1,
@@ -1474,6 +1476,11 @@ pub enum StaticEffect {
     /// battlefield tapped before the cascade cast decision.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     CascadeLandEntry,
+    /// CR 400.7, 614.12a, 707.2, 707.5–6: before entry, the entering
+    /// controller may choose a current battlefield incarnation that entered
+    /// this turn and apply its copiable values to the entering object.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    EnterAsCopyOfPermanentEnteredThisTurn,
     /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
     /// its enchanted permanent; this is not a frozen invocation recipient.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -2690,6 +2697,9 @@ impl Definition {
             let static_capability = match a.effect {
                 StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
                 StaticEffect::CascadeLandEntry => Capability::CascadeLandEntryV1,
+                StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn => {
+                    Capability::EnterAsCopyOfPermanentEnteredThisTurnV1
+                }
                 StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
                     Capability::OpponentCastProhibitionV1
@@ -2755,6 +2765,7 @@ impl Definition {
         typed_land_search::validate_definition(self)?;
         conditional_lands::validate_definition(self)?;
         cascade_land_entry::validate_definition(self)?;
+        entry_copy::validate_definition(self)?;
         let has_distinct_permanent_colors = distinct_permanent_colors::validate_definition(self)?;
         // Every occurrence retains its own u32 ability index, including repeated
         // keywords in one source block (CR 702.85c). No per-card instance cap.
@@ -3786,6 +3797,7 @@ impl Definition {
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
                     | StaticEffect::CascadeLandEntry
+                    | StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn
                     | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
@@ -7072,6 +7084,7 @@ pub fn catalog_schema() -> serde_json::Value {
     source_tap_damage::extend_schema(&mut schema);
     conditional_lands::schema(&mut schema);
     cascade_land_entry::extend_schema(&mut schema);
+    entry_copy::extend_schema(&mut schema);
     counter_spell_controller_mill::extend_schema(&mut schema);
     fixed_mill::extend_schema(&mut schema);
     announced_x_draw::extend_schema(&mut schema);
