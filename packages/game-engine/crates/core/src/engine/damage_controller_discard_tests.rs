@@ -547,6 +547,27 @@ fn combat_hand_cast_uses_trigger_controller_and_pays_the_child_additional_cost()
     game.submit(receipt).unwrap();
     assert!(matches!(settle(&mut game), Request::Targets { .. }));
     recover(&game);
+    let mut interrupted = game.fork();
+    answer(
+        &mut interrupted,
+        Response::Targets {
+            objects: vec![target],
+        },
+    );
+    interrupted.concede(PlayerId(1)).unwrap();
+    let Request::HandCast { candidates, .. } = settle(&mut interrupted) else {
+        panic!("the failed target proposal must return to its owning hand offer");
+    };
+    assert_eq!(candidates, [interrupted.object_id(spell).unwrap()]);
+    assert_eq!(interrupted.state.rules.stack.len(), 1);
+    assert_eq!(
+        interrupted.current(candidates[0]).unwrap().zone,
+        Zone::Hand { owner: player }
+    );
+    recover(&interrupted);
+    answer(&mut interrupted, Response::Pass);
+    assert!(matches!(settle(&mut interrupted), Request::Priority { .. }));
+    assert!(interrupted.state.rules.stack.is_empty());
     answer(
         &mut game,
         Response::Targets {
