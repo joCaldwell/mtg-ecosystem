@@ -2405,3 +2405,120 @@ it("keeps the face-down announcement rule on a timed exile permission", () => {
   assert.ok(grant?.duration === "end-of-turn" && grant.visibility === "turn-face-up-before-announcement-unless-cast-face-down");
   assert.equal(grant.exile, bound(graph, "/permission/what"));
 });
+
+describe("actual replacement results and entering objects", () => {
+  const intervention = "If a permanent you control would be put into a graveyard from the battlefield this turn, "
+    + "exile it instead. Return it to the battlefield under its owner's control at the beginning of the next end step.";
+
+  it("schedules a separate return for each successful replacement's exile components", () => {
+    const graph = analyze(intervention, "Instant");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "captured-move-replacement");
+    const schedule = graph.nodes.find(node => node.node === "replacement-return");
+    assert.ok(schedule && replacement?.tracked.kind === "matching-before-move");
+    assert.equal(replacement.exile, schedule.exile);
+    assert.equal(schedule.controller, "each-card-owner");
+    assert.equal(schedule.schedule, "per-exiled-permanent-at-next-end-step");
+    assert.equal(schedule.membership, "exact-exile-card-incarnations");
+    assert.equal(schedule.objects, bound(graph, "/replace/effects/0/steps/1/effects/0/steps/0/what"));
+    assert.ok(graph.nodes.some(node => node.id === schedule.objects && node.node === "event-result" &&
+      node.identity === "zone-successors" && node.cardinality === "many"));
+  });
+
+  it("does not use the next end-step contract for a different delayed phase", () => {
+    const result = parseOracleText(intervention, "Fixture", { typeLine: "Instant" });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "spell");
+    const [install] = ability.effects[0].steps;
+    assert.ok(install.effect === "create-replacement" && install.replacement.replace.replacement === "effects");
+    const delayed = install.replacement.replace.effects[0].steps[1];
+    assert.ok(delayed.effect === "create-delayed-trigger");
+    delayed.trigger = { trigger: "phase", phase: "upkeep", whose: "each-player" };
+    const graph = analyzeResult(result, "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "replacement-return"));
+  });
+
+  const predation = "For each creature your opponents control, create a 4/4 green Phyrexian Beast creature token. "
+    + "Each of those tokens fights a different one of those creatures.";
+
+  it("pairs the actual created tokens against distinct original creatures", () => {
+    const graph = analyze(predation, "Sorcery");
+    boundCard(graph);
+    const pairing = graph.nodes.find(node => node.node === "token-fight-pairing");
+    assert.ok(pairing && pairing.tokens !== pairing.originals);
+    assert.equal(pairing.originals, bound(graph, "/steps/0/each"));
+    assert.equal(pairing.originals, bound(graph, "/steps/0/b"));
+    assert.equal(pairing.tokens, bound(graph, "/steps/0/a"));
+    assert.equal(pairing.pairing, "distinct-one-to-one-omit-unmatched");
+    assert.equal(pairing.order, "simultaneous");
+    assert.ok(graph.nodes.some(node => node.id === pairing.tokens && node.node === "event-result" && node.event === pairing.creation));
+  });
+
+  it("requires the parser's exact token-loop provenance for fight pairings", () => {
+    const result = parseOracleText(predation, "Fixture", { typeLine: "Sorcery" });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "spell");
+    const [fight] = ability.effects[1].steps;
+    assert.ok(fight.effect === "fight");
+    delete fight.pairing;
+    const graph = analyzeResult(result, "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "token-fight-pairing"));
+  });
+
+  const saga = "I — This Saga deals 1 damage to each opponent and each planeswalker they control.\n"
+    + "II — When you next cast a creature spell this turn, that creature enters with an additional +1/+1 counter on it.";
+
+  it("separates the damage recipient group from the exact next resolving creature spell", () => {
+    const graph = analyze(saga, "Enchantment — Saga");
+    boundCard(graph);
+    const damage = graph.nodes.find(node => node.node === "opponent-group-damage");
+    assert.ok(damage?.planeswalkers);
+    assert.equal(damage.players, bound(graph, "/to/refs/1/filter/controlledBy"));
+    const entering = graph.nodes.find(node => node.node === "next-creature-entry-counter");
+    assert.ok(entering && entering.count === 1 && entering.window === "this-turn");
+    assert.equal(entering.spell, bound(graph, "/replacement/event/what"));
+    assert.equal(entering.move, "specific-stack-incarnation-resolving-to-battlefield");
+    assert.ok(graph.nodes.some(node => node.id === entering.trigger && node.node === "ability" && node.abilityKind === "delayed-triggered"));
+  });
+
+  it("does not attach the entry rule to an arbitrary previous event", () => {
+    const result = parseOracleText(saga, "Fixture", { typeLine: "Enchantment — Saga" });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const ability = result.abilities[1];
+    assert.ok(ability.kind === "chapter");
+    const [delay] = ability.effects[0].steps;
+    assert.ok(delay.effect === "create-delayed-trigger");
+    delay.trigger = { trigger: "phase", phase: "upkeep", whose: "your" };
+    const graph = analyzeResult(result, "Enchantment — Saga");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "next-creature-entry-counter"));
+  });
+
+  const etched = "If a creature dealt damage this turn by a source you controlled would die, exile it instead.";
+
+  it("tests actual damage history under the source's controller at the time of damage", () => {
+    const graph = analyze(etched, "Creature");
+    boundCard(graph);
+    const replacement = graph.nodes.find(node => node.node === "exile-replacement");
+    assert.ok(replacement?.damageHistory?.sourceController === "at-damage");
+    assert.equal(replacement.damageHistory.recipient, bound(graph, "/replace/effects/0/steps/0/what"));
+    assert.ok(graph.engineFeatures.some(feature => feature.feature === "event-history"));
+  });
+
+  it("does not interpret a source-role history as the recipient's damage", () => {
+    const result = parseOracleText(etched, "Fixture", { typeLine: "Creature" });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "static" && ability.effect.static === "replacement");
+    const { event } = ability.effect.replacement;
+    assert.ok(event.event === "move-zone" && event.what.ref === "filter" && event.what.filter.damageHistory);
+    event.what.filter.damageHistory.role = "source";
+    const graph = analyzeResult(result, "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "exile-replacement"));
+  });
+});

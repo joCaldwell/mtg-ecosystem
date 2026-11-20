@@ -139,7 +139,8 @@ export type BindingNode = NodeBase & (
       role: "proposed-damage-recipient" | "proposed-damage-source" | "prevented-damage-recipient" | "proposed-move-object" | "spell-cast-by-permission" | "proposed-permission-spell" }
   | { node: "exile-replacement"; scope: string; object: string; filter?: string;
       from: "battlefield" | "anywhere"; originalDestination: "graveyard"; exileEvent: string; reflexiveTrigger?: string;
-      graveyardOwner?: string; control?: { differentFrom: string; information: "before-move" } }
+      graveyardOwner?: string; control?: { differentFrom: string; information: "before-move" };
+      damageHistory?: { controller: string; sourceController: "at-damage"; recipient: string; window: "this-turn" } }
   | { node: "linked-exile-life-cost"; scope: string; pool: string; player: string; spell: string;
       availability: "during-permitted-players-turn"; timing: "cost-determination";
       payment: "life-equal-to-proposed-spell-mana-value"; landPlay: "normal-rules" }
@@ -147,7 +148,12 @@ export type BindingNode = NodeBase & (
       sourceFilter?: string; recipientFilter?: string; sourceInformation: "current-or-last-known" }
   | { node: "captured-move-replacement"; scope: string; created: string; exile: string;
       match: Extract<ReplacementInstruction["event"], { event: "move-zone" }>;
-      tracked: { kind: "one-object"; object: string } | { kind: "cast-permission"; grant: string; member: string } }
+      tracked: { kind: "one-object"; object: string } | { kind: "cast-permission"; grant: string; member: string }
+        | { kind: "matching-before-move"; filter: string }; duration?: "this-turn" }
+  | { node: "replacement-return"; scope: string; exile: string; objects: string; delayed: string; returnEvent: string;
+      schedule: "per-exiled-permanent-at-next-end-step"; membership: "exact-exile-card-incarnations"; controller: "each-card-owner" }
+  | { node: "next-creature-entry-counter"; scope: string; created: string; trigger: string; spell: string; modifier: string;
+      window: "this-turn"; move: "specific-stack-incarnation-resolving-to-battlefield"; counter: "+1/+1"; count: 1 }
   | { node: "performed-action-trigger"; scope: string; event: string; outcome: "actually-exiled" }
   /** CR 615.5: apply the follow-up to the same recipient using the amount actually prevented. */
   | { node: "prevention-outcome"; scope: string; targetFilter: string; kind: "all" | "combat" | "noncombat";
@@ -255,7 +261,10 @@ export type BindingNode = NodeBase & (
   | { node: "filtered-result-group"; scope: string; pool: string; filter: ObjectFilter; cardinality: "many" }
   | { node: "eligible-target-group"; scope: string; template: string; member: string; cardinality: "many" }
   | { node: "sequential-cast"; scope: string; event: string; pool: string; caster: string; limit: string }
-  | { node: "opponent-group-damage"; scope: string; event: string; players: string; creatures: string }
+  | ({ node: "opponent-group-damage"; scope: string; event: string; players: string } &
+      ({ creatures: string; planeswalkers?: never } | { creatures?: never; planeswalkers: string }))
+  | { node: "token-fight-pairing"; scope: string; event: string; creation: string; tokens: string; originals: string; chooser: string;
+      pairing: "distinct-one-to-one-omit-unmatched"; combatants: "same-live-creatures"; order: "simultaneous" }
   | { node: "source-dependent-damage"; scope: string; event: string; group: string; sourceAndRecipient: string;
       characteristic: "power"; timing: "simultaneous" }
   | { node: "instruction-member"; scope: string; group: string; domain: "player" | "object" }
