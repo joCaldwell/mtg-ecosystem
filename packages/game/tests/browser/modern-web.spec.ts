@@ -57,6 +57,7 @@ test('shared game table responds to its embedding container in a wide window', a
   const hand = page.getByRole('region', { name: 'Your hand', exact: true });
   const decision = page.getByRole('region', { name: 'Opening hand', exact: true });
   const inspector = page.getByRole('complementary', { name: 'Card inspector' });
+  await hand.getByRole('button').last().click();
   const handBox = await hand.boundingBox();
   const decisionBox = await decision.boundingBox();
   const inspectorBox = await inspector.boundingBox();
@@ -65,14 +66,13 @@ test('shared game table responds to its embedding container in a wide window', a
   expect(Math.abs(handBox!.width - decisionBox!.width)).toBeLessThan(1);
   expect(decisionBox!.y).toBeGreaterThan(handBox!.y);
   expect(inspectorBox!.y).toBeGreaterThan(decisionBox!.y);
-  await hand.getByRole('button').last().click();
   await expect(inspector.getByRole('heading', { name: 'Plains', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(hand.getByRole('button').last()).toBeFocused();
 });
 
 test('hand cards retain separate hit targets and scroll within their list', async ({ page }) => {
-  for (const [viewportWidth, containerWidth] of [[1280, null], [1440, 600], [1920, null]] as const) {
+  for (const [viewportWidth, containerWidth] of [[1280, 850], [1440, 600], [1920, 850]] as const) {
     await page.setViewportSize({ width: viewportWidth, height: 900 });
     await page.goto('/');
     if (containerWidth) {

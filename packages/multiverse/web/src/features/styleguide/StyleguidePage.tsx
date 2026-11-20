@@ -215,7 +215,7 @@ function TypeScale() {
           ))}
           <div className={styles.typeRow}>
             <Label>--font-mono</Label>
-            <Text mono>r95  r96  1,204  100/100  12:04</Text>
+            <Text mono>1,204  100/100  12:04</Text>
           </div>
           <div className={styles.typeRow}>
             <Label>Text weights</Label>
@@ -803,14 +803,13 @@ function Layout() {
       <Section title="Table and ClickableRow">
         <div className={styles.tableWrap}>
           <Table>
-            <thead><tr><th>Rev</th><th>Who</th><th>Change</th><th>When</th></tr></thead>
+            <thead><tr><th>Who</th><th>Change</th><th>When</th></tr></thead>
             <tbody>
-              {[["r95", "You", "Cut Mind Stone", "2 min ago"], ["r94", "Claude Code", "Added Arcane Signet", "12 min ago"], ["r93", "You", "Set the brief", "yesterday"]].map(([a, b, c, d]) => (
-                <ClickableRow key={a} onClick={() => setPicked(a ?? "")}>
-                  <td><Text mono tone="muted">{a}</Text></td>
-                  <td>{b === "You" ? b : <Text tone="agent">{b}</Text>}</td>
-                  <td>{c}</td>
-                  <td><Text tone="faint">{d}</Text></td>
+              {[["You", "Cut Mind Stone", "2 min ago"], ["Claude Code", "Added Arcane Signet", "12 min ago"], ["You", "Set the brief", "yesterday"]].map(([who, change, when]) => (
+                <ClickableRow key={change} onClick={() => setPicked(change ?? "")}>
+                  <td>{who === "You" ? who : <Text tone="agent">{who}</Text>}</td>
+                  <td>{change}</td>
+                  <td><Text tone="faint">{when}</Text></td>
                 </ClickableRow>
               ))}
             </tbody>

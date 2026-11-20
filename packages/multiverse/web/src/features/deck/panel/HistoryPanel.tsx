@@ -2,7 +2,7 @@
 // and any entry can be undone. Undo writes a new entry rather than erasing one.
 
 import { api, type LogEntry } from "../../../api/client.ts";
-import { Eyebrow, Text, useToast } from "../../../ui/index.ts";
+import { Text, useToast } from "../../../ui/index.ts";
 import { LogRow } from "../../decisions/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import styles from "./HistoryPanel.module.css";
@@ -23,7 +23,7 @@ export function HistoryPanel() {
   return (
     <>
       <section className={styles.section}>
-        <Eyebrow as="h2">History · r{deck.revision}</Eyebrow>
+        <Text as="h2" size="lg" weight="bold">History</Text>
         {log.length === 0 ? (
           <Text tone="muted" size="sm" as="p">
             No decisions yet.

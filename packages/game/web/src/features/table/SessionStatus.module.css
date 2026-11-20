@@ -1,3 +1,33 @@
-.sessionStatus { padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); background: var(--surface); }
-.sessionStatus h2 { font-size: var(--text-body); margin: 0; }.sessionStatus p { margin: var(--space-1) 0; font-size: var(--text-small); color: var(--muted); }.sessionStatus button { flex-shrink: 0; font-size: var(--text-small); }
-@media (max-width: 719px) { .sessionStatus { align-items: start; flex-wrap: wrap; } }
+.sessionStatus {
+  padding: var(--game-space-2) var(--game-space-5);
+  border-block-end: 1px solid var(--game-line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--game-space-3);
+  background: var(--game-surface);
+}
+.sessionStatus h2 { font-size: var(--game-text-body); margin: 0; }
+.sessionStatus h2[data-connected]::before {
+  content: "";
+  display: inline-block;
+  inline-size: .45rem;
+  block-size: .45rem;
+  margin-inline-end: var(--game-space-2);
+  border-radius: 50%;
+  background: var(--game-accent);
+  vertical-align: .1em;
+}
+.sessionStatus p { margin: var(--game-space-1) 0; font-size: var(--game-text-small); color: var(--game-muted); }
+.release {
+  flex-shrink: 0;
+  padding: var(--game-space-1) var(--game-space-3);
+  border: 1px solid var(--game-control-line);
+  border-radius: var(--game-radius);
+  background: transparent;
+  color: var(--game-text);
+  font-size: var(--game-text-small);
+  cursor: pointer;
+}
+.release:hover { border-color: var(--game-accent); }

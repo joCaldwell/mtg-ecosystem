@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Mode } from "../../api/client.ts";
 import { ManaCost } from "../../mtg/index.ts";
-import { Button, Dialog, ErrorNote, Text } from "../../ui/index.ts";
+import { Button, Dialog, ErrorNote } from "../../ui/index.ts";
 import styles from "./NewGameDialog.module.css";
 
 const MODES: Array<{ value: Mode; label: string; description: string }> = [
@@ -21,7 +21,6 @@ const MODES: Array<{ value: Mode; label: string; description: string }> = [
  * replacement discards is stated beside the button that discards it. */
 export function NewGameDialog({
   deckName,
-  revision,
   commanders,
   initialMode = "commander",
   replaces,
@@ -33,7 +32,6 @@ export function NewGameDialog({
   onClose,
 }: {
   deckName: string;
-  revision: number;
   commanders: Array<{ oracle_id: string; name: string; mana_cost: string | null }>;
   initialMode?: Mode;
   /** What starting would replace: the current table, or a saved one that could not be read. */
@@ -84,7 +82,6 @@ export function NewGameDialog({
               <ManaCost cost={c.mana_cost} />
             </span>
           ))}
-          <Text mono tone="muted">r{revision}</Text>
         </span>
       </div>
       {error && (

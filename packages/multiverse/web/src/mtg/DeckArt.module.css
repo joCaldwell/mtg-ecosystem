@@ -132,3 +132,18 @@
   .showcase { --band: var(--art-showcase-phone-space); }
   .backdrop { --band: var(--art-backdrop-phone-space); }
 }
+
+.feature {
+  display: grid;
+  min-block-size: var(--art-feature-height, 16rem);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: clip;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--deck-tint) 14%, transparent), transparent), var(--surface);
+}
+.feature .visual { inset: 0; height: 100%; }
+.feature .visual::after {
+  background: linear-gradient(to bottom, transparent 12%, rgb(0 0 0 / .18) 37%, rgb(0 0 0 / .72) 68%, rgb(0 0 0 / .9));
+}
+.feature .crop img { object-position: var(--art-feature-position, center 36%); }
+.feature .credit { top: var(--s-3); inset-inline-end: var(--s-4); transform: none; }

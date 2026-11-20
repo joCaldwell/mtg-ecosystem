@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Request } from '@playwright/test';
+import { isFixturePrint } from './fixture-images.ts';
 
 test('captured mulligan completes by keyboard with explicit local-only confirmation', async ({ page, browser }, testInfo) => {
   const errors: string[] = [];
@@ -43,13 +44,13 @@ test('captured mulligan completes by keyboard with explicit local-only confirmat
 });
 
 test('opening preview keeps a deliberate choice while inspecting and never sends it', async ({ page }, testInfo) => {
-  const requests: string[] = [];
-  page.on('request', request => requests.push(request.url()));
+  const requests: Request[] = [];
+  page.on('request', request => requests.push(request));
   await page.goto('/fixtures/decisions');
   await page.getByRole('link', { name: 'Try opening choices on the table' }).click();
   await expect(page.getByRole('heading', { name: 'Opening hand preview', exact: true })).toBeVisible();
   const decision = page.getByRole('region', { name: 'Opening hand', exact: true });
-  const confirm = decision.getByRole('button', { name: 'Confirm local draft', exact: true });
+  const confirm = decision.getByRole('button', { name: 'Confirm preview choice', exact: true });
   await expect(confirm).toBeEnabled();
   const keep = decision.getByRole('radio', { name: 'Keep hand', exact: true });
   await keep.check();
@@ -66,7 +67,8 @@ test('opening preview keeps a deliberate choice while inspecting and never sends
   await page.reload();
   await expect(keep).not.toBeChecked();
   await expect(confirm).toBeEnabled();
-  expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(url))).toBe(true);
+  expect(requests.every(request => isFixturePrint(request) ||
+    (new URL(request.url()).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(request.url())))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length }))).toEqual({ local: 0, session: 0, databases: 0 });
 });
 
@@ -142,14 +144,15 @@ test('exact large quantities, unsupported context, reduced motion and narrow lay
 });
 
 test('fixture route refresh makes no API request and stores no secrets or intent', async ({ page }) => {
-  const requests: string[] = [];
-  page.on('request', request => requests.push(request.url()));
+  const requests: Request[] = [];
+  page.on('request', request => requests.push(request));
   const response = await page.goto('/fixtures/decisions');
   expect(response?.headers()['content-security-policy']).toContain("form-action 'none'");
   await page.getByRole('region', { name: 'Captured foundation choice' }).getByRole('radio', { name: 'Keep hand', exact: true }).check();
   await page.reload();
   await expect(page.getByRole('region', { name: 'Captured foundation choice' }).getByRole('radio', { name: 'Keep hand', exact: true })).not.toBeChecked();
-  expect(requests.every(url => new URL(url).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(url))).toBe(true);
+  expect(requests.every(request => isFixturePrint(request) ||
+    (new URL(request.url()).origin === new URL(page.url()).origin && !/\/(v1|presentation)\/|client-config/.test(request.url())))).toBe(true);
   expect(await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, databases: (await indexedDB.databases()).length, workers: (await navigator.serviceWorker.getRegistrations()).length, cache: (await caches.keys()).length, cookies: document.cookie }))).toEqual({ local: 0, session: 0, databases: 0, workers: 0, cache: 0, cookies: '' });
 });
 
