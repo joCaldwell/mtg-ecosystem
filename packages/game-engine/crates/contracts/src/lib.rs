@@ -2218,8 +2218,8 @@ pub enum KeywordAbility {
     DoubleStrike,
     Menace,
     ProtectionFromEachColor,
-    /// CR 702.16j: intrinsic battlefield protection from every source.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    // CR 702.16j: intrinsic battlefield protection from every source.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     ProtectionFromEverything,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
