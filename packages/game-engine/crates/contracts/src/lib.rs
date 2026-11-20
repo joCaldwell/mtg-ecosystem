@@ -93,6 +93,7 @@ mod keyword_removal_wipe;
 mod library_selection;
 mod nonland_exile_life;
 pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wipe_source};
+pub mod linked_hideaway;
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
@@ -318,6 +319,8 @@ pub enum Capability {
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
     HandCastCascadeGrantV1,
+    HideawayV1,
+    LinkedExilePlayV1,
     CastHistoryV1,
     CastManaValueSweepV1,
     RandomBottomV1,
@@ -794,6 +797,15 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    Hideaway {
+        count: u32,
+        source_block: u32,
+    },
+    PlayHideawayLinked {
+        hideaway_block: u32,
+        minimum_total_power: Quantity,
+        source_block: u32,
+    },
     GrantHandCastCascade {
         source_block: u32,
     },
@@ -1266,7 +1278,9 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::GrantHandCastCascade { source_block }
+            Self::Hideaway { source_block, .. }
+            | Self::PlayHideawayLinked { source_block, .. }
+            | Self::GrantHandCastCascade { source_block }
             | Self::OfferHandCastWithoutManaCost { source_block }
             | Self::Cascade { source_block, .. }
             | Self::RevealAndCast { source_block }
@@ -2788,6 +2802,7 @@ impl Definition {
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
         hand_cast_cascade::validate_definition(self)?;
+        linked_hideaway::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3252,6 +3267,7 @@ impl Definition {
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
             && !typed_land_search::activation_definition(self)
+            && !self.capabilities.contains(&Capability::LinkedExilePlayV1)
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
         {
@@ -3319,7 +3335,7 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
-            if typed_land_search::activation(ability) {
+            if typed_land_search::activation(ability) || *ability == linked_hideaway::play() {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
@@ -3515,9 +3531,10 @@ impl Definition {
                 CardKind::Land => self.triggered.iter().all(|a| {
                     a.condition == TriggerCondition::SelfBecomesTapped
                         || (a.condition == TriggerCondition::SelfEntersBattlefield
-                            && self
+                            && (self
                                 .capabilities
-                                .contains(&Capability::EntryGraveyardExileV1))
+                                .contains(&Capability::EntryGraveyardExileV1)
+                                || self.capabilities.contains(&Capability::HideawayV1)))
                 }),
             }
         {
@@ -3768,6 +3785,7 @@ impl Definition {
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::GrantHandCastCascade { .. }
+                            | Instruction::Hideaway { .. }
                             | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
@@ -4932,7 +4950,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::GrantHandCastCascade { .. }
+            Instruction::Hideaway { .. }
+            | Instruction::PlayHideawayLinked { .. }
+            | Instruction::GrantHandCastCascade { .. }
             | Instruction::OfferHandCastWithoutManaCost { .. }
             | Instruction::Cascade { .. }
             | Instruction::Demonstrate { .. }
@@ -5499,6 +5519,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::DrainOpponents { .. }) {
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
+        if matches!(instruction, Instruction::Hideaway { .. }) {
+            set.insert(Capability::RandomBottomV1);
+        }
+        if matches!(instruction, Instruction::PlayHideawayLinked { .. }) {
+            set.insert(Capability::ResolutionCastV1);
+        }
         if matches!(instruction, Instruction::GrantHandCastCascade { .. }) {
             set.extend([
                 Capability::CascadeV1,
@@ -5520,6 +5546,8 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
+            Instruction::Hideaway { .. } => Capability::HideawayV1,
+            Instruction::PlayHideawayLinked { .. } => Capability::LinkedExilePlayV1,
             Instruction::GrantHandCastCascade { .. } => Capability::HandCastCascadeGrantV1,
             Instruction::OfferHandCastWithoutManaCost { .. } => Capability::CombatHandCastV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
@@ -5984,7 +6012,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
             "then":{"properties":{"capabilities":{"contains":{"const":Capability::CascadeV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CascadeV1}}}}}
         }),
-        serde_json::json!({"if":{"anyOf":[present,creative_technique::reveal_spell_schema()]},
+        serde_json::json!({"if":{"anyOf":[present,creative_technique::reveal_spell_schema(),linked_hideaway::capability_schema()]},
             "then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}
         })
     ]);
@@ -7128,6 +7156,7 @@ pub fn catalog_schema() -> serde_json::Value {
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     hand_cast_cascade::extend_schema(&mut schema);
+    linked_hideaway::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     for (effect, cap, pattern) in [
         (
@@ -7310,6 +7339,8 @@ mod tests {
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             HandCastCascadeGrantV1,
+            HideawayV1,
+            LinkedExilePlayV1,
             CastHistoryV1,
             CastManaValueSweepV1,
             RandomBottomV1,
@@ -7855,6 +7886,7 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(cascade_land_entry::witness());
         definitions.push(hand_cast_cascade::witness());
+        definitions.push(linked_hideaway::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
