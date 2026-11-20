@@ -255,9 +255,11 @@ impl Game {
         Ok(
             match self.program()?.targets.first().map(|target| target.domain) {
                 None => self.announcement_mana_frame(cast)?,
-                Some(TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility) => {
-                    Frame::StackTargets { cast }
-                }
+                Some(
+                    TargetDomain::StackSpell
+                    | TargetDomain::ControlledCreatureSpell
+                    | TargetDomain::StackActivatedOrTriggeredAbility,
+                ) => Frame::StackTargets { cast },
                 Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
                 Some(TargetDomain::PlayerOrPlaneswalker) => {
                     return Err("player-or-planeswalker requires an activated mode".into());

@@ -1208,3 +1208,6 @@ mod counter_unless_generic_tests;
 
 #[path = "cast_payer_draw_tests.rs"]
 mod cast_payer_draw_tests;
+
+#[path = "controlled_creature_spell_copy_tests.rs"]
+mod controlled_creature_spell_copy_tests;

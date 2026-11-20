@@ -196,6 +196,17 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String> {
+        if self.is_spell_copy(entry) {
+            return if entry.cost_lock.is_none()
+                && entry.paid.is_none()
+                && entry.total_cost == zero_mana_cost()
+                && entry.cast_from == Zone::Stack
+            {
+                Ok(())
+            } else {
+                Err("spell copy has casting or payment provenance".into())
+            };
+        }
         if !entry.kind.is_spell() {
             return if entry.cost_lock.is_none() {
                 Ok(())

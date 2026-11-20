@@ -788,7 +788,7 @@ impl Game {
             .any(|entry| {
                 entry.source == damage.source.object
                     && entry.controller == damage.controller
-                    && entry.paid.is_some()
+                    && self.stack_entry_complete(entry)
                     && self
                         .source_facts(entry)
                         .is_ok_and(|source| source == damage.source)

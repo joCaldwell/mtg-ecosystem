@@ -1070,7 +1070,10 @@ impl Game {
                 additional,
             }));
         }
-        // One stack ID per pending trigger, including all new siblings.
+        self.preflight_stack_ids(additional)
+    }
+    pub(super) fn preflight_stack_ids(&mut self, additional: u64) -> Result<(), String> {
+        // One stack ID per pending trigger, plus any new entries.
         let pending = u64::try_from(self.state.rules.pending_triggers.len())
             .map_err(|_| "stack ID resource limit")?;
         let requested = pending
@@ -1702,6 +1705,11 @@ impl Game {
                     && cast.spell.controller == cast.caster
                     && cast.spell.default_controller.0 < 4
                     && cast.spell.zone == Zone::Stack
+                    && !self
+                        .state
+                        .rules
+                        .tokens
+                        .contains_key(&cast.spell.object.card)
                     && !cast.spell.characteristics.has_type(CardKind::Land)
                     && self
                         .state
@@ -1729,7 +1737,11 @@ impl Game {
                     && death_controller.is_none()
             }
             TriggerEventWitness::TokenEntered { object } => {
-                self.state.rules.tokens.contains_key(&object.card)
+                self.state
+                    .rules
+                    .tokens
+                    .get(&object.card)
+                    .is_some_and(|t| !t.is_copy())
                     && object.incarnation == 0
                     && *condition == TriggerCondition::OtherCreatureEntersBattlefield
                     && *object != source
@@ -1749,11 +1761,12 @@ impl Game {
                     entrant.zone,
                     &entrant.characteristics,
                 )?;
-                let token = self.state.rules.tokens.contains_key(&entrant.object.card);
+                let identity = self.state.rules.tokens.get(&entrant.object.card);
                 let actual_entry = match movement {
                     Some(m) => {
-                        !token
-                            && m.destination == Zone::Battlefield
+                        identity.is_none_or(|t| {
+                            t.is_copy() && m.from == Zone::Stack && m.previous.incarnation == 0
+                        }) && m.destination == Zone::Battlefield
                             && match m.from {
                                 Zone::Battlefield => false,
                                 Zone::Stack | Zone::Exile => true,
@@ -1768,7 +1781,7 @@ impl Game {
                                 == Some(m.successor.incarnation)
                     }
                     None => {
-                        token
+                        identity.is_some_and(|t| !t.is_copy())
                             && entrant.object.incarnation == 0
                             && entrant.default_controller == entrant.owner
                     }

@@ -10,7 +10,7 @@ impl Game {
 
     pub(super) fn has_granted_land_mana(&self, land: ObjectId) -> Result<bool, String> {
         let current = self.current(land)?;
-        if current.zone != Zone::Battlefield
+        if !current.present_on_battlefield()
             || !self.is_live(current.controller)
             || !self
                 .definition(land.card)?
@@ -25,7 +25,7 @@ impl Game {
             return Ok(false);
         }
         for source in self.state.rules.objects.values() {
-            if source.zone == Zone::Battlefield
+            if source.present_on_battlefield()
                 && source.controller == current.controller
                 && self.is_live(self.state.rules.cards[&source.id.card].owner)
                 && self
