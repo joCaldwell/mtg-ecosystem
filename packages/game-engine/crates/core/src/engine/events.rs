@@ -1506,15 +1506,29 @@ impl Game {
                 return Err("phase-out requires a resolving spell".into());
             };
             self.validate_resolving(frame)?;
+            let instruction = self
+                .program_for(&frame.spell)?
+                .instructions
+                .get(frame.cursor as usize);
+            let authorized_block = match (&group, instruction) {
+                (
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::PhaseOutControlled { controller },
+                    },
+                    Some(Instruction::PhaseOutControllerPermanents { source_block }),
+                ) if *controller == frame.spell.controller => Some(*source_block),
+                (
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::FreezeLifeUntilNextTurn { player },
+                    },
+                    Some(Instruction::FreezeControllerLifeUntilNextTurn { source_block }),
+                ) if *player == frame.spell.controller => Some(*source_block),
+                _ => None,
+            };
             if !frame.spell.kind.is_spell()
                 || frame.spell.paid.is_none()
-                || frame.cursor != 0
                 || self.top()? != &frame.spell
-                || cause != Self::wipe_cause(frame, 0)
-                || !matches!((&group,self.program_for(&frame.spell)?.instructions.as_slice()),
-                    (EventGroup::Occurrence{proposed:ProposedEvent::PhaseOutControlled{controller:player}},[Instruction::PhaseOutControllerPermanents{source_block:0}]) |
-                    (EventGroup::Occurrence{proposed:ProposedEvent::FreezeLifeUntilNextTurn{player}},[Instruction::FreezeControllerLifeUntilNextTurn{source_block:0}])
-                    if *player==frame.spell.controller)
+                || !authorized_block.is_some_and(|block| cause == Self::wipe_cause(frame, block))
             {
                 return Err("phase-out requires the paid controller instruction".into());
             }
