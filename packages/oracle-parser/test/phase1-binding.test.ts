@@ -2212,3 +2212,89 @@ describe("per-opponent payments and isolated branch results", () => {
     assert.ok(graph.nodes.some(node => node.node === "source" && node.id === named));
   });
 });
+
+describe("copying distinct stack objects and retargeting them", () => {
+  const reselect = "Gain control of target spell that targets only a single permanent or player. Copy it, "
+    + "then reselect the targets at random for the spell and the copy. The new targets can't be you or a permanent you control.";
+
+  it("retains both exact stack identities and applies the exclusions to each slot", () => {
+    const graph = analyze(reselect, "Instant");
+    boundCard(graph);
+    const change = graph.nodes.find(node => node.node === "paired-random-reselection");
+    assert.ok(change && change.original !== change.copy);
+    assert.equal(change.original, bound(graph, "/effects/0/steps/0/what"));
+    assert.equal(change.original, bound(graph, "/effects/1/steps/1/what"));
+    assert.equal(change.copy, bound(graph, "/also/0"));
+    assert.deepEqual(change.exclude, [bound(graph, "/excluding/0"), bound(graph, "/excluding/1")]);
+    assert.equal(change.unit, "target-slot");
+    assert.equal(change.whenUnavailable, "keep");
+  });
+
+  it("does not infer the spell's original selection from unrelated targets", () => {
+    const result = parseOracleText(reselect, "Fixture", { typeLine: "Instant", includeSourceProvenance: true });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "spell");
+    const [gain] = ability.effects[0].steps;
+    assert.ok(gain.effect === "gain-control" && gain.what.ref === "target");
+    delete gain.what.filter.targetsOnly;
+    const graph = analyzeResult(result, "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "paired-random-reselection"));
+  });
+
+  const tempt = "Choose target instant or sorcery spell. Each opponent may copy that spell and may choose new targets "
+    + "for the copy they control. You copy that spell once plus an additional time for each opponent who copied the spell this way. "
+    + "You may choose new targets for the copies you control.";
+
+  it("counts opponents who copied even if they kept their copy's targets", () => {
+    const graph = analyze(tempt, "Instant");
+    boundCard(graph);
+    const outcome = graph.nodes.find(node => node.node === "opponent-copy-count");
+    assert.ok(outcome && outcome.extra === 1);
+    assert.equal(outcome.original, bound(graph, "/effects/0/steps/0/what"));
+    assert.equal(outcome.participants, bound(graph, "/count/b/of"));
+    assert.equal(outcome.member, bound(graph, "/decidedBy"));
+    assert.equal(outcome.member, bound(graph, "/effects/1/steps/0/retarget/who"));
+    assert.equal(outcome.retarget, "optional-per-copy");
+    assert.equal(outcome.order, "apnap-opponents-then-controller");
+  });
+
+  it("rejects a count whose qualifying action was changed", () => {
+    const result = parseOracleText(tempt, "Fixture", { typeLine: "Instant", includeSourceProvenance: true });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "spell");
+    const [copy] = ability.effects[2].steps;
+    assert.ok(copy.effect === "copy-stack-object" && copy.count.amount === "plus" &&
+      copy.count.b.amount === "player-count" && copy.count.b.of.player === "filtered");
+    copy.count.b.of.filter.precedingAction = "not-performed";
+    const graph = analyzeResult(result, "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "opponent-copy-count"));
+  });
+
+  const wither = "Whenever you cast an instant or sorcery spell with a single target, you may copy it. "
+    + "If you do, those spells gain wither. You may choose new targets for the copy.";
+
+  it("permits retargeting only as an actual copy is created, then grants the keyword to both", () => {
+    const graph = analyze(wither, "Creature");
+    boundCard(graph);
+    const grant = graph.nodes.find(node => node.node === "contingent-copy-grant");
+    assert.ok(grant);
+    const objects = graph.nodes.find(node => node.id === grant.affected);
+    const retarget = graph.nodes.find(node => node.id === grant.chosenTargets);
+    assert.ok(objects?.node === "result-union");
+    assert.deepEqual(objects.from, [bound(graph, "/effects/0/steps/0/what"), grant.copy]);
+    assert.ok(retarget?.node === "stack-instruction" && retarget.action.kind === "choose-new-targets");
+    assert.equal(retarget.action.timing, "copy-creation");
+    assert.equal(retarget.subject, bound(graph, "/effects/2/steps/0/what"));
+    assert.ok(graph.nodes.some(node => node.id === grant.event && node.node === "event" && node.requiresResult === grant.copy));
+  });
+
+  it("does not recover an independently consequential marked continuation", () => {
+    const graph = analyze(wither.replace("for the copy.", "for the copy, then draw a card."), "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "contingent-copy-grant"));
+  });
+});

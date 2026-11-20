@@ -172,6 +172,12 @@ export type BindingNode = NodeBase & (
   | { node: "per-player-copies"; scope: string; event: string; subject: string; group: string; member: string;
       retarget: "optional-per-copy" }
   | { node: "permanent-spell-copy-grant"; scope: string; copy: string; applies: "permanent-spell-and-resulting-token"; cardinality: "one" }
+  | { node: "paired-random-reselection"; scope: string; event: string; original: string; copy: string;
+      chooser: string; exclude: [string, string]; unit: "target-slot"; whenUnavailable: "keep" }
+  | { node: "opponent-copy-count"; scope: string; original: string; opponents: string; member: string; opponentEvent: string;
+      participants: string; final: string; controller: string; extra: 1; order: "apnap-opponents-then-controller"; retarget: "optional-per-copy" }
+  | { node: "contingent-copy-grant"; scope: string; event: string; copy: string; chosenTargets: string;
+      affected: string; keyword: "wither" }
   | { node: "random-target-reselection"; scope: string; event: string; subject: string; guard: "single-target-intervening-if" }
   | { node: "face-down-exile-look"; scope: string; viewer: string; card: string; event: string;
       duration: Extract<Effect, { effect: "grant-look-permission" }>["duration"]; continuedUntil: "leaves-exile-or-shuffled" }
