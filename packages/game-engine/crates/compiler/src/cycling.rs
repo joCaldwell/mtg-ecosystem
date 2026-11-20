@@ -53,6 +53,9 @@ pub(super) fn bind(
     if !abilities.iter().any(|a| matches!(a, Ability::Keywords { keywords, .. } if keywords.iter().any(|k| k.keyword == "cycling"))) {
         return Ok(());
     }
+    if matches!(card.type_line.as_str(), "Instant" | "Sorcery") {
+        return bind_spell(abilities, binding, identity, card, parsed);
+    }
     let bad = || {
         unsupported(
             "cycling.binding",
@@ -163,4 +166,101 @@ pub(super) fn bind(
         return Err(bad());
     }
     Ok(())
+}
+
+fn bind_spell(
+    abilities: &[Ability],
+    binding: &Value,
+    identity: &str,
+    card: &Source,
+    parsed: &ParseResult,
+) -> Result<(), Failure> {
+    let bad = || {
+        unsupported(
+            "cycling.binding",
+            "requires one ordinary spell instruction and a bound fixed-mana cycling keyword",
+        )
+    };
+    let [
+        Ability::Spell {
+            effects,
+            ability_word: None,
+        },
+        Ability::Keywords {
+            keywords,
+            ability_word: None,
+        },
+    ] = abilities
+    else {
+        return Err(bad());
+    };
+    let [
+        Sentence {
+            steps,
+            bindings,
+            condition: None,
+            condition_kind: None,
+        },
+    ] = effects.as_slice()
+    else {
+        return Err(bad());
+    };
+    let [keyword] = keywords.as_slice() else {
+        return Err(bad());
+    };
+    lower(keyword, 1)?;
+    let Some([SourceCost::Mana { symbols }]) = keyword.cost.as_deref() else {
+        return Err(bad());
+    };
+    let mana = symbols
+        .iter()
+        .map(|symbol| format!("{{{symbol}}}"))
+        .collect::<String>();
+    let raw: Value = decode(parsed.abilities.get(), "cycling.abilities")?;
+    let step = &raw[0]["effects"][0]["steps"][0];
+    if !bindings.is_empty()
+        || steps.len() != 1
+        || raw
+            != json!([
+                {"kind":"spell","effects":[{"steps":[step]}]},
+                {"kind":"keywords","keywords":[{"keyword":"cycling","cost":[{"cost":"mana","symbols":symbols}]}]}
+            ])
+        || !matches!(parsed.lines.as_slice(), [_, cycling]
+            if normalization::literal_spelling(&cycling.text) == format!("Cycling {mana}"))
+    {
+        return Err(bad());
+    }
+    let root = "/faces/0/abilities/1";
+    let path = format!("{root}/keywords/0");
+    let mut graph = bindings::Bindings::new(
+        identity,
+        &json!({
+            "layout":card.layout,"name":card.name,"type_line":card.type_line,"mana_cost":card.mana_cost
+        }),
+    );
+    graph.ability(root, "keywords", "static-source-controller");
+    let scope = graph.id(root, "ability");
+    let you = graph.node(
+        &path,
+        "you",
+        "runtime-player",
+        json!({
+            "scope":scope,"role":"activator","rules":["109.5","702.29"]
+        }),
+    );
+    graph.node(
+        &path,
+        "keyword",
+        "keyword-ability",
+        json!({
+            "scope":scope,"keyword":"cycling","abilities":["activated"],"you":you,"rules":["702.29"]
+        }),
+    );
+    graph.reference(
+        &format!("{path}/cost/0/payer"),
+        &json!({"player":"you"}),
+        &you,
+        "109.5",
+    );
+    graph.validate_block(binding, root)
 }

@@ -2408,6 +2408,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     if matches!(keywords.as_slice(), [k] if k.keyword == "kicker") {
                         continue; // Complete declaration and linked condition checked together.
                     }
+                    if let [keyword] = keywords.as_slice()
+                        && keyword.keyword == "cycling"
+                    {
+                        labels.activated.push(source_block(block)?);
+                        definition
+                            .activated
+                            .push(cycling::lower(keyword, source_block(block)?)?);
+                        continue;
+                    }
                     let previous = definition.triggered.len();
                     optional_costs::instant_keywords(&mut definition, keywords, block)?;
                     labels.triggered.extend(std::iter::repeat_n(

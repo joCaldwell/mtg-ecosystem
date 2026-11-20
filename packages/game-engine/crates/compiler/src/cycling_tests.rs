@@ -189,3 +189,56 @@ fn cycling_complete_source_generic_fixed_mana_is_not_printed_cost_dispatch() {
         );
     }
 }
+
+#[test]
+fn cycling_fixed_spell_preserves_cast_draw_and_binds_hand_activation() {
+    let raw = include_str!("../../../tests/fixtures/hieroglyphic-illumination.json");
+    let definition = lower(raw);
+    let spell = definition.spell.as_ref().unwrap();
+    assert_eq!(spell.timing, SpellTiming::Instant);
+    assert_eq!(
+        spell.instructions,
+        vec![
+            Instruction::DrawCards {
+                recipient: None,
+                count: 1.into(),
+                source_block: 0,
+            };
+            2
+        ]
+    );
+    let [activation] = definition.activated.as_slice() else {
+        panic!("expected one hand activation");
+    };
+    assert!(hand_discard_draw_activation(activation));
+    assert_eq!(
+        activation.cost,
+        ActivationCost::DiscardSource {
+            mana: ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::U],
+            },
+        }
+    );
+    assert_eq!(definition.source_labels.as_ref().unwrap().activated, [1]);
+    assert_eq!(
+        activation.program.instructions,
+        [Instruction::DrawCards {
+            recipient: None,
+            count: 1.into(),
+            source_block: 1,
+        }]
+    );
+    let mut forged = *definition;
+    forged.activated.clear();
+    forged.capabilities = forged.requirements();
+    assert!(forged.validate().is_err());
+
+    let wrong_payer = tests::changed_source(raw, |r| {
+        r["binding"]["references"][1]["target"] = r["binding"]["references"][0]["target"].clone();
+    });
+    assert!(matches!(
+        compile(HEADER, &wrong_payer),
+        CompileResult::Unsupported { .. }
+    ));
+}

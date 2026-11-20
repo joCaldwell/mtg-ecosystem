@@ -141,9 +141,9 @@ precision. Fetch activations atomically tap, pay life and sacrifice the source
 before typed search; the current controller pays and paid roots retain LKI through
 source-owner departure. Sacrifice-source creature activations capture controller
 creatures at resolution for pure temporary keyword grants.
-Cycling pays mana then discards its announced hand source; resolution draws without
-moving that discarded card. Focused proof uses38/28,IR1; admission and opponent
-production remain open.
+Fixed-mana Cycling on typed lands and ordinary spells pays mana, then discards
+its hand source. Resolution draws one. Typed-land proof uses38/28,IR1; admission
+and opponent production remain open.
 
 ## Casting, costs, targets and stack
 
