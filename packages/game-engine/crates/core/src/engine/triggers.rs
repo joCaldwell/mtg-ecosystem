@@ -326,7 +326,8 @@ fn power_entry_matches(
 }
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
-        EventOutcome::EnteredAttached { movement, .. }
+        EventOutcome::HiddenAway { movement, .. }
+        | EventOutcome::EnteredAttached { movement, .. }
         | EventOutcome::Moved { movement }
         | EventOutcome::Sacrificed { movement, .. }
         | EventOutcome::CardDiscarded { movement, .. }
@@ -1517,6 +1518,13 @@ impl Game {
         handles: &[ObjectHandle],
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
+        // A hideaway invocation keeps its entry-time chooser even if a later
+        // controller is retained in the permanent's departure LKI (113.7a).
+        let departed_hideaway = self.current(source).is_err()
+            && matches!(
+                definition.program.instructions.as_slice(),
+                [Instruction::Hideaway { .. }]
+            );
         if controller.0 >= 4
             || fact.object != source
             || fact.owner
@@ -1548,7 +1556,8 @@ impl Game {
                 definition.condition,
                 TriggerCondition::SelfEntersBattlefield
                     | TriggerCondition::SpellCastWithOrigin { .. }
-            ) && fact.controller != controller)
+            ) && fact.controller != controller
+                && !departed_hideaway)
             || handles.len() != 4
         {
             return Err("snapshot trigger source invariant".into());

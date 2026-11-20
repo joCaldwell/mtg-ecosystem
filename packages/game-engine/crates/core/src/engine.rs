@@ -33,6 +33,7 @@ mod activated_permanent_tap_tests;
 mod activated_spell_counter_tests;
 mod each_player_draw;
 mod group_discard;
+mod hideaway;
 #[cfg(test)]
 mod keyword_removal_wipe_tests;
 #[cfg(test)]
@@ -41,6 +42,7 @@ mod nonland_exile_life_tests;
 mod opponent_nonland_destroy_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
+use hideaway::HideawayLink;
 mod random_discard;
 mod removal;
 #[cfg(test)]
@@ -915,6 +917,8 @@ struct Card {
 #[serde(deny_unknown_fields)]
 struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    hideaway: Option<Box<HideawayLink>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     phased_out: Option<PhaseReturn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attached_to: Option<ObjectId>,
@@ -1211,6 +1215,9 @@ pub enum Response {
     LibraryOrder {
         objects: Vec<ObjectId>,
     },
+    Hideaway {
+        object: ObjectId,
+    },
     LibrarySelect {
         hand: Vec<ObjectId>,
         remainder: Vec<ObjectId>,
@@ -1377,6 +1384,11 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
         count: usize,
+    },
+    Hideaway {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
     },
     LibrarySelect {
         decision_id: u64,
@@ -1603,6 +1615,7 @@ impl Request {
             Self::HandCast { decision_id, .. }
             | Self::HandReturn { decision_id, .. }
             | Self::LibraryOrder { decision_id, .. }
+            | Self::Hideaway { decision_id, .. }
             | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
@@ -1648,6 +1661,7 @@ impl Request {
             Self::HandCast { player, .. }
             | Self::HandReturn { player, .. }
             | Self::LibraryOrder { player, .. }
+            | Self::Hideaway { player, .. }
             | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
@@ -1721,6 +1735,12 @@ pub enum ProposedEvent {
         amount: Quantity,
         looked: Vec<ObjectId>,
         order: Vec<ObjectId>,
+    },
+    Hideaway {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        selected: ObjectId,
+        bottom: Vec<ObjectId>,
     },
     LibrarySelect {
         player: PlayerId,
@@ -1970,6 +1990,10 @@ pub enum EventOutcome {
         player: PlayerId,
         looked: Vec<ObjectId>,
         order: Vec<ObjectId>,
+    },
+    HiddenAway {
+        movement: MoveOutcome,
+        bottom: Vec<ObjectId>,
     },
     LibrarySelected {
         player: PlayerId,
@@ -2472,6 +2496,7 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        hideaway: None,
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
@@ -2648,7 +2673,9 @@ impl Game {
             .map(|p| p.mana.get(&color).cloned().unwrap_or_default())
     }
     pub fn characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
-        self.current(object)?;
+        if self.current(object)?.hideaway.is_some() {
+            return Err("face-down exiled card has no characteristics".into());
+        }
         self.derived_characteristics(object)
     }
     // Characteristics supply intrinsic behavior; reminder text never supplies
@@ -3762,6 +3789,7 @@ impl Game {
         }
         self.validate_attachment_state()?;
         self.validate_control_state()?;
+        self.validate_hideaway_links()?;
         self.validate_tokens_state()?;
         self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;
