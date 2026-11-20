@@ -18,7 +18,7 @@ impl Game {
                     return matches!(o.zone, Zone::Graveyard { .. })
                         && !self.state.rules.tokens.contains_key(&o.id.card);
                 }
-                if o.zone != Zone::Battlefield {
+                if !o.present_on_battlefield() {
                     return false;
                 }
 
@@ -80,7 +80,7 @@ impl Game {
     fn other_casts_mana_value(&self, spell: &StackInstance) -> Result<Quantity, String> {
         // CR 601.2i, 608.2i: this paid spell was cast in the current turn.
         // Cast history also includes spells cast above it, such as cascade casts.
-        // No supported effect copies a stack spell or changes its controller.
+        // This sorcery-only instruction counts the other casts by its caster.
         if !spell.kind.is_spell() || spell.paid.is_none() {
             return Err("cast mana value sum requires a paid spell".into());
         }
@@ -166,7 +166,7 @@ impl Game {
                     if from_graveyards {
                         matches!(o.zone, Zone::Graveyard { .. })
                     } else {
-                        o.zone == Zone::Battlefield
+                        o.present_on_battlefield()
                     }
                 })
             })
@@ -432,7 +432,7 @@ impl Game {
             Instruction::UntapControllerLands { source_block } => {
                 let mut occurrences = Vec::new();
                 for object in self.state.rules.objects.values() {
-                    if object.zone == Zone::Battlefield
+                    if object.present_on_battlefield()
                         && object.tapped
                         && object.controller == frame.spell.controller
                         && self

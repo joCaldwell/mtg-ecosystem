@@ -46,6 +46,7 @@ fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
+        Frame::HandCast { frame, .. } => Some(&frame.spell),
         Frame::Cascade { progress }
         | Frame::LandEntry {
             origin: EntryOrigin::Cascade { progress },
@@ -84,6 +85,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
+        Frame::HandCast { frame, .. } => update_entry(&mut frame.spell, fact),
         Frame::Cascade { progress }
         | Frame::LandEntry {
             origin: EntryOrigin::Cascade { progress },
@@ -179,6 +181,15 @@ impl Game {
         update_frame(&mut self.state.rules.frame, fact);
     }
     pub(super) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
+        if self
+            .current(entry.source)
+            .is_ok_and(|o| o.phased_out.is_some())
+        {
+            return entry
+                .source_facts
+                .clone()
+                .ok_or("missing phased-out source facts".into());
+        }
         self.object_before(entry.source).or_else(|_| {
             entry
                 .source_facts
@@ -193,6 +204,7 @@ impl Game {
     ) -> Vec<PlayerId> {
         self.live_players()
             .into_iter()
+            .filter(|p| self.targetable_player(*p))
             .filter(|p| {
                 matches!(
                     domain,
@@ -222,13 +234,14 @@ impl Game {
     }
     pub(super) fn entity_legal(&self, target: TargetEntity) -> bool {
         match target {
-            TargetEntity::Player { player } => self.is_live(player),
+            TargetEntity::Player { player } => self.targetable_player(player),
             TargetEntity::Object { object } => self.is_battlefield_creature(object),
         }
     }
     pub(super) fn eligible_entities(&self) -> Vec<TargetEntity> {
         self.live_players()
             .into_iter()
+            .filter(|p| self.targetable_player(*p))
             .map(|player| TargetEntity::Player { player })
             .chain(
                 self.state
@@ -343,7 +356,7 @@ impl Game {
         // there is no mana window when this cost contains no mana.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let source_payable = self.current(entry.source).is_ok_and(|source| {
-            source.zone == Zone::Battlefield
+            source.present_on_battlefield()
                 && source.controller == entry.controller
                 && !source.tapped
                 && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
@@ -578,6 +591,9 @@ impl Game {
         };
         let mut total = Quantity::zero();
         for occurrence in &losses.occurrences {
+            if matches!(occurrence.actual, EventOutcome::LifeChangeProhibited { .. }) {
+                continue;
+            }
             let EventOutcome::LifeLost { amount, .. } = &occurrence.actual else {
                 return Err("missing opponent life loss outcome".into());
             };
@@ -784,7 +800,7 @@ impl Game {
             .any(|entry| {
                 entry.source == damage.source.object
                     && entry.controller == damage.controller
-                    && entry.paid.is_some()
+                    && self.stack_entry_complete(entry)
                     && self
                         .source_facts(entry)
                         .is_ok_and(|source| source == damage.source)
@@ -805,10 +821,10 @@ impl Game {
                 if !self.is_live(player) {
                     return Err("departed damage recipient".into());
                 }
-                let life = &mut self.state.rules.players[player.0 as usize].life;
-                let previous = life.clone();
-                life.subtract(&damage.amount);
-                (previous, life.clone())
+                if self.player_protected(player) {
+                    return Err("protection requires the damage transaction".into());
+                }
+                self.state.rules.players[player.0 as usize].lose_life(&damage.amount)
             }
             DamageRecipient::Creature { object } => {
                 if !self.is_battlefield_creature(object) {

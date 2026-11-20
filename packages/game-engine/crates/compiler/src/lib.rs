@@ -20,7 +20,9 @@ mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
 mod colored_library_search;
+mod combat_hand_cast;
 mod commander_modal_keyword;
+mod controlled_creature_spell_copy;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -29,6 +31,7 @@ mod controller_library;
 mod controller_scry_tests;
 #[cfg(test)]
 mod controller_surveil_tests;
+mod controller_window;
 mod counter_spell_controller_mill;
 #[cfg(test)]
 mod counter_spell_controller_mill_tests;
@@ -192,6 +195,9 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    // The complete source and its exact graph are verified before emission.
+    #[serde(skip)]
+    ControlledCreatureSpellCopy,
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
@@ -206,6 +212,8 @@ enum Ability {
     PlayerGraveyardShuffle,
     #[serde(skip)]
     FixedTargetModes,
+    #[serde(skip)]
+    ControllerWindowBlock,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -731,6 +739,10 @@ enum Step {
         what: serde_json::Value,
         removal: serde_json::Value,
         duration: SourceDuration,
+    },
+    PlayCard {
+        instruction: serde_json::Value,
+        optional: bool,
     },
     LoseGame {
         who: PlayerSelector,
@@ -1462,6 +1474,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
+    let controller_window =
+        controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let graveyard_shuffle =
         graveyard_shuffle::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let fixed_modes = fixed_target_modes::lower(&shape, &result, &binding, &r.oracle_identity)?;
@@ -1469,6 +1483,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         vec![Ability::FixedTargetModes]
     } else if graveyard_shuffle.is_some() {
         vec![Ability::PlayerGraveyardShuffle]
+    } else if controller_window.is_some() {
+        vec![Ability::ControllerWindowBlock; 2]
     } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
         vec![Ability::CommanderModalKeyword]
     } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
@@ -1477,6 +1493,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
         vec![ability]
+    } else if controlled_creature_spell_copy::candidate(&source) {
+        vec![Ability::ControlledCreatureSpellCopy]
     } else {
         read_abilities(&canonical_abilities)?
     };
@@ -1758,6 +1776,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
         CardKind::Sorcery | CardKind::Instant if graveyard_shuffle.is_some() => {
             definition.spell = graveyard_shuffle;
+        }
+        CardKind::Sorcery | CardKind::Instant if controller_window.is_some() => {
+            definition.spell = controller_window;
         }
         CardKind::Sorcery | CardKind::Instant if set_exile.is_some() => {
             definition.spell = set_exile;
@@ -2113,7 +2134,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if let Some(ability) = source_tap_trigger.take() {
+                        let ability = if block == 1
+                            && condition.is_none()
+                            && combat_hand_cast::is_offer(effects)
+                        {
+                            mtg_contracts::combat_hand_cast_trigger()
+                        } else if let Some(ability) = source_tap_trigger.take() {
                             ability
                         } else if let Some(discard) = &group_discard {
                             group_discard::entry_trigger(discard.clone())
@@ -2221,6 +2247,21 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         .push(Instruction::CounterSpellUnlessPays {
                             target_slot,
                             generic: generic.clone(),
+                            source_block: 0,
+                        });
+                    continue;
+                }
+                if let Ability::ControlledCreatureSpellCopy = ability {
+                    let target_slot = bind_target(
+                        &mut program,
+                        &mut slots,
+                        controlled_creature_spell_copy::SELECTION,
+                        TargetDomain::ControlledCreatureSpell,
+                    )?;
+                    program
+                        .instructions
+                        .push(Instruction::CopyControlledCreatureSpell {
+                            target_slot,
                             source_block: 0,
                         });
                     continue;
@@ -2604,6 +2645,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     {
         cast_mana_value_sweep::validate_binding(&definition.oracle_id, &shape, &binding)?;
     }
+    if definition
+        .capabilities
+        .contains(&Capability::ControlledCreatureSpellCopyV1)
+    {
+        controlled_creature_spell_copy::validate_binding(&definition, &shape, &binding)?;
+    }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
@@ -2611,6 +2658,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
+    combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
     {

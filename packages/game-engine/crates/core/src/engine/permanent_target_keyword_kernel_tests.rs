@@ -101,6 +101,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
     let handles = g.capture_trigger_source_handles(target).unwrap();
     let spell = StackInstance {
         alternative_cost: None,
+        hand_cast_permission: None,
         cost_lock: None,
         selected_additional_costs: None,
         x: None,

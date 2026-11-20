@@ -42,13 +42,11 @@ impl Game {
         life: &Quantity,
     ) -> Result<(), String> {
         let object = self.current(source)?;
-        if object.zone != Zone::Battlefield
+        if !object.present_on_battlefield()
             || object.controller != player
             || !self.is_live(player)
             || object.tapped
-            || life.is_negative()
-            || (*life > Quantity::zero()
-                && self.state.rules.players[player.0 as usize].life < *life)
+            || !self.state.rules.players[player.0 as usize].can_pay_life(life)
         {
             return Err("unpayable source tap, life and sacrifice cost".into());
         }
@@ -150,6 +148,7 @@ impl Game {
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost: None,
+            hand_cast_permission: None,
             x: None,
             death_controller: None,
             sacrificed: None,
@@ -439,9 +438,12 @@ impl Game {
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
+        self.validate_hand_cast_child(entry)?;
         if entry.alternative_cost.is_some()
             && (!entry.kind.is_spell()
-                || entry.cast_from != Zone::Exile
+                || (!self.is_spell_copy(entry)
+                    && entry.cast_from != Zone::Exile
+                    && entry.hand_cast_permission.is_none())
                 || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
             || (entry.kind.is_spell()
                 && entry.cast_from == Zone::Exile
@@ -469,7 +471,9 @@ impl Game {
         let stack_domain = program.targets.first().is_some_and(|target| {
             matches!(
                 target.domain,
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility
+                TargetDomain::StackSpell
+                    | TargetDomain::ControlledCreatureSpell
+                    | TargetDomain::StackActivatedOrTriggeredAbility
             )
         });
         if !entry.stack_targets.is_empty() {
@@ -505,7 +509,7 @@ impl Game {
             .iter()
             .filter(|entry| {
                 Some(entry.id) != exclude
-                    && entry.paid.is_some()
+                    && self.stack_entry_complete(entry)
                     && match domain {
                         TargetDomain::StackSpell => entry.kind.is_spell(),
                         TargetDomain::StackActivatedOrTriggeredAbility => !entry.kind.is_spell(),
@@ -549,7 +553,7 @@ impl Game {
             || entries.len() != program.targets.len()
             || entries.iter().enumerate().any(|(slot, target)| {
                 !self
-                    .eligible_stack_targets_for(&program.targets[slot], Some(top.id))
+                    .eligible_stack_targets_for(&program.targets[slot], player, Some(top.id))
                     .contains(target)
             })
         {

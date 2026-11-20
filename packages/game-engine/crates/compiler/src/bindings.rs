@@ -68,7 +68,20 @@ impl<'a> Bindings<'a> {
         expression: &Value,
         selection: &str,
     ) -> String {
-        let id = self.target_selection(scope, path, expression, selection, "one");
+        let id = self.target_selection(scope, path, expression, selection, "one", None);
+        self.reference(path, expression, &id, "601.2c");
+        id
+    }
+
+    pub(super) fn target_with_chooser(
+        &mut self,
+        scope: &str,
+        path: &str,
+        expression: &Value,
+        selection: &str,
+        chooser: &str,
+    ) -> String {
+        let id = self.target_selection(scope, path, expression, selection, "one", Some(chooser));
         self.reference(path, expression, &id, "601.2c");
         id
     }
@@ -92,7 +105,7 @@ impl<'a> Bindings<'a> {
         expression: &Value,
         selection: &str,
     ) {
-        let id = self.target_selection(scope, path, expression, selection, "unknown");
+        let id = self.target_selection(scope, path, expression, selection, "unknown", None);
         self.references.push(
             json!({"path":path,"expression":expression,"binding":"unresolved",
             "rules":["601.2c"],"code":"unresolved-dependency","candidates":[id]}),
@@ -106,10 +119,15 @@ impl<'a> Bindings<'a> {
         expression: &Value,
         selection: &str,
         cardinality: &str,
+        chooser: Option<&str>,
     ) -> String {
         let id = format!("{scope}/targets/{}", selection.replace(':', "%3A"));
-        self.nodes.push(json!({"id":id,"path":path,"node":"selection","scope":scope,"expression":expression,
-            "cardinality":cardinality,"timing":"stack-announcement","selection":"target","rules":["601.2c"]}));
+        let mut node = json!({"id":id,"path":path,"node":"selection","scope":scope,"expression":expression,
+            "cardinality":cardinality,"timing":"stack-announcement","selection":"target","rules":["601.2c"]});
+        if let Some(chooser) = chooser {
+            node["chooser"] = json!(chooser);
+        }
+        self.nodes.push(node);
         id
     }
 
@@ -234,12 +252,21 @@ impl<'a> Bindings<'a> {
     }
 
     pub(super) fn validate_ordered(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        self.validate_ordered_with_features(binding, &[], message)
+    }
+
+    pub(super) fn validate_ordered_with_features(
+        &self,
+        binding: &Value,
+        features: &[Value],
+        message: &str,
+    ) -> Result<(), Failure> {
         if binding["nodes"].as_array() != Some(&self.nodes)
             || binding["references"].as_array() != Some(&self.references)
         {
             return Err(unsupported("binding", message));
         }
-        self.validate(binding, message)
+        self.validate_with_features(binding, features, message)
     }
 
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {

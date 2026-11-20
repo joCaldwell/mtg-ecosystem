@@ -1136,6 +1136,12 @@ export type Effect = EffectBase &
      * distinction unresolved until antecedent binding, rather than treating
      * returned creatures as players because the player grammar runs first. */
     | { effect: "gain-abilities"; what: ObjectRef | { recipient: "they" }; abilities: GainedAbility[] }
+    /** Resolution creates a continuous grant for later casts. Apply it as each
+     * qualifying spell is cast, before its cast triggers are collected
+     * (CR 611.2a/c/f, 601.2, 702.85). */
+    | { effect: "grant-cast-keyword"; timing: "as-cast"; caster: { player: "you" };
+        from: { zone: "hand"; owner: "your" }; what: { recipient: "they" };
+        duration: { duration: "this-turn" }; keyword: "cascade" }
     | { effect: "player-gain-abilities"; who: PlayerRef; abilities: GainedAbility[] }
     | { effect: "gain-life" | "lose-life"; who: PlayerRef; amount: Amount }
     /** CR 106.4: all mana in the player's mana pool is lost now, as when it

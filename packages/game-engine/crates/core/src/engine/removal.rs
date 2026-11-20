@@ -22,6 +22,7 @@ pub(super) struct TargetFacts {
 impl Game {
     fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
         match frame {
+            Frame::HandCast { frame, .. } => Some(frame.as_mut()),
             Frame::Cascade { progress }
             | Frame::LandEntry {
                 origin: EntryOrigin::Cascade { progress },
@@ -87,7 +88,7 @@ impl Game {
                     } else {
                         entry.targets.get(slot).is_some_and(|id| {
                             self.current(*id)
-                                .is_ok_and(|object| object.zone == Zone::Battlefield)
+                                .is_ok_and(|object| object.present_on_battlefield())
                         })
                     }
             })
@@ -112,7 +113,7 @@ impl Game {
         f: &PermanentFilter,
     ) -> bool {
         self.current(object).is_ok_and(|o| {
-            o.zone == Zone::Battlefield
+            o.present_on_battlefield()
                 && (!f.opponent || o.controller != controller)
                 && (!f.tapped || o.tapped)
         }) && self.definition(object.card).is_ok_and(|d| {
@@ -150,23 +151,36 @@ impl Game {
     pub(super) fn eligible_stack_targets_for(
         &self,
         spec: &TargetSpec,
+        controller: PlayerId,
         exclude: Option<StackId>,
     ) -> Vec<StackId> {
-        self.eligible_stack_targets(spec.domain, exclude)
+        let controlled_creature = spec.domain == TargetDomain::ControlledCreatureSpell;
+        let domain = if controlled_creature {
+            TargetDomain::StackSpell
+        } else {
+            spec.domain
+        };
+        self.eligible_stack_targets(domain, exclude)
             .into_iter()
             .filter(|id| {
-                spec.filter.as_ref().is_none_or(|f| {
-                    self.state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|e| e.id == *id)
-                        .is_some_and(|e| {
-                            self.definition(e.source.card).is_ok_and(|d| {
-                                f.types.iter().any(|k| d.characteristics.has_type(*k))
-                            })
+                if !controlled_creature && spec.filter.is_none() {
+                    return true;
+                }
+                self.state
+                    .rules
+                    .stack
+                    .iter()
+                    .find(|e| e.id == *id)
+                    .is_some_and(|entry| {
+                        self.definition(entry.source.card).is_ok_and(|d| {
+                            (!controlled_creature
+                                || (entry.controller == controller
+                                    && d.characteristics.has_type(CardKind::Creature)))
+                                && spec.filter.as_ref().is_none_or(|f| {
+                                    f.types.iter().any(|k| d.characteristics.has_type(*k))
+                                })
                         })
-                })
+                    })
             })
             .collect()
     }

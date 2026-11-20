@@ -5,7 +5,7 @@ use super::*;
 impl Game {
     pub(super) fn intrinsic_mana_colors(&self, source: ObjectId) -> Result<Vec<Color>, String> {
         let object = self.current(source)?;
-        if object.zone != Zone::Battlefield
+        if !object.present_on_battlefield()
             || !self
                 .definition(source.card)?
                 .characteristics
@@ -39,7 +39,7 @@ impl Game {
     ) -> Result<(), String> {
         let o = self.current(source)?;
         if !self.is_live(player)
-            || o.zone != Zone::Battlefield
+            || !o.present_on_battlefield()
             || o.controller != player
             || o.tapped
             || (self.characteristics(source)?.has_type(CardKind::Creature)
