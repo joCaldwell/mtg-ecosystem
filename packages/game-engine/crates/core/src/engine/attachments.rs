@@ -294,8 +294,23 @@ impl Game {
         object: ObjectId,
         restriction: CreatureRestriction,
     ) -> bool {
-        self.static_modifications(object).iter().any(|a| matches!(a, StaticEffect::ModifyCreatures { restrictions, .. } if restrictions.contains(&restriction)))
+        self.creature_restrictions(object).any(|r| r == restriction)
     }
+
+    pub(super) fn creature_restrictions(
+        &self,
+        object: ObjectId,
+    ) -> impl Iterator<Item = CreatureRestriction> + '_ {
+        self.static_modifications(object)
+            .into_iter()
+            .filter_map(|effect| match effect {
+                StaticEffect::ModifyCreatures { restrictions, .. } => Some(restrictions),
+                _ => None,
+            })
+            .flatten()
+            .copied()
+    }
+
     pub(super) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
         // CR 702.11b/18a apply only while the ability functions on battlefield.
         if self.current(object).is_ok_and(|o| o.phased_out.is_some()) {

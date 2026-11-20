@@ -118,6 +118,7 @@ mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
+pub mod source_combat_restrictions;
 pub use controller_library::{
     FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
     matches_fixed_amount, printed_cast_scry,
@@ -355,6 +356,7 @@ pub enum Capability {
     ProtectionFromEverythingV1,
     SelfGraveyardRevealShuffleV1,
     BasicLandwalkV1,
+    SourceCombatRestrictionsV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
     HandCastCascadeGrantV1,
@@ -1736,6 +1738,7 @@ pub enum CreatureRestriction {
     CantBlock,
     CantBeBlocked,
     CantAttackOrBlock,
+    CanBlockOnlyFlying,
 }
 /// Supported announcement timing; permissions are checked by the runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2430,7 +2433,10 @@ fn static_creature_modification_valid(
                 || *power != Quantity::zero()
                 || *toughness != Quantity::zero()
                 || !keywords.is_empty()
-                || restrictions != &[CreatureRestriction::CantBlock]))
+                || (restrictions != &[CreatureRestriction::CantBlock]
+                    && source_combat_restrictions::restriction(effect).is_none())))
+        || (*scope != CreatureScope::Source
+            && restrictions.contains(&CreatureRestriction::CanBlockOnlyFlying))
         || (*scope == CreatureScope::AttackingController
             && (!matches!(
                 kind,
@@ -2969,6 +2975,12 @@ impl Definition {
                 StaticEffect::ModifyCreatures {
                     scope: CreatureScope::Source,
                     ..
+                } if source_combat_restrictions::restriction(&a.effect).is_some() => {
+                    Capability::SourceCombatRestrictionsV1
+                }
+                StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::Source,
+                    ..
                 } => Capability::SacrificeV1,
                 StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
             };
@@ -3412,6 +3424,7 @@ impl Definition {
             return Err("invalid source/AST provenance".into());
         }
         basic_landwalk::validate_definition(self)?;
+        source_combat_restrictions::validate_definition(self)?;
         creature_planeswalker_return::validate(self)?;
         fixed_creature_damage::validate(self, fixed_activations)?;
         controller_creature_pump::validate(self)?;
@@ -6438,6 +6451,7 @@ pub fn catalog_schema() -> serde_json::Value {
         ]);
 
     basic_landwalk::extend_schema(&mut schema);
+    source_combat_restrictions::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -7668,6 +7682,7 @@ mod tests {
             SelfGraveyardRevealShuffleV1,
             BasicLandwalkV1,
             EnterAsCopyOfPermanentEnteredThisTurnV1,
+            SourceCombatRestrictionsV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             HandCastCascadeGrantV1,
@@ -8732,6 +8747,42 @@ mod tests {
         landwalk.keywords = vec![KeywordAbility::Forestwalk];
         landwalk.capabilities = landwalk.requirements();
         definitions.push(landwalk);
+
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/source-combat-restriction-tidal-kraken.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        let mut kraken = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        kraken.name = source["name"].as_str().unwrap().into();
+        kraken.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        kraken.provenance.printing_id = source["id"].as_str().unwrap().into();
+        kraken.provenance.source_json = canonical(source).unwrap();
+        kraken.provenance.source_sha256 = sha256(kraken.provenance.source_json.as_bytes());
+        kraken.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        kraken.provenance.ast_sha256 =
+            sha256(format!("[{}]", kraken.provenance.abilities_json).as_bytes());
+        kraken.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        kraken.characteristics.subtypes = vec!["Kraken".into()];
+        kraken.characteristics.power = Some(6.into());
+        kraken.characteristics.toughness = Some(6.into());
+        kraken.characteristics.mana_cost = ManaCost {
+            generic: 5.into(),
+            colored: vec![Color::U; 3],
+        };
+        kraken.characteristics.colors = vec![Color::U];
+        kraken.characteristics.color_identity = vec![Color::U];
+        kraken.source_labels = None;
+        kraken.static_abilities = vec![source_combat_restrictions::static_ability(
+            CreatureRestriction::CantBeBlocked,
+        )];
+        kraken.capabilities = kraken.requirements();
+        definitions.push(kraken);
 
         definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {

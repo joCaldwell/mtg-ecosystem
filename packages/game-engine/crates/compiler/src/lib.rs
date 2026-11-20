@@ -94,6 +94,7 @@ mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
+mod source_combat_restrictions;
 mod source_dies_nonland_destroy;
 mod source_tap_damage;
 mod spell_cascade_grants;
@@ -1219,6 +1220,10 @@ enum SourceStaticEffect {
         what: serde_json::Value,
         action: String,
     },
+    CombatRule {
+        what: serde_json::Value,
+        rule: serde_json::Value,
+    },
     Modify {
         what: serde_json::Value,
         modifiers: Vec<serde_json::Value>,
@@ -2013,9 +2018,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
-                        definition
-                            .static_abilities
-                            .push(lower_static(effect, source_block(block)?)?)
+                        let ability = match source_combat_restrictions::lower(
+                            effect, block, &result, &shape, &binding, kind,
+                        )? {
+                            Some(ability) => ability,
+                            None => lower_static(effect, source_block(block)?)?,
+                        };
+                        definition.static_abilities.push(ability);
                     }
                     Ability::Keywords { keywords, .. } => {
                         if keywords.is_empty() {
@@ -4888,6 +4897,12 @@ fn lower_prevention(
     }
 }
 fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<StaticAbility, Failure> {
+    if matches!(effect, SourceStaticEffect::CombatRule { .. }) {
+        return Err(unsupported(
+            "static.combat_rule",
+            "unsupported complete combat rule",
+        ));
+    }
     if matches!(effect, SourceStaticEffect::EntryCopy { .. }) {
         // The complete graph is checked before lowering and the complete
         // printed source and raw AST before returning a definition.
