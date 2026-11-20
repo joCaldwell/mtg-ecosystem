@@ -46,6 +46,10 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ResolutionChoice {
+    Demonstrate {
+        source_block: u32,
+        first: Option<spell_copy::CopyIdentity>,
+    },
     HandReturn {
         player: PlayerId,
         hand: Vec<ObjectId>,
@@ -59,6 +63,11 @@ pub(super) enum ResolutionChoice {
     OptionalShuffle {
         player: PlayerId,
         source_block: u32,
+    },
+    Hideaway {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        bottom: Option<hideaway::RandomBottom>,
     },
     LibrarySelect {
         player: PlayerId,
@@ -138,7 +147,7 @@ impl Game {
         Ok(self.has_target_domain(
             self.program_for(top)?,
             top.controller,
-            self.targeting_characteristics(top)?,
+            self.targeting_characteristics(top)?.as_ref(),
         ))
     }
 
@@ -452,7 +461,7 @@ impl Game {
         {
             return Err("no payable sacrifice permanent".into());
         }
-        if !self.has_target_domain(&ability.program, player, &definition.characteristics) {
+        if !self.has_target_domain(&ability.program, player, self.color_layer(object)?.as_ref()) {
             return Err("no eligible ability targets".into());
         }
         Ok(())
@@ -482,6 +491,22 @@ impl Game {
                 revealed: None,
                 ..
             } if self.is_live(*player) => Some(self.colored_request(frame, *player)?),
+            ResolutionChoice::Demonstrate { first, .. } if self.is_live(frame.spell.controller) => {
+                let player = frame.spell.controller;
+                if first.is_none() {
+                    Some(Request::OptionalEffect {
+                        player,
+                        decision_id,
+                    })
+                } else {
+                    let candidates = self.opponents(player);
+                    (!candidates.is_empty()).then_some(Request::ChooseOpponent {
+                        player,
+                        decision_id,
+                        candidates,
+                    })
+                }
+            }
             ResolutionChoice::HandReturn { player, .. } if self.is_live(*player) => {
                 Some(Request::HandReturn {
                     decision_id,
@@ -498,6 +523,15 @@ impl Game {
                     count: looked.len(),
                 })
             }
+            ResolutionChoice::Hideaway {
+                player,
+                looked,
+                bottom: None,
+            } if self.is_live(*player) => Some(Request::Hideaway {
+                decision_id,
+                player: *player,
+                candidates: looked.clone(),
+            }),
             ResolutionChoice::LibrarySelect { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::LibrarySelect {
                     decision_id,
@@ -621,6 +655,28 @@ impl Game {
                 _ => Err("invalid colored library decision".into()),
             });
         }
+        if let Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::Demonstrate { first, .. },
+        } = &self.state.rules.frame
+        {
+            return Some(
+                if self.is_live(player)
+                    && frame.spell.controller == player
+                    && match (first, response) {
+                        (None, Response::OptionalEffect { .. }) => true,
+                        (Some(_), Response::ChooseOpponent { opponent }) => {
+                            *opponent != player && self.is_live(*opponent)
+                        }
+                        _ => false,
+                    }
+                {
+                    Ok(())
+                } else {
+                    Err("invalid demonstrate choice".into())
+                },
+            );
+        }
         if let Some(result) = self.validate_staples_response(player, response) {
             return Some(result);
         }
@@ -667,6 +723,27 @@ impl Game {
                             return Err("invalid ordering chooser".into());
                         }
                         self.validate_library_partition(player, looked, objects, &[])
+                    }),
+            ),
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
+                        ResolutionChoice::Hideaway {
+                            player: chooser,
+                            looked,
+                            bottom: None,
+                        },
+                },
+                Response::Hideaway { object },
+            ) => Some(
+                self.validate_hideaway_choice(frame, *chooser, looked, None)
+                    .and_then(|_| {
+                        if player == *chooser && self.is_live(player) && looked.contains(object) {
+                            Ok(())
+                        } else {
+                            Err("invalid hideaway selection".into())
+                        }
                     }),
             ),
             (
@@ -828,6 +905,13 @@ impl Game {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
+                if let ResolutionChoice::Demonstrate {
+                    first,
+                    source_block,
+                } = choice
+                {
+                    return self.demonstrate_choice_step(frame, first, source_block);
+                }
                 if let ResolutionChoice::HandReturn {
                     player,
                     source_block,
@@ -852,6 +936,14 @@ impl Game {
                     return self.optional_shuffle_step(frame, player, source_block);
                 }
 
+                if let ResolutionChoice::Hideaway {
+                    player,
+                    looked,
+                    bottom,
+                } = choice
+                {
+                    return self.hideaway_step(frame, player, looked, bottom);
+                }
                 if let ResolutionChoice::LibrarySelect {
                     player,
                     looked,
@@ -906,9 +998,11 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::HandReturn { .. }
+                        ResolutionChoice::Demonstrate { .. }
+                        | ResolutionChoice::HandReturn { .. }
                         | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
+                        | ResolutionChoice::Hideaway { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::Scry { .. }
@@ -942,9 +1036,11 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::HandReturn { .. }
+                    ResolutionChoice::Demonstrate { .. }
+                    | ResolutionChoice::HandReturn { .. }
                     | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
+                    | ResolutionChoice::Hideaway { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::Scry { .. }
@@ -1085,7 +1181,15 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::PlayHideawayLinked {
+                hideaway_block,
+                minimum_total_power,
+                source_block,
+            } => self.begin_linked_play(frame, hideaway_block, minimum_total_power, source_block),
             Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
+            Instruction::RevealAndCast { source_block } => {
+                self.begin_library_shuffle(frame, source_block)
+            }
             Instruction::OfferHandCastWithoutManaCost { .. } => {
                 self.state.rules.frame = Frame::HandCast {
                     frame: Box::new(frame),
@@ -1111,6 +1215,7 @@ impl Game {
             Instruction::OptionalShuffleLibrary { source_block } => {
                 self.begin_optional_shuffle(frame, source_block)
             }
+            Instruction::Hideaway { .. } => self.begin_hideaway(frame),
             Instruction::SelectLibraryCard {
                 amount,
                 source_block,
@@ -1216,6 +1321,16 @@ impl Game {
                 let cause = Self::staple_cause(&frame, source_block);
                 self.begin_counter_placements(frame, allocations, cause)
             }
+            Instruction::Demonstrate { source_block } => {
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::Demonstrate {
+                        source_block,
+                        first: None,
+                    },
+                };
+                Ok(())
+            }
             Instruction::CopyControlledCreatureSpell {
                 target_slot,
                 source_block,
@@ -1230,6 +1345,7 @@ impl Game {
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }
+            | Instruction::GrantHandCastCascade { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
             Instruction::DrainOpponents {
                 amount,
@@ -1845,19 +1961,19 @@ impl Game {
         entry: &StackInstance,
     ) -> Result<Option<usize>, String> {
         if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == entry.id) {
-            let child = match &self.state.rules.frame {
-                Frame::Resolve { frame } if frame.stack_id == entry.id => frame.copied_child(),
-                _ => self.resolution_child(entry.id),
-            };
-            if self.state.rules.stack[index] != *entry
-                || match child {
-                    None => index + 1 != self.state.rules.stack.len(),
-                    Some(child) => {
-                        index + 2 != self.state.rules.stack.len()
-                            || self.top()?.id != child
-                            || !self.stack_entry_complete(self.top()?)
-                    }
+            let children = match &self.state.rules.frame {
+                Frame::Resolve { frame } if frame.stack_id == entry.id => {
+                    self.resolution_copy_children(frame)?
                 }
+                Frame::PlayHideawayLinked { progress } if progress.frame.stack_id == entry.id => {
+                    self.linked_play_children(progress)
+                }
+                _ => self.resolution_child(entry.id).into_iter().collect(),
+            };
+            let suffix = &self.state.rules.stack[index + 1..];
+            if self.state.rules.stack[index] != *entry
+                || !suffix.iter().map(|s| s.id).eq(children)
+                || !suffix.iter().all(|s| self.stack_entry_complete(s))
             {
                 return Err("exact resolving owner completion invariant".into());
             }
@@ -1873,18 +1989,33 @@ impl Game {
                 .rules
                 .cards
                 .get(&entry.source.card)
-                .is_some_and(|card| self.is_live(card.owner))
+                .is_some_and(|card| self.is_live(card.owner) && self.is_live(entry.controller))
         } else {
             self.is_live(entry.controller)
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
-        self.validate_resolving_owned(frame, frame.copied_child())
+        self.validate_resolving_children(frame, &self.resolution_copy_children(frame)?)
     }
     pub(super) fn validate_resolving_owned(
         &self,
         frame: &Resolving,
         child: Option<StackId>,
+    ) -> Result<(), String> {
+        if frame.copied_child().is_some()
+            || matches!(
+                frame.outcomes.as_slice(),
+                [InstructionOutcome::Demonstrated { .. }]
+            )
+        {
+            return Err("copy outcome overlaps cast continuation".into());
+        }
+        self.validate_resolving_children(frame, child.as_slice())
+    }
+    pub(super) fn validate_resolving_children(
+        &self,
+        frame: &Resolving,
+        children: &[StackId],
     ) -> Result<(), String> {
         self.validate_trigger_entry(&frame.spell)?;
         self.validate_cost_lock(&frame.spell)?;
@@ -1899,20 +2030,6 @@ impl Game {
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
-        if let Some(copy) = frame.copied_child()
-            && (!matches!(
-                program.instructions.as_slice(),
-                [Instruction::CopyControlledCreatureSpell { .. }]
-            ) || child != Some(copy)
-                || self.invocation_lives(entry)
-                    && !self.state.rules.stack.last().is_some_and(|top| {
-                        top.id == copy
-                            && self.is_spell_copy(top)
-                            && self.state.rules.tokens[&top.source.card].source == entry.source
-                    }))
-        {
-            return Err("snapshot resolving spell copy authority".into());
-        }
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
             || !self.announced_target_count_valid(program, entry)
@@ -1941,14 +2058,11 @@ impl Game {
                 .position(|s| s.id == entry.id)
                 .ok_or("missing resolving entry")?;
             if self.state.rules.stack.get(position) != Some(entry)
-                || match child {
-                    None => position + 1 != self.state.rules.stack.len(),
-                    Some(child) => {
-                        position + 2 != self.state.rules.stack.len()
-                            || self.top()?.id != child
-                            || child <= entry.id
-                    }
-                }
+                || !self.state.rules.stack[position + 1..]
+                    .iter()
+                    .map(|s| s.id)
+                    .eq(children.iter().copied())
+                || children.first().is_some_and(|child| *child <= entry.id)
             {
                 return Err("snapshot resolving owner/child binding".into());
             }
@@ -2008,6 +2122,12 @@ impl Game {
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
                 (
+                    ResolutionChoice::Demonstrate { source_block, .. },
+                    Instruction::Demonstrate {
+                        source_block: expected,
+                    },
+                ) => expected == source_block && self.demonstrate_cast(frame).is_ok(),
+                (
                     ResolutionChoice::HandReturn {
                         player,
                         hand,
@@ -2037,6 +2157,16 @@ impl Game {
                     Instruction::OptionalShuffleLibrary { source_block: b },
                 ) => *player == frame.spell.controller && source_block == b,
 
+                (
+                    ResolutionChoice::Hideaway {
+                        player,
+                        looked,
+                        bottom,
+                    },
+                    Instruction::Hideaway { .. },
+                ) => self
+                    .validate_hideaway_choice(frame, *player, looked, bottom.as_ref())
+                    .is_ok(),
                 (
                     ResolutionChoice::LibrarySelect {
                         player,

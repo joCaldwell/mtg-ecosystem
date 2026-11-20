@@ -25,6 +25,7 @@ pub struct RememberedCard {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OwnKnowledgeAction {
+    HiddenAway,
     LibraryOrdered {
         top: Vec<RememberedCard>,
     },
@@ -143,7 +144,7 @@ impl Game {
             })
             .collect()
     }
-    fn remember_library_action(
+    pub(super) fn remember_library_action(
         &mut self,
         player: PlayerId,
         action: OwnKnowledgeAction,
@@ -255,7 +256,8 @@ fn known_suffix(
     let mut draws: Vec<&str> = vec![];
     for action in actions {
         match action {
-            OwnKnowledgeAction::LibraryOrdered { .. }
+            OwnKnowledgeAction::HiddenAway
+            | OwnKnowledgeAction::LibraryOrdered { .. }
             | OwnKnowledgeAction::LibrarySelected { .. }
             | OwnKnowledgeAction::Scry { .. }
             | OwnKnowledgeAction::Surveil { .. }

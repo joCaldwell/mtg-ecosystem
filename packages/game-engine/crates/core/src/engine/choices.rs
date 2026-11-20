@@ -623,7 +623,7 @@ impl Game {
             .iter()
             .enumerate()
             .filter(|(i, _)| *i != 2 || may_choose_both)
-            .filter(|(_, m)| self.has_target_domain(&m.program, top.controller, source))
+            .filter(|(_, m)| self.has_target_domain(&m.program, top.controller, &source))
             .map(|(i, _)| i as u32)
             .collect();
         Ok(Some(Request::Modes {

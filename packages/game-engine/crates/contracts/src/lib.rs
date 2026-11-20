@@ -3,15 +3,20 @@ pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod cascade_land_entry;
 mod granted_land_mana;
+pub mod hand_cast_cascade;
 pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
+mod opening_placement;
+pub use opening_placement::{opening_placement_ability, opening_placement_ast, three_static_ast};
 mod controller_land_types;
-pub use controller_land_types::controller_land_type_ast;
+pub use controller_land_types::{controller_land_type_ast, controller_nonland_colors_ast};
 mod colored_library_search;
 pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
 };
+mod color_hybrid_cost;
+pub use color_hybrid_cost::{ColorHybridSymbol, color_hybrid_cost};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -31,6 +36,7 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 mod controlled_creature_spell_copy;
+mod creative_technique;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -90,6 +96,7 @@ mod keyword_removal_wipe;
 mod library_selection;
 mod nonland_exile_life;
 pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wipe_source};
+pub mod linked_hideaway;
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
@@ -248,6 +255,8 @@ pub struct Characteristics {
     /// CR 205.4g; omitted for nonsnow characteristics.
     #[serde(default, skip_serializing_if = "is_false")]
     pub snow: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_mana: Vec<ColorHybridSymbol>,
     pub mana_cost: ManaCost,
     pub colors: Vec<Color>,
     pub color_identity: Vec<Color>,
@@ -258,6 +267,14 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 impl Characteristics {
+    pub fn printed_mana_value(&self) -> Quantity {
+        let mut value = self.mana_cost.generic.clone();
+        value.add(&Quantity::from(
+            (self.mana_cost.colored.len() + self.hybrid_mana.len()) as i64,
+        ));
+        value
+    }
+
     pub fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
@@ -291,6 +308,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
     PlayerGraveyardShuffleV1,
+    OpeningPlacementV1,
     ExileResolvingSpellV1,
     ControllerProtectionUntilNextTurnV1,
     ControllerLifeFreezeV1,
@@ -300,8 +318,13 @@ pub enum Capability {
     ResolutionCastV1,
     CombatHandCastV1,
     CascadeV1,
+    RevealAndCastV1,
+    DemonstrateV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
+    HandCastCascadeGrantV1,
+    HideawayV1,
+    LinkedExilePlayV1,
     CastHistoryV1,
     CastManaValueSweepV1,
     RandomBottomV1,
@@ -341,6 +364,7 @@ pub enum Capability {
     TypedNonbasicIntrinsicManaV1,
     ControllerLandGrantedManaV1,
     ControllerLandBasicTypesV1,
+    ControllerNonlandColorsV1,
     FlashV1,
     CastArtifactV1,
     PermanentManaV1,
@@ -355,6 +379,7 @@ pub enum Capability {
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
     NormalLayoutV1,
+    ColorHybridCostV1,
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -716,6 +741,7 @@ impl CreatureToken {
     pub fn characteristics(&self) -> Characteristics {
         Characteristics {
             kind: CardKind::Creature,
+            hybrid_mana: vec![],
             additional_types: self.additional_types.clone(),
             subtypes: self.subtypes.clone(),
             basic: false,
@@ -782,12 +808,33 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    Hideaway {
+        count: u32,
+        source_block: u32,
+    },
+    PlayHideawayLinked {
+        hideaway_block: u32,
+        minimum_total_power: Quantity,
+        source_block: u32,
+    },
+    GrantHandCastCascade {
+        source_block: u32,
+    },
     OfferHandCastWithoutManaCost {
         source_block: u32,
     },
     /// CR 702.85a: threshold comes from the originating spell, never paid cost.
     Cascade {
         threshold: CascadeThreshold,
+        source_block: u32,
+    },
+    /// Shuffle, reveal through the first nonland, exile it, random-bottom the
+    /// remaining revealed cards, then optionally cast the exile successor for free.
+    RevealAndCast {
+        source_block: u32,
+    },
+    /// CR 702.144a: optional self-copy followed by a chosen opponent's copy.
+    Demonstrate {
         source_block: u32,
     },
     DrawControllerCards {
@@ -1245,8 +1292,13 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::OfferHandCastWithoutManaCost { source_block }
+            Self::Hideaway { source_block, .. }
+            | Self::PlayHideawayLinked { source_block, .. }
+            | Self::GrantHandCastCascade { source_block }
+            | Self::OfferHandCastWithoutManaCost { source_block }
             | Self::Cascade { source_block, .. }
+            | Self::RevealAndCast { source_block }
+            | Self::Demonstrate { source_block }
             | Self::SearchBasicLandsSplit { source_block, .. }
             | Self::SearchColoredLibrary { source_block, .. }
             | Self::SearchTypedLands { source_block, .. }
@@ -1435,7 +1487,9 @@ pub enum HandSizeScope {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
     GrantControllerLandsAnyColorMana,
+    MayBeginOnBattlefield,
     GrantControllerLandsAllBasicTypes,
+    ControllerNonlandsAllColors,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
     /// grants one independent cascade to this controller's qualifying cast.
     /// The program is exactly canonical_cascade_program, never arbitrary code.
@@ -1796,7 +1850,7 @@ pub enum CascadeThreshold {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
-    /// CR 702.85a: functions on the casting spell itself, on the stack.
+    /// CR 702.85a and 702.144a: functions on the casting spell itself, on the stack.
     SelfSpellCast,
     /// One occurrence per damaged player and simultaneous combat-damage event.
     GroupedDamageDealt {
@@ -2411,6 +2465,9 @@ pub fn is_canonical_cascade_program(program: &SpellProgram) -> bool {
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
+        if !self.characteristics.hybrid_mana.is_empty() {
+            set.insert(Capability::ColorHybridCostV1);
+        }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
         }
@@ -2586,7 +2643,11 @@ impl Definition {
                     Capability::GroupedCreatureDamageTriggerV1
                 }
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
-                TriggerCondition::SelfSpellCast => Capability::CascadeV1,
+                TriggerCondition::SelfSpellCast
+                    if is_canonical_cascade_program(&ability.program) =>
+                {
+                    Capability::CascadeV1
+                }
                 TriggerCondition::SpellCast {
                     spell: TypePredicate::SpellColor { .. },
                     ..
@@ -2594,7 +2655,9 @@ impl Definition {
                     set.insert(Capability::CastColorPredicateV1);
                     Capability::CastTriggerV1
                 }
-                TriggerCondition::SpellCast { .. } => Capability::CastTriggerV1,
+                TriggerCondition::SelfSpellCast | TriggerCondition::SpellCast { .. } => {
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::SpellCastWithOrigin { .. } => {
                     set.insert(Capability::CastOriginTriggerV1);
                     Capability::CastTriggerV1
@@ -2670,6 +2733,8 @@ impl Definition {
                 StaticEffect::GrantControllerLandsAnyColorMana => {
                     Capability::ControllerLandGrantedManaV1
                 }
+                StaticEffect::ControllerNonlandsAllColors => Capability::ControllerNonlandColorsV1,
+                StaticEffect::MayBeginOnBattlefield => Capability::OpeningPlacementV1,
                 StaticEffect::GrantControllerLandsAllBasicTypes => {
                     Capability::ControllerLandBasicTypesV1
                 }
@@ -2740,6 +2805,7 @@ impl Definition {
         controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
+        creative_technique::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
@@ -2751,6 +2817,8 @@ impl Definition {
         entry_graveyard_exile::validate_definition(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
+        hand_cast_cascade::validate_definition(self)?;
+        linked_hideaway::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3018,7 +3086,11 @@ impl Definition {
         }
         // Sacrifice programs admit enchantment programs and creature statics.
         // Other programs retain their narrower kind constraints.
-        controller_land_types::validate(self)?;
+        let opening_composition = opening_placement::validate_composition(self)?;
+        if !opening_composition {
+            opening_placement::validate(self)?;
+            controller_land_types::validate(self)?;
+        }
         let sacrifice = self.capabilities.contains(&Capability::SacrificeV1);
         let wipes = self.capabilities.contains(&Capability::BoardWipesV1);
         if self.x_mana_cost
@@ -3142,6 +3214,7 @@ impl Definition {
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         granted_land_mana::validate_definition(self)?;
+        color_hybrid_cost::validate_definition(self, opening_composition)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3213,6 +3286,7 @@ impl Definition {
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact)
             && !(sacrifice && c.kind == CardKind::Enchantment)
             && !typed_land_search::activation_definition(self)
+            && !self.capabilities.contains(&Capability::LinkedExilePlayV1)
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
         {
@@ -3280,7 +3354,7 @@ impl Definition {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
-            if typed_land_search::activation(ability) {
+            if typed_land_search::activation(ability) || *ability == linked_hideaway::play() {
                 validate_instruction_program(&ability.program)?;
                 continue;
             }
@@ -3476,9 +3550,10 @@ impl Definition {
                 CardKind::Land => self.triggered.iter().all(|a| {
                     a.condition == TriggerCondition::SelfBecomesTapped
                         || (a.condition == TriggerCondition::SelfEntersBattlefield
-                            && self
+                            && (self
                                 .capabilities
-                                .contains(&Capability::EntryGraveyardExileV1))
+                                .contains(&Capability::EntryGraveyardExileV1)
+                                || self.capabilities.contains(&Capability::HideawayV1)))
                 }),
             }
         {
@@ -3601,9 +3676,10 @@ impl Definition {
                     || p.resolution != SpellResolution::Instructions
                     || !p.targets.is_empty()
                     || !p.modes.is_empty()
-                    || !is_canonical_cascade_program(p)
+                    || !(is_canonical_cascade_program(p)
+                        || creative_technique::is_demonstrate_program(p))
                 {
-                    return Err("unsupported self-cast cascade shape".into());
+                    return Err("unsupported self-cast trigger shape".into());
                 }
                 validate_instruction_program(p)?;
                 continue;
@@ -3727,6 +3803,8 @@ impl Definition {
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
+                            | Instruction::GrantHandCastCascade { .. }
+                            | Instruction::Hideaway { .. }
                             | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
@@ -3777,7 +3855,9 @@ impl Definition {
             return Err("static damage replacement requires a supported enchantment".into());
         }
         if self.static_abilities.iter().any(|a| {
-            if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
+            if a.effect == StaticEffect::MayBeginOnBattlefield {
+                a.functioning_zone != FunctioningZone::Hand
+            } else if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
                 a.functioning_zone != FunctioningZone::Stack
             } else if matches!(
                 a.effect,
@@ -4898,8 +4978,13 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::OfferHandCastWithoutManaCost { .. }
+            Instruction::Hideaway { .. }
+            | Instruction::PlayHideawayLinked { .. }
+            | Instruction::GrantHandCastCascade { .. }
+            | Instruction::OfferHandCastWithoutManaCost { .. }
             | Instruction::Cascade { .. }
+            | Instruction::Demonstrate { .. }
+            | Instruction::RevealAndCast { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
@@ -5444,7 +5529,10 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         ) {
             set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
-        if matches!(instruction, Instruction::Cascade { .. }) {
+        if matches!(
+            instruction,
+            Instruction::Cascade { .. } | Instruction::RevealAndCast { .. }
+        ) {
             set.insert(Capability::ResolutionCastV1);
             set.insert(Capability::RandomBottomV1);
         }
@@ -5467,6 +5555,19 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::DrainOpponents { .. }) {
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
+        if matches!(instruction, Instruction::Hideaway { .. }) {
+            set.insert(Capability::RandomBottomV1);
+        }
+        if matches!(instruction, Instruction::PlayHideawayLinked { .. }) {
+            set.insert(Capability::ResolutionCastV1);
+        }
+        if matches!(instruction, Instruction::GrantHandCastCascade { .. }) {
+            set.extend([
+                Capability::CascadeV1,
+                Capability::ResolutionCastV1,
+                Capability::RandomBottomV1,
+            ]);
+        }
         set.insert(match instruction {
             Instruction::ExileResolvingSpell { .. } => Capability::ExileResolvingSpellV1,
             Instruction::ProtectControllerUntilNextTurn { .. } => {
@@ -5481,8 +5582,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
+            Instruction::Hideaway { .. } => Capability::HideawayV1,
+            Instruction::PlayHideawayLinked { .. } => Capability::LinkedExilePlayV1,
+            Instruction::GrantHandCastCascade { .. } => Capability::HandCastCascadeGrantV1,
             Instruction::OfferHandCastWithoutManaCost { .. } => Capability::CombatHandCastV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
+            Instruction::RevealAndCast { .. } => Capability::RevealAndCastV1,
+            Instruction::Demonstrate { .. } => Capability::DemonstrateV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
                 ..
@@ -5880,7 +5986,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "instructions":{"items":{"not":cascade}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}
     }});
     schema["$defs"]["TriggeredAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
-        "if":self_condition,"then":ability,
+        "if":self_condition,"then":{"anyOf":[ability,creative_technique::demonstrate_trigger_schema()]},
         "else":{"properties":{"functioning_zone":{"const":"battlefield"},"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}
     }));
     let grant_effect = serde_json::json!({"type":"object","required":["grant_spell_cascade"]});
@@ -5918,12 +6024,9 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "if":{"anyOf":[history,cast_mana_value_sweep::spell_schema()]},"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":"cast_history_v1"}}}}}
     }));
-    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
-    let requirements = [
-        Capability::CascadeV1,
-        Capability::ResolutionCastV1,
-        Capability::RandomBottomV1,
-    ];
+    let cascade_trigger = serde_json::json!({"allOf":[self_condition,ability]});
+    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":{"anyOf":[cascade_trigger,{"const":hand_cast_cascade::hand_cast_cascade_ability()}]}}}}]});
+    let requirements = [Capability::ResolutionCastV1, Capability::RandomBottomV1];
     let yes: Vec<_> = requirements
         .iter()
         .map(|cap| serde_json::json!({"contains":{"const":cap}}))
@@ -5942,7 +6045,13 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         .collect();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),
-        serde_json::json!({"if":present,"then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}})
+        serde_json::json!({"if":present,
+            "then":{"properties":{"capabilities":{"contains":{"const":Capability::CascadeV1}}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CascadeV1}}}}}
+        }),
+        serde_json::json!({"if":{"anyOf":[present,creative_technique::reveal_spell_schema(),linked_hideaway::capability_schema()]},
+            "then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}
+        })
     ]);
 }
 fn extend_multitype_token_schema(schema: &mut serde_json::Value) {
@@ -7044,6 +7153,7 @@ pub fn catalog_schema() -> serde_json::Value {
     controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
+    creative_technique::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -7085,18 +7195,40 @@ pub fn catalog_schema() -> serde_json::Value {
     entry_graveyard_exile::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
+    hand_cast_cascade::extend_schema(&mut schema);
+    linked_hideaway::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
-    let grant = serde_json::json!({"required":["effect"],"properties":{"effect":{"const":StaticEffect::GrantControllerLandsAllBasicTypes}}});
-    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+    for (effect, cap, pattern) in [
+        (
+            StaticEffect::GrantControllerLandsAllBasicTypes,
+            Capability::ControllerLandBasicTypesV1,
+            r#""oracle_text"\s*:\s*"Lands you control are (?:all basic land types|every basic land type) in addition to their other types\.""#,
+        ),
+        (
+            StaticEffect::ControllerNonlandsAllColors,
+            Capability::ControllerNonlandColorsV1,
+            r#""oracle_text"\s*:\s*"Nonland permanents you control are all colors\.""#,
+        ),
+    ] {
+        let grant =
+            serde_json::json!({"required":["effect"],"properties":{"effect":{"const":effect}}});
+        schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
             "if":{"anyOf":[{"required":["static_abilities"],"properties":{"static_abilities":{"contains":grant}}},
-            {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"Lands you control are (?:all basic land types|every basic land type) in addition to their other types\.""#}}}}}]},
+            {"properties":{"provenance":{"properties":{"source_json":{"pattern":pattern}}}}}]},
         "then":{"required":["static_abilities"],"properties":{"characteristics":{"properties":{"kind":{"const":"enchantment"},"basic":{"const":false},"snow":{"const":false},"legendary":{"const":false},"subtypes":{"maxItems":0},"additional_types":{"maxItems":0}}},
-            "static_abilities":{"const":[StaticAbility{functioning_zone:FunctioningZone::Battlefield,effect:StaticEffect::GrantControllerLandsAllBasicTypes}]},
+            "static_abilities":{"const":[StaticAbility{functioning_zone:FunctioningZone::Battlefield,effect:effect}]},
             "activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0},
-            "capabilities":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}},
-        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}}}
+            "capabilities":{"contains":{"const":cap}}}},
+        "else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}
     }));
+        opening_placement::permit_composition(&mut schema);
+    }
     colored_library_search::extend_schema(&mut schema);
+    opening_placement::schema(&mut schema);
+    opening_placement::permit_composition(&mut schema);
+    color_hybrid_cost::extend_schema(&mut schema);
+    opening_placement::permit_composition(&mut schema);
+    opening_placement::require_composition(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7243,12 +7375,18 @@ mod tests {
             ResolutionCastV1,
             CombatHandCastV1,
             CascadeV1,
+            RevealAndCastV1,
+            DemonstrateV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
+            HandCastCascadeGrantV1,
+            HideawayV1,
+            LinkedExilePlayV1,
             CastHistoryV1,
             CastManaValueSweepV1,
             RandomBottomV1,
             NormalLayoutV1,
+            ColorHybridCostV1,
             BasicLandManaV1,
             LandPlayV1,
             BaseCreatureV1,
@@ -7387,6 +7525,8 @@ mod tests {
             TypedNonbasicIntrinsicManaV1,
             ControllerLandBasicTypesV1,
             ControllerLandGrantedManaV1,
+            OpeningPlacementV1,
+            ControllerNonlandColorsV1,
             StepBeginningTriggerV1,
             EventPlayerRecipientV1,
             SourceStatusConditionV1,
@@ -7788,6 +7928,8 @@ mod tests {
         ]));
         definitions.push(controller_library::witness());
         definitions.push(cascade_land_entry::witness());
+        definitions.push(hand_cast_cascade::witness());
+        definitions.push(linked_hideaway::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
@@ -7848,6 +7990,7 @@ mod tests {
         definitions.push(modal_targets::witness());
         definitions.push(creature_planeswalker_return::witness());
         definitions.push(controlled_creature_spell_copy::witness());
+        definitions.push(creative_technique::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
@@ -8073,7 +8216,7 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
-        let mut grant = definitions
+        let grant = definitions
             .iter()
             .find(|d| {
                 d.characteristics.kind == CardKind::Enchantment
@@ -8084,33 +8227,45 @@ mod tests {
             })
             .unwrap()
             .clone();
-        grant.static_abilities = vec![StaticAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::GrantControllerLandsAllBasicTypes,
-        }];
-        let record: serde_json::Value = strict_read(include_str!(
-            "../../../tests/fixtures/synthetic-controller-land-types.json"
-        ))
-        .unwrap();
-        let raw = &record["source"];
-        grant.name = raw["name"].as_str().unwrap().into();
-        grant.oracle_id = raw["oracle_id"].as_str().unwrap().into();
-        grant.characteristics.mana_cost = ManaCost {
-            generic: 2.into(),
-            colored: vec![Color::W],
-        };
-        grant.characteristics.colors = vec![Color::W];
-        grant.characteristics.color_identity = vec![Color::W];
-        grant.source_labels = None;
-        grant.provenance.printing_id = raw["id"].as_str().unwrap().into();
-        grant.provenance.source_json = canonical(raw).unwrap();
-        grant.provenance.source_sha256 = sha256(grant.provenance.source_json.as_bytes());
-        grant.provenance.abilities_json = canonical(&controller_land_type_ast()).unwrap();
-        grant.provenance.ast_sha256 =
-            sha256(format!("[{}]", grant.provenance.abilities_json).as_bytes());
-        grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
-        grant.capabilities = grant.requirements();
-        definitions.push(grant);
+        for (effect, record, ast) in [
+            (
+                StaticEffect::GrantControllerLandsAllBasicTypes,
+                include_str!("../../../tests/fixtures/synthetic-controller-land-types.json"),
+                controller_land_type_ast(),
+            ),
+            (
+                StaticEffect::ControllerNonlandsAllColors,
+                include_str!("../../../tests/fixtures/synthetic-nonland-colors.json"),
+                controller_nonland_colors_ast(),
+            ),
+        ] {
+            let mut grant = grant.clone();
+            grant.static_abilities = vec![StaticAbility {
+                functioning_zone: FunctioningZone::Battlefield,
+                effect,
+            }];
+            let record: serde_json::Value = strict_read(record).unwrap();
+            let raw = &record["source"];
+            grant.name = raw["name"].as_str().unwrap().into();
+            grant.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+            grant.characteristics.mana_cost = ManaCost {
+                generic: 2.into(),
+                colored: vec![Color::W],
+            };
+            grant.characteristics.colors = vec![Color::W];
+            grant.characteristics.color_identity = vec![Color::W];
+            grant.source_labels = None;
+            grant.provenance.printing_id = raw["id"].as_str().unwrap().into();
+            grant.provenance.source_json = canonical(raw).unwrap();
+            grant.provenance.source_sha256 = sha256(grant.provenance.source_json.as_bytes());
+            grant.provenance.abilities_json = canonical(&ast).unwrap();
+            grant.provenance.ast_sha256 =
+                sha256(format!("[{}]", grant.provenance.abilities_json).as_bytes());
+            grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+            grant.capabilities = grant.requirements();
+            definitions.push(grant);
+        }
+
         let artifact = definitions
             .iter()
             .find(|d| d.name == "Sol Ring")
@@ -8161,6 +8316,79 @@ mod tests {
         colored.triggered.clear();
         colored.capabilities = colored.requirements();
         definitions.push(colored);
+        let mut pregame = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Enchantment
+                    && d.characteristics.subtypes.is_empty()
+                    && d.activated.is_empty()
+                    && d.triggered.is_empty()
+                    && d.keywords.is_empty()
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-opening-placement.json"
+        ))
+        .unwrap();
+        let raw = &record["source"];
+        pregame.name = raw["name"].as_str().unwrap().into();
+        pregame.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+        pregame.provenance.printing_id = raw["id"].as_str().unwrap().into();
+        pregame.provenance.source_json = canonical(raw).unwrap();
+        pregame.provenance.source_sha256 = sha256(pregame.provenance.source_json.as_bytes());
+        pregame.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        pregame.provenance.ast_sha256 =
+            sha256(format!("[{}]", pregame.provenance.abilities_json).as_bytes());
+        pregame.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        pregame.characteristics.mana_cost = ManaCost {
+            generic: 2.into(),
+            colored: vec![Color::G],
+        };
+        pregame.characteristics.colors = vec![Color::G];
+        pregame.characteristics.color_identity = vec![Color::G];
+        pregame.source_labels = None;
+        pregame.static_abilities = vec![opening_placement_ability()];
+        pregame.capabilities = pregame.requirements();
+        definitions.push(pregame);
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-glaze-lattice.json"
+        ))
+        .unwrap();
+        let raw = &record["source"];
+        let mut hybrid = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Artifact
+                    && d.characteristics.additional_types.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        hybrid.name = raw["name"].as_str().unwrap().into();
+        hybrid.oracle_id = raw["oracle_id"].as_str().unwrap().into();
+        hybrid.provenance.printing_id = raw["id"].as_str().unwrap().into();
+        hybrid.provenance.source_json = canonical(raw).unwrap();
+        hybrid.provenance.source_sha256 = sha256(hybrid.provenance.source_json.as_bytes());
+        hybrid.provenance.abilities_json = "[]".into();
+        hybrid.provenance.ast_sha256 = sha256(b"[[]]");
+        hybrid.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        (
+            hybrid.characteristics.mana_cost,
+            hybrid.characteristics.hybrid_mana,
+        ) = color_hybrid_cost(raw["mana_cost"].as_str().unwrap()).unwrap();
+        hybrid.characteristics.colors = vec![Color::W, Color::U, Color::G];
+        hybrid.characteristics.color_identity = hybrid.characteristics.colors.clone();
+        hybrid.source_labels = None;
+        hybrid.static_abilities.clear();
+        hybrid.triggered.clear();
+        hybrid.activated.clear();
+        hybrid.mana_abilities.clear();
+        hybrid.keywords.clear();
+        hybrid.capabilities = hybrid.requirements();
+        definitions.push(hybrid);
+
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

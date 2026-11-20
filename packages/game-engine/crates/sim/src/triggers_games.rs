@@ -281,7 +281,7 @@ impl Strategy {
             PlayerRequest::AdditionalCosts { .. } => {
                 return Err("optional casting costs outside this completion policy".into());
             }
-            PlayerRequest::AnnounceX { .. } => {
+            PlayerRequest::HybridCost { .. } | PlayerRequest::AnnounceX { .. } => {
                 return Err("X request unsupported by this completion policy".into());
             }
             PlayerRequest::SacrificeCost { .. } | PlayerRequest::ForcedSacrifice { .. } => {
@@ -292,12 +292,17 @@ impl Strategy {
             | PlayerRequest::ColoredSearch { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::CascadeLandEntry { .. }
+            | PlayerRequest::ChooseOpponent { .. }
+            | PlayerRequest::Hideaway { .. }
+            | PlayerRequest::PlayHideawayLinked { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
             | PlayerRequest::OptionalRecursion { .. } => {
                 return Err("staples request unsupported by this completion policy".into());
             }
-            PlayerRequest::Mulligan { .. } | PlayerRequest::BottomOpening { .. } => {
+            PlayerRequest::OpeningPlacement { .. }
+            | PlayerRequest::Mulligan { .. }
+            | PlayerRequest::BottomOpening { .. } => {
                 return Err("opening setup is not admitted by this historical scenario".into());
             }
             PlayerRequest::Modes { .. }

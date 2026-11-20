@@ -236,6 +236,7 @@ impl Game {
     /// change or continuation replacement. The caller owns the atomic boundary.
     pub(super) fn reconcile_controllers(&mut self) -> Result<(), String> {
         let controllers = self.derived_controllers()?;
+        self.grant_hideaway_looks(&controllers);
         let mut changed = vec![];
         let mut exiled = vec![];
         for (object, controller) in controllers {

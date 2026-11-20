@@ -25,6 +25,10 @@ pub(super) struct PendingTrigger {
     event: TriggerOccurrenceId,
     pub(super) witness: TriggerEventWitness,
 }
+enum MatchedCascadeGrant {
+    Static(ObjectBefore),
+    Temporary(CascadeGrantProvenance),
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TriggerPlacement {
@@ -322,7 +326,8 @@ fn power_entry_matches(
 }
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
-        EventOutcome::EnteredAttached { movement, .. }
+        EventOutcome::HiddenAway { movement, .. }
+        | EventOutcome::EnteredAttached { movement, .. }
         | EventOutcome::Moved { movement }
         | EventOutcome::Sacrificed { movement, .. }
         | EventOutcome::CardDiscarded { movement, .. }
@@ -977,9 +982,41 @@ impl Game {
                             },
                             None,
                             witness.clone(),
-                            Some(fact.clone()),
+                            Some(MatchedCascadeGrant::Static(fact.clone())),
                         ));
                     }
+                }
+            }
+            // CR 611.2f/702.85c: each resolved effect independently grants
+            // one ability to a later spell put on the stack from this hand.
+            // Only this successful-cast collector creates its trigger.
+            for effect in &observers.state.rules.effects {
+                let ResolvedEffectKind::GrantHandCastCascade {
+                    triggered_ability_index,
+                    source_facts,
+                } = &effect.kind
+                else {
+                    continue;
+                };
+                let turn = effect.expires_in_cleanup_of_turn;
+                if spell_cascade_grants::hand_cast_eligible(effect.origin.controller, turn, cast) {
+                    matched.push((
+                        None,
+                        cast.spell.clone(),
+                        EffectiveTriggerAbility::TemporaryGrant {
+                            effect: effect.id,
+                            grant_source: effect.origin.source,
+                            triggered_ability_index: *triggered_ability_index,
+                            grant_stack_id: effect.origin.stack_id,
+                            turn,
+                        },
+                        None,
+                        witness.clone(),
+                        Some(MatchedCascadeGrant::Temporary(CascadeGrantProvenance {
+                            source_facts: source_facts.as_ref().clone(),
+                            source_handles: effect.origin.source_handles.clone(),
+                        })),
+                    ));
                 }
             }
         }
@@ -1020,14 +1057,14 @@ impl Game {
             let controller = source_facts.controller;
             let consumed = source_facts.clone();
             let source_handles = self.capture_trigger_source_handles(source)?;
-            let grant = grant_fact
-                .map(|fact| {
-                    Ok::<_, String>(CascadeGrantProvenance {
-                        source_handles: self.capture_trigger_source_handles(fact.object)?,
-                        source_facts: fact,
-                    })
-                })
-                .transpose()?;
+            let grant = match grant_fact {
+                Some(MatchedCascadeGrant::Static(fact)) => Some(CascadeGrantProvenance {
+                    source_handles: self.capture_trigger_source_handles(fact.object)?,
+                    source_facts: fact,
+                }),
+                Some(MatchedCascadeGrant::Temporary(grant)) => Some(grant),
+                None => None,
+            };
             self.state.rules.pending_triggers.push(PendingTrigger {
                 death_controller,
                 match_condition,
@@ -1248,6 +1285,7 @@ impl Game {
                         colored: vec![],
                     };
                     self.state.rules.stack.push(StackInstance {
+                        hybrid_colors: vec![],
                         cost_lock: None,
                         selected_additional_costs: None,
                         alternative_cost: None,
@@ -1481,6 +1519,13 @@ impl Game {
         handles: &[ObjectHandle],
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
+        // A hideaway invocation keeps its entry-time chooser even if a later
+        // controller is retained in the permanent's departure LKI (113.7a).
+        let departed_hideaway = self.current(source).is_err()
+            && matches!(
+                definition.program.instructions.as_slice(),
+                [Instruction::Hideaway { .. }]
+            );
         if controller.0 >= 4
             || fact.object != source
             || fact.owner
@@ -1512,7 +1557,8 @@ impl Game {
                 definition.condition,
                 TriggerCondition::SelfEntersBattlefield
                     | TriggerCondition::SpellCastWithOrigin { .. }
-            ) && fact.controller != controller)
+            ) && fact.controller != controller
+                && !departed_hideaway)
             || handles.len() != 4
         {
             return Err("snapshot trigger source invariant".into());

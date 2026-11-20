@@ -43,6 +43,13 @@ pub enum VisibleTriggerAbility {
         oracle_id: String,
         static_ability_index: u32,
     },
+    TemporaryGrant {
+        source: VisibleTarget,
+        oracle_id: String,
+        triggered_ability_index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effect: Option<EffectHandle>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -88,6 +95,10 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub face_down: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exiled_by: Option<ObjectHandle>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phased_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,6 +164,8 @@ pub struct VisibleStackEntry {
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hybrid_colors: Vec<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -229,6 +242,11 @@ pub struct AdditionalCostChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    OpeningPlacement {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     HandCast {
         token: DecisionToken,
         player: PlayerId,
@@ -251,6 +269,16 @@ pub enum PlayerRequest {
         candidates: Vec<ObjectHandle>,
         count: usize,
     },
+    Hideaway {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
+    PlayHideawayLinked {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     LibrarySelect {
         token: DecisionToken,
         player: PlayerId,
@@ -272,6 +300,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
         previous_choices: Vec<ObjectHandle>,
+    },
+    HybridCost {
+        token: DecisionToken,
+        player: PlayerId,
+        symbols: Vec<ColorHybridSymbol>,
     },
     AnnounceX {
         token: DecisionToken,
@@ -323,6 +356,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         maximum: u32,
         candidates: Vec<VisibleSearchLand>,
+    },
+    ChooseOpponent {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<PlayerId>,
     },
     OptionalEffect {
         token: DecisionToken,
@@ -489,6 +527,8 @@ impl PlayerRequest {
             Self::HandCast { token, .. }
             | Self::HandReturn { token, .. }
             | Self::LibraryOrder { token, .. }
+            | Self::Hideaway { token, .. }
+            | Self::PlayHideawayLinked { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
@@ -499,12 +539,15 @@ impl PlayerRequest {
             | Self::SearchLands { token, .. }
             | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
+            | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
+            | Self::OpeningPlacement { token, .. }
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
             | Self::AdditionalCosts { token, .. }
+            | Self::HybridCost { token, .. }
             | Self::AnnounceX { token, .. }
             | Self::Modes { token, .. }
             | Self::CounterPlacementEffect { token, .. }
@@ -541,6 +584,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    OpeningPlacement {
+        object: Option<ObjectHandle>,
+    },
     AdditionalCosts {
         selected: Vec<String>,
     },
@@ -549,6 +595,12 @@ pub enum PlayerResponse {
     },
     LibraryOrder {
         objects: Vec<ObjectHandle>,
+    },
+    Hideaway {
+        object: ObjectHandle,
+    },
+    PlayHideawayLinked {
+        object: Option<ObjectHandle>,
     },
     LibrarySelect {
         hand: Vec<ObjectHandle>,
@@ -564,6 +616,9 @@ pub enum PlayerResponse {
     },
     LegendRule {
         keep: ObjectHandle,
+    },
+    HybridCost {
+        colors: Vec<Color>,
     },
     AnnounceX {
         value: Quantity,
@@ -591,6 +646,9 @@ pub enum PlayerResponse {
     },
     SearchLandBattlefield {
         object: ObjectHandle,
+    },
+    ChooseOpponent {
+        opponent: PlayerId,
     },
     OptionalEffect {
         perform: bool,
@@ -902,36 +960,53 @@ impl Game {
         ability: EffectiveTriggerAbility,
         grant: Option<&CascadeGrantProvenance>,
     ) -> Result<VisibleTriggerAbility, String> {
-        match ability {
+        let grant_source = match ability {
             EffectiveTriggerAbility::Intrinsic { index } => {
-                Ok(VisibleTriggerAbility::Intrinsic { index })
+                return Ok(VisibleTriggerAbility::Intrinsic { index });
             }
+            EffectiveTriggerAbility::Granted { grant_source, .. }
+            | EffectiveTriggerAbility::TemporaryGrant { grant_source, .. } => grant_source,
+        };
+        let grant = grant.ok_or("missing public grant provenance")?;
+        let source = VisibleTarget {
+            announced: grant
+                .source_handles
+                .get(viewer.0 as usize)
+                .ok_or("missing grant source handle")?
+                .clone(),
+            current: self.handle_for(viewer, grant_source).ok(),
+        };
+        let oracle_id = self
+            .state
+            .rules
+            .cards
+            .get(&grant_source.card)
+            .ok_or("missing grant physical source")?
+            .oracle_id
+            .clone();
+        Ok(match ability {
             EffectiveTriggerAbility::Granted {
-                grant_source,
                 static_ability_index,
-            } => {
-                let grant = grant.ok_or("missing public grant provenance")?;
-                Ok(VisibleTriggerAbility::Granted {
-                    source: VisibleTarget {
-                        announced: grant
-                            .source_handles
-                            .get(viewer.0 as usize)
-                            .ok_or("missing grant source handle")?
-                            .clone(),
-                        current: self.handle_for(viewer, grant_source).ok(),
-                    },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&grant_source.card)
-                        .ok_or("missing grant physical source")?
-                        .oracle_id
-                        .clone(),
-                    static_ability_index,
-                })
-            }
-        }
+                ..
+            } => VisibleTriggerAbility::Granted {
+                source,
+                oracle_id,
+                static_ability_index,
+            },
+            EffectiveTriggerAbility::TemporaryGrant {
+                effect,
+                triggered_ability_index,
+                ..
+            } => VisibleTriggerAbility::TemporaryGrant {
+                source,
+                oracle_id,
+                triggered_ability_index,
+                effect: self
+                    .effect_handle(viewer, &EffectKey::Resolved { id: effect })
+                    .ok(),
+            },
+            EffectiveTriggerAbility::Intrinsic { .. } => unreachable!(),
+        })
     }
     pub(super) fn player_entity(
         &self,
@@ -1097,7 +1172,36 @@ impl Game {
             .cards
             .get(&object.id.card)
             .ok_or("missing object definition")?;
+        if let Some(link) = &object.hideaway {
+            return Ok(Some(VisibleObject {
+                face_down: true,
+                exiled_by: Some(link.source_handle(viewer).clone()),
+                oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
+                    physical.oracle_id.clone()
+                } else {
+                    String::new()
+                },
+                handle: self.handle_for(viewer, object.id)?,
+                owner: physical.owner,
+                controller: object.controller,
+                zone: object.zone,
+                characteristics: None,
+                mana_ability_used: None,
+                token: None,
+                keywords: vec![],
+                restrictions: vec![],
+                attachments: vec![],
+                attached_to: None,
+                marked_damage: Quantity::zero(),
+                plus_one_counters: Quantity::zero(),
+                attack_ready: false,
+                tapped: false,
+                phased_out: false,
+            }));
+        }
         Ok(Some(VisibleObject {
+            face_down: false,
+            exiled_by: None,
             phased_out: object.phased_out.is_some(),
             attached_to: object
                 .attached_to
@@ -1297,6 +1401,7 @@ impl Game {
         Ok(VisibleStackEntry {
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
+            hybrid_colors: instance.hybrid_colors.clone(),
             mana_value: instance
                 .x
                 .as_ref()
@@ -1478,6 +1583,16 @@ impl Game {
                     bottom_if_mulligan,
                     can_mulligan,
                 }),
+                Some(Request::OpeningPlacement {
+                    player, candidates, ..
+                }) if player == viewer => Some(PlayerRequest::OpeningPlacement {
+                    token,
+                    player,
+                    candidates: candidates
+                        .into_iter()
+                        .map(|id| self.handle_for(viewer, id))
+                        .collect::<Result<_, _>>()?,
+                }),
                 Some(Request::BottomOpening { player, count, .. }) if player == viewer => {
                     Some(PlayerRequest::BottomOpening {
                         token,
@@ -1522,6 +1637,21 @@ impl Game {
                 Ok(None)
             };
         }
+        if let Frame::HybridCost { .. } = self.state.rules.frame {
+            let top = self.top()?;
+            if top.controller != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(PlayerRequest::HybridCost {
+                token,
+                player: viewer,
+                symbols: self
+                    .definition(top.source.card)?
+                    .characteristics
+                    .hybrid_mana
+                    .clone(),
+            }));
+        }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return Ok(
                 (self.top()?.controller == viewer).then_some(PlayerRequest::AnnounceX {
@@ -1544,11 +1674,16 @@ impl Game {
                 }),
             );
         }
-        if let Some(request) = self.cascade_request()? {
+        if let Some(request) = self.resolution_cast_request()? {
             if request.player() != viewer {
                 return Ok(None);
             }
             return Ok(Some(match request {
+                Request::PlayHideawayLinked { player, .. } => PlayerRequest::PlayHideawayLinked {
+                    token,
+                    player,
+                    candidates: vec![],
+                },
                 Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
                     token,
                     player,
@@ -1654,6 +1789,14 @@ impl Game {
                 candidates: vec![],
             }));
         }
+        if matches!(&self.state.rules.frame, Frame::ResolutionChoice {choice:ResolutionChoice::Hideaway {player,bottom:None,..},..} if *player == viewer && self.is_live(viewer))
+        {
+            return Ok(Some(PlayerRequest::Hideaway {
+                token,
+                player: viewer,
+                candidates: vec![],
+            }));
+        }
         if self.library_looked(viewer).is_some() {
             return Ok(Some(PlayerRequest::Scry {
                 token,
@@ -1739,6 +1882,11 @@ impl Game {
                 Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
                     token,
                     player: viewer,
+                },
+                Request::ChooseOpponent { candidates, .. } => PlayerRequest::ChooseOpponent {
+                    token,
+                    player: viewer,
+                    candidates,
                 },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
@@ -2043,6 +2191,21 @@ impl Game {
             _ => return Err("payment request invariant".into()),
         })
     }
+    pub(super) fn order_view_objects(view: &mut PermittedView) {
+        // A face-down card's position among older exile handles must not
+        // disclose the ordering of its physical card ID.
+        for player in &mut view.players {
+            if view
+                .objects
+                .iter()
+                .any(|o| o.face_down && o.owner == player.player)
+            {
+                player.exile.sort_by(|a, b| a.0.cmp(&b.0));
+            }
+        }
+        view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+    }
+
     fn permitted_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
         let mut view = self.blank_view(viewer)?;
         view.effects = self.visible_effects(viewer)?;
@@ -2062,7 +2225,7 @@ impl Game {
         for index in 0..self.state.rules.stack.len() {
             view.stack.push(self.visible_stack(viewer, index)?);
         }
-        view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+        Self::order_view_objects(&mut view);
         Ok(view)
     }
     pub(super) fn refresh_visibility(&mut self) -> Result<(), String> {
@@ -2173,13 +2336,13 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 45))
-            } else if let Some(request) = self.cascade_request()?
+            } else if let Some(request) = self.resolution_cast_request()?
                 && request.player() == viewer
             {
-                let kind = if matches!(request, Request::CascadeLandEntry { .. }) {
-                    23
-                } else {
-                    22
+                let kind = match request {
+                    Request::CascadeLandEntry { .. } => 23,
+                    Request::PlayHideawayLinked { .. } => 46,
+                    _ => 22,
                 };
                 Some((self.state.rules.revision, kind))
             } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
@@ -2269,6 +2432,9 @@ impl Game {
                     }
                     Frame::AdditionalCosts { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 20))
+                    }
+                    Frame::HybridCost { .. } if self.top()?.controller == viewer => {
+                        Some((self.state.rules.revision, 51))
                     }
                     Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
                         Some((self.state.rules.revision, 18))
@@ -2396,6 +2562,9 @@ impl Game {
                     .map(|h| self.resolve_handle(viewer, h))
                     .collect::<Result<_, _>>()?,
             }),
+            PlayerResponse::Hideaway { object } => Ok(Response::Hideaway {
+                object: self.resolve_handle(viewer, object)?,
+            }),
             PlayerResponse::LibrarySelect { hand, remainder } => Ok(Response::LibrarySelect {
                 hand: hand
                     .iter()
@@ -2445,6 +2614,9 @@ impl Game {
                     .collect::<Result<Vec<_>, String>>()?;
                 Ok(Response::AdditionalCosts { selected })
             }
+            PlayerResponse::HybridCost { colors } => Ok(Response::HybridCost {
+                colors: colors.clone(),
+            }),
             PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
                 value: value.clone(),
             }),
@@ -2486,6 +2658,12 @@ impl Game {
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
             }),
+            PlayerResponse::PlayHideawayLinked { object } => Ok(Response::PlayHideawayLinked {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
+            }),
             PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
                 object: object
                     .as_ref()
@@ -2509,6 +2687,9 @@ impl Game {
             PlayerResponse::OptionalEffect { perform } => {
                 Ok(Response::OptionalEffect { perform: *perform })
             }
+            PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
+                opponent: *opponent,
+            }),
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })
             }
@@ -2576,6 +2757,12 @@ impl Game {
                     .collect::<Result<_, String>>()?,
             }),
             PlayerResponse::Mulligan { take } => Ok(Response::Mulligan { take: *take }),
+            PlayerResponse::OpeningPlacement { object } => Ok(Response::OpeningPlacement {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
+            }),
             PlayerResponse::BottomOpening { objects } => Ok(Response::BottomOpening {
                 objects: objects
                     .iter()

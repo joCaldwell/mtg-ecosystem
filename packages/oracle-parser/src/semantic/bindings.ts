@@ -42,6 +42,55 @@ function isRevealAndCast(ability: Extract<Ability, { kind: "spell" }>): ability 
   const { abilityWord, ...paragraph } = ability;
   return abilityWord === undefined && isDeepStrictEqual(paragraph, { kind: "spell", effects: REVEAL_AND_CAST });
 }
+// CR 607.2a: "the exiled card" in this resolution instruction refers to a
+// different printed ability. Match its entire paragraph, including the cost
+// and resolution condition, before supplying a cross-ability reference.
+const HIDEAWAY_PLAY = {
+  effect: "play-card", optional: true, instruction: {
+    who: { player: "you" }, action: "play",
+    what: { ref: "related", number: "singular", filter: { cls: "card" },
+      relation: { relation: "event-result", event: "exile", scope: "contextual" } },
+    alternativeCost: { cost: "without-mana-cost" },
+    condition: { condition: "compare", value: { amount: "attribute-sum", attribute: "power",
+      among: { ref: "each", filter: { types: ["creature"], control: "you" } } },
+      comparison: { op: "ge", value: { amount: "fixed", value: 10 } } },
+  },
+} as const satisfies Effect;
+const HIDEAWAY_FOUR = { keyword: "hideaway", amount: 4 } as const satisfies KeywordInstance;
+
+// Only these independent entry and mana paragraphs may accompany the pair.
+// A second hideaway, another exile producer or a granted ability must never
+// supply this link. Printed order is immaterial.
+function hideawayProducer(abilities: Ability[], activation: Extract<Ability, { kind: "activated" }>): number | undefined {
+  const { abilityWord, restriction, ...paragraph } = activation;
+  if (abilityWord !== undefined || restriction !== undefined || !isDeepStrictEqual(paragraph, {
+    kind: "activated", costs: [{ cost: "mana", symbols: ["G"] }, { cost: "tap-self" }],
+    effects: [{ steps: [HIDEAWAY_PLAY] }],
+  })) return undefined;
+  let producer: number | undefined;
+  for (const [index, ability] of abilities.entries()) {
+    if (ability === activation) continue;
+    if (isDeepStrictEqual(ability, { kind: "keywords", keywords: [HIDEAWAY_FOUR] }) && producer === undefined) {
+      producer = index;
+      continue;
+    }
+    if (ability.kind === "static") {
+      const { abilityWord, ...entry } = ability;
+      if (abilityWord === undefined && isDeepStrictEqual(entry, {
+        kind: "static", effect: { static: "enters-tapped", what: { ref: "this", noun: "land" } },
+      })) continue;
+    }
+    if (ability.kind === "activated") {
+      const { abilityWord, restriction, ...mana } = ability;
+      if (abilityWord === undefined && restriction === undefined && isDeepStrictEqual(mana, {
+        kind: "activated", costs: [{ cost: "tap-self" }], effects: [{ steps: [{ effect: "add-mana",
+          who: { player: "you" }, mana: { mana: "fixed", symbols: ["G"] } }] }],
+      })) continue;
+    }
+    return undefined;
+  }
+  return producer;
+}
 const SYMBOLIC_AMOUNTS = new Set(["x", "that-number", "that-much", "replacement-event-quantity"]);
 interface Candidate { id: string; cardinality: BindingCardinality; domain: "object" | "object-or-player" | "player" | "number"; description?: ObjectFilter;
   /** The departed object this one became in its new zone (CR 400.7e, 400.7j). */
@@ -175,6 +224,37 @@ function namesObject(value: unknown, definiteOnly: boolean): boolean {
 }
 /** Printed keyword parameters that are paid or chosen as the keyword's cost. */
 const KEYWORD_PAYMENT_FIELDS = new Set(["cost", "additionalCosts", "materials", "costModifications", "restriction", "variableConstraints"]);
+const PROTECTION_FROM_EVERYTHING = { keyword: "protection", from: [{ scope: "everything" }] } satisfies KeywordInstance;
+// Match the complete copy clause, independently of any other printed abilities.
+// Different model filters, copy exceptions or entry modifiers need their own analysis.
+const OPTIONAL_SAME_TURN_ENTRY_COPY = {
+  static: "entry-copy", what: { ref: "this", noun: "creature" },
+  model: { model: "choose", who: { player: "you" }, count: 1, when: "before-entry",
+    filter: { cls: "permanent", zoneChangeHistory: { event: "enters", to: { zone: "battlefield" }, during: "this-turn" } } },
+  optional: { who: { player: "you" } },
+} as const satisfies StaticEffect;
+function isSameTurnEntryCopy(ability: Ability): ability is { kind: "static"; effect: typeof OPTIONAL_SAME_TURN_ENTRY_COPY } {
+  return ability.kind === "static" && ability.abilityWord === undefined && ability.effect.static === "entry-copy" &&
+    isDeepStrictEqual(ability.effect, OPTIONAL_SAME_TURN_ENTRY_COPY);
+}
+const SELF_GRAVEYARD_REPLACEMENT = {
+  static: "replacement",
+  replacement: {
+    event: { event: "move-zone", what: { ref: "self" }, to: { zone: "graveyard", owner: "any" }, from: "anywhere" },
+    occurrence: "each",
+    replace: { replacement: "effects", effects: [{ steps: [
+      { effect: "reveal", who: { player: "you" }, what: { ref: "replacement-event-object", role: "affected" } },
+      { effect: "shuffle-into-library", who: { player: "you" }, what: [{ ref: "replacement-event-object", role: "affected" }],
+        library: { zone: "library", owner: "its-owner" } },
+    ] }] },
+  },
+} as const satisfies StaticEffect;
+function isSelfGraveyardReplacement(ability: Ability, cardAbilities: Ability[] | undefined): boolean {
+  if (ability.kind !== "static" || cardAbilities?.length !== 2 || cardAbilities[1] !== ability) return false;
+  const { abilityWord, ...paragraph } = ability;
+  return abilityWord === undefined && isDeepStrictEqual(paragraph, { kind: "static", effect: SELF_GRAVEYARD_REPLACEMENT }) &&
+    isDeepStrictEqual(cardAbilities[0], { kind: "keywords", keywords: [PROTECTION_FROM_EVERYTHING] });
+}
 function child(path: string, part: string | number): string {
   return `${path}/${String(part).replace(/~/g, "~0").replace(/\//g, "~1")}`;
 }
@@ -829,9 +909,25 @@ class Analyzer {
       this.walkChildren(instance as unknown as Record<string, unknown>, path, { ...context, barrier });
       return;
     }
+    const protectionFromEverything = isDeepStrictEqual(instance, PROTECTION_FROM_EVERYTHING);
+    if (protectionFromEverything) this.engineFeature("protection-from-everything", path,
+      "Apply protection against all sources for targeting, damage, attachments, and blocking.", ["702.16j"]);
     const you = this.node({ id: this.id(path, "you"), path, node: "runtime-player", scope: context.ability, role: scope.role, rules: ["109.5", ...scope.rules] });
     this.node({ id: this.id(path, "keyword"), path, node: "keyword-ability", scope: context.ability, keyword: instance.keyword,
+      ...(protectionFromEverything ? { protectionFrom: "everything" as const } : {}),
       abilities: scope.abilities, you, rules: scope.rules });
+    if (instance.keyword === "hideaway" && context.source === this.id("/source", "object")) {
+      if (isDeepStrictEqual(instance, HIDEAWAY_FOUR)) {
+        this.node({ id: this.id(path, "pool"), path, node: "hideaway-exiled-pool",
+          keyword: this.id(path, "keyword"), source: context.source, key: "source-incarnation",
+          libraryOwner: you, lookCount: 4, exile: "one-face-down", remainder: "bottom-random",
+          lookPermission: "controller-of-exiling-permanent", membership: "still-in-exile", cardinality: "many",
+          rules: ["400.7", "406.3", "607.2a", "607.3", "702.75a"] });
+      }
+      this.engineFeature("hideaway-resolution", path,
+        "On entry, the trigger controller looks at the top N cards of their library, exiles one face down if possible and puts the rest on the bottom in random order. Track the cards exiled by this keyword on this incarnation and the granted and retained permissions to look.",
+        ["400.7", "406.3", "607.2a", "609.3", "702.75a"]);
+    }
     if (instance.keyword === "demonstrate")
       this.engineFeature("demonstrate", path,
         "On cast, the trigger controller may copy the spell. If they do, they choose an opponent who also copies it. Each may choose new targets for their own copy as it is put onto the stack.",
@@ -878,6 +974,57 @@ class Analyzer {
       this.walk(entry, child(path, key), key === "costs" ? { ...scope, phase: "payment" } : scope);
     }
     bindings?.forEach((binding, index) => this.walk(binding.value, child(child(child(path, "bindings"), index), "value"), scope));
+  }
+  /** CR 614.12a: choose before the proposed entrant is on the battlefield.
+   * CR 707.2, 707.5: apply the model's copiable values to that entry. */
+  sameTurnEntryCopy({ what, model, optional }: typeof OPTIONAL_SAME_TURN_ENTRY_COPY, path: string, context: Context): void {
+    const { source, ability: scope, you } = context;
+    const entrantPath = child(path, "what");
+    const proposal = this.node({ id: this.id(entrantPath, "proposal"), path: entrantPath, node: "battlefield-entry-proposal",
+      scope, object: source, to: "battlefield", controller: you, rules: ["110.2", "614.12"] });
+    this.bound(what, entrantPath, proposal, ["201.5", "614.12"]);
+    const modelPath = child(path, "model");
+    const choice = this.node({ id: this.id(modelPath, "choice"), path: modelPath, node: "entry-copy-model-choice",
+      scope, proposal, chooser: you, timing: model.when, selection: "non-target", count: "zero-or-one",
+      zone: "battlefield", filter: model.filter, historyIdentity: "current-incarnation",
+      rules: ["110.1", "115.10a", "400.7", "614.12a"] });
+    this.bound(model.who, child(modelPath, "who"), you, ["110.2", "614.12a"]);
+    this.bound(optional.who, `${path}/optional/who`, you, ["110.2", "614.12a"]);
+    this.node({ id: this.id(path, "replacement"), path, node: "entry-copy-replacement", scope,
+      entry: proposal, model: choice, timing: "as-enters", values: "model-copiable-values",
+      onDecline: "leave-entry-unchanged", rules: ["614.12", "707.2", "707.2b", "707.5"] });
+    this.engineFeature("entry-copy-replacement", path,
+      "Track entry turn for current battlefield incarnations, offer the optional choice before entry, and apply the chosen model's copiable values during entry replacement processing.",
+      ["400.7", "614.12", "614.12a", "616.1c", "707.2", "707.5"]);
+  }
+  /** CR 400.6 and 614.6: both instructions see the affected object of the
+   * proposed move. Revealing it leaves it in its original zone (CR 701.20b). */
+  selfGraveyardReplacement(path: string, context: Context): void {
+    const { source, ability: scope, you } = context;
+    const { event, occurrence, replace } = SELF_GRAVEYARD_REPLACEMENT.replacement;
+    const [reveal, shuffle] = replace.effects[0].steps;
+    const eventPath = child(path, "event");
+    const replacementPath = child(path, "replace");
+    const revealPath = `${replacementPath}/effects/0/steps/0`;
+    const shufflePath = `${replacementPath}/effects/0/steps/1`;
+    const ownerPath = `${shufflePath}/library/owner`;
+    const owner = this.node({ id: this.id(ownerPath, "owner"), path: ownerPath, node: "derived-player", scope, role: "owner",
+      of: source, rules: ["108.3", "400.3"] });
+    const proposal = this.node({ id: this.id(eventPath, "proposal"), path: eventPath, node: "zone-change-proposal", scope,
+      object: source, from: event.from, to: { zone: event.to.zone, owner }, rules: ["400.3", "400.6", "614.1a"] });
+    this.bound(event.what, child(eventPath, "what"), source, ["201.5", "400.6"]);
+    this.bound(reveal.who, child(revealPath, "who"), you, ["108.4a", "109.5"]);
+    this.bound(reveal.what, child(revealPath, "what"), source, ["201.5", "614.6", "701.20b"]);
+    this.bound(shuffle.who, child(shufflePath, "who"), you, ["108.4a", "109.5"]);
+    this.bound(shuffle.what[0], `${shufflePath}/what/0`, source, ["614.6", "701.20b", "701.24c"]);
+    this.bound({ player: "owner", of: shuffle.what[0] }, ownerPath, owner, ["108.3", "400.3"]);
+    this.node({ id: this.id(replacementPath, "replacement"), path: replacementPath, node: "reveal-and-shuffle-replacement", scope,
+      replaces: proposal, occurrence, reveal: { actor: you, object: source },
+      shuffleInto: { actor: you, object: source, library: { zone: shuffle.library.zone, owner } },
+      rules: ["614.6", "701.20a", "701.20b", "701.24a", "701.24c"] });
+    this.engineFeature("graveyard-reveal-and-shuffle", path,
+      "Apply the replacement to a proposed graveyard move and shuffle the owner's library even if another effect redirects the library move.",
+      ["400.6", "614.5", "614.6", "616.1", "701.24c"]);
   }
   /** Every established object antecedent is the source itself. */
   onlySource(context: Context): boolean {
@@ -1302,7 +1449,7 @@ class Analyzer {
       ["608.2d", "702.85b"]);
   }
   event(path: string, context: Context, operation: string, inputs: Candidate[],
-    extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true; requiresResult?: string } = {}): string {
+    extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true; condition?: string; requiresResult?: string } = {}): string {
     return this.node({ id: this.id(path, "event"), path, node: "event", scope: context.ability,
       operation, inputs: inputs.map(input => input.id), availability: "when-performed", ...extra, rules: ["608.2c"] });
   }
@@ -1581,6 +1728,24 @@ class Analyzer {
       availability: "if-produced", identity, ...(description ? { description } : {}), ...(subsetOf ? { subsetOf } : {}),
       rules: identity === "zone-successors" ? ["400.7j"] : ["608.2h"] });
     return { id, cardinality, domain: result === "objects" ? "object" : result === "player" ? "player" : "number", description };
+  }
+  hideawayPlay(path: string, pool: string, context: Context): void {
+    const at = child(path, "instruction");
+    const { instruction } = HIDEAWAY_PLAY;
+    const controller = this.bound(instruction.who, child(at, "who"), context.you, ["109.5"]);
+    const cards = this.bound(instruction.what, child(at, "what"), pool, ["400.7", "607.2a", "607.3"]);
+    this.walk(instruction.alternativeCost, child(at, "alternativeCost"), context);
+    const conditionPath = child(at, "condition");
+    this.walk(instruction.condition, conditionPath, context);
+    const creatures = this.at(`${conditionPath}/value/among`)!;
+    const condition = this.node({ id: this.id(conditionPath, "condition"), path: conditionPath,
+      node: "total-power-condition", scope: context.ability, creatures: creatures.id,
+      comparison: instruction.condition.comparison, timing: "resolution", rules: ["608.2h"] });
+    this.event(path, context, HIDEAWAY_PLAY.effect, [cards, controller],
+      { optional: true, decider: controller.id, conditional: true, condition });
+    this.engineFeature("linked-exile-play", path,
+      "During resolution, if the activator's creatures have total power at least ten, they may play each card still in this incarnation's linked exile pool. Apply land-play limits or cast without paying its mana cost, subject to legality.",
+      ["113.7a", "305.2", "305.3", "406.3a", "607.2a", "607.3", "608.2g", "608.2h", "701.18b"]);
   }
   revealAndCast(effects: typeof REVEAL_AND_CAST, path: string, context: Context): void {
     const [shuffle, scan] = effects[0].steps;
@@ -2224,11 +2389,17 @@ class Analyzer {
   ability(ability: Ability, path: string, face: string, source: string, cardAbilities?: Ability[]): void {
     const id = this.id(path, "ability");
     const you = this.id(path, "you");
+    const selfGraveyardReplacement = isSelfGraveyardReplacement(ability, cardAbilities);
+    const sameTurnEntryCopy = cardAbilities !== undefined && this.permanentFaces.has(face) &&
+      this.faceTypes.get(face)?.types?.includes("creature") && isSameTurnEntryCopy(ability);
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
       : ability.kind === "triggered" || ability.kind === "chapter" || ability.kind === "visit" || ability.kind === "case-solve" ? "trigger-controller"
-      : ability.kind === "spell" ? "spell-controller" : ability.kind === "additional-cost" ? "prospective-caster" : "static-source-controller";
+      : ability.kind === "spell" ? "spell-controller" : ability.kind === "additional-cost" ? "prospective-caster"
+      : selfGraveyardReplacement ? "replacement-source-controller-or-owner"
+      : sameTurnEntryCopy ? "entering-controller" : "static-source-controller";
     this.node({ id, path, node: "ability", source, face, abilityKind: ability.kind, you, rules: ["113", "109.5"] });
-    this.node({ id: you, path, node: "runtime-player", scope: id, role, rules: ["109.5"] });
+    this.node({ id: you, path, node: "runtime-player", scope: id, role,
+      rules: selfGraveyardReplacement ? ["108.4a", "109.5"] : sameTurnEntryCopy ? ["109.5", "110.2", "614.12"] : ["109.5"] });
     // An unqualified "other" excludes the permanent with the ability, including
     // an object that was given the ability; never the "source" of a spell.
     const permanentSource = ability.kind !== "spell" &&
@@ -2295,6 +2466,14 @@ class Analyzer {
           if (["sacrifice", "exile", "discard", "return", "move-zone"].includes(cost.cost)) context.departed = combine(context.departed ?? [], [selected]);
           else if (["tap-objects", "untap-objects", "exert", "reveal"].includes(cost.cost)) context.objects = combine(context.objects, [selected]);
         });
+        const producer = ability.kind === "activated" && ability.effects[0]?.steps[0]?.effect === "play-card"
+          && cardAbilities && permanentSource
+          ? hideawayProducer(cardAbilities, ability) : undefined;
+        if (producer !== undefined) {
+          const siblings = path.slice(0, path.lastIndexOf("/"));
+          this.hideawayPlay(`${path}/effects/0/steps/0`, this.id(`${siblings}/${producer}/keywords/0`, "pool"), context);
+          break;
+        }
         this.sentences(ability.effects, child(path, "effects"), context);
         break;
       }
@@ -2326,6 +2505,14 @@ class Analyzer {
       }
       case "chapter": this.sentences(ability.effects, child(path, "effects"), context); break;
       case "static":
+        if (sameTurnEntryCopy) {
+          this.sameTurnEntryCopy(ability.effect, child(path, "effect"), context);
+          break;
+        }
+        if (selfGraveyardReplacement) {
+          this.selfGraveyardReplacement(`${path}/effect/replacement`, context);
+          break;
+        }
         // "..., where X is ...": the static ability's own definition (CR 107.3c).
         if ("bindings" in ability.effect && Array.isArray(ability.effect.bindings)
           && !["entry-choice", "enters-with-counters", "enters-tapped", "as-enters"].includes(String(ability.effect.static)))

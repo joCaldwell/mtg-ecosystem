@@ -666,6 +666,10 @@ fn seeded_prepared(seed: u8) -> Prepared {
             card.oracle_id = basics[(card.id.0 % 3) as usize].clone();
         }
     }
+    finish_seeded_setup(p, seed)
+}
+
+fn finish_seeded_setup(mut p: Prepared, seed: u8) -> Prepared {
     p.config.initial.turn_step = TurnStep::Untap;
     let mut config =
         MatchConfig::for_profile("commander-staples-v1", [seed; 32], PlayerId(0)).unwrap();
@@ -1947,3 +1951,9 @@ fn cascade_land_entry_paid_averna_before_hit_or_bottom() {
         }
     }
 }
+
+#[path = "creative_technique_tests.rs"]
+mod creative_technique_tests;
+
+#[path = "linked_play_tests.rs"]
+mod linked_play_tests;

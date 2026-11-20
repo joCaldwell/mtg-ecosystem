@@ -164,10 +164,37 @@ impl Game {
                     {
                         return Err("resolution payment completion identity".into());
                     }
-                    progress.child = Some(completed.stack_id);
-                    progress.stage = cascade::CascadeStage::Randomize;
-                    self.prepare_cascade_remainder(&mut progress)?;
-                    self.state.rules.frame = Frame::Cascade { progress };
+                    match &mut progress {
+                        CastOwner::LinkedPlay {
+                            progress, object, ..
+                        } => {
+                            // Paying an additional sacrifice cost can move the
+                            // granting permanent while the child is announced.
+                            if let Some(issuer) = self
+                                .state
+                                .rules
+                                .stack
+                                .iter()
+                                .find(|s| s.id == progress.frame.stack_id)
+                            {
+                                progress
+                                    .frame
+                                    .spell
+                                    .source_facts
+                                    .clone_from(&issuer.source_facts);
+                            }
+                            progress.complete_cast(*object, completed.stack_id);
+                        }
+                        CastOwner::Cascade(progress) => {
+                            progress.child = Some(completed.stack_id);
+                            progress.stage = cascade::CascadeStage::Randomize;
+                            self.prepare_cascade_remainder(progress)?;
+                        }
+                        CastOwner::RevealAndCast(progress) => {
+                            progress.complete_cast(permission.object, completed.stack_id)?
+                        }
+                    }
+                    self.state.rules.frame = progress.resume();
                 }
             },
             AnnouncementPayment::Unpayable => {
@@ -212,6 +239,13 @@ impl Game {
                 ActivationCost::DiscardSource { .. }
             )
             && !self.hand_activation_source_payable(stack.controller, stack.source)
+        {
+            return Ok(AnnouncementPayment::Unpayable);
+        }
+        if let StackKind::Activated { ability, .. } = stack.kind
+            && let ActivationCost::Composite { costs } =
+                &self.definition(stack.source.card)?.activated[ability as usize].cost
+            && !self.permanent_source_costs_payable(stack.source, stack.controller, costs)
         {
             return Ok(AnnouncementPayment::Unpayable);
         }

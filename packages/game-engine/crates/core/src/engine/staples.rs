@@ -152,8 +152,15 @@ impl Game {
     }
     pub(super) fn resume_entry_search(&mut self, frame: Resolving) -> Result<(), String> {
         let source_block = self.entry_search_block(&frame)?;
+        self.begin_library_shuffle(frame, source_block)
+    }
+    pub(super) fn begin_library_shuffle(
+        &mut self,
+        frame: Resolving,
+        source_block: u32,
+    ) -> Result<(), String> {
         let player = frame.spell.controller;
-        self.begin_library_shuffle(frame, player, source_block)
+        self.begin_player_library_shuffle(frame, player, source_block)
     }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         let instruction = self
@@ -256,7 +263,7 @@ impl Game {
     ) -> bool {
         if !self
             .targeting_characteristics(entry)
-            .is_ok_and(|source| !self.protected_from(object, source))
+            .is_ok_and(|source| !self.protected_from(object, &source))
         {
             return false;
         }
@@ -604,6 +611,20 @@ impl Game {
                         ProposedEvent::FinishLibraryShuffle { player },
                         Self::staple_cause(&frame, source_block),
                     )?;
+                    if matches!(
+                        self.program_for(&frame.spell)?
+                            .instructions
+                            .get(frame.cursor as usize),
+                        Some(Instruction::RevealAndCast { .. })
+                    ) {
+                        self.state.rules.frame = Frame::RevealAndCast {
+                            progress: Box::new(RevealAndCastProgress::after_shuffle(
+                                frame,
+                                source_block,
+                            )),
+                        };
+                        return Ok(());
+                    }
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
@@ -682,7 +703,7 @@ impl Game {
                         },
                     )?;
                 }
-                self.begin_library_shuffle(frame, player, source_block)
+                self.begin_player_library_shuffle(frame, player, source_block)
             }
             ResolutionChoice::SearchSplit {
                 objects,
@@ -727,7 +748,7 @@ impl Game {
                         },
                     )?;
                 }
-                self.begin_library_shuffle(frame, player, source_block)
+                self.begin_player_library_shuffle(frame, player, source_block)
             }
             ResolutionChoice::OptionalDraw { source_block, .. } => {
                 let input = self
@@ -942,6 +963,7 @@ impl Game {
                 | Instruction::SearchColoredLibrary {
                     source_block: b, ..
                 }
+                | Instruction::RevealAndCast { source_block: b }
                 | Instruction::OptionalShuffleLibrary { source_block: b },
             ) => {
                 *player == frame.spell.controller

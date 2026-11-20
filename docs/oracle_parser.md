@@ -242,8 +242,9 @@ Further scope rules, each grounded in the Comprehensive Rules:
   301.5d, 303.4e). A granted keyword's protection qualities and choices stay
   in the granting scope (CR 608.2h). "Equipped", "enchanted" and "fortified"
   objects are what the source is attached to (CR 301.5f, 303.4m).
-- A permanent's own entry ("enters tapped", "enters with counters", "as this
-  enters") binds "you" to the player it enters under (CR 110.2a, 614.12).
+- A permanent's own entry binds "you" to its entering controller (CR 110.2a,
+  614.12). Optional same-turn `entry-copy-replacement` binds a pre-entry
+  battlefield choice and needs engine support (CR 614.12a, 707.5).
 - "An opponent controls" and "you don't control" are relative to "you".
   "Other" in a permanent's ability means other than that permanent when no
   other object has been named; elsewhere it stays unresolved. A bare "it"

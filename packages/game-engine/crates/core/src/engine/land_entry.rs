@@ -7,9 +7,21 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum EntryOrigin {
-    LandPlay { player: PlayerId, decision_id: u64 },
-    Search { frame: Resolving },
-    Cascade { progress: Box<CascadeProgress> },
+    LinkedPlay {
+        progress: Box<LinkedPlayProgress>,
+        object: ObjectId,
+        receipt: HideawayLink,
+    },
+    LandPlay {
+        player: PlayerId,
+        decision_id: u64,
+    },
+    Search {
+        frame: Resolving,
+    },
+    Cascade {
+        progress: Box<CascadeProgress>,
+    },
 }
 impl EntryOrigin {
     pub(super) fn player(&self) -> PlayerId {
@@ -17,6 +29,7 @@ impl EntryOrigin {
             Self::LandPlay { player, .. } => *player,
             Self::Search { frame } => frame.spell.controller,
             Self::Cascade { progress } => progress.frame.spell.controller,
+            Self::LinkedPlay { progress, .. } => progress.frame.spell.controller,
         }
     }
 }
@@ -118,6 +131,19 @@ impl Game {
                 self.validate_resolving(frame)?;
                 self.validate_entry_search(frame, objects)?;
             }
+            EntryOrigin::LinkedPlay {
+                progress,
+                object,
+                receipt,
+            } => {
+                self.validate_linked_play(progress, None)?;
+                if !progress.receipt_matches(receipt, *object)
+                    || objects != [*object]
+                    || !self.linked_land_playable(player, *object)?
+                {
+                    return Err("invalid linked land play".into());
+                }
+            }
             EntryOrigin::Cascade { progress } => {
                 self.validate_cascade_state()?;
                 if objects.len() != 1 || !self.cascade_land_available(progress, objects[0])? {
@@ -126,7 +152,11 @@ impl Game {
             }
         }
         let offers = self.entry_offers(objects)?;
-        if (offers.is_empty() && !matches!(origin, EntryOrigin::Cascade { .. }))
+        if (offers.is_empty()
+            && !matches!(
+                origin,
+                EntryOrigin::Cascade { .. } | EntryOrigin::LinkedPlay { .. }
+            ))
             || choices.len() > offers.len()
         {
             return Err("invalid entry choice prefix".into());
@@ -158,7 +188,10 @@ impl Game {
         mut objects: Vec<ObjectId>,
     ) -> Result<bool, String> {
         objects.sort();
-        if !matches!(origin, EntryOrigin::Cascade { .. }) && self.entry_offers(&objects)?.is_empty()
+        if !matches!(
+            origin,
+            EntryOrigin::Cascade { .. } | EntryOrigin::LinkedPlay { .. }
+        ) && self.entry_offers(&objects)?.is_empty()
         {
             return Ok(false);
         }
@@ -221,6 +254,9 @@ impl Game {
             EntryOrigin::Search { frame } => {
                 Ok(Self::staple_cause(frame, self.entry_search_block(frame)?))
             }
+            EntryOrigin::LinkedPlay { progress, .. } => {
+                Ok(Self::wipe_cause(&progress.frame, progress.source_block))
+            }
             EntryOrigin::Cascade { progress } => {
                 Ok(Self::wipe_cause(&progress.frame, progress.source_block))
             }
@@ -248,10 +284,12 @@ impl Game {
             occurrences: objects
                 .iter()
                 .map(|object| match origin {
-                    EntryOrigin::LandPlay { .. } => ProposedEvent::Move {
-                        object: *object,
-                        destination: Zone::Battlefield,
-                    },
+                    EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. } => {
+                        ProposedEvent::Move {
+                            object: *object,
+                            destination: Zone::Battlefield,
+                        }
+                    }
                     EntryOrigin::Cascade { .. } => ProposedEvent::CascadeLandEntry {
                         object: *object,
                         player,
@@ -263,7 +301,10 @@ impl Game {
                 })
                 .collect(),
         });
-        if matches!(origin, EntryOrigin::LandPlay { .. }) {
+        if matches!(
+            origin,
+            EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. }
+        ) {
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::LandPlayed { player },
             });
@@ -291,6 +332,10 @@ impl Game {
             (EntryOrigin::Search { frame }, BatchCause::Instruction { stack_id, .. }) => {
                 *stack_id == frame.spell.id
             }
+            (
+                EntryOrigin::LinkedPlay { progress, .. },
+                BatchCause::Instruction { stack_id, .. },
+            ) => *stack_id == progress.frame.stack_id,
             (EntryOrigin::Cascade { progress }, BatchCause::Instruction { stack_id, .. }) => {
                 *stack_id == progress.frame.stack_id
             }
@@ -311,7 +356,7 @@ impl Game {
             entries.insert(*object, Some(*paid));
         }
         let (put_by_effect, force_tapped) = match origin {
-            EntryOrigin::LandPlay { .. } => (false, false),
+            EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. } => (false, false),
             EntryOrigin::Cascade { .. } => (true, true),
             EntryOrigin::Search { frame } => (true, self.entry_search_force_tapped(frame)?),
         };
@@ -353,6 +398,10 @@ impl Game {
                 self.state.rules.passes.clear();
                 self.stabilize()
             }
+            EntryOrigin::LinkedPlay { progress, .. } => {
+                self.state.rules.frame = Frame::PlayHideawayLinked { progress };
+                Ok(())
+            }
             EntryOrigin::Search { frame } => self.resume_entry_search(frame),
             EntryOrigin::Cascade { progress } => self.resume_cascade_land(progress, Some(first)),
         }
@@ -380,6 +429,25 @@ impl Game {
         else {
             return Ok(());
         };
+        if let EntryOrigin::LinkedPlay {
+            progress,
+            object,
+            receipt,
+        } = &origin
+            && (!self.is_live(origin.player())
+                || !self.linked_land_playable(origin.player(), *object)?)
+        {
+            self.state.rules.pending = None;
+            // Entry has not committed. A surviving land returns to its
+            // original face-down exile state, preserving all prior lookers.
+            if self.current(*object).is_ok_and(|o| o.zone == Zone::Exile) {
+                self.restore_hideaway_link(receipt.clone())?;
+            }
+            self.state.rules.frame = Frame::PlayHideawayLinked {
+                progress: progress.clone(),
+            };
+            return Ok(());
+        }
         if !self.is_live(origin.player()) {
             self.state.rules.pending = None;
             return match origin {
@@ -387,6 +455,7 @@ impl Game {
                     self.state.rules.frame = Frame::Priority;
                     Ok(())
                 }
+                EntryOrigin::LinkedPlay { .. } => unreachable!("departed linked land was unwound"),
                 EntryOrigin::Cascade { progress } => {
                     self.finish_ability(&progress.frame.spell, false)
                 }
@@ -426,7 +495,9 @@ impl Game {
             return 0;
         };
         let separately_charged = match origin {
-            EntryOrigin::LandPlay { .. } | EntryOrigin::Cascade { .. } => 0,
+            EntryOrigin::LandPlay { .. }
+            | EntryOrigin::Cascade { .. }
+            | EntryOrigin::LinkedPlay { .. } => 0,
             EntryOrigin::Search { frame } => costs::entry_cost_lock_charge(&frame.spell)
                 .saturating_add(spell_cascade_grants::entry_grant_charge(&frame.spell)),
         };

@@ -92,12 +92,25 @@ impl Game {
         self.begin_spell_announcement(announcement)
     }
 
-    pub(super) fn announce_resolution_spell(
-        &mut self,
-        permission: CastPermission,
-        progress: Box<CascadeProgress>,
-    ) -> Result<(), String> {
-        self.validate_resolution_permission(&permission, &progress)?;
+    pub(super) fn announce_resolution_spell(&mut self, progress: CastOwner) -> Result<(), String> {
+        let permission = progress.permission()?;
+        let legal = match &progress {
+            CastOwner::LinkedPlay {
+                progress,
+                object,
+                receipt,
+            } => {
+                self.validate_linked_play(progress, None)?;
+                matches!(&self.state.rules.frame, Frame::PlayHideawayLinked { progress: current } if current == progress)
+                    && progress.receipt_matches(receipt, *object)
+                    && self.current(*object)?.zone == Zone::Exile
+                    && self.resolution_spell_proposable(permission.caster, *object)?
+            }
+            _ => self.resolution_offer_legal(&permission)?,
+        };
+        if !legal {
+            return Err("no legal resolution cast".into());
+        }
         self.begin_spell_announcement(SpellAnnouncement {
             player: permission.caster,
             original_object: permission.object,
@@ -176,6 +189,7 @@ impl Game {
             .successor;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         self.state.rules.stack.push(StackInstance {
+            hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost,
@@ -248,6 +262,12 @@ impl Game {
             && stack.mode_subset.is_none()
         {
             return Ok(Frame::Modes { cast });
+        }
+        if !definition.characteristics.hybrid_mana.is_empty()
+            && stack.alternative_cost.is_none()
+            && stack.hybrid_colors.is_empty()
+        {
+            return Ok(Frame::HybridCost { cast });
         }
         if definition.x_mana_cost && stack.x.is_none() {
             return Ok(Frame::AnnounceX { cast });
@@ -460,8 +480,9 @@ impl Game {
                 .ok_or("missing reversal object")?;
             o.id = cast.original_object;
             o.zone = stack.cast_from;
-            o.controller = stack.controller;
-            o.default_controller = stack.controller;
+            let owner = self.state.rules.cards[&cast.original_object.card].owner;
+            o.controller = owner;
+            o.default_controller = owner;
             o.tapped = false;
         }
         self.state.rules.pending = None;
@@ -482,15 +503,22 @@ impl Game {
             CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
             CastCompletion::Resolution {
                 permission,
-                mut progress,
+                progress,
             } => {
                 if permission.object != cast.original_object
                     || permission.caster != stack.controller
                 {
                     return Err("resolution cast reversal permission invariant".into());
                 }
-                progress.stage = cascade::CascadeStage::Offer;
-                Frame::Cascade { progress }
+                if let CastOwner::LinkedPlay {
+                    receipt, progress, ..
+                } = progress
+                {
+                    self.restore_hideaway_link(receipt)?;
+                    Frame::PlayHideawayLinked { progress }
+                } else {
+                    progress.resume()
+                }
             }
         };
         self.record_event(Event::CastReversed {

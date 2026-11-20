@@ -258,7 +258,7 @@ pub(super) fn extend_schema(s: &mut Value) {
         "capabilities":{"contains":{"const":Capability::BoardWipesV1}}}});
     let def = s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap();
     def.push(json!({"properties":{"triggered":{"items":{"properties":{"program":free}}},"activated":{"items":{"properties":{"program":free}}}},"if":has,"then":{"anyOf":[shape,{"properties":{"spell":{"properties":{"resolution":{"const":"one_or_more_modes"}}}}}]}}));
-    let marker = json!({"required":["resolution"],"properties":{"resolution":{"const":"one_or_more_modes"}}});
+    let marker = json!({"type":"object","required":["resolution"],"properties":{"resolution":{"const":"one_or_more_modes"}}});
     let marker_free = json!({"$ref":"#/$defs/SubsetModeFree"});
     s["$defs"]["SubsetModeFree"] = json!({"not":marker,"properties":{"modes":{"items":{"properties":{"program":marker_free}}}}});
     let def = s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap();

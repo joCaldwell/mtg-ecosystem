@@ -141,6 +141,9 @@ pub(super) fn public_proof(g: &Game) {
         for s in &expected.view.stack {
             if let Some(t) = &s.triggered {
                 match &t.ability {
+                    VisibleTriggerAbility::TemporaryGrant { .. } => {
+                        panic!("fixture has no temporary grants")
+                    }
                     VisibleTriggerAbility::Intrinsic { .. } => (),
                     VisibleTriggerAbility::Granted {
                         source,
@@ -648,6 +651,9 @@ fn m4c_pending_tagged_grant_views_exact_order_stale_work_and_accepted_replay() {
     );
     for candidate in &visible {
         let expected = match candidate.ability {
+            VisibleTriggerAbility::TemporaryGrant { .. } => {
+                panic!("fixture has no temporary grants")
+            }
             VisibleTriggerAbility::Intrinsic { index } => {
                 let spell = g.state.rules.stack.first().unwrap();
                 g.trigger_source_label(spell.source, EffectiveTriggerAbility::Intrinsic { index })

@@ -33,6 +33,7 @@ mod activated_permanent_tap_tests;
 mod activated_spell_counter_tests;
 mod each_player_draw;
 mod group_discard;
+mod hideaway;
 #[cfg(test)]
 mod keyword_removal_wipe_tests;
 #[cfg(test)]
@@ -41,6 +42,7 @@ mod nonland_exile_life_tests;
 mod opponent_nonland_destroy_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
+use hideaway::HideawayLink;
 mod random_discard;
 mod removal;
 #[cfg(test)]
@@ -341,12 +343,16 @@ mod actions;
 mod divided_counters;
 pub use divided_counters::CounterDivision;
 mod cascade;
+mod linked_play;
+use linked_play::LinkedPlayProgress;
+mod reveal_and_cast;
+use reveal_and_cast::RevealAndCastProgress;
 mod hand_cast;
 use hand_cast::HandCastPermission;
 #[cfg(test)]
 mod cascade_tests;
 mod casting;
-use cascade::{CascadeProgress, CastCompletion, CastPermission};
+use cascade::{CascadeProgress, CastCompletion, CastOwner, CastPermission};
 #[cfg(test)]
 mod cast_origin_tests;
 #[cfg(test)]
@@ -640,6 +646,19 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn has_nonland_color_grant(&self) -> bool {
+        self.catalog.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::ControllerNonlandColorsV1)
+        })
+    }
+    fn includes_opening_placement(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::OpeningPlacementV1))
+    }
+
     // Existing reviewed catalogs keep their exact private snapshot envelope.
     // The headless land-type family can retain new unpaid selection frames.
     fn has_land_type_grant(&self) -> bool {
@@ -914,6 +933,8 @@ struct Card {
 #[serde(deny_unknown_fields)]
 struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    hideaway: Option<Box<HideawayLink>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     phased_out: Option<PhaseReturn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attached_to: Option<ObjectId>,
@@ -943,6 +964,8 @@ impl Object {
 struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cost_lock: Option<costs::CostLock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    hybrid_colors: Vec<Color>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1055,6 +1078,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    PlayHideawayLinked {
+        progress: Box<LinkedPlayProgress>,
+    },
     LandEntry {
         origin: EntryOrigin,
         objects: Vec<ObjectId>,
@@ -1066,6 +1092,9 @@ enum Frame {
         source: ObjectId,
         scope: ManaSourceScope,
         resume: Box<Frame>,
+    },
+    RevealAndCast {
+        progress: Box<RevealAndCastProgress>,
     },
     HandCast {
         frame: Box<Resolving>,
@@ -1083,6 +1112,9 @@ enum Frame {
         cast: Casting,
     },
     AnnounceX {
+        cast: Casting,
+    },
+    HybridCost {
         cast: Casting,
     },
     SacrificeCost {
@@ -1198,6 +1230,12 @@ pub enum ManaAbilityIdentity {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    PlayHideawayLinked {
+        object: Option<ObjectId>,
+    },
+    OpeningPlacement {
+        object: Option<ObjectId>,
+    },
     AdditionalCosts {
         selected: Vec<String>,
     },
@@ -1206,6 +1244,9 @@ pub enum Response {
     },
     LibraryOrder {
         objects: Vec<ObjectId>,
+    },
+    Hideaway {
+        object: ObjectId,
     },
     LibrarySelect {
         hand: Vec<ObjectId>,
@@ -1224,6 +1265,9 @@ pub enum Response {
     },
     AnnounceX {
         value: Quantity,
+    },
+    HybridCost {
+        colors: Vec<Color>,
     },
     SacrificeCost {
         object: ObjectId,
@@ -1248,6 +1292,9 @@ pub enum Response {
     },
     SearchLandBattlefield {
         object: ObjectId,
+    },
+    ChooseOpponent {
+        opponent: PlayerId,
     },
     OptionalEffect {
         perform: bool,
@@ -1349,6 +1396,16 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    PlayHideawayLinked {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
+    OpeningPlacement {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
+    },
     HandCast {
         player: PlayerId,
         decision_id: u64,
@@ -1370,6 +1427,11 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
         count: usize,
+    },
+    Hideaway {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
     },
     LibrarySelect {
         decision_id: u64,
@@ -1396,6 +1458,11 @@ pub enum Request {
     AnnounceX {
         decision_id: u64,
         player: PlayerId,
+    },
+    HybridCost {
+        decision_id: u64,
+        player: PlayerId,
+        symbols: Vec<ColorHybridSymbol>,
     },
     SacrificeCost {
         decision_id: u64,
@@ -1440,6 +1507,11 @@ pub enum Request {
         player: PlayerId,
         maximum: u32,
         candidates: Vec<ObjectId>,
+    },
+    ChooseOpponent {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<PlayerId>,
     },
     OptionalEffect {
         decision_id: u64,
@@ -1590,13 +1662,16 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::HandCast { decision_id, .. }
+            Self::PlayHideawayLinked { decision_id, .. }
+            | Self::HandCast { decision_id, .. }
             | Self::HandReturn { decision_id, .. }
             | Self::LibraryOrder { decision_id, .. }
+            | Self::Hideaway { decision_id, .. }
             | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
             | Self::Surveil { decision_id, .. } => *decision_id,
             Self::AdditionalCosts { decision_id, .. }
+            | Self::HybridCost { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
@@ -1604,9 +1679,11 @@ impl Request {
             | Self::SearchLands { decision_id, .. }
             | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
+            | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
+            | Self::OpeningPlacement { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
             | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
@@ -1634,13 +1711,16 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::HandCast { player, .. }
+            Self::PlayHideawayLinked { player, .. }
+            | Self::HandCast { player, .. }
             | Self::HandReturn { player, .. }
             | Self::LibraryOrder { player, .. }
+            | Self::Hideaway { player, .. }
             | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
             | Self::Surveil { player, .. } => *player,
             Self::AdditionalCosts { player, .. }
+            | Self::HybridCost { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
             | Self::ManaColor { player, .. }
@@ -1648,9 +1728,11 @@ impl Request {
             | Self::SearchLands { player, .. }
             | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
+            | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
+            | Self::OpeningPlacement { player, .. }
             | Self::BottomOpening { player, .. }
             | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
@@ -1680,6 +1762,14 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    RevealLibraryCard {
+        player: PlayerId,
+        object: ObjectId,
+    },
+    BottomRevealedCards {
+        player: PlayerId,
+        order: Vec<ObjectId>,
+    },
     FreezeLifeUntilNextTurn {
         player: PlayerId,
     },
@@ -1701,6 +1791,12 @@ pub enum ProposedEvent {
         amount: Quantity,
         looked: Vec<ObjectId>,
         order: Vec<ObjectId>,
+    },
+    Hideaway {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        selected: ObjectId,
+        bottom: Vec<ObjectId>,
     },
     LibrarySelect {
         player: PlayerId,
@@ -1930,6 +2026,14 @@ pub enum EventOutcome {
     CounterPlacementModified {
         application: CounterPlacementApplication,
     },
+    LibraryCardRevealed {
+        player: PlayerId,
+        object: ObjectId,
+    },
+    RevealedCardsBottomed {
+        player: PlayerId,
+        order: Vec<ObjectId>,
+    },
     SearchLandsRevealed {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -1942,6 +2046,10 @@ pub enum EventOutcome {
         player: PlayerId,
         looked: Vec<ObjectId>,
         order: Vec<ObjectId>,
+    },
+    HiddenAway {
+        movement: MoveOutcome,
+        bottom: Vec<ObjectId>,
     },
     LibrarySelected {
         player: PlayerId,
@@ -2166,6 +2274,10 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    Demonstrated {
+        first: spell_copy::CopyIdentity,
+        opponent: Option<spell_copy::CopyIdentity>,
+    },
     SpellCopied {
         copy: StackId,
     },
@@ -2371,6 +2483,7 @@ pub struct SnapshotWriteInfo {
 }
 pub struct Game {
     catalog_has_land_type_grant: bool,
+    catalog_has_nonland_color_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     state: State,
@@ -2440,6 +2553,7 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        hideaway: None,
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
@@ -2529,6 +2643,7 @@ impl Game {
         };
         let mut game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2551,6 +2666,7 @@ impl Game {
     pub fn fork(&self) -> Self {
         Self {
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
+            catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
@@ -2616,7 +2732,9 @@ impl Game {
             .map(|p| p.mana.get(&color).cloned().unwrap_or_default())
     }
     pub fn characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
-        self.current(object)?;
+        if self.current(object)?.hideaway.is_some() {
+            return Err("face-down exiled card has no characteristics".into());
+        }
         self.derived_characteristics(object)
     }
     // Characteristics supply intrinsic behavior; reminder text never supplies
@@ -2719,10 +2837,7 @@ impl Game {
                     .get(index as usize)
                     .map(|a| &a.program)
                     .ok_or_else(|| "missing triggered program".to_string()),
-                EffectiveTriggerAbility::Granted {
-                    grant_source,
-                    static_ability_index,
-                } => self.grant_program(grant_source, static_ability_index),
+                grant => self.effective_cascade_program(grant),
             },
             StackKind::Activated { ability, .. } => definition
                 .activated
@@ -2762,7 +2877,7 @@ impl Game {
         if let Some(req) = self.hand_cast_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
-        if let Some(req) = self.cascade_request()? {
+        if let Some(req) = self.resolution_cast_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.rules.frame {
@@ -2889,6 +3004,15 @@ impl Game {
                 player: self.top()?.controller,
                 candidates: self.program()?.optional_additional_costs.clone(),
             },
+            Frame::HybridCost { .. } => Request::HybridCost {
+                decision_id: self.state.rules.revision,
+                player: self.top()?.controller,
+                symbols: self
+                    .definition(self.top()?.source.card)?
+                    .characteristics
+                    .hybrid_mana
+                    .clone(),
+            },
             Frame::AnnounceX { .. } => Request::AnnounceX {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
@@ -2923,6 +3047,12 @@ impl Game {
         if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
             return self.validate_resolution_payment_response(payment, player, response);
         }
+        if matches!(self.state.rules.frame, Frame::PlayHideawayLinked { .. }) {
+            return self.validate_linked_play_response(player, response);
+        }
+        if let Frame::RevealAndCast { progress } = &self.state.rules.frame {
+            return self.validate_reveal_offer(progress, player, response);
+        }
         if matches!(&self.state.rules.frame, Frame::HandCast { .. }) {
             return self.validate_hand_cast_response(player, response);
         }
@@ -2938,6 +3068,19 @@ impl Game {
             } else {
                 Err("invalid optional cost announcement".into())
             };
+        }
+        if let Frame::HybridCost { cast } = &self.state.rules.frame {
+            let entry = self.top()?;
+            if let Response::HybridCost { colors } = response
+                && entry.id == cast.stack_id
+                && entry.controller == player
+                && entry.kind.is_spell()
+                && entry.alternative_cost.is_none()
+                && entry.hybrid_colors.is_empty()
+            {
+                return self.validate_hybrid_colors(entry.source.card, colors);
+            }
+            return Err("invalid hybrid mana announcement".into());
         }
         if let Frame::AnnounceX { .. } = self.state.rules.frame {
             return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
@@ -3226,6 +3369,8 @@ impl Game {
         }
         match self.state.rules.frame.clone() {
             Frame::LandEntry { .. } => self.land_entry_step()?,
+            Frame::PlayHideawayLinked { progress } => self.linked_play_step(progress)?,
+            Frame::RevealAndCast { progress } => self.reveal_and_cast_step(progress)?,
             Frame::HandCast { frame, child } => self.hand_cast_step(frame, child)?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
             Frame::ResolutionPayment { frame, payment } => {
@@ -3238,6 +3383,25 @@ impl Game {
             Frame::Setup => self.setup_step()?,
             Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
             Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
+            Frame::HybridCost { cast } => {
+                let input = self
+                    .state
+                    .rules
+                    .pending
+                    .take()
+                    .ok_or("missing hybrid cost choice")?;
+                self.validate_response(input.player, &input.response)?;
+                let Response::HybridCost { colors } = input.response else {
+                    return Err("missing hybrid cost response".into());
+                };
+                self.state
+                    .rules
+                    .stack
+                    .last_mut()
+                    .ok_or("missing hybrid spell")?
+                    .hybrid_colors = colors;
+                self.state.rules.frame = self.spell_announcement_frame(cast)?;
+            }
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
             Frame::CounterPlacement { .. } => self.counter_placement_step()?,
@@ -3529,7 +3693,9 @@ impl Game {
                 )?;
             }
             self.state.rules.stack.remove(index);
-        } else if self.is_live(owner) || self.state.rules.stack.iter().any(|s| s.id == stack.id) {
+        } else if self.invocation_lives(stack)
+            || self.state.rules.stack.iter().any(|s| s.id == stack.id)
+        {
             return Err("unsupported resolving-source movement".into());
         }
         self.record_event(Event::SpellCompleted {
@@ -3595,7 +3761,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 69,
+            snapshot_version: 70,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3637,7 +3803,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 69
+        if s.snapshot_version != 70
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3647,6 +3813,7 @@ impl Game {
         }
         let game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
@@ -3747,6 +3914,7 @@ impl Game {
         }
         self.validate_attachment_state()?;
         self.validate_control_state()?;
+        self.validate_hideaway_links()?;
         self.validate_tokens_state()?;
         self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;
@@ -3811,6 +3979,7 @@ impl Game {
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::TriggerTargets { .. }
                         | Frame::AdditionalCosts { .. }
+                        | Frame::HybridCost { .. }
                         | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
@@ -3859,6 +4028,7 @@ impl Game {
         }
         match self.underlying_mana_frame(&s.rules.frame) {
             Frame::AdditionalCosts { cast }
+            | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
             | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
@@ -3895,6 +4065,7 @@ impl Game {
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame),
                         Frame::AdditionalCosts { .. }
+                            | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
                             | Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
@@ -3912,6 +4083,7 @@ impl Game {
                 if matches!(
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::AdditionalCosts { .. }
+                        | Frame::HybridCost { .. }
                         | Frame::AnnounceX { .. }
                         | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }

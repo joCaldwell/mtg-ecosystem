@@ -30,21 +30,20 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-`02b35e35` compiles **70/85 original rows**, plus three source-identical authorized reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`b9a27f44` compiles **71/85 original rows**, plus five source-identical reparses. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
 
-Averna and Call Forth compile through source-identical authorized reparses. Yidris awaits complete rules support.
+Averna, Call Forth, Double Major, Yidris and Creative Technique use authorized reparses.
 
 ### M5 Add color and mana engines
 
-Prismatic Omen and Lantern have live mana witnesses. Complete Leyline, Selvala and Omnath.
+Omen, Lantern and Leyline have focused witnesses. Complete Selvala and Omnath.
 
 ### M6 Complete card advantage and flexible choices
 
-Whirlwind, Rhystic, Abzan and Urban have focused witnesses. Complete Quandrix
-choose-two/graveyard targets and Conflux colored search.
+Whirlwind, Rhystic, Abzan, Urban and Conflux have focused witnesses. Complete Quandrix’s choose-two and graveyard targets.
 
 ### M7 Complete protection and board interaction
 
@@ -53,14 +52,13 @@ Death-trigger destruction, Exterminatus, Farewell and Akroma's Will have paid wi
 
 ### M8 Add spell and permanent copies
 
-Double Major compiles from an authorized reparse. Complete Technique/demonstrate and Protege through generic
-copyable characteristics, independent targets/choices, ownership/control and legendary
-exceptions. Revise copy/token/trigger capacity.
+Double Major and Creative Technique compile from authorized reparses. Complete
+Protege’s copying with independent choices and exact ownership.
 
 ### M9 Add linked permissions, bestow and Sagas
 
-Complete Mosswort's private linked hideaway permission, Chromanticore bestow/type/
-attachment transitions and Thunder's lore/chapters/final sacrifice.
+Mosswort has paid hideaway and linked-play witnesses. Complete Chromanticore’s
+bestow transitions and Thunder’s chapters.
 
 ### M10 Complete phasing and remaining effects
 

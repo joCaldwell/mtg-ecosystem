@@ -133,7 +133,7 @@ impl Game {
         selected: &[String],
     ) -> Result<ManaCost, String> {
         let lock = self.cost_lock_inputs(card, caster, from)?;
-        self.construct_spell_cost(card, alternative, None, selected, &lock)
+        self.construct_spell_cost(card, alternative, None, selected, None, &lock)
     }
 
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next
