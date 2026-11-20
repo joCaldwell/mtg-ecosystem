@@ -1987,7 +1987,7 @@ impl Game {
             ) || entrant.object != fact.object
                 || entrant.owner != fact.owner
                 || fact.zone != Zone::Battlefield
-                || fact.controller.0 >= 4
+                || fact.controller != self.resolving_entrant(frame)?.controller
             {
                 return Err("invalid resolving entrant identity".into());
             }

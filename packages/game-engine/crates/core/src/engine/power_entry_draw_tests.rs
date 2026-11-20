@@ -198,6 +198,17 @@ fn greatest_power_paid_allocation_and_entrant_draw() {
         }
     ));
     recover(&g);
+    let mut forged = g.state.rules.frame.clone();
+    let Frame::ResolutionChoice {
+        frame,
+        choice: actions::ResolutionChoice::OptionalDraw { player, .. },
+    } = &mut forged
+    else {
+        panic!("expected optional draw")
+    };
+    *player = PlayerId(1);
+    frame.entrant_draw.as_mut().unwrap().controller = *player;
+    assert!(g.validate_resolving(frame).is_err());
     let before = g.state.rules.libraries[&PlayerId(0)].len();
     answer(&mut g, 1, Response::OptionalEffect { perform: true });
     request(&mut g, 1);
@@ -219,6 +230,12 @@ fn greatest_power_paid_allocation_and_entrant_draw() {
     let r = request(&mut g, 1);
     assert!(matches!(&r,Request::ManaCombination{total,..} if *total==2.into()));
     recover(&g);
+    let mut forged = g.state.rules.frame.clone();
+    let Frame::ManaAbility { activation } = &mut forged else {
+        panic!("expected paid mana frame")
+    };
+    activation.stage = mana_permanents::ManaStage::Combination { total: 3.into() };
+    assert!(g.validate_nested_mana_frame(&forged).is_err());
     assert!(
         g.respond(
             r.player(),

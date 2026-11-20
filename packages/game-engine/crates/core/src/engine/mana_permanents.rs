@@ -1341,7 +1341,7 @@ impl Game {
                 || !self.mana_resume_player(&a.resume, a.player)
                 || matches!(a.stage, ManaStage::Color | ManaStage::Combination { .. })
                     != a.paid.is_some()
-                || matches!(&a.stage,ManaStage::Combination{total} if *total<=Quantity::zero() || a.ability.production!=ManaProduction::GreatestControlledPowerCombination)
+                || matches!(&a.stage,ManaStage::Combination{total} if *total<=Quantity::zero() || a.paid.as_ref().and_then(|receipt| receipt.combination_total.as_ref()) != Some(total) || a.ability.production!=ManaProduction::GreatestControlledPowerCombination)
                 || (a.stage == ManaStage::Color
                     && a.ability.production == ManaProduction::GreatestControlledPowerCombination)
                 || a.receipts.iter().any(|r| r.player != a.player)
