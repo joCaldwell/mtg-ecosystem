@@ -2,9 +2,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-#[test]
-#[ignore = "requires the frozen one-record Protege archive"]
-fn protege_paid_entry_copies_aura_and_chooses_its_own_attachment() {
+pub(super) fn protege_definition() -> Definition {
     let archive = std::fs::read_to_string(
         std::env::var_os("MTG_PROTEGE_ENTRY_COPY_ARCHIVE_PROBE")
             .expect("supply the frozen archive"),
@@ -22,6 +20,13 @@ fn protege_paid_entry_copies_aura_and_chooses_its_own_attachment() {
     };
     assert!(lines.next().is_none());
     assert_eq!(definition.oracle_id, "cf127842-5fb1-44df-8d91-8cc0f48c559a");
+    *definition
+}
+
+#[test]
+#[ignore = "requires the frozen one-record Protege archive"]
+fn protege_paid_entry_copies_aura_and_chooses_its_own_attachment() {
+    let definition = protege_definition();
     let mut rows = vec![
         ("Control Magic", 0, 0, true),
         ("Grizzly Bears", 1, 1, false),
@@ -37,7 +42,7 @@ fn protege_paid_entry_copies_aura_and_chooses_its_own_attachment() {
         .retain(|c| c.zone != (Zone::Library { owner: PlayerId(0) }));
     pod.config.profile = "private-paid-entry-copy".into();
     let catalog = Arc::make_mut(&mut pod.catalog);
-    catalog.definitions.push(*definition);
+    catalog.definitions.push(definition);
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
