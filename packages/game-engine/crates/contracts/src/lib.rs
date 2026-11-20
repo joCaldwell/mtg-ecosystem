@@ -71,6 +71,7 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
+pub mod activated_creature_tap;
 pub mod activated_source_keyword;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
@@ -445,6 +446,7 @@ pub enum Capability {
     UntapPermanentV1,
     TapPermanentV1,
     ActivatedTapPermanentV1,
+    ActivatedCreatureTapV1,
     TapSourceDestroyV1,
     TapSourceUntapCreatureV1,
     ActivatedSpellCounterV1,
@@ -2771,7 +2773,11 @@ impl Definition {
                 set.insert(Capability::TapSourceUntapCreatureV1);
             }
             if has_tap(&ability.program) {
-                set.insert(Capability::ActivatedTapPermanentV1);
+                set.insert(if self.characteristics.kind == CardKind::Creature {
+                    Capability::ActivatedCreatureTapV1
+                } else {
+                    Capability::ActivatedTapPermanentV1
+                });
             }
             if has_counter_stack_object(&ability.program) {
                 set.insert(Capability::ActivatedSpellCounterV1);
@@ -3035,6 +3041,7 @@ impl Definition {
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
         let source_regeneration = source_regeneration::validate(self)?;
+        let activated_creature_tap = activated_creature_tap::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
@@ -3704,7 +3711,9 @@ impl Definition {
                 continue;
             }
             if has_tap(&ability.program) {
-                if c.kind != CardKind::Artifact || !activated_permanent_tap_ability(ability) {
+                if !activated_creature_tap
+                    && (c.kind != CardKind::Artifact || !activated_permanent_tap_ability(ability))
+                {
                     return Err("activated tap requires an artifact, fixed mana plus source tap, and one artifact/creature/land target".into());
                 }
                 validate_instruction_program(&ability.program)?;
@@ -6719,6 +6728,7 @@ pub fn catalog_schema() -> serde_json::Value {
         }}}}}},
         "program":{"$ref":"#/$defs/ActivatedPermanentTapProgram"}
     }});
+    activated_creature_tap::extend_schema(&mut schema, &tap);
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":tap},
         "then":{"anyOf":[{"$ref":"#/$defs/OrdinaryTapProgram"},{"$ref":"#/$defs/ActivatedPermanentTapProgram"}]}
@@ -6733,15 +6743,22 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["ActivatedAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}},
-        "then":{"$ref":"#/$defs/ActivatedPermanentTapAbility"}
+        "then":{"anyOf":[{"$ref":"#/$defs/ActivatedPermanentTapAbility"},{"$ref":"#/$defs/ActivatedCreatureTapAbility"}]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}}}}},
-        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"}}},"capabilities":{"allOf":[
-            {"contains":{"const":Capability::ActivatedTapPermanentV1}}, {"contains":{"const":Capability::TapPermanentV1}},
-            {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::CompositeActivationCostV1}},
-            {"contains":{"const":Capability::PermanentRemovalV1}}, {"contains":{"const":Capability::CastArtifactV1}}
-        ]}}}
+        "then":{"oneOf":[
+            {"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"}}},
+                "activated":{"contains":{"$ref":"#/$defs/ActivatedPermanentTapAbility"},"items":{
+                    "if":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}},
+                    "then":{"$ref":"#/$defs/ActivatedPermanentTapAbility"}
+                }},"capabilities":{"allOf":[
+                    {"contains":{"const":Capability::ActivatedTapPermanentV1}}, {"contains":{"const":Capability::TapPermanentV1}},
+                    {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::CompositeActivationCostV1}},
+                    {"contains":{"const":Capability::PermanentRemovalV1}}, {"contains":{"const":Capability::CastArtifactV1}}
+                ]}}},
+            {"$ref":"#/$defs/ActivatedCreatureTapDefinition"}
+        ]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::ActivatedTapPermanentV1}}}},
@@ -7804,6 +7821,7 @@ mod tests {
             UntapPermanentV1,
             TapPermanentV1,
             ActivatedTapPermanentV1,
+            ActivatedCreatureTapV1,
             TapSourceDestroyV1,
             TapSourceUntapCreatureV1,
             ActivatedSpellCounterV1,
@@ -8431,6 +8449,7 @@ mod tests {
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
+        definitions.push(activated_creature_tap::witness());
         definitions.push(tap_source_destroy_tests::tap_source_destroy());
         definitions.push(tap_source_untap_tests::tap_source_untap());
         definitions.push(activated_spell_counter_tests::activated_counter());

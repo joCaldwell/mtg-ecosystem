@@ -8,6 +8,7 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 mod activated_artifact_draw;
+mod activated_creature_tap;
 mod activated_source_keyword;
 mod announced_x_draw;
 mod announced_x_effects;
@@ -2919,6 +2920,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
     source_regeneration::bind(&definition, &shape, &binding)?;
+    activated_creature_tap::bind(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
