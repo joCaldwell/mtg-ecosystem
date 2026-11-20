@@ -7,7 +7,7 @@ mechanic families. Exact-deck and consumer admission remain separate.
 
 Owner jcaldwell; deck11, paper, revision17/edit0: **100 cards,37 lands,85 definitions**, SHA-256
 `f9eb5bc8ea479e036fc24c3fba27383ee2f030191d1a689de80bdb30e2278ee1`.
-Preserve quantities and commander; later revisions require a new target.
+Later revisions require a new target.
 
 The [export](../packages/game-engine/tests/fixtures/ramos/revision-17.txt),
 [identity manifest](../packages/game-engine/tests/fixtures/ramos/revision-17.manifest.json),
@@ -30,14 +30,12 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-Land/ramp witnesses are retained.
-`93755057` compiles **56/85 definitions;29 Unsupported**. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`4e4db6ca` compiles **58/85 definitions**, with 27 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
 
-Apex/Wanderer/Imoti/Nexus/Sorcerer/Ethersworn are qualified above. Yidris awaits complete AST/binding; Enigma successor tuck and Vega
-cast-origin draw have focused witnesses. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
+See the retained cascade proofs. Yidris awaits complete AST/binding; Enigma and Vega have focused witnesses. Remaining turn/zone scopes follow. Add Averna's action, Call Forth's other-spell mana
 values.
 
 ### M5 Add color and mana engines
@@ -48,7 +46,7 @@ unspent-mana replacement and private choices.
 
 ### M6 Complete card advantage and flexible choices
 
-Complete Aragorn, Whirlwind, Temur Ascendancy, Rhystic payments, distributed Abzan
+Complete Whirlwind, Rhystic payments, distributed Abzan
 counters, Quandrix choose-two/graveyard targets, Conflux colored
 search. Urban Evolution has a focused land-permission witness.
 
@@ -71,8 +69,7 @@ attachment transitions and Thunder's lore/chapters/final sacrifice.
 ### M10 Complete phasing and remaining effects
 
 Complete Teferi's Protection, Coalition's repeated modes, Progenitus replacement,
-Archangel hand casting, Zacama cast-sensitive trigger/activations, Breya's tokens/
-atomic sacrifice and Door's player loss.
+Archangel hand casting, Zacama activation composition and Breya's token/payment composition.
 
 ### M11 Qualify the exact deck and host it
 
