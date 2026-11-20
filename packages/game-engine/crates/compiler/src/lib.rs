@@ -52,6 +52,7 @@ mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
 mod graveyard_battlefield_return;
+mod greatest_power;
 mod group_discard;
 mod hand_cast_cascade;
 mod hand_return;
@@ -1410,6 +1411,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             == library_top_mana::ARCHIVED_ROW
     {
         return library_top_mana::frozen_definition().map_err(|e| invalid("reparse", e));
+    }
+    if let Some(definition) = greatest_power::lower(&r, archive)? {
+        return Ok(definition);
     }
     if r.status != "parsed" {
         return Err(unsupported("status", "complete-card parsing is required"));

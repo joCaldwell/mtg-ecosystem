@@ -63,6 +63,7 @@ pub(super) enum ManaStage {
     Payment,
     Spend,
     Color,
+    Combination { total: Quantity },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -121,6 +122,8 @@ pub struct PermanentManaUndo {
     pub ability_use: Option<ManaAbilityUse>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub previously_used: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) combination_total: Option<Quantity>,
     pub produced: BTreeMap<Color, Quantity>,
     pub spent: BTreeMap<Color, Quantity>,
     pub absent: BTreeSet<Color>,
@@ -204,7 +207,9 @@ impl Game {
             ManaProduction::Fixed { symbols } | ManaProduction::Choice { colors: symbols } => {
                 symbols.clone()
             }
-            ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+            ManaProduction::GreatestControlledPowerCombination | ManaProduction::AnyColor => {
+                vec![Color::W, Color::U, Color::B, Color::R, Color::G]
+            }
             ManaProduction::OpponentLandColors => return self.opponent_land_mana_colors(player),
             ManaProduction::EachPermanentColor { scope } => {
                 self.permanent_colors(*scope, player)?.into_iter().collect()
@@ -293,9 +298,12 @@ impl Game {
                 }
                 _ => break,
             };
+            if let ManaStage::Combination { total } = &activation.stage {
+                charge = charge.saturating_add(stored_history::payload_charge(total));
+            }
             charge = charge.saturating_add(Self::mana_receipt_charge(&activation.receipts));
             if let Some(paid) = &activation.paid
-                && paid.branch.is_some()
+                && (paid.branch.is_some() || paid.combination_total.is_some())
             {
                 charge = charge.saturating_add(stored_history::payload_charge(paid));
             }
@@ -309,7 +317,7 @@ impl Game {
             if receipt
                 .permanent
                 .as_ref()
-                .is_some_and(|r| r.branch.is_some())
+                .is_some_and(|r| r.branch.is_some() || r.combination_total.is_some())
             {
                 charge.saturating_add(stored_history::payload_charge(receipt))
             } else {
@@ -703,6 +711,12 @@ impl Game {
                     .ok_or("missing mana ability cost")?,
                 available: self.state.rules.players[a.player.0 as usize].mana.clone(),
             },
+            ManaStage::Combination { ref total } => Request::ManaCombination {
+                decision_id: self.state.rules.revision,
+                player: a.player,
+                total: total.clone(),
+                colors: MANA_COMBINATION_COLORS.to_vec(),
+            },
             ManaStage::Color => Request::ManaColor {
                 decision_id: self.state.rules.revision,
                 player: a.player,
@@ -731,6 +745,9 @@ impl Game {
                     spending,
                 )
                 .map(|_| ()),
+            (ManaStage::Combination { total }, Response::ManaCombination { amounts }) => {
+                validate_mana_combination(&MANA_COMBINATION_COLORS, total, amounts)
+            }
             (ManaStage::Color, Response::ManaColor { color })
                 if self
                     .mana_colors(player, &a.ability.production)?
@@ -781,6 +798,23 @@ impl Game {
             Response::SpendMana { spending } if a.stage == ManaStage::Spend => {
                 self.pay_mana_ability(a, spending)?
             }
+            Response::ManaCombination { amounts }
+                if matches!(a.stage, ManaStage::Combination { .. }) =>
+            {
+                self.validate_permanent_mana_response(
+                    &a,
+                    input.player,
+                    &Response::ManaCombination {
+                        amounts: amounts.clone(),
+                    },
+                )?;
+                let units = MANA_COMBINATION_COLORS
+                    .into_iter()
+                    .zip(amounts)
+                    .filter(|(_, n)| *n > Quantity::zero())
+                    .collect();
+                self.produce_mana_units(a, units)?;
+            }
             Response::ManaColor { color } if a.stage == ManaStage::Color => {
                 self.resolve_mana_ability(a, Some(color))?
             }
@@ -802,6 +836,7 @@ impl Game {
             counters: self.current(a.source)?.plus_one_counters.clone(),
             ability_use: a.ability.restriction.map(|_| self.mana_use_key(a.source)),
             previously_used: self.mana_ability_used(a.source),
+            combination_total: None,
             produced: BTreeMap::new(),
             spent: spending.clone(),
             absent: [Color::W, Color::U, Color::B, Color::R, Color::G, Color::C]
@@ -842,6 +877,36 @@ impl Game {
             return self.resolve_mana_ability(a, Some(branch.color));
         }
         match a.ability.production {
+            ManaProduction::GreatestControlledPowerCombination => {
+                let mut total = Quantity::zero();
+                for o in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield() && o.controller == a.player)
+                {
+                    if self.is_battlefield_creature(o.id) {
+                        total = total.max(
+                            self.characteristics(o.id)?
+                                .power
+                                .ok_or("creature without power")?,
+                        );
+                    }
+                }
+                a.paid
+                    .as_mut()
+                    .ok_or("missing paid activation")?
+                    .combination_total = Some(total.clone());
+                if total == Quantity::zero() {
+                    return self.produce_mana_units(a, vec![]);
+                }
+                a.stage = ManaStage::Combination { total };
+                self.state.rules.frame = Frame::ManaAbility {
+                    activation: Box::new(a),
+                };
+                Ok(())
+            }
             ManaProduction::Fixed { .. } | ManaProduction::EachPermanentColor { .. } => {
                 self.resolve_mana_ability(a, None)
             }
@@ -910,7 +975,7 @@ impl Game {
     }
     fn resolve_mana_ability(
         &mut self,
-        mut a: ManaActivation,
+        a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
         let symbols = match &a.ability.production {
@@ -922,23 +987,32 @@ impl Game {
             }
             _ => color.into_iter().collect(),
         };
+        self.produce_mana_units(
+            a,
+            symbols
+                .into_iter()
+                .map(|c| (c, Quantity::from(1)))
+                .collect(),
+        )
+    }
+    fn produce_mana_units(
+        &mut self,
+        mut a: ManaActivation,
+        units: Vec<(Color, Quantity)>,
+    ) -> Result<(), String> {
         let cause = a.cause();
         let receipt = a.paid.as_mut().ok_or("unpaid mana ability")?;
         // A sacrifice cost changes the source incarnation, but the frozen
         // ability still resolves (113.7a); AddMana uses that current identity.
         let source = self.object_id(a.source.card).unwrap_or(a.source);
         let mut children = vec![];
-        for color in symbols {
-            receipt
-                .produced
-                .entry(color)
-                .or_default()
-                .add(&Quantity::from(1));
+        for (color, amount) in units {
+            receipt.produced.entry(color).or_default().add(&amount);
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::AddMana {
                     player: a.player,
                     color,
-                    amount: Quantity::from(1),
+                    amount,
                     source,
                 },
             });
@@ -1265,7 +1339,11 @@ impl Game {
                 || self.definition(a.source.card)?.mana_abilities.as_slice()
                     != std::slice::from_ref(&a.ability)
                 || !self.mana_resume_player(&a.resume, a.player)
-                || (a.stage == ManaStage::Color) != a.paid.is_some()
+                || matches!(a.stage, ManaStage::Color | ManaStage::Combination { .. })
+                    != a.paid.is_some()
+                || matches!(&a.stage,ManaStage::Combination{total} if *total<=Quantity::zero() || a.paid.as_ref().and_then(|receipt| receipt.combination_total.as_ref()) != Some(total) || a.ability.production!=ManaProduction::GreatestControlledPowerCombination)
+                || (a.stage == ManaStage::Color
+                    && a.ability.production == ManaProduction::GreatestControlledPowerCombination)
                 || a.receipts.iter().any(|r| r.player != a.player)
                 || (a.stage == ManaStage::Color
                     && a.ability.production == ManaProduction::OpponentLandColors

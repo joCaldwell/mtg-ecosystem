@@ -1051,6 +1051,8 @@ struct DrawProgress {
 #[serde(deny_unknown_fields)]
 struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    entrant_draw: Option<Box<ObjectBefore>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     group_discard: Option<group_discard::GroupDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     random_discard: Option<random_discard::RandomDiscardProgress>,
@@ -1264,6 +1266,9 @@ pub enum Response {
     ChooseManaAbility {
         ability: ManaAbilityIdentity,
     },
+    ManaCombination {
+        amounts: [Quantity; 5],
+    },
     ManaColor {
         color: Color,
     },
@@ -1456,6 +1461,12 @@ pub enum Request {
         player: PlayerId,
         choices: Vec<ManaAbilityIdentity>,
     },
+    ManaCombination {
+        decision_id: u64,
+        player: PlayerId,
+        total: Quantity,
+        colors: Vec<Color>,
+    },
     ManaColor {
         decision_id: u64,
         player: PlayerId,
@@ -1646,6 +1657,7 @@ impl Request {
             | Self::HybridCost { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
+            | Self::ManaCombination { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
@@ -1693,6 +1705,7 @@ impl Request {
             | Self::HybridCost { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
+            | Self::ManaCombination { player, .. }
             | Self::ManaColor { player, .. }
             | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
@@ -3702,7 +3715,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 68,
+            snapshot_version: 69,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3744,7 +3757,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 68
+        if s.snapshot_version != 69
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

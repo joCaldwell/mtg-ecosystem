@@ -120,10 +120,12 @@ pub use archives::*;
 mod creature_entry_return;
 mod divided_plus_one_counters;
 mod flash_end_step_draw;
+mod greatest_power;
 mod hand_size_adjustments;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
+pub use greatest_power::{greatest_power_ast, greatest_power_programs, greatest_power_source};
 mod power_filtered_removal;
 pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
 mod strict_io;
@@ -391,6 +393,7 @@ pub enum Capability {
     NormalLayoutV1,
     ColorHybridCostV1,
     PhyrexianCostV1,
+    GreatestPowerV1,
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -1187,6 +1190,9 @@ pub enum Instruction {
     },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
     /// one card, including when their library is empty.
+    OptionalDrawForSoleGreatestEntrant {
+        source_block: u32,
+    },
     OptionalDrawCards {
         source_block: u32,
     },
@@ -1363,7 +1369,8 @@ impl Instruction {
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::UntapControllerLands { source_block } => *source_block,
-            Self::OptionalDrawCards { source_block, .. }
+            Self::OptionalDrawForSoleGreatestEntrant { source_block }
+            | Self::OptionalDrawCards { source_block, .. }
             | Self::OptionalDrawUnlessCasterPays { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardPlayerSet { source_block, .. }
@@ -1793,6 +1800,7 @@ pub struct PermanentActivationCosts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
+    GreatestControlledPowerCombination,
     Fixed {
         symbols: Vec<Color>,
     },
@@ -2472,6 +2480,13 @@ impl Definition {
                 set.insert(Capability::PhyrexianCostV1);
             }
         }
+        if self
+            .mana_abilities
+            .iter()
+            .any(|a| a.production == ManaProduction::GreatestControlledPowerCombination)
+        {
+            set.insert(Capability::GreatestPowerV1);
+        }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
         }
@@ -2836,6 +2851,7 @@ impl Definition {
         unlimited_hand_size::validate_definition(self)?;
         hand_size_adjustments::validate_definition(self)?;
         power_entry_draw::validate_definition(self)?;
+        greatest_power::validate(self)?;
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
@@ -3819,6 +3835,7 @@ impl Definition {
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
                             | Instruction::UntapControllerLands { .. }
+                            | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
@@ -4775,6 +4792,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::DrawEachPlayer { .. }
             | Instruction::UntapControllerLands { .. }
+            | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::DrawDamageAmount { .. } => None,
@@ -5689,6 +5707,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
             Instruction::UntapControllerLands { .. } => Capability::UntapControllerLandsV1,
+            Instruction::OptionalDrawForSoleGreatestEntrant { .. } => Capability::GreatestPowerV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::OptionalDrawUnlessCasterPays { .. } => Capability::CastPayerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
@@ -7179,6 +7198,7 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    greatest_power::extend_schema(&mut schema);
     commander_modal_keyword::extend_schema(&mut schema);
     divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
@@ -7377,6 +7397,7 @@ mod tests {
             NormalLayoutV1,
             ColorHybridCostV1,
             PhyrexianCostV1,
+            GreatestPowerV1,
             BasicLandManaV1,
             LandPlayV1,
             BaseCreatureV1,
@@ -7926,6 +7947,7 @@ mod tests {
         definitions.push(each_player_draw::witness());
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
+        definitions.push(greatest_power::witness());
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
         definitions.push(divided_plus_one_counters::witness());

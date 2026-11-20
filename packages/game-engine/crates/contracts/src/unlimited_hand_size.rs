@@ -44,6 +44,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
                 ManaProduction::CommanderColor
                 | ManaProduction::OpponentLandColors
                 | ManaProduction::Choice { .. }
+                | ManaProduction::GreatestControlledPowerCombination
                 | ManaProduction::EachPermanentColor { .. } => false,
             }
     });

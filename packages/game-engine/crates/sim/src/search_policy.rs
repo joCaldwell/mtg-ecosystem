@@ -98,6 +98,7 @@ pub(super) fn choose(
             return Err("sacrifice request outside foundations search".into());
         }
         PlayerRequest::ChooseManaAbility { .. }
+        | PlayerRequest::ManaCombination { .. }
         | PlayerRequest::ManaColor { .. }
         | PlayerRequest::ColoredSearch { .. }
         | PlayerRequest::SearchLands { .. }
