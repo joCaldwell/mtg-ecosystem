@@ -327,6 +327,17 @@
     ]
   },
   {
+    "manifest_file": "archive-manifest-averna-cascade-entry.json",
+    "manifest_sha256": "35b22b2015b65a5d57332e2bf41dfcc51e82eea605c41415254599bfa911a8f3",
+    "file_sha256": "77f05799c86e9b978130d58909100259cdca766cafedab30b7f8483826e92c4c",
+    "parser_revision": "1683d91b8e47dce2522d25e35ee48d057dd6fe4d",
+    "parser_source_sha256": "7f4cdfb13caa4be1cd6dcb72c1ecd0af6f6bbfd1bd3f47d8ea435ea336966892",
+    "corpus_sha256": "67b8e36723e52ff92f61d86d85939c5a09b64bb739cf14be5725d78d007fc50d",
+    "record_sha256": [
+      "5472a36613d5d9a84db4d240c6e244a1da42ec3c5a0daa2f30613326c059ae46"
+    ]
+  },
+  {
     "manifest_file": "archive-manifest-controlled-creature-spell-copy.json",
     "manifest_sha256": "81dac19d638ebe74cfaaf03bc0efc701331a93961fb742c4e3fb330f7148db6d",
     "file_sha256": "fb9290e269061249690c5e128652d51af00d3fe13af4cb363f342f8883fe5823",
