@@ -92,12 +92,11 @@ impl Game {
         self.begin_spell_announcement(announcement)
     }
 
-    pub(super) fn announce_resolution_spell(
-        &mut self,
-        permission: CastPermission,
-        progress: Box<CascadeProgress>,
-    ) -> Result<(), String> {
-        self.validate_resolution_permission(&permission, &progress)?;
+    pub(super) fn announce_resolution_spell(&mut self, progress: CastOwner) -> Result<(), String> {
+        let permission = progress.permission()?;
+        if !self.resolution_offer_legal(&permission)? {
+            return Err("no legal resolution cast".into());
+        }
         self.begin_spell_announcement(SpellAnnouncement {
             player: permission.caster,
             original_object: permission.object,
@@ -467,15 +466,14 @@ impl Game {
             CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
             CastCompletion::Resolution {
                 permission,
-                mut progress,
+                progress,
             } => {
                 if permission.object != cast.original_object
                     || permission.caster != stack.controller
                 {
                     return Err("resolution cast reversal permission invariant".into());
                 }
-                progress.stage = cascade::CascadeStage::Offer;
-                Frame::Cascade { progress }
+                progress.resume()
             }
         };
         self.record_event(Event::CastReversed {
