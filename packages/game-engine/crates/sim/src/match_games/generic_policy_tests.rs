@@ -631,6 +631,19 @@ fn reactive_modal_spell_selects_prevention_instead_of_ready_life_mode() {
     // The caster has not selected a mode yet; both modes are otherwise usable.
     v.stack.last_mut().unwrap().cast_complete = false;
     assert_eq!(strategy(&c).choose_mode(&v, &[0, 1]), Some(1));
+    assert_eq!(
+        strategy(&c).mode_response(&v, &[0, 1], Some(2), false, false),
+        Some(PlayerResponse::ModeSubset { modes: vec![0, 1] })
+    );
+    assert_eq!(
+        strategy(&c).mode_response(&v, &[1], Some(3), true, false),
+        Some(PlayerResponse::ModeSubset { modes: vec![1; 3] })
+    );
+    assert_eq!(
+        strategy(&c).mode_response(&v, &[1], Some(2), false, false),
+        None
+    );
+
     v.combat.clear();
     v.stack.pop();
     stack_spell(&mut v, &c, "Lightning Bolt", 0);

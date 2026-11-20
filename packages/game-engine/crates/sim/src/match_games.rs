@@ -344,15 +344,23 @@ impl Strategy<'_> {
                 objects: candidates.iter().rev().take(*count).cloned().collect(),
             },
             PlayerRequest::Priority { .. } => return self.priority(o),
-            PlayerRequest::Modes { candidates, .. } => PlayerResponse::Modes {
-                mode: self.choose_mode(v, candidates).ok_or("empty modes")?,
-            },
+            PlayerRequest::Modes {
+                candidates,
+                exactly,
+                allow_repeat,
+                one_or_more,
+                ..
+            } => self
+                .mode_response(v, candidates, *exactly, *allow_repeat, *one_or_more)
+                .ok_or("insufficient offered modes")?,
             PlayerRequest::Targets {
                 occurrences,
                 candidates,
                 ..
             } => {
-                let (d, p) = self.top_program(v).ok_or("missing target program")?;
+                let (d, p) = self
+                    .occurrence_program(v, occurrences)
+                    .ok_or("missing target program")?;
                 let objects = occurrences
                     .iter()
                     .map(|t| {
@@ -368,7 +376,9 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                let (d, p) = self.top_program(v).ok_or("missing player program")?;
+                let (d, p) = self
+                    .occurrence_program(v, occurrences)
+                    .ok_or("missing player program")?;
                 let players = occurrences
                     .iter()
                     .map(|t| {
@@ -383,7 +393,45 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                let (_, p) = self.top_program(v).ok_or("missing damage program")?;
+                if let [owner, cards] = occurrences.as_slice()
+                    && let mtg_contracts::TargetDomain::PlayerGraveyardCards {
+                        owner_slot,
+                        maximum,
+                    } = cards.domain
+                    && owner.slot == owner_slot
+                    && owner.domain == mtg_contracts::TargetDomain::AnyPlayer
+                {
+                    let offered: Vec<_> = candidates
+                        .iter()
+                        .filter_map(|c| match c {
+                            PlayerTargetEntity::Player { player } => Some(*player),
+                            _ => None,
+                        })
+                        .collect();
+                    let player = self
+                        .player_target(v, &offered, true)
+                        .ok_or("missing offered graveyard owner")?;
+                    let mut entities = vec![PlayerTargetEntity::Player { player }];
+                    for c in candidates {
+                        if entities.len() > usize::from(maximum) {
+                            break;
+                        }
+                        if let PlayerTargetEntity::Object { object } = c
+                            && v.objects.iter().any(|o| {
+                                &o.handle == object
+                                    && o.zone == (Zone::Graveyard { owner: player })
+                                    && o.token.is_none()
+                            })
+                            && !entities.contains(c)
+                        {
+                            entities.push(c.clone());
+                        }
+                    }
+                    return Ok(PlayerResponse::EntityTargets { entities });
+                }
+                let (_, p) = self
+                    .occurrence_program(v, occurrences)
+                    .ok_or("missing damage program")?;
                 let mut entities: Vec<PlayerTargetEntity> = vec![];
                 for _ in occurrences {
                     let distinct: Vec<_> = candidates

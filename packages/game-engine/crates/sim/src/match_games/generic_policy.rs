@@ -325,18 +325,22 @@ impl Strategy<'_> {
         let Some(c) = &o.characteristics else {
             return false;
         };
+        if t.domain == TargetDomain::OwnGraveyardCard {
+            return o.zone == (Zone::Graveyard { owner: v.viewer }) && o.token.is_none();
+        }
         if t.domain == TargetDomain::OwnGraveyardCreatureCard {
             return o.zone == (Zone::Graveyard { owner: v.viewer }) && c.kind == CardKind::Creature;
         }
         o.zone == Zone::Battlefield
+            && !o.phased_out
             && self.targetable(v, o)
             && match t.domain {
                 TargetDomain::ControlledBattlefieldCreature => {
                     o.controller == v.viewer && c.kind == CardKind::Creature
                 }
-                TargetDomain::BattlefieldCreature | TargetDomain::AnyDamageTarget => {
-                    c.kind == CardKind::Creature
-                }
+                TargetDomain::CreatureOrPlaneswalker
+                | TargetDomain::BattlefieldCreature
+                | TargetDomain::AnyDamageTarget => c.kind == CardKind::Creature,
                 TargetDomain::BlockingBattlefieldCreature => {
                     c.kind == CardKind::Creature
                         // Public attacker links prove some blockers, but cannot
@@ -1409,7 +1413,16 @@ impl Strategy<'_> {
     }
     fn program_ready(&self, v: &PermittedView, d: &Definition, p: &SpellProgram) -> bool {
         if !p.modes.is_empty() {
-            return p.modes.iter().any(|m| self.program_ready(v, d, &m.program));
+            let mut ready = p
+                .modes
+                .iter()
+                .filter(|m| self.program_ready(v, d, &m.program));
+            return match p.resolution {
+                SpellResolution::ChooseModes { exactly } => {
+                    ready.nth(exactly.saturating_sub(1) as usize).is_some()
+                }
+                _ => ready.next().is_some(),
+            };
         }
         if p.instructions
             .iter()
@@ -1484,6 +1497,7 @@ impl Strategy<'_> {
             return false;
         }
         p.targets.iter().all(|t| match t.domain {
+            TargetDomain::PlayerGraveyardCards { .. } => true, // The owning player is mandatory, cards are optional.
             TargetDomain::ControlledCreatureSpell => false,
             TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
                 self.stack_target(v, t, None).is_some()
@@ -1647,6 +1661,66 @@ impl Strategy<'_> {
                         && (o.controller == v.viewer) == self.target_beneficial(d, p, slot as u32)
                 })
             })
+    }
+    pub(super) fn mode_response(
+        &self,
+        v: &PermittedView,
+        candidates: &[u32],
+        exactly: Option<u32>,
+        allow_repeat: bool,
+        one_or_more: bool,
+    ) -> Option<PlayerResponse> {
+        let first = self.choose_mode(v, candidates)?;
+        if let Some(count) = exactly {
+            let modes = if allow_repeat {
+                let (_, root) = self.top_program(v)?;
+                // Repeated direct damage can advance the game with every occurrence.
+                let repeat = candidates
+                    .iter()
+                    .copied()
+                    .find(|i| {
+                        root.modes.get(*i as usize).is_some_and(|m| {
+                            matches!(m.program.instructions.as_slice(), [I::DealDamage { .. }])
+                                && m.program
+                                    .targets
+                                    .first()
+                                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
+                        })
+                    })
+                    .unwrap_or(first);
+                vec![repeat; count as usize]
+            } else {
+                let mut available = candidates.to_vec();
+                let mut chosen = Vec::new();
+                for _ in 0..count {
+                    let next = self.choose_mode(v, &available)?;
+                    chosen.push(next);
+                    available.retain(|index| *index != next);
+                }
+                chosen.sort_unstable();
+                chosen
+            };
+            Some(PlayerResponse::ModeSubset { modes })
+        } else if one_or_more {
+            Some(PlayerResponse::ModeSubset { modes: vec![first] })
+        } else {
+            Some(PlayerResponse::Modes { mode: first })
+        }
+    }
+
+    pub(super) fn occurrence_program<'a>(
+        &'a self,
+        v: &PermittedView,
+        occurrences: &[TargetSpec],
+    ) -> Option<(&'a Definition, &'a SpellProgram)> {
+        let (d, p) = self.top_program(v)?;
+        let program = p
+            .modes
+            .iter()
+            .map(|m| &m.program)
+            .find(|child| child.targets == occurrences)
+            .unwrap_or(p);
+        Some((d, program))
     }
     pub(super) fn choose_mode(&self, v: &PermittedView, candidates: &[u32]) -> Option<u32> {
         let (d, p) = self.top_program(v)?;
