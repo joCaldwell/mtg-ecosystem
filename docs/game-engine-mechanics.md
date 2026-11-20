@@ -56,7 +56,7 @@ active-player main priority and an empty stack; supported flash is explicit.
 Cleanup applies net hand-size adjustments to finite limits, floored at zero,
 then clears temporary effects and marked damage atomically.
 Concessions are trusted recorded external inputs processed before work or queries.
-Land usage resets only when a new turn begins.
+Land usage resets each turn. Listed mana abilities offer only printed colors.
 
 <a id="player-visibility-and-query-recovery"></a>
 
