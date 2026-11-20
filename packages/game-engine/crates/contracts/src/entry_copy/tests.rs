@@ -111,7 +111,7 @@ fn protege_entry_copy_archive_probe() {
         },
         |d| {
             d.characteristics.hybrid_mana.push(ColorHybridSymbol {
-                colors: [Color::U, Color::B],
+                colors: [Color::U, Color::B].map(HybridPayment::Mana),
             })
         },
         |d| d.provenance.binding_sha256 = "0".repeat(64),
