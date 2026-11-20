@@ -142,8 +142,22 @@
   background: linear-gradient(135deg, color-mix(in srgb, var(--deck-tint) 14%, transparent), transparent), var(--surface);
 }
 .feature .visual { inset: 0; height: 100%; }
-.feature .visual::after {
-  background: linear-gradient(to bottom, transparent 12%, rgb(0 0 0 / .18) 37%, rgb(0 0 0 / .72) 68%, rgb(0 0 0 / .9));
+.feature .visual::after { content: none; }
+.featureCaption {
+  position: relative;
+  align-self: end;
+  min-inline-size: 0;
+  /* The scrim follows the caption, including wrapped or scaled text. */
+  background: var(--art-control-hover);
+}
+.featureCaption::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 100%;
+  block-size: var(--art-caption-fade);
+  background: linear-gradient(transparent, var(--art-control-hover));
+  pointer-events: none;
 }
 .feature .crop img { object-position: var(--art-feature-position, center 36%); }
 .feature .credit { top: var(--s-3); inset-inline-end: var(--s-4); transform: none; }

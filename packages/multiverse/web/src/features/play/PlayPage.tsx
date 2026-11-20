@@ -29,9 +29,7 @@ export function PlayPage({ deckId }: { deckId?: number }) {
       </div>
       <section className={styles.deck} aria-label="Selected deck">
         {deckId !== undefined ? <SelectedDeck deckId={deckId} key={deckId} /> :
-          <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="feature">
-            <div className={styles.lobbyArt} aria-hidden="true" />
-          </DeckArt>}
+          <DeckArt cards={session.backdrop ? [session.backdrop] : null} variant="feature" priority="high" />}
       </section>
       <SavedGames decks={decks.data} loading={decks.loading} />
     </div>
