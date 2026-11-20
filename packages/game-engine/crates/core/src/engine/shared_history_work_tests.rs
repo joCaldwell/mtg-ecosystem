@@ -84,7 +84,7 @@ impl OwnedTask {
             return None;
         }
         Some(OwnedContext {
-            context_version: 30,
+            context_version: 31,
             observation: *observation.clone().unwrap(),
             permitted_history: history.clone(),
             open_decklists: decks.clone(),

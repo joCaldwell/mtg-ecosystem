@@ -172,7 +172,7 @@ struct ObservationWork {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
 enum Task {
-    // Sidecar v30 includes power filters in saved target requests.
+    // Sidecar v31 includes divided-counter terms in saved target requests.
     // Projection/request headers remain explicit work, never hidden work
     // performed even when the caller grants no budget.
     Initialize,
@@ -861,7 +861,10 @@ impl Game {
                         )
                         | (Frame::Discard { .. }, PlayerResponse::Discard { .. }) => true,
                         (Frame::Targets { .. }, PlayerResponse::Targets { objects }) => {
-                            objects.len() == self.program().map_err(invalid)?.targets.len()
+                            Self::object_target_number_valid(
+                                self.program().map_err(invalid)?,
+                                objects.len(),
+                            )
                         }
                         (
                             Frame::Priority,
@@ -1087,7 +1090,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 30,
+                    context_version: 31,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
