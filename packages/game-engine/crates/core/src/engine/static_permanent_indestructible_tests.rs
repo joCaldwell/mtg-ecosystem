@@ -122,3 +122,92 @@ fn avacyn_paid_static_indestructible_ends_on_departure() {
         Some(Zone::Graveyard { owner: opponent })
     );
 }
+
+#[test]
+fn scoped_static_stats_use_live_controller_subtype_and_other_source() {
+    let raw = include_str!("../../../../tests/fixtures/96d0e4dd-6cc2-4349-ac44-785b50f8dd90.json");
+    assert_eq!(
+        sha256(raw.trim_end().as_bytes()),
+        "92d1384cfc1b583c71f14a7090946293b2baab24aac8700aca7c8894a4accf28"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        raw,
+    ) else {
+        panic!("the complete King of the Pride source must lower");
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::ScopedCreatureStatsV1)
+    );
+    assert_eq!(
+        definition.static_abilities[0].effect,
+        StaticEffect::ControllerScopedCreatureStats {
+            filter: ControllerCreatureStatFilter::Subtypes {
+                subtypes: vec!["Cat".into()]
+            },
+            other: true,
+            power: 2.into(),
+            toughness: 1.into(),
+        }
+    );
+    let mut catalog = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-wipes-ir.json"
+    ))
+    .unwrap();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    let mut config = ScenarioConfig::turns_permanents();
+    config.profile = "scoped-creature-stats-private-witness".into();
+    config.initial.turn_step = TurnStep::PrecombatMain;
+    config.cards = [
+        ("King of the Pride", 0, 0),
+        ("Skyhunter Skirmisher", 1, 0),
+        ("Skyhunter Skirmisher", 1, 1),
+        ("Grizzly Bears", 0, 0),
+        ("Glorious Anthem", 0, 0),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (name, owner, controller))| CardSetup {
+        id: CardId(index as u32),
+        oracle_id: catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .oracle_id
+            .clone(),
+        owner: PlayerId(owner),
+        controller: PlayerId(controller),
+        zone: Zone::Battlefield,
+    })
+    .collect();
+    let prepared = Prepared {
+        catalog_digest: digest(&catalog).unwrap(),
+        catalog: Arc::new(catalog),
+        profile_digest: digest(&config).unwrap(),
+        config,
+        match_config: None,
+    };
+    let mut game = Game::new(prepared);
+    let stats = |game: &Game, card| {
+        let c = game.characteristics(object(game, card)).unwrap();
+        (c.power.unwrap(), c.toughness.unwrap())
+    };
+    // The old anthem and the new modifier add in layer 7c. The source
+    // receives only the old anthem; control rather than ownership selects.
+    assert_eq!(stats(&game, 0), (3.into(), 2.into()));
+    assert_eq!(stats(&game, 1), (4.into(), 3.into()));
+    assert_eq!(stats(&game, 2), (1.into(), 1.into()));
+    assert_eq!(stats(&game, 3), (3.into(), 3.into()));
+    let source = object(&game, 0);
+    game.move_object(source, Zone::Hand { owner: PlayerId(0) })
+        .unwrap();
+    assert_eq!(stats(&game, 1), (2.into(), 2.into()));
+    assert_eq!(stats(&game, 2), (1.into(), 1.into()));
+}

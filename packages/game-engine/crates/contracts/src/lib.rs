@@ -111,6 +111,7 @@ mod group_discard;
 mod hand_return;
 pub mod modal_targets;
 pub mod repeated_target_modes;
+pub mod scoped_creature_stats;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
@@ -546,6 +547,7 @@ pub enum Capability {
     ColoredLibrarySearchV1,
     TypedLandSearchV1,
     CreatureAnthemV1,
+    ScopedCreatureStatsV1,
     TargetPlayerDrawV1,
     AttachmentsV1,
     PermanentRemovalV1,
@@ -1686,6 +1688,13 @@ pub enum StaticEffect {
         power: Quantity,
         toughness: Quantity,
     },
+    /// A continuously reselected controller-side layer 7c modifier.
+    ControllerScopedCreatureStats {
+        filter: ControllerCreatureStatFilter,
+        other: bool,
+        power: Quantity,
+        toughness: Quantity,
+    },
     ControllerCreaturePlusOneCounterReplacement {
         modification: CounterPlacementModification,
     },
@@ -1693,6 +1702,15 @@ pub enum StaticEffect {
     /// Double damage from creatures controlled by this battlefield source's controller.
     DoubleControllerCreatureDamageToPermanentOrPlayer,
 }
+/// Restrictions evaluated on the affected creature's earlier-layer characteristics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "selector", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ControllerCreatureStatFilter {
+    Any,
+    Artifact,
+    Subtypes { subtypes: Vec<String> },
+}
+
 /// Inclusive comparison for a common-prior land count (CR 614.12).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -3021,6 +3039,9 @@ impl Definition {
                     Capability::ControlledCreatureDamageReplacementV1
                 }
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
+                StaticEffect::ControllerScopedCreatureStats { .. } => {
+                    Capability::ScopedCreatureStatsV1
+                }
                 StaticEffect::ModifySourceByDistinctPermanentColors { .. } => {
                     Capability::DistinctPermanentColorsV1
                 }
@@ -3049,6 +3070,7 @@ impl Definition {
         let fixed_activations = fixed_creature_activation::validate(self)?;
         let source_regeneration = source_regeneration::validate(self)?;
         let activated_creature_tap = activated_creature_tap::validate(self)?;
+        scoped_creature_stats::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
@@ -4157,6 +4179,7 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessControllerOtherLands { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
+                    | StaticEffect::ControllerScopedCreatureStats { .. }
             ) && a.effect != StaticEffect::EntersTapped
                 && a.effect != StaticEffect::OpponentsCantCastDuringControllerTurn
                 && a.effect != StaticEffect::UnlimitedControllerHandSize
@@ -7586,6 +7609,7 @@ pub fn catalog_schema() -> serde_json::Value {
     successor_tuck::extend_schema(&mut schema);
     fixed_creature_activation::extend_schema(&mut schema);
     source_regeneration::extend_schema(&mut schema);
+    scoped_creature_stats::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -7940,6 +7964,7 @@ mod tests {
             ColoredLibrarySearchV1,
             TypedLandSearchV1,
             CreatureAnthemV1,
+            ScopedCreatureStatsV1,
             TargetPlayerDrawV1,
             TargetedCountedDrawV1,
             TargetPlayerDiscardV1,
@@ -8380,6 +8405,7 @@ mod tests {
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
         definitions.push(source_regeneration::witness());
+        definitions.push(scoped_creature_stats::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());

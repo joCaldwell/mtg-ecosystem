@@ -94,6 +94,7 @@ mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
 mod saga;
+mod scoped_creature_stats;
 mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
@@ -2064,7 +2065,18 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             effect, block, &result, &shape, &binding, kind,
                         )? {
                             Some(ability) => ability,
-                            None => lower_static(effect, source_block(block)?)?,
+                            None => match scoped_creature_stats::lower(
+                                effect,
+                                block,
+                                &result,
+                                &shape,
+                                &binding,
+                                &r.oracle_identity,
+                                kind,
+                            )? {
+                                Some(ability) => ability,
+                                None => lower_static(effect, source_block(block)?)?,
+                            },
                         };
                         definition.static_abilities.push(ability);
                     }
