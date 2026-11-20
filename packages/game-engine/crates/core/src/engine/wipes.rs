@@ -328,7 +328,8 @@ impl Game {
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
         };
         let targets = match &kind {
-            ResolvedEffectKind::PumpSet { targets, .. }
+            ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
+            | ResolvedEffectKind::PumpSet { targets, .. }
             | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
             | ResolvedEffectKind::ExileDamaged { targets } => targets,
             _ => return Err("not set effect".into()),
@@ -438,7 +439,7 @@ impl Game {
                 regeneration_forbidden,
                 source_block,
             } => match (&set, regeneration_forbidden) {
-                (ObjectSet::OpponentNonlandPermanents, false)
+                (ObjectSet::OpponentNonlandPermanents | ObjectSet::NonlandPermanents, false)
                 | (ObjectSet::NonlandPermanents, true) => {
                     // CR 701.19c: the prohibition skips regeneration replacement.
                     // The admitted event kernel has no regeneration replacement,
@@ -447,6 +448,23 @@ impl Game {
                 }
                 _ => Err("unsupported set destruction or regeneration policy".into()),
             },
+            Instruction::RemoveOpponentNonlandIndestructible { source_block } => {
+                let targets = self.objects_in_set(
+                    &ObjectSet::OpponentNonlandPermanents,
+                    frame.spell.controller,
+                );
+                let timestamp = self
+                    .state
+                    .rules
+                    .next_batch_id
+                    .checked_add(1)
+                    .ok_or("batch ID resource limit")?;
+                self.create_set_effect(
+                    frame,
+                    ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp },
+                    source_block,
+                )
+            }
             Instruction::PumpSet {
                 set,
                 power,
@@ -582,6 +600,9 @@ impl Game {
             && targets.iter().all(|o| {
                 self.state.rules.cards.contains_key(&o.card)
                     && self.definition(o.card).is_ok_and(|d| match set {
+                        Some(ObjectSet::OpponentNonlandPermanents) => {
+                            !d.characteristics.has_type(CardKind::Land)
+                        }
                         Some(ObjectSet::ControllerPermanents) => matches!(
                             d.characteristics.kind,
                             CardKind::Creature

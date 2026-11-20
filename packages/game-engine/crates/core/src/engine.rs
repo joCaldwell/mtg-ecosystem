@@ -32,6 +32,8 @@ mod activated_spell_counter_tests;
 mod each_player_draw;
 mod group_discard;
 #[cfg(test)]
+mod keyword_removal_wipe_tests;
+#[cfg(test)]
 mod nonland_exile_life_tests;
 #[cfg(test)]
 mod opponent_nonland_destroy_tests;
@@ -877,6 +879,8 @@ struct Object {
     attached_to: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachment_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
     marked_damage: Quantity,
@@ -2300,6 +2304,7 @@ impl Game {
                     Object {
                         attached_to: None,
                         attachment_timestamp: None,
+                        keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
@@ -3378,7 +3383,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 57,
+            snapshot_version: 58,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3420,7 +3425,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 57
+        if s.snapshot_version != 58
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

@@ -917,9 +917,9 @@ fn fixed_set_exile_moves_one_zone_batch_and_preserves_commander_choice() {
 
 #[test]
 fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
-    let raw = include_str!("../../../../tests/fixtures/synthetic-open-mode-catalog.json");
+    let raw = include_str!("../../../../tests/fixtures/ramos/4eb813fd-2d5a-4b02-8193-662681ef4e7d.json");
     let parsed = mtg_compiler::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     );
     let mtg_compiler::CompileResult::Lowered { definition } = parsed else {
@@ -929,6 +929,10 @@ fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
         ("Grizzly Bears", 0, 0, true),
         ("Grizzly Bears", 1, 1, false),
         ("Sol Ring", 2, 2, false),
+        ("Plains", 0, 0, false),
+        ("Plains", 0, 0, false),
+        ("Sol Ring", 0, 0, false),
+        ("Sol Ring", 0, 0, false),
     ]);
     p.config.cards[0].oracle_id = definition.oracle_id.clone();
     let catalog = Arc::make_mut(&mut p.catalog);
@@ -942,18 +946,18 @@ fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
     let mut g = Game::with_trace(p, TraceMode::Detailed);
     answer(&mut g, 1, Response::Cast { card: CardId(0) });
     let r = request(&mut g, 1);
-    assert!(matches!(&r,Request::Modes{one_or_more:true,candidates,..} if candidates==&[0,1,2]));
-    for modes in [vec![], vec![1, 1], vec![3]] {
+    assert!(matches!(&r,Request::Modes{one_or_more:true,candidates,..} if candidates==&[0,1,2,3]));
+    for modes in [vec![], vec![1, 1], vec![4]] {
         assert!(
             g.respond(r.player(), r.decision_id(), Response::ModeSubset { modes })
                 .is_err()
         );
     }
     recover(&g);
-    answer(&mut g, 1, Response::ModeSubset { modes: vec![2, 1] });
+    answer(&mut g, 1, Response::ModeSubset { modes: vec![1, 0] });
     assert!(matches!(request(&mut g, 1), Request::Mana { .. }));
     let plan = g.top().unwrap().mode_subset.as_ref().unwrap();
-    assert_eq!(plan.indices, [1, 2]);
+    assert_eq!(plan.indices, [0, 1]);
     recover(&g);
     let mut bad = g.fork();
     bad.state
@@ -967,8 +971,14 @@ fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
         .indices
         .reverse();
     assert!(Game::restore(bad.prepared.as_ref().clone(), &bad.snapshot().unwrap()).is_err());
+    for id in 3..=6 {
+        let object = object(&g, id);
+        answer(&mut g, 1, Response::ActivateMana { object });
+    }
     answer(&mut g, 1, Response::FinishMana { undo_mana: false });
-    g.complete_test_mana();
+    answer(&mut g, 1, Response::SpendMana {
+        spending: BTreeMap::from([(Color::W, 2.into()), (Color::C, 4.into())]),
+    });
     loop {
         let request = request(&mut g, 1);
         if g.state.rules.stack.is_empty() {

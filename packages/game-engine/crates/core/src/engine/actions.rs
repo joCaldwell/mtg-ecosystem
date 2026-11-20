@@ -1005,6 +1005,7 @@ impl Game {
             | Instruction::MoveSet { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }

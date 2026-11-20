@@ -153,7 +153,7 @@ impl Game {
         {
             b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
             return Ok(Some(Observation {
-                observation_version: 35,
+                observation_version: 36,
                 decision_context: self.permitted_decision_context(viewer, b.decision.as_ref()),
                 view: b.view.clone(),
                 decision: b.decision.clone(),
