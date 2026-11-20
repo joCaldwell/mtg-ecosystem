@@ -1778,7 +1778,7 @@ impl Game {
                         )
                     }) =>
             {
-                if !self.has_target_domain(self.program()?, viewer) {
+                if !self.top_has_target_domain()? {
                     return Ok(None);
                 }
                 Ok(Some(PlayerRequest::Targets {
@@ -2093,8 +2093,7 @@ impl Game {
                         Some((self.state.rules.revision, 9))
                     }
                     Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer
-                            && !self.has_target_domain(self.program()?, viewer) =>
+                        if self.top()?.controller == viewer && !self.top_has_target_domain()? =>
                     {
                         None
                     }

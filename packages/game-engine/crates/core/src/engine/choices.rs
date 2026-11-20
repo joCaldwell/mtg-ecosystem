@@ -294,11 +294,12 @@ impl Game {
         }
         let top = self.top()?;
         let root = self.root_program_for(top)?;
+        let source = self.targeting_characteristics(top)?;
         let candidates = root
             .modes
             .iter()
             .enumerate()
-            .filter(|(_, m)| self.has_target_domain(&m.program, top.controller))
+            .filter(|(_, m)| self.has_target_domain(&m.program, top.controller, source))
             .map(|(i, _)| i as u32)
             .collect();
         Ok(Some(Request::Modes {

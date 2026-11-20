@@ -2617,7 +2617,7 @@ impl Game {
                     )
                 }) =>
             {
-                if !self.has_target_domain(self.program()?, self.top()?.controller) {
+                if !self.top_has_target_domain()? {
                     return Ok(None);
                 }
                 Request::Targets {
