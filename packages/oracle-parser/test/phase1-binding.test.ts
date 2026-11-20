@@ -866,3 +866,77 @@ describe("announced copy models", () => {
       diagnostic.path.endsWith("/effects/2/steps/0/what")));
   });
 });
+
+describe("quantified selections and simultaneous damage", () => {
+  it("uses each creature for both sides of its component of damage", () => {
+    const graph = analyze("Each creature deals damage to itself equal to its power.", "Sorcery");
+    boundCard(graph);
+    const damage = graph.nodes.find(node => node.node === "source-dependent-damage");
+    assert.ok(damage?.timing === "simultaneous");
+    assert.equal(damage.sourceAndRecipient, bound(graph, "/to/ref"));
+    assert.equal(damage.sourceAndRecipient, bound(graph, "/amount/of"));
+    assert.notEqual(damage.group, damage.sourceAndRecipient);
+  });
+
+  it("does not guess a recipient when a different creature has already been mentioned", () => {
+    const graph = analyze("Tap target creature. Each creature deals damage to it equal to its power.", "Sorcery");
+    assert.ok(!graph.nodes.some(node => node.node === "source-dependent-damage"));
+  });
+
+  it("records the legal union of announcement targets for a later instruction", () => {
+    const graph = analyze("I, II — For each opponent, tap up to one target creature that player controls. Goad those creatures. "
+      + "Until your next turn, whenever one of those creatures deals combat damage, draw a card.", "Enchantment — Saga");
+    boundCard(graph);
+    const pool = graph.nodes.find(node => node.node === "eligible-target-group");
+    assert.ok(pool);
+    assert.equal(pool.id, bound(graph, "/effects/1/steps/0/what"));
+    assert.equal(pool.id, bound(graph, "/trigger/what/pool"));
+    assert.ok(graph.nodes.some(node => node.id === pool.template && node.node === "selection" &&
+      node.perMember === pool.member && node.timing === "stack-announcement"));
+  });
+
+  it("binds one target slot per opponent for destruction", () => {
+    const graph = analyze("III — For each opponent, destroy up to one target artifact that player controls.", "Enchantment — Saga");
+    boundCard(graph);
+    const group = graph.nodes.find(node => node.node === "group-instruction");
+    assert.equal(group?.execution.kind === "for-each" ? group.execution.membership : undefined, "announcement");
+    assert.ok(!graph.nodes.some(node => node.node === "eligible-target-group"));
+  });
+
+  it("gives each actual nonland exile successor its own counters and suspend test", () => {
+    const graph = analyze("Exile the top five cards of your library. For each nonland card exiled this way, "
+      + "put a number of time counters on that card equal to its mana value. If it doesn't have suspend, it gains suspend.", "Sorcery");
+    boundCard(graph);
+    const pool = graph.nodes.find(node => node.node === "filtered-result-group");
+    assert.ok(pool);
+    assert.ok(graph.nodes.some(node => node.id === pool.pool && node.node === "event-result" && node.identity === "zone-successors"));
+    assert.equal(bound(graph, "/count/of"), bound(graph, "/condition/of/what"));
+    assert.equal(bound(graph, "/count/of"), bound(graph, "/effects/0/steps/0/on"));
+  });
+
+  it("does not treat two exile instructions as the one producer of a nonland exile loop", () => {
+    const graph = analyze("Exile the top card of your library. Exile the top card of your library. "
+      + "For each nonland card exiled this way, put a number of time counters on that card equal to its mana value. "
+      + "If it doesn't have suspend, it gains suspend.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "filtered-result-group"));
+  });
+
+  it("permits zero or more casts in sequence from the actual exile successors", () => {
+    const graph = analyze("Exile the top card of each player's library, then you may cast any number of spells "
+      + "from among those cards without paying their mana costs.", "Sorcery");
+    boundCard(graph);
+    const casts = graph.nodes.find(node => node.node === "sequential-cast");
+    assert.ok(casts);
+    assert.equal(casts.pool, bound(graph, "/instruction/fromAmong"));
+    assert.ok(graph.nodes.some(node => node.id === casts.pool && node.node === "event-result" &&
+      node.identity === "zone-successors" && node.cardinality === "many"));
+  });
+
+  it("keeps a reveal pool separate from the immediately castable exile group", () => {
+    const graph = analyze("Reveal the top card of each player's library, then you may cast any number of spells "
+      + "from among those cards without paying their mana costs.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "sequential-cast"));
+  });
+});

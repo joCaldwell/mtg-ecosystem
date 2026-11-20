@@ -124,7 +124,7 @@ export type BindingNode = NodeBase & (
       query: "designation" | "completed-dungeon" | "opponent-count" | "turn-of" }
   | { node: "target-count"; scope: string; chooser: string; minimum: number; maximum?: number }
   | { node: "resolution-count"; scope: string; chooser: string; minimum: number; maximum?: number;
-      operation: "discard" | "sacrifice" | "move-from-hand" | "search" | "draw" }
+      operation: "discard" | "sacrifice" | "move-from-hand" | "search" | "draw" | "cast-from-exile" }
   | { node: "recipient-member"; scope: string; group: string; use: "damage-amount" }
   | { node: "devotion"; scope: string; who: string; colors: Extract<Amount, { amount: "devotion" }>["colors"] }
   /** The proposed event and the scalar change made when this replacement applies. */
@@ -171,6 +171,12 @@ export type BindingNode = NodeBase & (
   | { node: "group-instruction"; scope: string; event?: string;
       execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }
         | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise" } }
+  /** The targets that are still legal when this set of per-player targets resolves. */
+  | { node: "filtered-result-group"; scope: string; pool: string; filter: ObjectFilter; cardinality: "many" }
+  | { node: "eligible-target-group"; scope: string; template: string; member: string; cardinality: "many" }
+  | { node: "sequential-cast"; scope: string; event: string; pool: string; caster: string; limit: string }
+  | { node: "source-dependent-damage"; scope: string; event: string; group: string; sourceAndRecipient: string;
+      characteristic: "power"; timing: "simultaneous" }
   | { node: "instruction-member"; scope: string; group: string; domain: "player" | "object" }
   | { node: "event-aggregate"; scope: string; event: string; measure: "damage-dealt" | "life-lost" }
   | { node: "linked-exile-pool"; scope: string; source: string; producer: string; event: string;
@@ -242,7 +248,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
