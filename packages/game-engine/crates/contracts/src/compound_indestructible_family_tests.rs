@@ -67,6 +67,7 @@ fn compound_indestructible_family_helper_checks_whole_program() {
             4 => p.targets[0].domain = TargetDomain::ControlledBattlefieldCreature,
             5 => {
                 p.targets[0].filter = Some(PermanentFilter {
+                    power: None,
                     types: vec![],
                     non_types: vec![],
                     non_colors: vec![],

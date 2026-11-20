@@ -344,6 +344,7 @@ fn own_graveyard_card_return() {
                         non_colors: vec![],
                         opponent: false,
                         tapped: false,
+                        power: None,
                     })
                 }
                 7 => {

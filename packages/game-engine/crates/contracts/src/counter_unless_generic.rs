@@ -179,6 +179,7 @@ fn counter_unless_generic_closed_ir() {
                 non_colors: vec![],
                 opponent: false,
                 tapped: false,
+                power: None,
             })
         },
         |d| {

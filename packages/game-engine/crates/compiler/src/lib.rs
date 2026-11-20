@@ -60,6 +60,7 @@ mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
+mod power_filtered_removal;
 mod self_reference;
 mod self_spell_protection;
 mod source_dies_nonland_destroy;
@@ -1506,6 +1507,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let mut power_removal = power_filtered_removal::lower(&shape, &result, &binding)?;
     let counter_mill = counter_spell_controller_mill::lower(&shape, &result, &binding)?;
     let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let drain = opponent_life_drain::lower(&shape, &result, &binding)?;
@@ -1802,6 +1804,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                     stage: EvaluationStage::Announcement,
                                     filter: (target != AuraControlTarget::Creature).then(|| {
                                         PermanentFilter {
+                                            power: None,
                                             types: target.kind().into_iter().collect(),
                                             non_types: vec![],
                                             non_colors: vec![],
@@ -2092,6 +2095,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some((target, instruction)) = power_removal.take() {
+                    program.targets.push(target);
+                    program.instructions.push(instruction);
+                    continue;
+                }
                 if let Some(count) = &counter_mill {
                     let target_slot = bind_target(
                         &mut program,
@@ -4201,6 +4209,7 @@ fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Fail
         }
     };
     Ok(PermanentFilter {
+        power: None,
         types,
         non_types,
         non_colors,
@@ -4945,6 +4954,7 @@ fn bind_temporary_permanent_target(
         ));
     }
     let filter = Some(PermanentFilter {
+        power: None,
         types: vec![],
         non_types: vec![],
         non_colors: vec![],
