@@ -81,6 +81,7 @@ mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
 mod land_entry_gain_life;
+mod land_sacrifice_draw;
 mod other_land_entry;
 mod set_exile;
 pub use set_exile::{SetExileClause, set_exile_modes};
@@ -490,6 +491,7 @@ pub enum Capability {
     CreatureEntryReturnV1,
     EntryGraveyardExileV1,
     LandEntryGainLifeV1,
+    LandSacrificeDrawV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -2782,6 +2784,9 @@ impl Definition {
             }
             add_program_requirements(&mut set, &ability.program);
         }
+        if land_sacrifice_draw::present(self) {
+            set.insert(Capability::LandSacrificeDrawV1);
+        }
         if land_entry_gain_life::present(self) {
             set.insert(Capability::LandEntryGainLifeV1);
         }
@@ -3031,6 +3036,7 @@ impl Definition {
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
         other_land_entry::validate(self)?;
+        let land_sacrifice_draw = land_sacrifice_draw::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
@@ -3520,6 +3526,7 @@ impl Definition {
             && !self.capabilities.contains(&Capability::LinkedExilePlayV1)
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
+            && !land_sacrifice_draw
         {
             return Err("activated programs require supported creature characteristics".into());
         }
@@ -3592,6 +3599,10 @@ impl Definition {
             if matches!(&ability.cost, ActivationCost::Composite { costs } if costs.remove_source_plus_one_counters.is_some())
             {
                 return Err("counter removal requires mana ability".into());
+            }
+            if land_sacrifice_draw {
+                validate_instruction_program(&ability.program)?;
+                continue;
             }
             if paid_counted_draw::ability_matches(ability) {
                 // The complete source is checked by hand_return::validate_definition.
@@ -7490,6 +7501,7 @@ pub fn catalog_schema() -> serde_json::Value {
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
     land_entry_gain_life::extend_schema(&mut schema);
+    land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
@@ -7762,6 +7774,7 @@ mod tests {
             CreatureEntryReturnV1,
             EntryGraveyardExileV1,
             LandEntryGainLifeV1,
+            LandSacrificeDrawV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -8265,6 +8278,7 @@ mod tests {
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(land_entry_gain_life::witness());
         definitions.push(entry_copy::registry_witness());
+        definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());

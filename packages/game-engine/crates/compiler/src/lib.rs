@@ -68,6 +68,7 @@ mod hand_return;
 mod hand_return_tests;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
+mod land_sacrifice_draw;
 mod library_order;
 #[cfg(test)]
 mod library_order_tests;
@@ -2898,6 +2899,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
+    land_sacrifice_draw::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
@@ -6201,6 +6203,9 @@ fn lower_activation(
     block: usize,
     kind: CardKind,
 ) -> Result<ActivatedAbility, Failure> {
+    if let Some(ability) = land_sacrifice_draw::lower(costs, effects, block, kind)? {
+        return Ok(ability);
+    }
     if let Some(ability) = paid_counted_draw::lower(costs, effects, block, kind)? {
         return Ok(ability);
     }
