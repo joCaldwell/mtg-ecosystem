@@ -605,3 +605,34 @@ fn hidden_library_order_and_opponent_hand_do_not_change_public_projection() {
     };
     assert_eq!(a, b);
 }
+
+#[test]
+fn committed_player_losses_cannot_depart_a_player_twice() {
+    let mut g = game();
+    let player = PlayerId(1);
+    g.state.rules.players[player.0 as usize].failed_draw = true;
+    let life = g.state.rules.players[player.0 as usize].life.clone();
+    let batch = g
+        .commit_batch(
+            BatchCause::StateBased,
+            EventGroup::Simultaneous {
+                occurrences: vec![ProposedEvent::Lose {
+                    player,
+                    reason: PlayerLossReason::FailedDraw,
+                }],
+            },
+        )
+        .unwrap();
+    assert!(!g.finish_committed_player_losses(&batch).unwrap());
+    assert_eq!(
+        g.state.rules.players[player.0 as usize]
+            .last_known
+            .as_ref()
+            .unwrap()
+            .life,
+        life
+    );
+    let event_count = g.events().len();
+    assert!(g.finish_committed_player_losses(&batch).is_err());
+    assert_eq!(g.events().len(), event_count);
+}

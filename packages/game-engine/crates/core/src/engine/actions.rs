@@ -937,6 +937,7 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,
@@ -1679,6 +1680,9 @@ impl Game {
             || entry.id.0 >= self.state.rules.next_stack_id
             || self.bound_target_count(entry) != program.targets.len()
             || entry.paid.as_ref() != Some(&entry.total_cost)
+            // Immediate loss and completion of its activated ability share one
+            // atomic rule step. There is no post-loss resolving continuation.
+            || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)
             || frame.cursor as usize > program.instructions.len()
             || frame.outcomes.len() != frame.cursor as usize
             || frame.legal_targets.len() != program.targets.len()

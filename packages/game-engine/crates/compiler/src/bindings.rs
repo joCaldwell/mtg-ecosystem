@@ -177,6 +177,15 @@ impl<'a> Bindings<'a> {
         })
     }
 
+    #[cfg(test)]
+    pub(super) fn synthetic_envelope(&self) -> Value {
+        json!({"artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,
+            "rules":{"edition":RULES_EDITION,"url":"https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt"},
+            "identity":self.identity,"fullyBound":true,"referencesBound":true,"diagnostics":[],"engineFeatures":[],
+            "nodes":self.nodes,"references":self.references,"counts":{"obligations":self.references.len(),
+            "bound":self.references.len(),"unresolved":0}})
+    }
+
     pub(super) fn validate_ordered(&self, binding: &Value, message: &str) -> Result<(), Failure> {
         if binding["nodes"].as_array() != Some(&self.nodes)
             || binding["references"].as_array() != Some(&self.references)
