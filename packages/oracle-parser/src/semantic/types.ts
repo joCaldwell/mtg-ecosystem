@@ -124,7 +124,7 @@ export type BindingNode = NodeBase & (
       query: "designation" | "completed-dungeon" | "opponent-count" | "turn-of" }
   | { node: "target-count"; scope: string; chooser: string; minimum: number; maximum?: number }
   | { node: "resolution-count"; scope: string; chooser: string; minimum: number; maximum?: number;
-      operation: "discard" | "sacrifice" | "move-from-hand" | "search" }
+      operation: "discard" | "sacrifice" | "move-from-hand" | "search" | "draw" }
   | { node: "recipient-member"; scope: string; group: string; use: "damage-amount" }
   | { node: "devotion"; scope: string; who: string; colors: Extract<Amount, { amount: "devotion" }>["colors"] }
   /** The proposed event and the scalar change made when this replacement applies. */
@@ -169,6 +169,13 @@ export type BindingNode = NodeBase & (
       membership: "still-in-exile"; identity: "source-incarnation"; cardinality: "many" }
   | { node: "linked-exile-filter"; scope: string; pool: string }
   | { node: "blight-payment"; scope: string; payer: string; count: number }
+  | { node: "action-cost-condition"; scope: string; event: string; action: "sacrifice" }
+  | { node: "value-exchange"; scope: string; subjects: [string, string]; event: string; operation: "life-and-toughness" }
+  | { node: "targeting-permission"; scope: string; controller: string; affected: string[];
+      duration: Extract<Effect, { effect: "targeting-as-though" }>["duration"] }
+  | { node: "scheduled-phase"; scope: string; phase: Extract<Trigger, { trigger: "phase-in-turn" }>["phase"]; turn: "next" }
+  | { node: "skip-draw-step"; scope: string; who: string }
+  | { node: "cast-history-exclusion"; scope: string; occurrence: string; caster: string }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
@@ -217,7 +224,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

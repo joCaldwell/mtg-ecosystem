@@ -510,3 +510,67 @@ describe("entry choices, linked pools, and emblem sources", () => {
     assert.equal(payment.count, 2);
   });
 });
+
+describe("explicit timing, exclusions, and special instruction operands", () => {
+  it("anchors a bounded draw to the next turn's upkeep and its own acting player", () => {
+    const graph = analyze("Counter target spell. Its controller may draw up to two cards at the beginning of the next turn's upkeep.\n"
+      + "You draw a card at the beginning of the next turn's upkeep.", "Instant");
+    boundCard(graph);
+    const phase = graph.nodes.filter(node => node.node === "scheduled-phase");
+    assert.equal(phase.length, 2);
+    assert.ok(phase.every(node => node.turn === "next" && node.phase === "upkeep"));
+    const draw = graph.nodes.find(node => node.node === "resolution-count");
+    assert.ok(draw?.operation === "draw");
+    assert.equal(draw.chooser, bound(graph, "/effects/0/steps/0/who"));
+    assert.equal(draw.maximum, 2);
+  });
+
+  it("acts on a successfully countered card's new exile object", () => {
+    const graph = analyze("Counter target spell. If the spell is countered this way, exile it with three time counters on it "
+      + "instead of putting it into its owner's graveyard. If it doesn't have suspend, it gains suspend.", "Instant");
+    boundCard(graph);
+    const successor = graph.nodes.find(node => node.id === bound(graph, "/effects/1/steps/0/what"));
+    assert.ok(successor?.node === "event-result" && successor.identity === "zone-successors");
+    assert.notEqual(successor.id, bound(graph, "/effects/0/steps/0/what"));
+    assert.equal(graph.engineFeatures[0]?.feature, "counter-destination");
+  });
+
+  it("keeps the announced cards distinct from the later sacrifice condition", () => {
+    const graph = analyze("Choose two target creature cards in your graveyard. Sacrifice a creature. "
+      + "If you do, return the chosen cards to the battlefield tapped.", "Sorcery");
+    boundCard(graph);
+    const gate = graph.nodes.find(node => node.node === "action-cost-condition");
+    assert.ok(gate);
+    assert.ok(graph.nodes.some(node => node.id === gate.event && node.node === "event" && node.operation === "sacrifice"));
+    assert.equal(bound(graph, "/effects/2/steps/0/what"), bound(graph, "/effects/0/steps/0/what"));
+  });
+
+  it("does not link a condition to an unrelated earlier sacrifice", () => {
+    const graph = analyze("Sacrifice a creature. Draw a card. If you do, gain 1 life.", "Sorcery");
+    assert.ok(!graph.nodes.some(node => node.node === "action-cost-condition"));
+    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-reference"));
+  });
+
+  it("uses the player targeted by the explicit counter condition", () => {
+    const graph = analyze("If target player has fewer than nine poison counters, they get a number of poison counters equal to the difference.", "Sorcery");
+    boundCard(graph);
+    const target = bound(graph, "/condition/who");
+    assert.equal(bound(graph, "/steps/0/who"), target);
+    assert.equal(bound(graph, "/count/b/on"), target);
+  });
+
+  it("excludes only the exact copy model from the resolving group", () => {
+    const graph = analyze("Choose target artifact you control. Each other artifact you control becomes a copy of that artifact until end of turn.", "Instant");
+    boundCard(graph);
+    assert.equal(bound(graph, "/what/filter/other"), bound(graph, "/spec/copyOf"));
+    assert.equal(bound(graph, "/spec/copyOf"), bound(graph, "/effects/0/steps/0/what"));
+  });
+
+  it("binds a value exchange to one current player and one creature", () => {
+    const graph = analyze("{T}: Exchange target opponent's life total with this creature's toughness.", "Creature");
+    boundCard(graph);
+    const exchange = graph.nodes.find(node => node.node === "value-exchange");
+    assert.ok(exchange);
+    assert.deepEqual(exchange.subjects, [bound(graph, "/a/of"), bound(graph, "/b/of")]);
+  });
+});

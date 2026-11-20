@@ -309,6 +309,11 @@ interface Context {
   triggerX?: string;
   linkedExile?: LinkedExileOrigin;
   lexicalAbilityPath?: string;
+  delayedSchedule?: boolean;
+  declaredTargets?: Candidate[];
+  uncertainTargetOrigin?: boolean;
+  copyModelExclusion?: { path: string; model: Candidate; reference: ObjectRef };
+  castHistoryExclusionPath?: string;
   entryChoice?: ChoiceOrigin;
   resolutionChoice?: ChoiceOrigin;
   availableChoice?: ChoiceOrigin;
@@ -767,6 +772,14 @@ class Analyzer {
       this.cascade(value as Extract<StaticEffect, { static: "as-cascade" }>, path, context);
       return;
     }
+    if (value.static === "skip-time" && !context.barrier && context.phase === "continuous" &&
+        isDeepStrictEqual(value.who, { player: "you" }) && isDeepStrictEqual(value.what, { kind: "step", step: "draw" })) {
+      const rules = ["504.1", "611.3", "614.10", "614.10a"];
+      this.player({ player: "you" }, child(path, "who"), context);
+      this.node({ id: this.id(path, "skip-draw-step"), path, node: "skip-draw-step", scope: context.ability, who: context.you, rules });
+      this.engineFeature("phase-scheduling", path, "Replace the controller's draw step each time it would begin while the static ability applies.", rules);
+      return;
+    }
     if (value.static === "skip-time" || value.effect === "skip-time") {
       const barrier = "Skipping requires exact upcoming occurrences, replacement consumption, and future-turn scope bindings.";
       this.diagnostic("unsupported-scope", path, barrier, ["500.11", "614.10"]);
@@ -900,6 +913,11 @@ class Analyzer {
     // Filtered-player counter predicates already use player()'s per-candidate
     // scope diagnostic; this covers standalone quantified conditions.
     if (value.condition === "player-counters") {
+      if (!context.barrier && context.phase === "resolution" && isRecord(value.who) &&
+          (value.who.player === "target-player" || value.who.player === "target-opponent") && !value.who.count) {
+        this.walkChildren(value, path, context);
+        return;
+      }
       const barrier = "A counter predicate needs its quantified player's candidate scope; counters must not be summed across opponents.";
       this.diagnostic("unsupported-scope", path, barrier, ["122.1", "608.2h"]);
       this.walkChildren(value, path, { ...context, barrier });
@@ -1069,12 +1087,28 @@ class Analyzer {
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
+    if (value.condition === "cast-count" && context.spellAbility && !context.sourceMoved && !context.barrier &&
+        isRecord(value.who) && value.who.player === "you" && isRecord(value.what) && value.what.cls === "spell" &&
+        value.what.other === true && value.during === "this-game" && isRecord(value.what.name) &&
+        value.what.name.name === "literal") {
+      const filter = child(path, "what");
+      this.walkChildren(value, path, { ...context, castHistoryExclusionPath: filter });
+      const rules = ["601.2i", "608.2i", "707.10"];
+      this.node({ id: this.id(path, "cast-history-exclusion"), path, node: "cast-history-exclusion",
+        scope: context.ability, caster: context.you, occurrence: context.source, rules });
+      this.engineFeature("event-history", path, "Count matching cast occurrences other than this resolving spell's own cast.", rules);
+      return;
+    }
     if (value.other === true && !value.otherThan) {
       // "Other creatures you control", "another creature enters": in a
       // permanent's ability, before any other object is named, the excluded
       // object is the permanent itself. Elsewhere (a spell, or after a
       // trigger or instruction names an object) it may be that object.
-      if (context.permanentSource && !context.barrier && !context.sourceMoved &&
+      if (!context.barrier && context.castHistoryExclusionPath === path) {
+        this.bound({ ref: "this", noun: "spell" }, child(path, "other"), context.source, ["601.2i", "608.2i"]);
+      } else if (!context.barrier && context.copyModelExclusion?.path === path) {
+        this.bound(context.copyModelExclusion.reference, child(path, "other"), context.copyModelExclusion.model.id, ["611.2c", "707.2"]);
+      } else if (context.permanentSource && !context.barrier && !context.sourceMoved &&
           (path === context.sourceExclusionPath || (!context.mentionedObject && this.onlySource(context))))
         this.bound({ ref: "self" }, child(path, "other"), context.source,
           path === context.sourceExclusionPath ? ["201.5", "602.2b", "701.21a"] : ["201.5"]);
@@ -1178,6 +1212,21 @@ class Analyzer {
       else if (token === "its-owner" || token === "owner" || token === "each-player" || token === "any") { /* no outside reference */ }
       else if (token === "active-player") {
         this.diagnostic("unsupported-reference", child(path, key), "This implicit player relation requires its own scoped binding rule.", ["109.5"]);
+      }
+    }
+    if (value.effect === "become" && isRecord(value.spec) && Object.keys(value.spec).length === 1 &&
+        isRecord(value.spec.copyOf) && isRecord(value.what) && value.what.ref === "each" &&
+        isRecord(value.what.filter) && value.what.filter.other === true && !context.barrier) {
+      const modelPath = `${path}/spec/copyOf`;
+      this.walk(value.spec.copyOf, modelPath, context);
+      const model = this.at(modelPath);
+      if (model?.domain === "object" && model.cardinality === "one") {
+        const scoped = { ...context, copyModelExclusion: { path: `${path}/what/filter`, model,
+          reference: value.spec.copyOf as ObjectRef } };
+        this.walk(value.what, child(path, "what"), scoped);
+        this.walk(value.duration, child(path, "duration"), scoped);
+        this.engineFeature("characteristic-layers", path, "Set the affected group at resolution, excluding the bound copy model, and apply its copiable values.", ["611.2c", "707.2"]);
+        return;
       }
     }
     this.walkWithRecipient(value, path, context);
@@ -1644,9 +1693,20 @@ class Analyzer {
       if (instruction) context.players = combine(context.players, this.targetPlayersUnder(child(path, recipientKey), context));
     }
     const damageAmount = value.effect === "damage" && this.walkDamageAmount(value as unknown as Extract<Effect, { effect: "damage" }>, path, context);
+    const drawRange = value.effect === "draw" && !context.barrier && context.phase === "resolution" &&
+      isRecord(value.amount) && (!value.decidedBy || isDeepStrictEqual(value.decidedBy, value.who))
+      ? chosenRange(value.amount as Amount) : undefined;
+    const drawer = drawRange?.maximum !== undefined ? this.at(child(path, "who")) : undefined;
+    const chosenDraw = drawRange && drawer?.cardinality === "one";
+    if (chosenDraw) {
+      const amount = child(path, "amount");
+      this.node({ id: this.id(amount, "resolution-count"), path: amount, node: "resolution-count",
+        scope: context.ability, chooser: drawer.id, operation: "draw", ...drawRange, rules: ["121.2", "608.2d"] });
+    }
     const tested = value.condition === "is-filter" ? this.at(child(path, "what")) : undefined;
     for (const [entry, nested] of Object.entries(value)) {
-      if (first.includes(entry) || (damageAmount && (entry === "to" || entry === "amount"))) continue;
+      if (first.includes(entry) || (chosenDraw && entry === "amount") ||
+          (damageAmount && (entry === "to" || entry === "amount"))) continue;
       const scoped = entry === "filter" && tested?.domain === "object" && tested.cardinality === "one"
         ? { ...context, characteristicSubject: tested.id } : context;
       this.walk(nested, child(path, entry), scoped);
@@ -1867,6 +1927,10 @@ class Analyzer {
         this.unresolved(expression, path, "unsupported-scope", "Separate card-extraction slots require distinct allocation, shared-pool, branch-choice and aggregate result bindings.", ["608.2d", "701.23b"]);
         return undefined;
       case "choice-result":
+        if (expression.scope === "contextual" && expression.which === "chosen" &&
+            !context.uncertainTargetOrigin && context.declaredTargets?.length === 1 &&
+            describes(context.declaredTargets[0].description, expression.filter))
+          return this.antecedent(expression, path, context.declaredTargets, objectCardinality(expression), ["601.2c", "608.2b", "608.2c"]);
         this.unresolved(expression, path, "unsupported-reference", "This chosen object needs its exact announcement, resolution/search or linked-choice result; proximity does not establish the origin.", ["601.2c", "608.2d", "607.2d"]);
         return undefined;
       case "copy-result":
@@ -2140,6 +2204,8 @@ class Analyzer {
       branch.uncertainCardCopyOrigin || branch.copiedCards !== context.copiedCards);
     context.uncertainMeasureOrigin ||= branches.some(branch =>
       branch.uncertainMeasureOrigin || branch.measuredEvents !== context.measuredEvents);
+    context.uncertainTargetOrigin ||= branches.some(branch =>
+      branch.uncertainTargetOrigin || branch.declaredTargets !== context.declaredTargets);
   }
   /** CR 700.2a-c: modes are chosen as the spell or ability is put on the stack,
    * and a mode's targets exist only if it was chosen. Each mode binds in its own
@@ -2308,7 +2374,8 @@ class Analyzer {
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined,
       copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined,
-      linkedExile: undefined, lexicalAbilityPath: undefined };
+      linkedExile: undefined, lexicalAbilityPath: undefined, delayedSchedule: kind === "delayed-triggered",
+      declaredTargets: undefined, uncertainTargetOrigin: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
     const delayed = this.nestedAbility(path, context, "delayed-triggered", ["603.7"]);
@@ -2538,6 +2605,7 @@ class Analyzer {
   }
   sentences(sentences: Sentence[], path: string, context: Context): void {
     let previousDecisions: string[] = [];
+    let precedingSacrifice: string | undefined;
     for (const [index, sentence] of sentences.entries()) {
       const at = child(path, index);
       const decisions: string[] = [];
@@ -2549,6 +2617,14 @@ class Analyzer {
       const condition = sentence.condition;
       const linked = condition && (condition.condition === "you-do" || condition.condition === "you-dont") && previousDecisions.length === 1
         ? previousDecisions[0] : undefined;
+      const paid = !linked && condition?.condition === "you-do" ? precedingSacrifice : undefined;
+      if (paid) {
+        const atCondition = child(at, "condition");
+        const rules = ["118.11", "118.12", "608.2c", "701.21a"];
+        this.node({ id: this.id(atCondition, "action-cost-condition"), path: atCondition, node: "action-cost-condition",
+          scope: context.ability, event: paid, action: "sacrifice", rules });
+        this.engineFeature("action-cost-condition", atCondition, "Check whether the preceding sacrifice was carried out as the cost of this instruction.", rules);
+      }
       if (linked && condition) this.node({ id: this.id(child(at, "condition"), "decision-link"), path: child(at, "condition"), node: "decision-link",
         scope: context.ability, condition: condition.condition as "you-do" | "you-dont", decision: linked, rules: ["608.2c", "608.2d"] });
       // An "unless" clause follows its instruction and may refer to that
@@ -2556,7 +2632,7 @@ class Analyzer {
       // pays {3}"), so it binds after the steps.
       const trailing = sentence.conditionKind === "unless" || sentence.conditionPosition === "after";
       context.linkedPath = linked;
-      if (!trailing) this.walk(condition, child(at, "condition"), linked ? { ...context, linkedDecision: true } : context);
+      if (!trailing) this.walk(condition, child(at, "condition"), linked || paid ? { ...context, linkedDecision: true } : context);
       if (sentence.afterConditional)
         this.diagnostic("unsupported-scope", at, "This sentence refers back to a conditional sentence; whether that condition governs it is not decided.", ["608.2c"]);
       if (condition || sentence.otherwise) {
@@ -2572,6 +2648,7 @@ class Analyzer {
           : linkedResult?.node === "event-result" ? { id: linkedResult.id, cardinality: linkedResult.cardinality, domain: "object" as const, description: linkedResult.description } : undefined;
         const branches = [sentence.steps, sentence.otherwise?.steps ?? []].map((steps, branchIndex) => {
           const branch: Context = { ...this.branch(context), conditional: true, decisions,
+            players: combine(context.players, this.targetPlayersUnder(child(at, "condition"), context)),
             // "If you don't, ...": what the declined instruction would have produced does not exist.
             ...(linked && condition?.condition === "you-dont" && branchIndex === 0 && this.beforeDecision.has(linked)
               ? { objects: [...this.beforeDecision.get(linked)!] } : {}),
@@ -2613,6 +2690,12 @@ class Analyzer {
           this.effect(effect, child(child(at, "steps"), stepIndex), context);
       }
       previousDecisions = decisions;
+      const [step] = sentence.steps;
+      const sacPath = `${at}/steps/0`;
+      precedingSacrifice = !condition && !sentence.otherwise && !sentence.afterConditional &&
+        sentence.steps.length === 1 && step.effect === "sacrifice" && !step.optional && !step.forEach && !step.forEachVote &&
+        step.who.player === "you" && !step.chosenBy && step.what.ref === "filter" && objectCardinality(step.what) === "one" &&
+        this.at(child(sacPath, "what")) ? this.id(sacPath, "event") : undefined;
       context.linkedPath = undefined;
       // A trailing definition may refer to a target established earlier in
       // the same sentence. Traverse it after the subjects have been bound.
@@ -2639,6 +2722,43 @@ class Analyzer {
       event: matches[0].event, measure: damage ? "damage-dealt" : "life-lost", rules });
     this.engineFeature("event-aggregate", path, "Sum the actual outcomes of the bound instruction across its participants.", rules);
     return true;
+  }
+
+  private distinctAction(effect: Effect, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "resolution" || effect.optional || effect.forEach || effect.forEachVote || effect.decidedBy) return false;
+    if (effect.effect === "exchange-values") {
+      if (effect.a.value !== "life-total" || effect.b.value !== "toughness") return false;
+      this.walk(effect.a, child(path, "a"), context);
+      this.walk(effect.b, child(path, "b"), context);
+      const player = this.at(`${path}/a/of`);
+      const object = this.at(`${path}/b/of`);
+      if (player?.domain !== "player" || object?.domain !== "object" ||
+          player.cardinality !== "one" || object.cardinality !== "one") return false;
+      const rules = ["609.3", "701.12g", "613.4b"];
+      const event = this.event(path, context, effect.effect, [player, object], context.conditional ? { conditional: true } : {});
+      this.node({ id: this.id(path, "value-exchange"), path, node: "value-exchange", scope: context.ability,
+        subjects: [player.id, object.id], event, operation: "life-and-toughness", rules });
+      this.engineFeature("value-exchange", path, "Exchange the two measured values only if both changes can be made, using the stated life and toughness rules.", rules);
+      context.players = combine(context.players, [player]);
+      context.objects = combine(context.objects, [object]);
+      return true;
+    }
+    if (effect.effect === "targeting-as-though" && effect.lacking === "hexproof" && effect.by?.player === "you") {
+      this.walk(effect.what, child(path, "what"), context);
+      this.walk(effect.by, child(path, "by"), context);
+      this.walk(effect.duration, child(path, "duration"), context);
+      const affected = effect.what.flatMap((_, index) => {
+        const member = this.at(`${path}/what/${index}`);
+        return member ? [member.id] : [];
+      });
+      if (affected.length !== effect.what.length) return false;
+      const rules = ["611.2a", "611.2c", "702.11b", "702.11c", "702.11e"];
+      this.node({ id: this.id(path, "targeting-permission"), path, node: "targeting-permission", scope: context.ability,
+        controller: context.you, affected, duration: effect.duration, rules });
+      this.engineFeature("targeting-permission", path, "Ignore only the printed targeting restriction for the bound controller's spells and abilities during the stated duration.", rules);
+      return true;
+    }
+    return false;
   }
 
   private groupedDraw(effect: Extract<Effect, { effect: "draw" }>, path: string, context: Context): boolean {
@@ -2872,6 +2992,7 @@ class Analyzer {
     return true;
   }
   effect(effect: Effect, path: string, context: Context): void {
+    if (this.distinctAction(effect, path, context)) return;
     if (effect.effect === "draw" && this.groupedDraw(effect, path, context)) return;
     if (effect.effect === "for-each" && this.quantifiedInstruction(effect, path, context)) return;
     if (effect.effect === "scan-library" && this.libraryScan(effect, path, context)) return;
@@ -3048,7 +3169,15 @@ class Analyzer {
         objectPaths.push(child(path, "what"));
         if (effect.who) playerPaths.push(child(path, "who"));
         break;
-      case "destroy": case "counter": case "pump": case "set-pt":
+      case "counter":
+        objectPaths.push(child(path, "what"));
+        if (effect.countered?.to.zone === "exile") {
+          produces = "objects"; identity = "zone-successors";
+          this.engineFeature("counter-destination", path,
+            "Find only the public successor created by a successful counter and apply its printed entry state.", ["400.7j", "701.5"]);
+        }
+        break;
+      case "destroy": case "pump": case "set-pt":
       case "transform": case "convert": case "phase-out": case "phase-in":
       case "flip": case "detain": case "suspect": case "unsuspect": case "prepare": case "unprepare": case "become-status":
       case "gain-abilities": case "lose-abilities": case "cant-have-abilities": case "untap-step-suppression":
@@ -3177,6 +3306,8 @@ class Analyzer {
         identity: "source-incarnation", cardinality: "many", rules });
       this.engineFeature("linked-exile-pool", path, "Record only cards exiled by this linked ability instance and still in exile.", rules);
     }
+    if (effect.effect === "declare-target" && objects.length === 1 && this.announced(objects[0]))
+      context.declaredTargets = [...(context.declaredTargets ?? []), objects[0]];
     if (effect.effect === "damage" || effect.effect === "lose-life")
       context.measuredEvents = [...(context.measuredEvents ?? []), { operation: effect.effect, event }];
     const preEntryChoice = context.entryChoice?.path === path;
@@ -3381,6 +3512,14 @@ class Analyzer {
         context.objects = [first.subject];
       if (first.who && branches.every(({ who }) => who?.id === first.who!.id) && first.who.id !== context.you)
         context.players = [first.who];
+      return;
+    }
+    if (trigger.trigger === "phase-in-turn" && context.delayedSchedule && !context.barrier &&
+        isDeepStrictEqual(trigger.turn, { turn: "next" })) {
+      const rules = ["500.7", "603.7b", "614.10a"];
+      this.node({ id: this.id(path, "scheduled-phase"), path, node: "scheduled-phase",
+        scope: context.ability, phase: trigger.phase, turn: "next", rules });
+      this.engineFeature("phase-scheduling", path, "Anchor the delayed trigger to the stated phase of the next turn.", rules);
       return;
     }
     const match = { ...context, phase: "trigger-match" as const };
@@ -3634,7 +3773,8 @@ class Analyzer {
           stackCopies: previous.stackCopies, uncertainStackOrigin: previous.uncertainStackOrigin,
           scans: previous.scans, uncertainScanOrigin: previous.uncertainScanOrigin,
           copiedCards: previous.copiedCards, uncertainCardCopyOrigin: previous.uncertainCardCopyOrigin,
-          measuredEvents: previous.measuredEvents, uncertainMeasureOrigin: previous.uncertainMeasureOrigin });
+          measuredEvents: previous.measuredEvents, uncertainMeasureOrigin: previous.uncertainMeasureOrigin,
+          declaredTargets: previous.declaredTargets, uncertainTargetOrigin: previous.uncertainTargetOrigin });
         this.sentences(ability.effects, child(path, "effects"), context);
         this.spellParagraph = { face, context };
         return;
