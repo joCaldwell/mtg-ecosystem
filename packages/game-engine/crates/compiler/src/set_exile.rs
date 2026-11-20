@@ -1,0 +1,147 @@
+//! Resolution-time zone and type sets. CR 109.2, 400.7, 608.2h, 701.11.
+use super::*;
+use crate::bindings::Bindings;
+use serde_json::{Value, json};
+
+pub(super) fn lower(
+    source: &Value,
+    result: &ParseResult,
+    binding: &Value,
+    identity: &str,
+) -> Result<Option<SpellProgram>, Failure> {
+    let text = source["oracle_text"].as_str().unwrap_or("");
+    let Some(clause) = SetExileClause::parse(text) else {
+        return if text
+            .lines()
+            .any(|line| SetExileClause::parse(line).is_some())
+        {
+            Err(unsupported(
+                "set exile",
+                "requires a complete ordinary set exile spell",
+            ))
+        } else {
+            Ok(None)
+        };
+    };
+    let fail = || {
+        unsupported(
+            "set exile",
+            "requires one ordinary untargeted exile with a bound resolution-time set",
+        )
+    };
+    let timing = match source["type_line"].as_str() {
+        Some("Sorcery") => SpellTiming::MainPhase,
+        Some("Instant") => SpellTiming::Instant,
+        _ => return Err(fail()),
+    };
+    if !matches!(result.lines.as_slice(),[line] if line.text==text)
+        || decode::<Value>(result.abilities.get(), "abilities")? != json!([clause.ability()])
+    {
+        return Err(fail());
+    }
+    let root = "/faces/0/abilities/0";
+    let step = format!("{root}/effects/0/steps/0");
+    let what = format!("{step}/what");
+    let mut graph = Bindings::new(identity, source);
+    graph.ability(root, "spell", "spell-controller");
+    let scope = graph.id(root, "ability");
+    let mut query = |path: &str, expression: &Value| {
+        let id = graph.node(
+            path,
+            "query",
+            "selection",
+            json!({"scope":scope,"expression":expression,"cardinality":"many",
+            "timing":"resolution","selection":"evaluate-reference","rules":["608.2h"]}),
+        );
+        graph.reference(path, expression, &id, "608.2h");
+        id
+    };
+    if let Some(owner) = clause.what.get("owner") {
+        query(&format!("{what}/owner"), owner);
+    }
+    let selected = query(&what, &clause.what);
+    graph.event(root, &step, "exile", &selected, false);
+    graph.node(&step,"objects","event-result",json!({"event":graph.id(&step,"event"),"result":"objects","cardinality":"many",
+        "availability":"if-produced","identity":"zone-successors","description":clause.successors,"rules":["400.7j"]}));
+    graph.result(&step, "quantity", "measured-quantity", None);
+    graph.validate(binding, "requires the complete set exile binding graph")?;
+    Ok(Some(SpellProgram {
+        timing,
+        resolution: SpellResolution::Instructions,
+        functioning_zone: FunctioningZone::Stack,
+        targets: vec![],
+        instructions: vec![Instruction::MoveSet {
+            action: SetMove::Exile,
+            set: clause.set,
+            source_block: 0,
+        }],
+        modes: vec![],
+        additional_sacrifice: None,
+        optional_additional_costs: vec![],
+    }))
+}
+
+#[test]
+fn fixed_set_exile_rejects_changed_zone_unbound_selection_and_erased_ir() {
+    let manifest = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+    for raw in include_str!("../../../tests/fixtures/synthetic-set-exile.jsonl").lines() {
+        let parsed = compile(manifest, raw);
+        let CompileResult::Lowered { definition } = parsed else {
+            panic!("{parsed:?}")
+        };
+        for change in ["selector", "erasure", "action", "damage"] {
+            let mut d = definition.clone();
+            let ops = &mut d.spell.as_mut().unwrap().instructions;
+            match change {
+                "erasure" => ops.clear(),
+                "damage" => {
+                    ops[0] = Instruction::DamageSet {
+                        sets: vec![ObjectSet::GraveyardCards],
+                        each_player: false,
+                        amount: WipeAmount::Fixed { value: 1.into() },
+                        source_block: 0,
+                    }
+                }
+                _ => {
+                    let Instruction::MoveSet { set, action, .. } = &mut ops[0] else {
+                        panic!()
+                    };
+                    if change == "action" {
+                        *action = SetMove::Destroy;
+                    } else {
+                        *set = ObjectSet::Creatures;
+                    }
+                }
+            }
+            d.capabilities = d.requirements();
+            assert!(d.validate().is_err(), "{change}");
+        }
+        for change in ["zone", "timing", "event", "result"] {
+            let bad = crate::tests::changed_source(raw, |r| {
+                if change == "zone" {
+                    let result = &mut r["faces"][0]["result"];
+                    result["abilities"][0]["effects"][0]["steps"][0]["what"] =
+                        json!({"ref":"all","filter":{"types":["creature"]}});
+                    result["lines"][0]["ability"] = result["abilities"][0].clone();
+                } else {
+                    let (node, key, val) = match change {
+                        "timing" => ("selection", "timing", "announcement"),
+                        "event" => ("event", "operation", "destroy"),
+                        _ => ("event-result", "identity", "same-objects"),
+                    };
+                    let row = r["binding"]["nodes"]
+                        .as_array_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .find(|row| row["node"] == node)
+                        .unwrap();
+                    row[key] = json!(val);
+                }
+            });
+            assert!(
+                !matches!(compile(manifest, &bad), CompileResult::Lowered { .. }),
+                "{change}"
+            );
+        }
+    }
+}

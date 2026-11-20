@@ -65,6 +65,7 @@ mod power_entry_draw;
 mod power_filtered_removal;
 mod self_reference;
 mod self_spell_protection;
+mod set_exile;
 mod source_dies_nonland_destroy;
 mod source_tap_damage;
 mod spell_cascade_grants;
@@ -1518,6 +1519,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             .map_or((None, None), |(stats, mana)| (Some(stats), Some(mana)));
     let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
+    let set_exile = set_exile::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     source_dies_nonland_destroy::bind(&source, &result, &binding)?;
     let mut draw_land_allowance =
@@ -1700,6 +1702,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if set_exile.is_some() => {
+            definition.spell = set_exile;
+        }
         CardKind::Sorcery if opponent_nonland_destroy.is_some() => {
             definition.spell = opponent_nonland_destroy;
         }

@@ -44,6 +44,8 @@ mod announced_x_draw;
 mod artifact_modal;
 mod counter_unless_generic;
 mod each_player_draw;
+mod set_exile;
+pub use set_exile::SetExileClause;
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -501,6 +503,8 @@ pub enum ObjectSet {
     NonlandPermanents,
     OpponentNonlandPermanents,
     Enchantments,
+    Artifacts,
+    GraveyardCards,
     AttackingCreatures,
     OpponentCreatures,
     FlyingCreatures,
@@ -2578,6 +2582,7 @@ impl Definition {
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
         artifact_modal::validate(self)?;
+        set_exile::validate(self)?;
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
@@ -6741,6 +6746,7 @@ pub fn catalog_schema() -> serde_json::Value {
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     targeted_discard::extend_schema(&mut schema);
+    set_exile::extend_schema(&mut schema);
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);

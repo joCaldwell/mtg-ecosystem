@@ -826,3 +826,91 @@ fn counted_artifact_compiled_modes_freeze_target_then_pay_root_set() {
         recover(&g);
     }
 }
+
+#[test]
+fn fixed_set_exile_moves_one_zone_batch_and_preserves_commander_choice() {
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    for (n, raw) in include_str!("../../../../tests/fixtures/synthetic-set-exile.jsonl")
+        .lines()
+        .enumerate()
+    {
+        let parsed = mtg_compiler::compile(manifest, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = parsed else {
+            panic!("{parsed:?}")
+        };
+        let mut p = prepared(&[
+            ("Grizzly Bears", 0, 0, true),
+            ("Sol Ring", 0, 0, false),
+            ("Alpha Myr", 1, 1, false),
+            ("Grizzly Bears", 2, 2, false),
+            ("Isamaru, Hound of Konda", 1, 1, false),
+            ("Sol Ring", 2, 2, false),
+            ("Alpha Myr", 2, 2, true),
+        ]);
+        p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        for id in [4usize, 5] {
+            p.config.cards[id].zone = Zone::Graveyard {
+                owner: p.config.cards[id].owner,
+            };
+        }
+        p.config.commanders = vec![CardId(4)];
+        let catalog = Arc::make_mut(&mut p.catalog);
+        catalog.definitions.push(*definition);
+        catalog
+            .definitions
+            .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        catalog.validate().unwrap();
+        p.catalog_digest = digest(catalog).unwrap();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::with_trace(p, TraceMode::Detailed);
+        answer(&mut g, 1, Response::Cast { card: CardId(0) });
+        answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+        g.complete_test_mana();
+        let targets = if n == 0 {
+            vec![CardId(1), CardId(2)]
+        } else {
+            vec![CardId(4), CardId(5)]
+        };
+        let mut chose = false;
+        loop {
+            let r = request(&mut g, 1);
+            match r {
+                Request::CommanderReturn { .. } => {
+                    assert!(n != 0 && !chose);
+                    recover(&g);
+                    assert_eq!(g.state.rules.objects[&CardId(4)].zone, Zone::Exile);
+                    answer(&mut g, 1, Response::CommanderReturn { to_command: true });
+                    chose = true;
+                }
+                Request::Priority { .. } if g.state.rules.stack.is_empty() => break,
+                Request::Priority { .. } => answer(&mut g, 1, Response::Pass),
+                other => panic!("{other:?}"),
+            }
+        }
+        let moved: Vec<_> = g
+            .events()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Committed {
+                    actual: EventOutcome::Moved { movement },
+                    ..
+                } if movement.destination == Zone::Exile => Some(movement.previous.card),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(moved, targets);
+        assert_eq!(chose, n != 0);
+        assert_eq!(g.state.rules.objects[&CardId(3)].zone, Zone::Battlefield);
+        assert_eq!(
+            g.state.rules.objects[&CardId(6)].zone,
+            Zone::Hand { owner: PlayerId(2) }
+        );
+        if chose {
+            assert_eq!(
+                g.state.rules.objects[&CardId(4)].zone,
+                Zone::Command { owner: PlayerId(1) }
+            );
+        }
+        recover(&g);
+    }
+}

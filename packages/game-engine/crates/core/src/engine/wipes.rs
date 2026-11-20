@@ -13,13 +13,22 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
             .filter(|o| {
+                if *set == ObjectSet::GraveyardCards {
+                    return matches!(o.zone, Zone::Graveyard { .. })
+                        && !self.state.rules.tokens.contains_key(&o.id.card);
+                }
+                if o.zone != Zone::Battlefield {
+                    return false;
+                }
+
                 let Ok(d) = self.definition(o.id.card) else {
                     return false;
                 };
                 let creature = d.characteristics.kind == CardKind::Creature;
                 match set {
+                    ObjectSet::GraveyardCards => false,
+                    ObjectSet::Artifacts => d.characteristics.has_type(CardKind::Artifact),
                     ObjectSet::Creatures => creature,
                     ObjectSet::NonlandPermanents => !d.characteristics.has_type(CardKind::Land),
                     ObjectSet::OpponentNonlandPermanents => {
@@ -111,7 +120,14 @@ impl Game {
             }
             return self.continue_board_return(frame, objects, remaining, vec![], block);
         }
-        self.commit_board_moves(frame, objects, action, vec![], block)
+        self.commit_board_moves(
+            frame,
+            objects,
+            action,
+            vec![],
+            block,
+            set == ObjectSet::GraveyardCards,
+        )
     }
     fn commit_board_moves(
         &mut self,
@@ -120,11 +136,20 @@ impl Game {
         action: SetMove,
         choices: Vec<(ObjectId, bool)>,
         block: u32,
+        from_graveyards: bool,
     ) -> Result<(), String> {
         let mut destroyed_creatures = 0;
         let occurrences = objects
             .into_iter()
-            .filter(|o| self.current(*o).is_ok_and(|o| o.zone == Zone::Battlefield))
+            .filter(|o| {
+                self.current(*o).is_ok_and(|o| {
+                    if from_graveyards {
+                        matches!(o.zone, Zone::Graveyard { .. })
+                    } else {
+                        o.zone == Zone::Battlefield
+                    }
+                })
+            })
             .map(|object| {
                 let owner = self.state.rules.cards[&object.card].owner;
                 match action {
@@ -200,7 +225,7 @@ impl Game {
             };
             Ok(())
         } else {
-            self.commit_board_moves(frame, objects, SetMove::Hand, choices, source_block)
+            self.commit_board_moves(frame, objects, SetMove::Hand, choices, source_block, false)
         }
     }
     pub(super) fn validate_board_return(
