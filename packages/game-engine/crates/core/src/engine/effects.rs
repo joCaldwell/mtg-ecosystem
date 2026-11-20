@@ -504,6 +504,24 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::GrantSourceKeywords {
+                keywords,
+                source_block,
+            } => {
+                let target = frame.spell.source;
+                if !self.target_is_creature(target) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::GrantKeywords {
+                        target,
+                        modifier: None,
+                        keywords,
+                    },
+                    source_block,
+                )
+            }
             Instruction::GrantKeywords {
                 target_slot,
                 modifier,
@@ -1451,6 +1469,25 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::GrantSourceKeywords {
+                            keywords,
+                            source_block,
+                        },
+                        ResolvedEffectKind::GrantKeywords {
+                            target,
+                            modifier: None,
+                            keywords: grants,
+                        },
+                    ) => {
+                        effect.origin.activated_ability.is_some()
+                            && effect.origin.mode.is_none()
+                            && *target == frame.spell.source
+                            && self.target_is_creature(*target)
+                            && keywords == grants
+                            && supported_temporary_keywords(grants)
+                            && *source_block == effect.origin.source_block
+                    }
+                    (
                         Instruction::GrantKeywords {
                             target_slot,
                             modifier,
@@ -1948,6 +1985,27 @@ impl Game {
                             && power == p
                             && toughness == t
                             && *source_block == e.origin.source_block
+                    }
+                    (
+                        Instruction::GrantSourceKeywords {
+                            keywords,
+                            source_block,
+                        },
+                        ResolvedEffectKind::GrantKeywords {
+                            target,
+                            modifier: None,
+                            keywords: grants,
+                        },
+                    ) => {
+                        // Origin resolution uses the historical incarnation's immutable
+                        // copiable definition. Replay proves capture and its handles.
+                        e.origin.activated_ability.is_some()
+                            && e.origin.mode.is_none()
+                            && *target == e.origin.source
+                            && keywords == grants
+                            && supported_temporary_keywords(grants)
+                            && *source_block == e.origin.source_block
+                            && e.target_handles.len() == 4
                     }
                     (
                         Instruction::GrantKeywords {
@@ -2872,11 +2930,8 @@ impl Game {
             } else if scoped_live {
                 return Err("scoped replacement missing bounded source facts".into());
             }
-            let expected_keywords = {
-                self.copiable_definition(d.source.object)?
-                    .keywords
-                    .as_slice()
-            };
+            let source_definition = self.copiable_definition(d.source.object)?;
+            let expected_keywords = source_definition.keywords.as_slice();
             // This bounds the vocabulary of possible LKI grants, not their
             // occurrence. Departure-invariant facts below and restore's input
             // replay still authenticate the captured historical appearance.
@@ -2893,6 +2948,9 @@ impl Game {
                     && d.source.keywords.iter().enumerate().all(|(n, k)| {
                         !d.source.keywords[..n].contains(k)
                             && (expected_keywords.contains(k)
+                                || (battlefield && creature && source_definition.activated.iter()
+                                    .filter_map(mtg_contracts::activated_source_keyword::keywords)
+                                    .any(|keywords| keywords.contains(k)))
                                 || (battlefield && self.prepared.catalog.definitions.iter().any(|definition| {
                                     // Include only grant shapes validated for the source's type.
                                     (*k == KeywordAbility::Indestructible

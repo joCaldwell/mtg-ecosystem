@@ -8,6 +8,7 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 mod activated_artifact_draw;
+mod activated_source_keyword;
 mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
@@ -2315,6 +2316,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 loss
                             } else if let Some(bound) = counted_artifact_modes.remove(&block) {
                                 bound
+                            } else if let Some(ability) = activated_source_keyword::lower(
+                                &result.lines[block],
+                                block,
+                                &original[block],
+                                &shape,
+                                &binding,
+                                kind,
+                            )? {
+                                ability
                             } else if let Some(spec) = fixed {
                                 let raw: serde_json::Value =
                                     decode(original[block].get(), "activated")?;

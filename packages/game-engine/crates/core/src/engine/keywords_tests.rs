@@ -571,6 +571,108 @@ fn source_combat_restrictions_use_current_flying_at_declaration() {
 }
 
 #[test]
+fn mana_self_keyword_grant_captures_only_the_present_source() {
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Swamp", 0, false),
+            ("Unsummon", 1, true),
+            ("Island", 1, false),
+        ],
+        false,
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/activated-source-keyword-battlefly-swarm.json"),
+    ) else {
+        panic!("exact self keyword source");
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::ActivatedSourceKeywordGrantV1)
+    );
+    assert_eq!(definition.keywords, [KeywordAbility::Flying]);
+    assert_eq!(
+        definition.activated[0].program.instructions,
+        [Instruction::GrantSourceKeywords {
+            keywords: vec![KeywordAbility::Deathtouch],
+            source_block: 1,
+        },]
+    );
+    let mut omitted = (*definition).clone();
+    omitted.activated.clear();
+    omitted.source_labels = None;
+    omitted.capabilities = omitted.requirements();
+    assert!(omitted.validate().is_err());
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p, |g| {
+        reach(g, TurnStep::PrecombatMain);
+        let source = object(g, 0);
+        answer(
+            g,
+            Response::ActivateAbility {
+                object: source,
+                ability: 0,
+            },
+        );
+        assert!(matches!(request(g), Request::Mana { .. }));
+        answer(
+            g,
+            Response::ActivateMana {
+                object: object(g, 2),
+            },
+        );
+        answer(g, Response::FinishMana { undo_mana: false });
+        answer(
+            g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::B, 1.into())]),
+            },
+        );
+        assert!(matches!(request(g), Request::Priority { .. }));
+        let mut departed = g.fork();
+        answer(&mut departed, Response::Pass);
+        assert_eq!(request(&mut departed).player(), PlayerId(1));
+        cast(
+            &mut departed,
+            3,
+            vec![TargetEntity::Object { object: source }],
+        );
+        assert!(departed.current(source).is_err());
+        assert!(departed.state.rules.effects.is_empty());
+        let successor = object(&departed, 0);
+        assert_ne!(source, successor);
+        assert!(!departed.has_keyword(successor, KeywordAbility::Deathtouch));
+        check(&departed);
+
+        while !g.state.rules.stack.is_empty() {
+            answer(g, Response::Pass);
+            request(g);
+        }
+        assert_eq!(
+            g.current_keywords(source),
+            [KeywordAbility::Flying, KeywordAbility::Deathtouch]
+        );
+        assert!(!g.has_keyword(object(g, 1), KeywordAbility::Deathtouch));
+        assert!(matches!(g.state.rules.effects.as_slice(), [effect]
+            if effect.origin.source == source
+                && matches!(effect.kind, ResolvedEffectKind::GrantKeywords { target, modifier: None, .. }
+                    if target == source)));
+    });
+}
+
+#[test]
 fn freshly_cast_haste_attacks_but_other_creature_waits() {
     // CR302.6/702.10b: only haste bypasses continuous control.
     traces(

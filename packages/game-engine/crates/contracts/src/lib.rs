@@ -70,6 +70,7 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
+pub mod activated_source_keyword;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
@@ -518,6 +519,7 @@ pub enum Capability {
     TemporaryPermanentKeywordProgramV1,
     TemporaryCreatureSetKeywordProgramV1,
     TemporaryPermanentSetKeywordProgramV1,
+    ActivatedSourceKeywordGrantV1,
     TrampleV1,
     FirstStrikeV1,
     DoubleStrikeV1,
@@ -1141,6 +1143,11 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
+    /// CR 400.7, 611.2c: capture the activating incarnation until cleanup.
+    GrantSourceKeywords {
+        keywords: Vec<KeywordAbility>,
+        source_block: u32,
+    },
     /// CR 611.2c, 613.5–6: all properties belong to one captured effect.
     GrantKeywords {
         target_slot: u32,
@@ -1426,7 +1433,8 @@ impl Instruction {
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
-            Self::GrantKeywords { source_block, .. } => *source_block,
+            Self::GrantKeywords { source_block, .. }
+            | Self::GrantSourceKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
             Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
@@ -3003,6 +3011,7 @@ impl Definition {
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
+        activated_source_keyword::validate(self)?;
         conditional_lands::validate_definition(self)?;
         cascade_land_entry::validate_definition(self)?;
         entry_copy::validate_definition(self)?;
@@ -3592,6 +3601,15 @@ impl Definition {
                     return Err(
                         "unsupported complete sacrifice-source set keyword definition".into(),
                     );
+                }
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
+            if activated_source_keyword::has_grant(&ability.program) {
+                if c.kind != CardKind::Creature
+                    || activated_source_keyword::keywords(ability).is_none()
+                {
+                    return Err("unsupported complete source keyword activation".into());
                 }
                 validate_instruction_program(&ability.program)?;
                 continue;
@@ -5279,6 +5297,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     }
                 }
             }
+            Instruction::GrantSourceKeywords { .. } => None,
             Instruction::GrantKeywords { target_slot, .. } => {
                 // The complete family guard above restricts this to its two domains.
                 Some((*target_slot, p.targets[0].domain))
@@ -5806,7 +5825,8 @@ fn add_program_requirements_for_activation(
             set.insert(Capability::AttachmentsV1);
         }
         if let Instruction::GrantKeywords { keywords, .. }
-        | Instruction::GrantKeywordsSet { keywords, .. } = instruction
+        | Instruction::GrantKeywordsSet { keywords, .. }
+        | Instruction::GrantSourceKeywords { keywords, .. } = instruction
         {
             for keyword in keywords {
                 if let Some(capability) = temporary_keyword_primitive_capability(*keyword) {
@@ -5967,6 +5987,7 @@ fn add_program_requirements_for_activation(
             }
             Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
+            Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
                 if temporary_permanent_keyword_program(program).is_some() {
                     Capability::TemporaryPermanentKeywordProgramV1
@@ -6441,6 +6462,8 @@ pub fn catalog_schema() -> serde_json::Value {
         ]})
     };
     let intrinsic = serde_json::json!({"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}});
+    let self_indestructible =
+        activated_source_keyword::schema_presence(Some(KeywordAbility::Indestructible));
     schema["$defs"]["StaticAbility"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({
@@ -6464,7 +6487,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible),{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible),self_indestructible,{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
             serde_json::json!({"if":permanent_grant,"then":{"properties":{
                 "characteristics":{"properties":{"kind":{"const":"creature"}}},
                 "static_abilities":{"maxItems":1},"activated":{"maxItems":0},
@@ -6479,6 +6502,7 @@ pub fn catalog_schema() -> serde_json::Value {
 
     basic_landwalk::extend_schema(&mut schema);
     source_combat_restrictions::extend_schema(&mut schema);
+    activated_source_keyword::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -7823,6 +7847,7 @@ mod tests {
             TemporaryPermanentKeywordProgramV1,
             TemporaryCreatureSetKeywordProgramV1,
             TemporaryPermanentSetKeywordProgramV1,
+            ActivatedSourceKeywordGrantV1,
             TrampleV1,
             FirstStrikeV1,
             DoubleStrikeV1,
@@ -8813,6 +8838,49 @@ mod tests {
         )];
         kraken.capabilities = kraken.requirements();
         definitions.push(kraken);
+
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/activated-source-keyword-battlefly-swarm.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        let mut self_grant = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        self_grant.name = source["name"].as_str().unwrap().into();
+        self_grant.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        self_grant.provenance.printing_id = source["id"].as_str().unwrap().into();
+        self_grant.provenance.source_json = canonical(source).unwrap();
+        self_grant.provenance.source_sha256 = sha256(self_grant.provenance.source_json.as_bytes());
+        self_grant.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        self_grant.provenance.ast_sha256 =
+            sha256(format!("[{}]", self_grant.provenance.abilities_json).as_bytes());
+        self_grant.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        self_grant.characteristics.subtypes = vec!["Phyrexian".into(), "Insect".into()];
+        self_grant.characteristics.power = Some(1.into());
+        self_grant.characteristics.toughness = Some(1.into());
+        self_grant.characteristics.mana_cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![Color::B],
+        };
+        self_grant.characteristics.colors = vec![Color::B];
+        self_grant.characteristics.color_identity = vec![Color::B];
+        self_grant.source_labels = None;
+        self_grant.keywords = vec![KeywordAbility::Flying];
+        self_grant.activated = vec![
+            activated_source_keyword::printed_grant(
+                record["faces"][0]["result"]["lines"][1]["text"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap()
+            .activation(1),
+        ];
+        self_grant.capabilities = self_grant.requirements();
+        definitions.push(self_grant);
 
         definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {
