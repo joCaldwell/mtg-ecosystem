@@ -91,6 +91,7 @@ pub fn fixed_creature_activation(
                 non_colors: vec![],
                 opponent: false,
                 tapped: false,
+                power: None,
             }),
         );
         targets.push(spec);
@@ -256,7 +257,21 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
             return Err(error.into());
         }
     }
+    let type_line = source["type_line"].as_str().ok_or(error)?;
+    let (head, subtypes) = type_line.split_once(" — ").unwrap_or((type_line, ""));
+    let mut types = head.split_whitespace().collect::<BTreeSet<_>>();
+    if !types.remove("Creature")
+        || types.remove("Legendary") != d.characteristics.legendary
+        || types.remove("Snow") != d.characteristics.snow
+        || !types.is_empty()
+        || !subtypes
+            .split_whitespace()
+            .eq(d.characteristics.subtypes.iter().map(String::as_str))
+    {
+        return Err(error.into());
+    }
     if fixed.is_empty()
+        || source["layout"] != "normal"
         || d.characteristics.kind != CardKind::Creature
         || !d.characteristics.additional_types.is_empty()
         || source["id"] != d.provenance.printing_id
@@ -312,13 +327,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let union = target(
         "battlefield_permanent",
         json!({"type":"object","required":["types"],"properties":{
-            "types":{"const":["artifact","enchantment"]},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}
+            "types":{"const":["artifact","enchantment"]},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false},"power":{"type":"null"}
         }}),
     );
     let program = json!({"properties":{"functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
         "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1}},
         "oneOf":[branch(damage,target("battlefield_creature",json!({"type":"null"}))),branch(destroy,json!({"allOf":[union,{"items":{"required":["filter"]}}]})),branch(gain,json!({"maxItems":0}))]});
-    let mana = json!({"type":"object","required":["mana"],"properties":{"mana":{"properties":{"cost":{"anyOf":[
+    let mana = json!({"type":"object","required":["mana"],"properties":{"mana":{"properties":{"cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}},"anyOf":[
         {"properties":{"generic":{"pattern":"^[1-9][0-9]*$"}}},{"properties":{"colored":{"minItems":1}}}
     ]}}}}});
     schema["$defs"]["FixedCreatureActivation"] = json!({"required":["cost","program","functioning_zone"],"properties":{
@@ -328,6 +343,22 @@ pub(super) fn extend_schema(schema: &mut Value) {
         {"properties":{"instructions":{"contains":{"properties":{"op":{"enum":["destroy_permanent","gain_life"]}}}}}},
         {"properties":{"instructions":{"contains":{"properties":{"op":{"const":"deal_damage"}}}},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
     ]}}});
+    let printed_effects = [
+        ("deal_damage", r" deals [1-9][0-9]* damage to target creature\."),
+        ("destroy_permanent", r"Destroy target artifact or enchantment\."),
+        ("gain_life", r"You gain [1-9][0-9]* life\."),
+    ].into_iter().map(|(op, printed)| json!({
+        "if":{"properties":{"provenance":{"properties":{"source_json":{
+            "pattern":format!(r#""oracle_text"\s*:\s*"(?:[^"]*\\n)?(?:\{{[WUBRGC0-9]+\}})+: [^"\\]*?{printed}(?:\\n|")"#)
+        }}}}},
+        "then":{"required":["activated"],"properties":{"activated":{"contains":{"properties":{"program":{"properties":{
+            "instructions":{"contains":{"properties":{"op":{"const":op}}}}
+        }}}}}}}
+    })).collect::<Vec<_>>();
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .extend(printed_effects);
     let effect_capabilities = [
         ("deal_damage",vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
         ("destroy_permanent",vec![Capability::PermanentRemovalV1]),

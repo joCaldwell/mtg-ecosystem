@@ -274,7 +274,14 @@ fn fixed_activations_match_paid_cost_targets_and_entry_history() {
         panic!("original composite source: {result:?}")
     };
     assert_eq!(definition.activated.len(), 3);
-    for change in ["cost", "target", "omit", "block", "instruction"] {
+    for change in [
+        "cost",
+        "target",
+        "omit",
+        "block",
+        "instruction",
+        "type_line",
+    ] {
         let mut bad = definition.clone();
         match change {
             "cost" => bad.activated[0].cost = bad.activated[1].cost.clone(),
@@ -284,6 +291,12 @@ fn fixed_activations_match_paid_cost_targets_and_entry_history() {
                 bad.source_labels = None;
             }
             "block" => bad.source_labels.as_mut().unwrap().activated.swap(0, 1),
+            "type_line" => {
+                let mut source: Value = serde_json::from_str(&bad.provenance.source_json).unwrap();
+                source["type_line"] = json!("Artifact Creature — Scout");
+                bad.provenance.source_json = source.to_string();
+                bad.provenance.source_sha256 = sha256(bad.provenance.source_json.as_bytes());
+            }
             _ => {
                 bad.activated[2].program.instructions =
                     bad.activated[0].program.instructions.clone()
