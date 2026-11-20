@@ -5516,7 +5516,10 @@ fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<Static
         });
     }
     let SourceStaticEffect::Replacement { replacement } = effect else {
-        unreachable!()
+        return Err(unsupported(
+            "abilities.static",
+            "unsupported complete static source",
+        ));
     };
     let SourceReplacementAction::ModifyQuantity { change } = &replacement.replace;
     if let SourceDamageEvent::PutCounters {

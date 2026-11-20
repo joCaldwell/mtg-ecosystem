@@ -105,3 +105,17 @@ fn land_reclamation_requires_all_printed_blocks_and_permission_ownership() {
         matches!(compile(manifest, &altered), CompileResult::Unsupported { path, .. } if path == "binding")
     );
 }
+
+#[test]
+fn land_reclamation_rejects_unmatched_static_operands() {
+    for operand in [
+        SourceStaticEffect::AdditionalLandPlays {
+            _allowance: json!({}),
+        },
+        SourceStaticEffect::PlayPermission {
+            _permission: json!({}),
+        },
+    ] {
+        assert!(matches!(lower_static(&operand, 0), Err(Failure { .. })));
+    }
+}
