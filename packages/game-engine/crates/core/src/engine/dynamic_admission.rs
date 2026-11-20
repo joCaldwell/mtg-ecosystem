@@ -811,19 +811,10 @@ mod tests {
                 .unwrap(),
             vec![Color::W, Color::B, Color::G]
         );
-        let QueryResult::Complete(QueryValue::Observation(observed)) =
-            game.observe(PlayerId(1), Budget::unlimited())
-        else {
-            panic!("initial observation");
-        };
-        let rows: Vec<_> = observed
-            .view
-            .commanders
-            .iter()
-            .filter(|c| c.history.owner == PlayerId(0))
-            .collect();
-        assert_eq!(rows.len(), 2);
-        assert_ne!(rows[0].designation, rows[1].designation);
+        assert!(matches!(
+            game.observe(PlayerId(1), Budget::unlimited()),
+            QueryResult::Rejected(QueryRejection::UnavailableDuringSetup)
+        ));
         let mut ledger = game.commander_ledger().clone();
         let caster = PlayerId(0);
         let defender = PlayerId(1);
@@ -860,6 +851,19 @@ mod tests {
             if matches!(request, Request::Priority { player, .. } if player == caster)
                 && game.turn().step == TurnStep::PrecombatMain
             {
+                let QueryResult::Complete(QueryValue::Observation(observed)) =
+                    game.observe(PlayerId(1), Budget::unlimited())
+                else {
+                    panic!("precombat observation");
+                };
+                let rows: Vec<_> = observed
+                    .view
+                    .commanders
+                    .iter()
+                    .filter(|c| c.history.owner == PlayerId(0))
+                    .collect();
+                assert_eq!(rows.len(), 2);
+                assert_ne!(rows[0].designation, rows[1].designation);
                 let journal = game.replay_journal();
                 assert!(journal.decisions.len() > 4);
                 let replay = Game::replay_with_trace(prepared, &journal, TraceMode::Off).unwrap();
