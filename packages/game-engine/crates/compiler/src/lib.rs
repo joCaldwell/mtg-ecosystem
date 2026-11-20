@@ -1465,7 +1465,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
-    if bestow::cost(&shape, &result, &binding, &r.oracle_identity)?.is_some() {
+    if bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?.is_some() {
         return Err(unsupported(
             "abilities.bestow",
             "bound bestow requires alternative Aura announcement and creature fallback",

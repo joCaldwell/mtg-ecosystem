@@ -6,12 +6,12 @@ use serde_json::{Value, json};
 
 /// The cost belongs to the prospective caster. A static source controller is
 /// a distinct bound actor even when both happen to be the same player.
-pub(super) fn cost(
+pub(super) fn cast_plan(
     source: &Value,
     result: &ParseResult,
     binding: &Value,
     identity: &str,
-) -> Result<Option<ManaCost>, Failure> {
+) -> Result<Option<BestowCastPlan>, Failure> {
     let text = source["oracle_text"].as_str().unwrap_or_default();
     if !text.lines().any(|line| line.starts_with("Bestow ")) {
         return Ok(None);
@@ -96,7 +96,33 @@ pub(super) fn cost(
         binding,
         "requires the complete bestow payer, intrinsic keywords and enchanted-creature grant graph",
     )?;
-    Ok(Some(mana))
+    let types = type_line::parse(source["type_line"].as_str().ok_or_else(unsupported)?)?;
+    let stat = |field: &str| -> Result<Option<Quantity>, Failure> {
+        let digits = source[field].as_str().ok_or_else(unsupported)?;
+        let value: Quantity = digits.parse().map_err(|_| unsupported())?;
+        if value.to_string() != digits {
+            return Err(unsupported());
+        }
+        Ok(Some(value))
+    };
+    let colors =
+        |field: &str| serde_json::from_value(source[field].clone()).map_err(|_| unsupported());
+    let printed = Characteristics {
+        kind: types.kind,
+        additional_types: types.additional_types,
+        subtypes: types.subtypes,
+        basic: types.basic,
+        legendary: types.legendary,
+        snow: types.snow,
+        mana_cost: mana_cost(source["mana_cost"].as_str().ok_or_else(unsupported)?)?,
+        colors: colors("colors")?,
+        color_identity: colors("color_identity")?,
+        power: stat("power")?,
+        toughness: stat("toughness")?,
+    };
+    BestowCastPlan::new(&printed, mana)
+        .map(Some)
+        .map_err(|_| unsupported())
 }
 
 fn validate_keyword_inventory(source: &Value, intrinsic: &str) -> Result<(), Failure> {
@@ -256,7 +282,10 @@ mod tests {
         let identity = record["oracleIdentity"].as_str().unwrap();
         let source = &record["source"];
         let binding = &record["binding"];
-        let found = cost(source, &parse, binding, identity).unwrap().unwrap();
+        let plan = cast_plan(source, &parse, binding, identity)
+            .unwrap()
+            .unwrap();
+        let found = plan.base_cost(BestowForm::Aura);
         assert_eq!(found.generic, 2.into());
         assert_eq!(
             found.colored,
@@ -264,7 +293,7 @@ mod tests {
         );
         let mut forged = binding.clone();
         forged["references"][0]["target"] = forged["nodes"][3]["id"].clone();
-        assert!(cost(source, &parse, &forged, identity).is_err());
+        assert!(cast_plan(source, &parse, &forged, identity).is_err());
         let mut detached = binding.clone();
         let recipient = detached["nodes"]
             .as_array_mut()
@@ -273,7 +302,7 @@ mod tests {
             .find(|node| node["node"] == "recipient")
             .unwrap();
         recipient["of"] = json!(format!("card:{identity}/source#object"));
-        assert!(cost(source, &parse, &detached, identity).is_err());
+        assert!(cast_plan(source, &parse, &detached, identity).is_err());
         let mut forged = source.clone();
         forged["oracle_text"] = json!(
             source["oracle_text"]
@@ -281,6 +310,6 @@ mod tests {
                 .unwrap()
                 .replacen("{2}", "{3}", 1)
         );
-        assert!(cost(&forged, &parse, binding, identity).is_err());
+        assert!(cast_plan(&forged, &parse, binding, identity).is_err());
     }
 }

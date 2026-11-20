@@ -1,6 +1,8 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
+mod bestow;
+pub use bestow::{BestowCastPlan, BestowForm};
 mod cascade_land_entry;
 mod granted_land_mana;
 pub mod hand_cast_cascade;
