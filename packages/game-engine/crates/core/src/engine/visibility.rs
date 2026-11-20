@@ -95,6 +95,8 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copied_values: Option<VisiblePermanentCopy>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -127,6 +129,13 @@ pub struct VisibleObject {
     pub controller: PlayerId,
     pub zone: Zone,
     pub tapped: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisiblePermanentCopy {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oracle_id: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -279,6 +288,18 @@ pub enum PlayerRequest {
     PlayHideawayLinked {
         token: DecisionToken,
         player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
+    EntryCopy {
+        token: DecisionToken,
+        player: PlayerId,
+        source: ObjectHandle,
+        candidates: Vec<ObjectHandle>,
+    },
+    EntryAttachment {
+        token: DecisionToken,
+        player: PlayerId,
+        source: ObjectHandle,
         candidates: Vec<ObjectHandle>,
     },
     LibrarySelect {
@@ -529,6 +550,8 @@ impl PlayerRequest {
             | Self::LibraryOrder { token, .. }
             | Self::Hideaway { token, .. }
             | Self::PlayHideawayLinked { token, .. }
+            | Self::EntryCopy { token, .. }
+            | Self::EntryAttachment { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
@@ -601,6 +624,12 @@ pub enum PlayerResponse {
     },
     PlayHideawayLinked {
         object: Option<ObjectHandle>,
+    },
+    EntryCopy {
+        object: Option<ObjectHandle>,
+    },
+    EntryAttachment {
+        object: ObjectHandle,
     },
     LibrarySelect {
         hand: Vec<ObjectHandle>,
@@ -1174,6 +1203,8 @@ impl Game {
             .ok_or("missing object definition")?;
         if let Some(link) = &object.hideaway {
             return Ok(Some(VisibleObject {
+                copied_values: None,
+                entered_this_turn: false,
                 face_down: true,
                 exiled_by: Some(link.source_handle(viewer).clone()),
                 oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
@@ -1199,7 +1230,18 @@ impl Game {
                 phased_out: false,
             }));
         }
+        let copied_values = if self.entry_copy_origin(object.id).is_some() {
+            let definition = self.copiable_definition(object.id)?;
+            Some(VisiblePermanentCopy {
+                name: definition.name.clone(),
+                oracle_id: (!definition.oracle_id.starts_with("token:"))
+                    .then(|| definition.oracle_id.clone()),
+            })
+        } else {
+            None
+        };
         Ok(Some(VisibleObject {
+            copied_values,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
@@ -1244,7 +1286,7 @@ impl Game {
                     keywords: t.definition.keywords.clone(),
                 }),
             mana_ability_used: self
-                .definition(object.id.card)?
+                .copiable_definition(object.id)?
                 .mana_abilities
                 .first()
                 .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
@@ -1661,10 +1703,28 @@ impl Game {
                 }),
             );
         }
-        if let Some(Request::OptionalEffect { player, .. }) = self.land_entry_request()? {
-            return Ok(
-                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
-            );
+        if let Some(request) = self.land_entry_request()? {
+            if request.player() != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(match request {
+                Request::EntryCopy { player, source, .. } => PlayerRequest::EntryCopy {
+                    token,
+                    player,
+                    source: self.handle_for(viewer, source)?,
+                    candidates: vec![],
+                },
+                Request::EntryAttachment { player, source, .. } => PlayerRequest::EntryAttachment {
+                    token,
+                    player,
+                    source: self.handle_for(viewer, source)?,
+                    candidates: vec![],
+                },
+                Request::OptionalEffect { player, .. } => {
+                    PlayerRequest::OptionalEffect { token, player }
+                }
+                _ => return Err("unknown battlefield entry decision".into()),
+            }));
         }
         if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
             return Ok(
@@ -2654,6 +2714,15 @@ impl Game {
             }),
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
+            }),
+            PlayerResponse::EntryCopy { object } => Ok(Response::EntryCopy {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
+            }),
+            PlayerResponse::EntryAttachment { object } => Ok(Response::EntryAttachment {
+                object: self.resolve_handle(viewer, object)?,
             }),
             PlayerResponse::PlayHideawayLinked { object } => Ok(Response::PlayHideawayLinked {
                 object: object
