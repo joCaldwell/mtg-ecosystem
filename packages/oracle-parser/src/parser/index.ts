@@ -300,6 +300,23 @@ function parseLineCore(tokens: Token[], options: Token[][], abilityWord: string 
   // 3. Triggered
   if (tokens[0]?.kind === "word" && ["when", "whenever", "at"].includes(tokens[0].value)) {
     const c = session.cursor(tokens);
+    // Exact self combat-damage trigger and hand-cast grant. The trigger creates
+    // the grant on resolution, and each later cast supplies its own recipient.
+    // CR 109.5, 603.2/3a, 611.2a/c/f, 601.2, 702.85:
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    const castGrant = !abilityWord && !options.length && c.attempt((c): TriggeredAbility | null => {
+      if (!c.words("whenever") || !c.selfref() || !c.words("deals", "combat", "damage", "to", "a", "player") ||
+          !c.punct(",") || !c.words("as", "you", "cast", "spells", "from", "your", "hand", "this", "turn") ||
+          !c.punct(",") || !c.words("they", "gain", "cascade") || !c.punct(".") || !c.done()) return null;
+      return {
+        kind: "triggered",
+        trigger: { trigger: "deals-damage", what: { ref: "self" }, combat: true, to: "any" },
+        effects: [{ steps: [{ effect: "grant-cast-keyword", timing: "as-cast", caster: { player: "you" },
+          from: { zone: "hand", owner: "your" }, what: { recipient: "they" },
+          duration: { duration: "this-turn" }, keyword: "cascade" }] }],
+      };
+    });
+    if (castGrant) return castGrant;
     const trigger = parseTrigger(c);
     if (trigger && !hasMatchTimeTarget(trigger) && c.punct(",")) {
       // Intervening if: "When ~ dies, if <cond>, <effects>"
