@@ -913,3 +913,6 @@ mod land_entry_scry_tests;
 
 #[path = "controlled_land_entry_tests.rs"]
 mod controlled_land_entry_tests;
+
+#[path = "land_reclamation_tests.rs"]
+mod land_reclamation_tests;

@@ -963,6 +963,16 @@ impl Game {
                             PlayerResponse::DamageAllocation { allocations },
                         ) => allocations.len() <= self.damage_limit(),
                         (
+                            Frame::ManaAbility { .. } | Frame::SpendMana { .. },
+                            PlayerResponse::SpendManaAllocated {
+                                spending,
+                                restricted,
+                            },
+                        ) => {
+                            spending.len() <= 6
+                                && restricted.len() <= restricted_mana::MAX_RESTRICTED_BUCKETS
+                        }
+                        (
                             Frame::ManaAbility { .. },
                             PlayerResponse::ActivateMana { .. }
                             | PlayerResponse::FinishMana { .. }

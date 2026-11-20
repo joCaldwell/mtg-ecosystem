@@ -149,6 +149,7 @@ impl Game {
                 player,
                 cost: payment.cost.clone(),
                 available: self.state.rules.players[player.0 as usize].mana.clone(),
+                restricted_available: vec![],
             },
         }
     }
@@ -217,6 +218,7 @@ impl Game {
                         player: payment.payer,
                         cost: payment.cost,
                         spending,
+                        restricted: vec![],
                     },
                     Self::staple_cause(&frame, source_block),
                 )?;

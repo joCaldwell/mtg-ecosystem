@@ -164,6 +164,16 @@ impl GroupFinish {
 }
 
 impl GraveyardGroup {
+    pub(super) fn payment_stack(&self) -> Option<StackId> {
+        let GroupFinish::Payment { resume } = &self.finish else {
+            return None;
+        };
+        let Frame::SacrificeCost { cast } = resume.as_ref() else {
+            return None;
+        };
+        Some(cast.stack_id)
+    }
+
     pub(super) fn leaves(group: &EventGroup) -> Result<&[ProposedEvent], String> {
         match group {
             EventGroup::Occurrence { proposed } => Ok(std::slice::from_ref(proposed)),

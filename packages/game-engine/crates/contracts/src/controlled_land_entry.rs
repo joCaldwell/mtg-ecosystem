@@ -60,6 +60,9 @@ fn printed_clause(text: &str) -> (Option<&str>, &str) {
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
+    if land_reclamation::present(d) {
+        return Ok(());
+    }
     let raw = &d.provenance.source_json;
     if !d
         .triggered
@@ -188,11 +191,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "amount":{"pattern":"^[1-9][0-9]*$","maxLength":19},"source_block":{"const":0}}});
     let secondary = json!({"const":Instruction::DrawCards { recipient: None, count: 1.into(), source_block: 0 }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
-        "if":{"anyOf":[
+        "if":{"allOf":[{"not":land_reclamation::selector()},{"anyOf":[
             {"required":["triggered"],"properties":{"triggered":{"contains":{"required":["condition"],
                 "properties":{"condition":{"const":"controlled_land_enters_battlefield"}}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"(?:[^"\\]* — )?Whenever a land you control enters, you gain "#}}}}}
-        ]},
+        ]}]},
         "then":{"required":["spell","triggered"],"allOf":[{
             "if":{"properties":{"triggered":{"items":{"properties":{"program":{"properties":{
                 "instructions":{"minItems":2}
@@ -225,7 +228,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 }}
             }}}
         }},
-        "else":{"properties":{"capabilities":{"not":{"contains":{"const":ControlledLandEntryV1}}}}}
+        "else":{"if":{"not":land_reclamation::selector()},"then":{"properties":{"capabilities":{"not":{"contains":{"const":ControlledLandEntryV1}}}}}}
     }));
 }
 

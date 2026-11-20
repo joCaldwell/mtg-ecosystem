@@ -6,6 +6,8 @@ use mtg_contracts::{disjoint_pain_mana_family, hybrid_filter_colors};
 mod hybrid_filter;
 
 mod mana_damage;
+mod mana_life_gain;
+use mana_life_gain::ManaLifeUndo;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -135,6 +137,10 @@ pub struct PermanentManaUndo {
     pub(super) combination_total: Option<Quantity>,
     pub produced: BTreeMap<Color, Quantity>,
     pub spent: BTreeMap<Color, Quantity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spent_restricted: Vec<RestrictedMana>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub produced_restricted: Vec<RestrictedMana>,
     pub absent: BTreeSet<Color>,
     pub sacrificed: bool,
     pub cost_triggers: Vec<TriggerId>,
@@ -142,6 +148,8 @@ pub struct PermanentManaUndo {
     pub(super) branch: Option<ManaBranch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) damage: Option<Box<ManaDamageUndo>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) life_gain: Option<ManaLifeUndo>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,9 +221,10 @@ impl Game {
         production: &ManaProduction,
     ) -> Result<Vec<Color>, String> {
         Ok(match production {
-            ManaProduction::Fixed { symbols } | ManaProduction::Choice { colors: symbols } => {
-                symbols.clone()
-            }
+            ManaProduction::Fixed { symbols }
+            | ManaProduction::FixedWithLifeGain { symbols, .. }
+            | ManaProduction::RestrictedFixed { symbols, .. }
+            | ManaProduction::Choice { colors: symbols } => symbols.clone(),
             ManaProduction::HybridFilter { colors } => colors.to_vec(),
             ManaProduction::GreatestControlledPowerCombination
             | ManaProduction::AnyColor
@@ -321,7 +330,11 @@ impl Game {
             }
             charge = charge.saturating_add(Self::mana_receipt_charge(&activation.receipts));
             if let Some(paid) = &activation.paid
-                && (paid.branch.is_some() || paid.combination_total.is_some())
+                && (paid.branch.is_some()
+                    || paid.combination_total.is_some()
+                    || paid.life_gain.is_some()
+                    || !paid.spent_restricted.is_empty()
+                    || !paid.produced_restricted.is_empty())
             {
                 charge = charge.saturating_add(stored_history::payload_charge(paid));
             }
@@ -332,11 +345,13 @@ impl Game {
 
     fn mana_receipt_charge(receipts: &[ManaActivationUndo]) -> usize {
         receipts.iter().fold(0usize, |charge, receipt| {
-            if receipt
-                .permanent
-                .as_ref()
-                .is_some_and(|r| r.branch.is_some() || r.combination_total.is_some())
-            {
+            if receipt.permanent.as_ref().is_some_and(|r| {
+                r.branch.is_some()
+                    || r.combination_total.is_some()
+                    || r.life_gain.is_some()
+                    || !r.spent_restricted.is_empty()
+                    || !r.produced_restricted.is_empty()
+            }) {
                 charge.saturating_add(stored_history::payload_charge(receipt))
             } else {
                 charge
@@ -739,7 +754,7 @@ impl Game {
             paid: None,
         };
         if activation.stage != ManaStage::FilterInput && activation.payment_cost().is_none() {
-            self.pay_mana_ability(activation, BTreeMap::new())
+            self.pay_mana_ability(activation, BTreeMap::new(), vec![])
         } else {
             self.state.rules.frame = Frame::ManaAbility {
                 activation: Box::new(activation),
@@ -764,6 +779,7 @@ impl Game {
                 player: a.player,
                 cost: a.payment_cost().ok_or("missing mana ability cost")?,
                 available: self.state.rules.players[a.player.0 as usize].mana.clone(),
+                restricted_available: self.eligible_restricted(a.player, ManaConsumer::Activation),
             },
             ManaStage::Combination { ref total } => Request::ManaCombination {
                 decision_id: self.state.rules.revision,
@@ -806,6 +822,21 @@ impl Game {
                     player,
                     &a.payment_cost().ok_or("missing nested cost")?,
                     spending,
+                )
+                .map(|_| ()),
+            (
+                ManaStage::Spend,
+                Response::SpendManaAllocated {
+                    spending,
+                    restricted,
+                },
+            ) => self
+                .allocated_mana_pools(
+                    player,
+                    &a.payment_cost().ok_or("missing nested cost")?,
+                    spending,
+                    restricted,
+                    ManaConsumer::Activation,
                 )
                 .map(|_| ()),
             (ManaStage::Combination { total }, Response::ManaCombination { amounts }) => {
@@ -859,7 +890,7 @@ impl Game {
             }
             Response::FinishMana { undo_mana } if a.stage == ManaStage::Payment => {
                 let cost = a.payment_cost().ok_or("missing nested mana cost")?;
-                if self.can_pay(a.player, &cost)? {
+                if self.can_pay_with_restricted(a.player, &cost, ManaConsumer::Activation)? {
                     a.stage = ManaStage::Spend;
                     self.state.rules.frame = Frame::ManaAbility {
                         activation: Box::new(a),
@@ -873,8 +904,12 @@ impl Game {
                 }
             }
             Response::SpendMana { spending } if a.stage == ManaStage::Spend => {
-                self.pay_mana_ability(a, spending)?
+                self.pay_mana_ability(a, spending, vec![])?
             }
+            Response::SpendManaAllocated {
+                spending,
+                restricted,
+            } if a.stage == ManaStage::Spend => self.pay_mana_ability(a, spending, restricted)?,
             Response::ManaCombination { amounts }
                 if matches!(a.stage, ManaStage::Combination { .. }) =>
             {
@@ -903,6 +938,7 @@ impl Game {
         &mut self,
         mut a: ManaActivation,
         spending: BTreeMap<Color, Quantity>,
+        restricted: Vec<RestrictedMana>,
     ) -> Result<(), String> {
         self.validate_permanent_mana_costs(a.player, a.source, a.ability_index())?;
         // No costs are paid until the nested payment succeeds (601.2g-h).
@@ -916,6 +952,8 @@ impl Game {
             combination_total: None,
             produced: BTreeMap::new(),
             spent: spending.clone(),
+            spent_restricted: restricted.clone(),
+            produced_restricted: vec![],
             absent: [Color::W, Color::U, Color::B, Color::R, Color::G, Color::C]
                 .into_iter()
                 .filter(|c| !pool.contains_key(c))
@@ -924,6 +962,7 @@ impl Game {
             cost_triggers: vec![],
             branch: a.branch,
             damage: None,
+            life_gain: None,
         };
         let cause = a.cause();
         if let Some(cost) = a.payment_cost() {
@@ -932,6 +971,7 @@ impl Game {
                     player: a.player,
                     cost,
                     spending,
+                    restricted,
                 },
                 cause.clone(),
             )?;
@@ -996,9 +1036,10 @@ impl Game {
                 };
                 Ok(())
             }
-            ManaProduction::Fixed { .. } | ManaProduction::EachPermanentColor { .. } => {
-                self.resolve_mana_ability(a, None)
-            }
+            ManaProduction::Fixed { .. }
+            | ManaProduction::FixedWithLifeGain { .. }
+            | ManaProduction::RestrictedFixed { .. }
+            | ManaProduction::EachPermanentColor { .. } => self.resolve_mana_ability(a, None),
             _ if self
                 .mana_colors(a.player, &a.ability.production)?
                 .is_empty() =>
@@ -1080,7 +1121,9 @@ impl Game {
             return self.produce_mana_units(a, units);
         }
         let symbols = match &a.ability.production {
-            ManaProduction::Fixed { symbols } => symbols.clone(),
+            ManaProduction::Fixed { symbols }
+            | ManaProduction::FixedWithLifeGain { symbols, .. }
+            | ManaProduction::RestrictedFixed { symbols, .. } => symbols.clone(),
             ManaProduction::EachPermanentColor { .. } => {
                 // CR 605.3b/608.2h: resolve once, after the activation costs
                 // commit. The whole output is fixed before any mana is added.
@@ -1107,19 +1150,52 @@ impl Game {
         // ability still resolves (113.7a); AddMana uses that current identity.
         let source = self.object_id(a.source.card).unwrap_or(a.source);
         let mut children = vec![];
+        let restriction = match a.ability.production {
+            ManaProduction::RestrictedFixed { spend, .. } => Some(spend),
+            _ => None,
+        };
         for (color, amount) in units {
-            receipt.produced.entry(color).or_default().add(&amount);
+            if let Some(restriction) = restriction {
+                restricted_mana::credit(
+                    &mut receipt.produced_restricted,
+                    &RestrictedMana {
+                        restriction,
+                        color,
+                        amount: amount.clone(),
+                    },
+                );
+            } else {
+                receipt.produced.entry(color).or_default().add(&amount);
+            }
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::AddMana {
                     player: a.player,
                     color,
                     amount,
                     source,
+                    restriction,
                 },
             });
         }
+        let life_index = if let ManaProduction::FixedWithLifeGain { life, .. } =
+            &a.ability.production
+        {
+            let index = u32::try_from(children.len()).map_err(|_| "mana effect index overflow")?;
+            children.push(EventGroup::Occurrence {
+                proposed: ProposedEvent::GainLife {
+                    player: a.player,
+                    amount: life.clone(),
+                },
+            });
+            Some(index)
+        } else {
+            None
+        };
         if !children.is_empty() {
-            self.commit_batch(cause, EventGroup::Ordered { children })?;
+            let batch = self.commit_batch(cause, EventGroup::Ordered { children })?;
+            if let Some(index) = life_index {
+                receipt.life_gain = mana_life_gain::actual(&batch, index, a.player)?;
+            }
         }
         if let Some(amount) = a.ability.self_damage.clone() {
             return self.begin_mana_damage(a, amount);
@@ -1201,10 +1277,20 @@ impl Game {
         if !self.is_live(r.player) {
             return Err("departed mana reversal payer".into());
         }
+        if let Some(life) = &r.life_gain {
+            self.reverse_mana_life(r.player, life)?;
+        }
         if let Some(damage) = &r.damage {
             self.reverse_mana_damage(r.player, damage)?;
         }
-        let pool = &mut self.state.rules.players[r.player.0 as usize].mana;
+        let p = &mut self.state.rules.players[r.player.0 as usize];
+        for unit in &r.produced_restricted {
+            restricted_mana::debit(&mut p.restricted_mana, unit)?;
+        }
+        for unit in &r.spent_restricted {
+            restricted_mana::credit(&mut p.restricted_mana, unit);
+        }
+        let pool = &mut p.mana;
         for (c, n) in &r.produced {
             let v = pool.get_mut(c).ok_or("missing produced mana")?;
             if *v < *n {

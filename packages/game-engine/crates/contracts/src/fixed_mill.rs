@@ -40,7 +40,7 @@ pub fn fixed_mill_program(p: &SpellProgram) -> bool {
 }
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
     if d.activated.iter().any(|a| has_mill(&a.program))
-        || d.triggered.iter().any(|a| has_mill(&a.program))
+        || (!land_reclamation::present(d) && d.triggered.iter().any(|a| has_mill(&a.program)))
     {
         return Err("mill requires an ordinary spell source".into());
     }
@@ -88,12 +88,15 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap();
-    def.push(json!({"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}},"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}}}}));
+    def.push(json!({"properties":{"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}}}}));
     def.push(json!({"if":has,"then":{"properties":{
   "spell":{"anyOf":[{"$ref":"#/$defs/FixedMillProgram"},{"$ref":ordinary_sequence::SCHEMA}]},"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},
   "characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},
   "capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}},{"contains":{"const":Capability::FixedMillProgramV1}}]}
- }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::FixedMillProgramV1}}}}}}));
+ }},"else":{"if":{"not":land_reclamation::selector()},"then":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::FixedMillProgramV1}}}}}}}));
+    def.push(json!({"if":{"not":land_reclamation::selector()},"then":{
+        "properties":{"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}}}
+    }}));
     def.push(json!({"if":{"allOf":[has.clone(),{"not":{"properties":{"spell":{"$ref":ordinary_sequence::SCHEMA}}}}]},
         "then":{"properties":{"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::FixedMillProgramV1,Capability::AnyPlayerTargetV1,Capability::ControllerDrawV1]}}}}}));
     def.push(json!({"if":has,"then":{"allOf":[

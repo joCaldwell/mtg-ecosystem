@@ -1225,7 +1225,9 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
             );
             for a in &d.static_abilities {
                 match &a.effect {
-                    StaticEffect::KeepUnspentManaAsBlack
+                    StaticEffect::AdditionalLandPlay
+                    | StaticEffect::PlayLandsFromOwnGraveyard
+                    | StaticEffect::KeepUnspentManaAsBlack
                     | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::MayBeginOnBattlefield
                     | StaticEffect::SelfGraveyardRevealShuffle

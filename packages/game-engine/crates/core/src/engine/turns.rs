@@ -94,6 +94,9 @@ impl Game {
                 allowance.add(count);
             }
         }
+        for _ in self.persistent_land_allowances(player) {
+            allowance.add(&1.into());
+        }
         allowance > Quantity::from(i64::from(turn.lands_played))
     }
 
@@ -101,7 +104,7 @@ impl Game {
     // player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        if !self.main_phase_action(player) || !self.has_land_play_allowance(player) {
+        if !self.main_phase_action(player) {
             return Err(
                 "land play requires unused active-player main-phase land play and empty stack"
                     .into(),
@@ -114,10 +117,11 @@ impl Game {
             .get(&card)
             .ok_or("invalid land source")?;
         let definition = self.definition(card)?;
-        if object.zone != (Zone::Hand { owner: player })
-            || self.state.rules.cards[&card].owner != player
-            || definition.characteristics.kind != CardKind::Land
+        if definition.characteristics.kind != CardKind::Land
             || !definition.capabilities.contains(&Capability::LandPlayV1)
+            || self.state.rules.cards[&card].owner != player
+            || !self.can_play_from_land_zone(player, object.zone)
+            || !self.has_land_play_allowance(player)
         {
             return Err("invalid or unsupported land play".into());
         }

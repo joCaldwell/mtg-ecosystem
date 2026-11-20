@@ -1242,6 +1242,9 @@ mod tests {
             cost_triggers: vec![],
             branch: None,
             damage: None,
+            life_gain: None,
+            spent_restricted: vec![],
+            produced_restricted: vec![],
         };
         game.state.rules.players[1].mana.insert(Color::U, 1.into());
         game.move_object(target, Zone::Graveyard { owner: PlayerId(0) })

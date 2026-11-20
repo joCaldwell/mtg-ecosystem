@@ -11,6 +11,7 @@ mod current_pod_throughput;
 mod generic_policy;
 mod interactions;
 mod mana_policy;
+pub(crate) use mana_policy::spend_response;
 #[cfg(test)]
 mod ordinary_diagnostic;
 #[cfg(test)]
@@ -602,21 +603,38 @@ impl Strategy<'_> {
                 mana_ability_source,
                 ..
             } => {
-                let available = &v
-                    .players
-                    .iter()
-                    .find(|p| p.player == v.viewer)
-                    .ok_or("missing mana payer")?
-                    .mana;
-                let payable = payment(cost, available).is_some();
                 let outer = mana_ability_source.is_none();
+                let purpose = if !outer {
+                    Some(mana_policy::ManaPurpose::Activate)
+                } else {
+                    match &self.payment.action {
+                        Some(PaymentAction::Activate(..)) => {
+                            Some(mana_policy::ManaPurpose::Activate)
+                        }
+                        Some(PaymentAction::Cast(oracle_id, _))
+                            if definition(self.catalog, oracle_id)
+                                .is_ok_and(|d| d.characteristics.colors.is_empty()) =>
+                        {
+                            Some(mana_policy::ManaPurpose::CastColorless)
+                        }
+                        _ => None,
+                    }
+                };
+                let available =
+                    mana_policy::spendable_pool(v, purpose).ok_or("missing mana payer")?;
+                let payable = payment(cost, &available).is_some();
                 if outer && self.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
                     // price. Nested activations consume the outer plan in order.
                     if !payable {
-                        self.mana_plan =
-                            mana_policy::plan(self.catalog, v, cost, self.payment.exclude.as_ref())
-                                .unwrap_or_default();
+                        self.mana_plan = mana_policy::plan_for(
+                            self.catalog,
+                            v,
+                            cost,
+                            self.payment.exclude.as_ref(),
+                            purpose,
+                        )
+                        .unwrap_or_default();
                     }
                     self.payment.announced_cost = Some(cost.clone());
                 }
@@ -638,10 +656,12 @@ impl Strategy<'_> {
             }
 
             PlayerRequest::SpendMana {
-                cost, available, ..
-            } => PlayerResponse::SpendMana {
-                spending: spend(cost, available).ok_or("cannot spend announced cost")?,
-            },
+                cost,
+                available,
+                restricted_available,
+                ..
+            } => mana_policy::spend_response(cost, available, restricted_available)
+                .ok_or("cannot spend announced cost")?,
             PlayerRequest::CommanderReturn { .. } => {
                 PlayerResponse::CommanderReturn { to_command: true }
             }

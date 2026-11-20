@@ -39,6 +39,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
         state_token: Arc::new(()),
         in_rule_step: false,
         catalog_has_land_type_grant: game.catalog_has_land_type_grant,
+        catalog_has_land_reclamation: game.catalog_has_land_reclamation,
         catalog_has_nonland_color_grant: game.catalog_has_nonland_color_grant,
     }
 }
@@ -265,6 +266,7 @@ fn prepared_arc_failed_atomic_batch_keeps_state_trace_and_preexisting_receipt_va
                 },
                 EventGroup::Occurrence {
                     proposed: ProposedEvent::AddMana {
+                        restriction: None,
                         player: PlayerId(0),
                         source: object,
                         color: Color::U,
