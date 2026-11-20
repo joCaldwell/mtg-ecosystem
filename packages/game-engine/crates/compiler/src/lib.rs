@@ -1471,7 +1471,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     // CR 201.5: canonicalize only exact archive-bound references to this source.
     // Source and AST integrity checks above still cover the original bytes.
-    let types = type_line::parse(&source.type_line)?;
+    let types = type_line::parse_source(&source.type_line, &source.layout)?;
     let noun = match types.kind {
         CardKind::Creature => "creature",
         CardKind::Artifact => "artifact",

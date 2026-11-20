@@ -9,6 +9,16 @@ pub(super) struct ParsedTypes {
     pub snow: bool,
     pub subtypes: Vec<String>,
 }
+pub(super) fn parse_source(line: &str, layout: &str) -> Result<ParsedTypes, Failure> {
+    if layout == "saga" && line == "Enchantment — Saga" {
+        // The chapter adapter subsequently binds the complete source and graph.
+        let mut enchantment = parse("Enchantment")?;
+        enchantment.subtypes.push("Saga".into());
+        return Ok(enchantment);
+    }
+    parse(line)
+}
+
 pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
     let (head, tail) = line.split_once(" — ").unwrap_or((line, ""));
     let mut types = BTreeSet::new();

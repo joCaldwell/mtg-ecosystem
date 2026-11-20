@@ -265,18 +265,32 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
-    let record: Value = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"
-    ))
-    .unwrap();
+    use serde_json::value::RawValue;
+    #[derive(Deserialize)]
+    struct Archive {
+        source: Box<RawValue>,
+        faces: Vec<Face>,
+    }
+    #[derive(Deserialize)]
+    struct Face {
+        result: Parsed,
+    }
+    #[derive(Deserialize)]
+    struct Parsed {
+        abilities: Box<RawValue>,
+    }
+    let archive =
+        include_str!("../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json");
+    let bytes: Archive = serde_json::from_str(archive).unwrap();
+    let record: Value = serde_json::from_str(archive).unwrap();
     let source = &record["source"];
     let mut d = entry_graveyard_exile::witness(CardKind::Creature);
     d.name = source["name"].as_str().unwrap().into();
     d.oracle_id = source["oracle_id"].as_str().unwrap().into();
     d.provenance.printing_id = source["id"].as_str().unwrap().into();
-    d.provenance.source_json = canonical(source).unwrap();
+    d.provenance.source_json = bytes.source.get().to_owned();
     d.provenance.source_sha256 = record["sourceSha256"].as_str().unwrap().into();
-    d.provenance.abilities_json = canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+    d.provenance.abilities_json = bytes.faces[0].result.abilities.get().to_owned();
     d.provenance.ast_sha256 = record["astSha256"].as_str().unwrap().into();
     d.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
     d.characteristics.kind = CardKind::Enchantment;

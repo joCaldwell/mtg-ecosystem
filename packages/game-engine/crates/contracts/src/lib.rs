@@ -3142,7 +3142,9 @@ impl Definition {
             return Err("unsupported or noncanonical combined card types".into());
         }
         for subtype in &c.subtypes {
-            if unsupported_rules_subtype(subtype) {
+            if unsupported_rules_subtype(subtype)
+                && !(subtype == "Saga" && self.capabilities.contains(&Capability::SagaChaptersV1))
+            {
                 return Err(format!("subtype:{}", subtype.to_lowercase()));
             }
         }
