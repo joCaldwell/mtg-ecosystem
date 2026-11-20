@@ -2860,10 +2860,18 @@ impl Game {
             .map(|p| p.mana.get(&color).cloned().unwrap_or_default())
     }
     pub fn characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
+        self.characteristics_with_sources(object, None)
+    }
+
+    fn characteristics_with_sources(
+        &self,
+        object: ObjectId,
+        sources: Option<&[CardId]>,
+    ) -> Result<Characteristics, String> {
         if self.current(object)?.hideaway.is_some() {
             return Err("face-down exiled card has no characteristics".into());
         }
-        self.derived_characteristics(object)
+        self.derived_characteristics_with_sources(object, sources)
     }
     // Characteristics supply intrinsic behavior; reminder text never supplies
     // runtime code. CR 305.6 / 113.6 / 605.3b, pinned official rules:
