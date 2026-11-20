@@ -26,6 +26,7 @@ interface Candidate { id: string; cardinality: BindingCardinality; domain: "obje
 interface Context {
   source: string; face: string; ability: string; you: string; phase: BindingPhase;
   objects: Candidate[]; players: Candidate[]; quantities: Candidate[]; x?: string;
+  spellAbility?: boolean;
   sourceMoved?: boolean;
   /** The object the source became in the public zone a zone-change trigger
    * saw it move to (CR 400.7e). */
@@ -368,6 +369,12 @@ class Analyzer {
     if (value.amount === "combat-history-count") {
       const barrier = "This cardinality requires a historical set of distinct declared attacker incarnations, including departed objects.";
       this.diagnostic("unsupported-scope", path, barrier, ["400.7", "508.4"]);
+      this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    if (value.amount === "cast-mana-value-sum" && (!context.spellAbility || context.sourceMoved)) {
+      const barrier = "The excluded cast must be the resolving spell's own cast occurrence.";
+      this.diagnostic("unsupported-scope", path, barrier, ["202.3e", "601.2i", "608.2i"]);
       this.walkChildren(value, path, { ...context, barrier });
       return;
     }
@@ -2072,6 +2079,7 @@ class Analyzer {
     const permanentSource = ability.kind !== "spell" &&
       (this.permanentFaces.has(face) || this.result.nodes.some(node => node.id === source && node.node === "recipient"));
     const context: Context = { source, face, ability: id, you, permanentSource, staticAbility: ability.kind === "static",
+      spellAbility: ability.kind === "spell",
       // "This creature can't attack unless defending player controls an
       // Island", "This creature can't be blocked as long as ...": a rule about
       // the creature's own attack (CR 508.5).

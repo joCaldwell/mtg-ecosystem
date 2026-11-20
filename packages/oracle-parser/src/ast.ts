@@ -3504,6 +3504,8 @@ export type Amount =
   | { amount: "cast-count"; who: PlayerRef | "all-players-combined"; what: ObjectFilter; during: "this-turn" | "this-game";
       /** The zone the spells were cast from (a commander cast from the command zone, CR 903.8). */
       from?: ZoneRef }
+  /** CR 202.3e, 601.2i, 608.2i: sum the mana values at the completed casts. */
+  | { amount: "cast-mana-value-sum"; who: PlayerRef; during: "this-turn"; excluding: ObjectRef }
   /** CR 107.14: energy counters `who` has paid (as a cost) or lost (to any
    * effect) over the period, counted per {E}. */
   | { amount: "energy-paid-or-lost"; who: PlayerRef; during: "this-turn" }
