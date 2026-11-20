@@ -678,6 +678,60 @@ fn paid_phyrexian_symbol_debits_life_on_cast() {
         false,
     );
 }
+
+#[test]
+fn paid_phyrexian_creature_retains_intrinsic_keywords() {
+    let mut p = prepared(&[("Darksteel Plate", true), ("Forest", false)], false);
+    let compiled = mtg_compiler::compile(
+        mtg_compiler::fixtures::MANIFEST,
+        include_str!("../../../../tests/fixtures/phyrexian-keywords-vault-skirge.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("{compiled:?}");
+    };
+    assert_eq!(
+        definition.keywords,
+        [KeywordAbility::Flying, KeywordAbility::Lifelink]
+    );
+    let mut missing = (*definition).clone();
+    missing.keywords.pop();
+    missing.capabilities = missing.requirements();
+    assert!(missing.validate().is_err());
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    answer(&mut g, 1, Response::Cast { card: CardId(0) });
+    assert!(matches!(request(&mut g, 1), Request::HybridCost { .. }));
+    answer(
+        &mut g,
+        1,
+        Response::HybridCost {
+            colors: vec![HybridPayment::PayTwoLife],
+        },
+    );
+    pay_and_resolve(&mut g, 1, vec![]);
+
+    let creature = object(&g, 0);
+    assert_eq!(g.zone(creature), Some(Zone::Battlefield));
+    assert_eq!(g.state.rules.players[0].life, 38.into());
+    assert!(
+        g.characteristics(creature)
+            .unwrap()
+            .has_type(CardKind::Artifact)
+    );
+    assert!(g.has_keyword(creature, KeywordAbility::Flying));
+    assert!(g.has_keyword(creature, KeywordAbility::Lifelink));
+    recover(&g);
+}
+
 fn hybrid_payment_witness(raw: &str, grants: bool) {
     let mut p = prepared(
         &[

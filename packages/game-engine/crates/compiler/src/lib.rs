@@ -1849,7 +1849,6 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let opening_composition = three_static_ast(&source.name, &source.oracle_text);
     let (base_cost, hybrid_mana) =
         if let Some((cost, symbols)) = color_hybrid_cost(&source.mana_cost) {
-            // Keep source binding exact until a family binds other ability blocks alongside hybrid.
             if let Some(expected) = &opening_composition {
                 if *expected != decode::<serde_json::Value>(result.abilities.get(), "abilities")? {
                     return Err(unsupported(
@@ -1857,16 +1856,37 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "controller composition does not match source",
                     ));
                 }
-            } else if !source.oracle_text.is_empty() || !abilities.is_empty() {
-                return Err(unsupported(
-                    "source.mana_cost",
-                    "hybrid ability composition is unsupported",
-                ));
-            }
-            if opening_composition.is_none() {
+            } else if source.oracle_text.is_empty() && abilities.is_empty() {
                 bindings::Bindings::new(&r.oracle_identity, &shape).validate(
                     &binding,
                     "hybrid cost requires the exact printed face binding",
+                )?;
+            } else {
+                let path = "source.mana_cost";
+                if kind != CardKind::Creature {
+                    return Err(unsupported(
+                        path,
+                        "hybrid ability composition is unsupported",
+                    ));
+                }
+                let keyword_blocks = |text: &str| {
+                    hybrid_intrinsic_keywords(&source.mana_cost, text, result.abilities.get())
+                        .map_err(|message| unsupported(path, message))
+                };
+                let printed = keyword_blocks(&source.oracle_text)?;
+                if keyword_blocks(&labels.blocks.join("\n"))? != printed {
+                    return Err(unsupported(
+                        path,
+                        "hybrid keyword labels differ from the source",
+                    ));
+                }
+                basic_landwalk::bind_intrinsic_keywords(
+                    &r.oracle_identity,
+                    &shape,
+                    &binding,
+                    &printed,
+                    path,
+                    "requires complete intrinsic hybrid creature bindings",
                 )?;
             }
             (cost, symbols)

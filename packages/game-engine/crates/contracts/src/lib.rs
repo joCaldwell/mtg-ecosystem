@@ -22,7 +22,9 @@ pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
 };
 mod color_hybrid_cost;
-pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
+pub use color_hybrid_cost::{
+    ColorHybridSymbol, HybridPayment, color_hybrid_cost, hybrid_intrinsic_keywords,
+};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
