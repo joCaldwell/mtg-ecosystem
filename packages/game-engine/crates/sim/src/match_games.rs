@@ -5,6 +5,7 @@ use mtg_contracts::{CardKind, Color, ManaCost, Quantity};
 use mtg_core::{MatchConfig, ObjectHandle, PlayerRequest, PlayerResponse, PlayerTargetEntity};
 use std::collections::BTreeMap;
 
+pub(super) mod bench_pods;
 #[cfg(test)]
 mod current_pod_throughput;
 mod generic_policy;
@@ -79,19 +80,27 @@ pub(crate) fn spend(
     cost: &ManaCost,
     available: &BTreeMap<Color, Quantity>,
 ) -> Option<BTreeMap<Color, Quantity>> {
-    let mut free = available.clone();
     let mut used = BTreeMap::<Color, Quantity>::new();
+    let one = Quantity::from(1);
     for c in &cost.colored {
-        let n = free.get_mut(c)?;
-        if *n < 1.into() {
+        let n = used.entry(*c).or_default();
+        n.add(&one);
+        if &*n > available.get(c)? {
             return None;
         }
-        n.subtract(&1.into());
-        used.entry(*c).or_default().add(&1.into());
     }
     let mut rest = cost.generic.clone();
     for c in [Color::B, Color::G, Color::W, Color::U, Color::R, Color::C] {
-        let n = std::cmp::min(free.get(&c).cloned().unwrap_or_default(), rest.clone());
+        if rest == Quantity::zero() {
+            break;
+        }
+        let Some(mut n) = available.get(&c).cloned() else {
+            continue;
+        };
+        if let Some(already) = used.get(&c) {
+            n.subtract(already);
+        }
+        let n = n.min(rest.clone());
         if n > Quantity::zero() {
             rest.subtract(&n);
             used.entry(c).or_default().add(&n);
@@ -100,11 +109,11 @@ pub(crate) fn spend(
     (rest == Quantity::zero()).then_some(used)
 }
 fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::Definition, String> {
-    catalog
-        .definitions
-        .iter()
-        .find(|d| d.oracle_id == id)
-        .ok_or_else(|| format!("public definition missing {id}"))
+    let found = catalog.definition_by_oracle_id(id);
+    // Policy tests deliberately exercise catalogs with permuted definitions.
+    #[cfg(test)]
+    let found = found.or_else(|| catalog.definitions.iter().find(|d| d.oracle_id == id));
+    found.ok_or_else(|| format!("public definition missing {id}"))
 }
 // One distinct card per color. Reassign flexible cards when a later slot
 // has no other candidate. The search depth is bounded by the five colors.
@@ -159,8 +168,57 @@ struct Strategy<'a> {
     mulligans: [u8; 4],
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
+    mana_ability: Option<mtg_core::ManaAbilityIdentity>,
+    payment: PaymentAttempt,
     mana_combination: Option<[Quantity; 5]>,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PaymentAction {
+    Cast(String, Zone),
+    Activate(ObjectHandle, usize),
+}
+
+#[derive(Default)]
+struct PaymentAttempt {
+    action: Option<PaymentAction>,
+    exclude: Option<ObjectHandle>,
+    announced_cost: Option<ManaCost>,
+    turn: u64,
+    failed: [Vec<PaymentAction>; 4],
+}
+impl PaymentAttempt {
+    fn next_priority(&mut self, view: &mtg_core::PermittedView) {
+        self.action = None;
+        self.exclude = None;
+        self.announced_cost = None;
+        if self.turn != view.turn.number {
+            self.turn = view.turn.number;
+            self.failed.iter_mut().for_each(Vec::clear);
+        }
+    }
+
+    fn abandoned(&mut self, player: PlayerId) {
+        if let Some(action) = self.action.take() {
+            self.failed[usize::from(player.0)].push(action);
+        }
+    }
+}
+
+impl<'a> Strategy<'a> {
+    fn new(catalog: &'a Catalog, policy: Policy, mulligans: [u8; 4]) -> Self {
+        Self {
+            catalog,
+            policy,
+            mulligans,
+            mana_plan: Default::default(),
+            mana_color: None,
+            mana_ability: None,
+            payment: PaymentAttempt::default(),
+            mana_combination: None,
+            hybrid_choices: vec![],
+        }
+    }
 }
 impl Strategy<'_> {
     fn choose(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
@@ -177,7 +235,8 @@ impl Strategy<'_> {
                 }
             }
             PlayerRequest::HandCast { candidates, .. } => candidates
-                .first()
+                .iter()
+                .find(|card| self.supported_cast_target(v, card))
                 .cloned()
                 .map(|card| PlayerResponse::Cast { card })
                 .unwrap_or(PlayerResponse::Pass),
@@ -193,6 +252,19 @@ impl Strategy<'_> {
                 hand: candidates.first().cloned().into_iter().collect(),
                 remainder: candidates.iter().skip(1).cloned().collect(),
             },
+            // The same owner-only look payload is used by the optional
+            // reveal-for-mana continuation. Resolve the choice using its
+            // public IR and the ordinary decision token.
+            PlayerRequest::Scry { .. }
+                if self.top_program(v).is_some_and(|(_, program)| {
+                    matches!(
+                        program.instructions.as_slice(),
+                        [mtg_contracts::Instruction::LookTopMayRevealForMana { .. }]
+                    )
+                }) =>
+            {
+                PlayerResponse::OptionalEffect { perform: false }
+            }
             PlayerRequest::Scry { candidates, .. } => PlayerResponse::Scry {
                 top: candidates.clone(),
                 bottom: vec![],
@@ -239,9 +311,14 @@ impl Strategy<'_> {
             PlayerRequest::ChooseManaAbility { choices, .. } => {
                 let desired = self.mana_color;
                 use mtg_core::ManaAbilityIdentity::{GrantedLandTap, Intrinsic};
-                let ability = choices.iter().find(|choice|
-                    matches!(choice, Intrinsic { color } | GrantedLandTap { color } if Some(*color)==desired))
-                    .or_else(||choices.first()).copied().ok_or("empty mana ability choices")?;
+                let ability = self
+                    .mana_ability
+                    .take()
+                    .filter(|choice| choices.contains(choice))
+                    .or_else(|| choices.iter().copied().find(|choice|
+                        matches!(choice, Intrinsic { color } | GrantedLandTap { color } if Some(*color)==desired)))
+                    .or_else(|| choices.first().copied())
+                    .ok_or("empty mana ability choices")?;
                 if matches!(ability, Intrinsic { .. } | GrantedLandTap { .. }) {
                     self.mana_color = None;
                 }
@@ -285,9 +362,14 @@ impl Strategy<'_> {
                     object: candidates.first().cloned(),
                 }
             }
-            PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. } => {
-                return Err("copied entry outside this policy admission".into());
-            }
+            PlayerRequest::EntryCopy { candidates, .. } => PlayerResponse::EntryCopy {
+                object: self.best_permanent(v, candidates),
+            },
+            PlayerRequest::EntryAttachment { candidates, .. } => PlayerResponse::EntryAttachment {
+                object: self
+                    .best_permanent(v, candidates)
+                    .ok_or("empty entry attachments")?,
+            },
             PlayerRequest::GraveyardReplacementOrder { .. } => {
                 PlayerResponse::OptionalEffect { perform: true }
             }
@@ -299,7 +381,10 @@ impl Strategy<'_> {
             },
             PlayerRequest::PlayHideawayLinked { candidates, .. } => {
                 PlayerResponse::PlayHideawayLinked {
-                    object: candidates.first().cloned(),
+                    object: candidates
+                        .iter()
+                        .find(|card| self.supported_cast_target(v, card))
+                        .cloned(),
                 }
             }
             PlayerRequest::ChooseOpponent { candidates, .. } => PlayerResponse::ChooseOpponent {
@@ -323,11 +408,7 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => PlayerResponse::SearchLands {
-                objects: candidates
-                    .iter()
-                    .take(*maximum as usize)
-                    .map(|c| c.handle.clone())
-                    .collect(),
+                objects: self.search_lands(v, candidates, *maximum as usize),
             },
             PlayerRequest::SacrificeCost { candidates, .. } => PlayerResponse::SacrificeCost {
                 object: self.sacrifice_choice(v, candidates)?,
@@ -336,7 +417,13 @@ impl Strategy<'_> {
                 object: self.sacrifice_choice(v, candidates)?,
             },
             PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
-                perform: self.optional_effect(v),
+                perform: self.optional_effect(
+                    v,
+                    o.decision_context
+                        .as_ref()
+                        .and_then(|context| context.instruction.as_ref())
+                        .map(|instruction| instruction.source_block),
+                ),
             },
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
@@ -427,20 +514,18 @@ impl Strategy<'_> {
                         .player_target(v, &offered, true)
                         .ok_or("missing offered graveyard owner")?;
                     let mut entities = vec![PlayerTargetEntity::Player { player }];
-                    for c in candidates {
-                        if entities.len() > usize::from(maximum) {
-                            break;
-                        }
-                        if let PlayerTargetEntity::Object { object } = c
-                            && v.objects.iter().any(|o| {
-                                &o.handle == object
+                    // A single library move is sufficient for this mode.
+                    // Avoid a simultaneous group of writes to the same library
+                    // in the finite executor.
+                    if maximum > 0
+                        && let Some(card) = candidates.iter().find(|candidate| {
+                            matches!(candidate, PlayerTargetEntity::Object { object } if
+                                v.objects.iter().any(|o| &o.handle == object
                                     && o.zone == (Zone::Graveyard { owner: player })
-                                    && o.token.is_none()
-                            })
-                            && !entities.contains(c)
-                        {
-                            entities.push(c.clone());
-                        }
+                                    && o.token.is_none()))
+                        })
+                    {
+                        entities.push(card.clone());
                     }
                     return Ok(PlayerResponse::EntityTargets { entities });
                 }
@@ -481,22 +566,42 @@ impl Strategy<'_> {
             PlayerRequest::OrderTriggers { candidates, .. } => PlayerResponse::OrderTriggers {
                 order: candidates.iter().map(|c| c.handle.clone()).collect(),
             },
-            PlayerRequest::Mana { cost, .. } => {
+            PlayerRequest::Mana {
+                cost,
+                mana_ability_source,
+                ..
+            } => {
                 let available = &v
                     .players
                     .iter()
                     .find(|p| p.player == v.viewer)
                     .ok_or("missing mana payer")?
                     .mana;
-                if spend(cost, available).is_some() {
+                let payable = spend(cost, available).is_some();
+                let outer = mana_ability_source.is_none();
+                if outer && self.payment.announced_cost.as_ref() != Some(cost) {
+                    // Modes, X, tax and additional costs can change the final
+                    // price. Nested activations consume the outer plan in order.
+                    if !payable {
+                        self.mana_plan =
+                            mana_policy::plan(self.catalog, v, cost, self.payment.exclude.as_ref())
+                                .unwrap_or_default();
+                    }
+                    self.payment.announced_cost = Some(cost.clone());
+                }
+                if payable {
                     PlayerResponse::FinishMana { undo_mana: true }
                 } else if let Some(next) = self.mana_plan.pop_front() {
                     self.mana_color = next.color;
+                    self.mana_ability = next.ability;
                     self.mana_combination = next.combination;
                     PlayerResponse::ActivateMana {
                         object: next.source,
                     }
                 } else {
+                    if outer {
+                        self.payment.abandoned(v.viewer);
+                    }
                     PlayerResponse::FinishMana { undo_mana: true }
                 }
             }
@@ -783,9 +888,9 @@ impl LiveJournal {
         }
         Err("no fresh live journal path".into())
     }
-    fn append(&mut self, value: &impl Serialize) -> Result<(), String> {
+    fn append(&mut self, value: &serde_json::Value) -> Result<(), String> {
         use std::io::Write;
-        let mut line = canonical(value)?.into_bytes();
+        let mut line = serde_json::to_vec(value).map_err(|e| e.to_string())?;
         line.push(b'\n');
         self.file.write_all(&line).map_err(|e| e.to_string())
     }
@@ -810,15 +915,7 @@ pub(super) fn run(
     };
     let mut game = Game::with_trace(prepared, trace_mode);
     let mut live_journal = LiveJournal::new(&config, policy, mulligans)?;
-    let mut strategy = Strategy {
-        catalog,
-        policy,
-        mulligans,
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let mut strategy = Strategy::new(catalog, policy, mulligans);
     let selected_checkpoints =
         config.seed == seed_for(&config.profile, 0) && policy == Policy::Develop;
     let mut checkpoints = vec![];
@@ -1636,15 +1733,7 @@ mod admission_and_host_tests {
             token: mtg_core::DecisionToken("policy-fixture".into()),
             player: PlayerId(0),
         });
-        let mut strategy = Strategy {
-            catalog: &catalog,
-            policy: Policy::Develop,
-            mulligans: [0; 4],
-            mana_plan: Default::default(),
-            mana_color: None,
-            mana_combination: None,
-            hybrid_choices: vec![],
-        };
+        let mut strategy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
         let id = |name: &str| {
             catalog
                 .definitions

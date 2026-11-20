@@ -440,15 +440,7 @@ fn ordinary_prefix(catalog: &Catalog, count: usize, quantum: u64) -> Result<Run,
         return Err("ordinary diagnostic requires four legal hundred-card decks".into());
     }
     let mut game = Game::with_trace(prepared.clone(), TraceMode::Off);
-    let mut strategy = Strategy {
-        catalog,
-        policy: Policy::Develop,
-        mulligans: [0; 4],
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let mut strategy = Strategy::new(catalog, Policy::Develop, [0; 4]);
     let (mut work, mut advances, mut queries) = (0, 0, 0);
     let clock = Instant::now();
     let mut boundary = next(&mut game, quantum, &mut work, &mut advances)?;

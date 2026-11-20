@@ -117,15 +117,7 @@ fn run_profiled(
     };
     let mut game = Game::with_trace(prepared, trace_mode);
     let mut live_journal = TimedJournal::new(stream, &config, policy, mulligans, &mut clocks)?;
-    let mut strategy = Strategy {
-        catalog,
-        policy,
-        mulligans,
-        mana_plan: Default::default(),
-        mana_color: None,
-        mana_combination: None,
-        hybrid_choices: vec![],
-    };
+    let mut strategy = Strategy::new(catalog, policy, mulligans);
     let selected_checkpoints = config.seed == seed(0) && policy == Policy::Develop;
     let mut checkpoints = vec![];
     if selected_checkpoints {
