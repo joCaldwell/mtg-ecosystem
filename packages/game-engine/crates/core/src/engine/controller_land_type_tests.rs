@@ -117,7 +117,8 @@ fn game() -> Game {
 #[test]
 fn controller_land_types_preserve_membership_and_offer_independent_printed_costs() {
     let mut g = game();
-    assert_eq!(g.prepared.snapshot_version(), 57);
+    let snapshot: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+    assert_eq!(snapshot["snapshot_version"], 59);
     let land = g.object_id(CardId(0)).unwrap();
     let island = g.object_id(CardId(2)).unwrap();
     let off = g.object_id(CardId(4)).unwrap();
