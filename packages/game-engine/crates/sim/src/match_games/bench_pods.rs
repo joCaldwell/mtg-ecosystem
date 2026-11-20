@@ -2,17 +2,19 @@
 //! time in each phase and are summed across workers. Proof runs are outside the
 //! measured window and go through the ordinary snapshot verifier.
 use super::*;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use crate::deck_analytics::{self, PodOutcome};
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 const QUANTUM: u64 = 1024;
 const USAGE: &str = "usage: mtg-sim bench-pods PROFILE [--threads 1..32] [--games N] \
-[--seed-start N] [--rotate-seats] [--decision-limit N]\n\
+[--seed-start N] [--rotate-seats] [--decision-limit N] [--analytics-out NEW_DIR]\n\
 --games is the total number of pods (default 32). Rotation requires a multiple of four.\n\
 Each rotated group reuses one seed and starting seat while cycling the four deck slots.\n\
-The first and last seed groups are independently rerun and replayed.";
+The first and last seed groups are independently rerun and replayed.\n\
+--analytics-out writes aggregate analytics.json and summary.md from independent terminal replays.";
 
 struct Options {
     threads: usize,
@@ -20,6 +22,7 @@ struct Options {
     seed_start: u32,
     rotate: bool,
     decision_limit: usize,
+    analytics_out: Option<PathBuf>,
 }
 impl Options {
     fn parse(args: &[String]) -> Result<Self, String> {
@@ -29,6 +32,7 @@ impl Options {
             seed_start: 0,
             rotate: false,
             decision_limit: DECISION_LIMIT,
+            analytics_out: None,
         };
         let mut args = args.iter();
         while let Some(flag) = args.next() {
@@ -45,6 +49,9 @@ impl Options {
                 "--games" => options.games = value.parse().map_err(invalid)?,
                 "--seed-start" => options.seed_start = value.parse().map_err(invalid)?,
                 "--decision-limit" => options.decision_limit = value.parse().map_err(invalid)?,
+                "--analytics-out" if options.analytics_out.is_none() => {
+                    options.analytics_out = Some(value.into())
+                }
                 _ => return Err(format!("unknown bench-pods flag {flag}")),
             }
         }
@@ -175,6 +182,7 @@ struct Pod {
     row: ResultRow,
     clocks: Clocks,
     proof: Option<(Prepared, Game)>,
+    analytics: Option<Box<deck_analytics::ReplayInput>>,
 }
 
 fn play(
@@ -183,21 +191,21 @@ fn play(
     case: Case,
     decision_limit: usize,
     sample: bool,
+    analytics: bool,
 ) -> Result<Pod, String> {
     let mut clocks = Clocks::default();
     let config = case.config(profile)?;
     let starting_seat = config.starting_player.0;
     let prepared = timed(&mut clocks.admission, || {
-        // Core's admission API takes ownership. Worker policies share the
-        // validated source catalog, and a replay shares its Prepared catalog.
+        // Embedded admission still takes an owned Catalog. Policy workers
+        // borrow the embedded catalog and replays clone Prepared's Arc.
         Prepared::admit_pod(catalog.clone(), config)
     })
     .map_err(|error| error.to_string())?;
-    let proof_start = sample.then(|| prepared.clone());
+    let replay_start = (sample || analytics).then(|| prepared.clone());
     let mut game = Game::with_trace(prepared, TraceMode::Off);
     let mut strategy = Strategy::new(catalog, Policy::Develop, [0; 4]);
-    let mut placements = [None; 4];
-    let mut living_mask = 0b1111u8;
+    let mut placements = Placements::default();
     let mut winner = None;
     let mut detail = None;
     let mut work = 0;
@@ -209,24 +217,14 @@ fn play(
         }
         work += 1;
         let next = timed(&mut clocks.rules, || game.advance(Budget::new(QUANTUM)));
-        let live_now = game
-            .live_players()
-            .into_iter()
-            .fold(0, |mask, player| mask | (1 << player.0));
-        if live_now != living_mask {
-            let rank = live_now.count_ones() as usize + 1;
-            for (seat, placement) in placements.iter_mut().enumerate() {
-                if (living_mask & !live_now) & (1 << seat) != 0 {
-                    *placement = Some(rank);
-                }
-            }
-            living_mask = live_now;
+        if !matches!(&next, Advance::AwaitingDecision(_)) {
+            placements.observe(&game.live_players());
         }
         let request = match next {
             Advance::Suspended { .. } => continue,
             Advance::Finished { winner: player } => {
                 winner = Some(player);
-                placements[player.0 as usize] = Some(1);
+                placements.ranks[player.0 as usize] = Some(1);
                 break Outcome::Win;
             }
             Advance::Draw => break Outcome::Draw,
@@ -240,11 +238,13 @@ fn play(
             }
             Advance::AwaitingDecision(request) => request,
         };
-        if decisions >= decision_limit {
-            break Outcome::DecisionLimit;
-        }
-        if game.turn().number > TURN_LIMIT {
-            break Outcome::TurnLimit;
+        if decisions >= decision_limit || game.turn().number > TURN_LIMIT {
+            placements.observe(&game.live_players());
+            break if decisions >= decision_limit {
+                Outcome::DecisionLimit
+            } else {
+                Outcome::TurnLimit
+            };
         }
         let player = request.player();
         let observed = timed(&mut clocks.observation, || {
@@ -253,10 +253,12 @@ fn play(
         let observation = match observed {
             Ok(observation) => observation,
             Err(error) => {
+                placements.observe(&game.live_players());
                 detail = Some(error);
                 break query_stop(detail.as_deref());
             }
         };
+        placements.observe(&observation.view.live_turn_order);
         let response = match timed(&mut clocks.policy, || strategy.choose(&observation)) {
             Ok(response) => response,
             Err(error) => {
@@ -300,19 +302,62 @@ fn play(
         outcome,
         detail,
         winner,
-        placements,
+        placements: placements.ranks,
         turns: game.turn().number,
         decisions,
         rule_steps: game.rule_boundary(),
         query_calls,
     };
-    let proof = if let Some(prepared) = proof_start {
-        Some((prepared, game))
+    let analytics = if analytics && outcome.terminal() {
+        Some(Box::new(deck_analytics::ReplayInput::capture(
+            replay_start
+                .as_ref()
+                .ok_or("missing analytics admission")?
+                .clone(),
+            &game,
+        )?))
+    } else {
+        None
+    };
+    let proof = if sample {
+        Some((replay_start.ok_or("missing sampled admission")?, game))
     } else {
         timed(&mut clocks.disposal, || drop(game));
         None
     };
-    Ok(Pod { row, clocks, proof })
+    Ok(Pod {
+        row,
+        clocks,
+        proof,
+        analytics,
+    })
+}
+
+struct Placements {
+    living: u8,
+    ranks: [Option<usize>; 4],
+}
+impl Default for Placements {
+    fn default() -> Self {
+        Self {
+            living: 0b1111,
+            ranks: [None; 4],
+        }
+    }
+}
+impl Placements {
+    fn observe(&mut self, live: &[PlayerId]) {
+        let mask = live.iter().fold(0u8, |mask, player| mask | (1 << player.0));
+        if mask != self.living {
+            let rank = live.len() + 1;
+            for (seat, placement) in self.ranks.iter_mut().enumerate() {
+                if (self.living & !mask) & (1 << seat) != 0 {
+                    *placement = Some(rank);
+                }
+            }
+            self.living = mask;
+        }
+    }
 }
 
 fn query_stop(detail: Option<&str>) -> Outcome {
@@ -335,7 +380,7 @@ fn check_sample(catalog: &Catalog, profile: &str, options: &Options, measured: &
     let case = measured.row.case;
     let checked = (|| {
         let (prepared, original) = measured.proof.take().ok_or("missing proof game")?;
-        let rerun = play(catalog, profile, case, options.decision_limit, true)?;
+        let rerun = play(catalog, profile, case, options.decision_limit, true, false)?;
         let (_, rerun_game) = rerun.proof.ok_or("missing rerun proof game")?;
         let journal = original.replay_journal();
         let state_sha256 = original.state_digest()?;
@@ -386,7 +431,8 @@ fn run(
     profile: &mtg_core::MatchProfile,
     options: &Options,
 ) -> Result<(serde_json::Value, bool), String> {
-    let catalog = Arc::new(profile.catalog().clone());
+    let catalog = profile.catalog();
+    let analytics = options.analytics_out.is_some();
     let workers = options.threads.min(options.games);
     let next = AtomicUsize::new(0);
     let clock = Instant::now();
@@ -394,7 +440,6 @@ fn run(
         let mut handles = Vec::with_capacity(workers);
         let mut error = None;
         for id in 0..workers {
-            let catalog = Arc::clone(&catalog);
             let next = &next;
             match std::thread::Builder::new()
                 .name(format!("pod-{id}"))
@@ -408,11 +453,12 @@ fn run(
                         let case = options.case(index);
                         pods.push(
                             play(
-                                &catalog,
+                                catalog,
                                 &profile.name,
                                 case,
                                 options.decision_limit,
                                 options.sample(index),
+                                analytics,
                             )
                             .map_err(|error| format!("pod {index}: {error}"))?,
                         );
@@ -451,10 +497,44 @@ fn run(
     let proofs: Vec<_> = pods
         .iter_mut()
         .filter(|pod| pod.proof.is_some())
-        .map(|pod| check_sample(&catalog, &profile.name, options, pod))
+        .map(|pod| check_sample(catalog, &profile.name, options, pod))
         .collect();
     let proof_wall = clock.elapsed();
     let verified = proofs.iter().all(|p| p.error.is_none());
+    let analytics_wall = if let Some(path) = &options.analytics_out
+        && verified
+    {
+        let clock = Instant::now();
+        deck_analytics::write(
+            path,
+            profile,
+            workers,
+            options.seed_start,
+            options.rotate,
+            options.decision_limit,
+            pods.iter_mut().map(|pod| {
+                let row = &pod.row;
+                (
+                    PodOutcome {
+                        index: row.case.index,
+                        slots: std::array::from_fn(|seat| row.case.deck_slot(seat)),
+                        starter: row.starting_seat as usize,
+                        terminal: row.outcome.terminal(),
+                        decision_capped: row.outcome == Outcome::DecisionLimit,
+                        budget_capped: row.outcome.capped(),
+                        winner: row.winner,
+                        placements: row.placements,
+                        turns: row.turns,
+                        decisions: row.decisions,
+                    },
+                    pod.analytics.take().map(|input| *input),
+                )
+            }),
+        )?;
+        Some(clock.elapsed().as_nanos())
+    } else {
+        None
+    };
     let mut clocks = Clocks::default();
     let mut decisions = 0;
     let mut unfinished = 0;
@@ -486,41 +566,46 @@ fn run(
     let games = options.games as f64;
     let seconds = wall.as_secs_f64();
     let rows: Vec<_> = pods.into_iter().map(|pod| pod.row).collect();
-    Ok((
-        serde_json::json!({
-            "schema": "bench-pods-v1",
-            "build": {"id": BUILD_ID, "profile": BUILD_PROFILE, "opt_level": BUILD_OPT_LEVEL,
-                      "debug": BUILD_DEBUG, "debug_assertions": BUILD_DEBUG_ASSERTIONS,
-                      "rustc": BUILD_RUSTC, "target": BUILD_TARGET, "rustflags": BUILD_RUSTFLAGS},
-            "profile": profile.name,
-            "catalog_sha256": profile.catalog_sha256,
-            "policy": Policy::Develop,
-            "trace_mode": TraceMode::Off,
-            "threads": workers, "threads_requested": options.threads,
-            "games": options.games, "seed_start": options.seed_start, "rotate_seats": options.rotate,
-            "limits": {"quantum": QUANTUM, "decisions": options.decision_limit, "turns": TURN_LIMIT, "host_calls": WORK_LIMIT},
-            "wall_ns": wall.as_nanos(), "proof_wall_ns": proof_wall.as_nanos(),
-            "games_per_second": games / seconds,
-            "completed_games_per_second": (options.games - unfinished) as f64 / seconds,
-            "decisions": decisions, "decisions_per_second": decisions as f64 / seconds,
-            "unfinished": unfinished, "unfinished_percent": 100.0 * unfinished as f64 / games,
-            "budget_capped": capped, "budget_capped_percent": 100.0 * capped as f64 / games,
-            "outcomes": outcomes,
-            "wins_by_seat": wins_by_seat,
-            "wins_by_deck_slot": wins_by_deck,
-            "wins_by_turn_order": wins_by_turn_order,
-            "win_rate_by_turn_order": wins_by_turn_order.map(|wins| wins as f64 / games),
-            "win_rate_by_seat": wins_by_seat.map(|wins| wins as f64 / games),
-            "placements_by_seat": ranks_by_seat,
-            "placements_by_deck_slot": ranks_by_deck,
-            "placement_method": "columns 0=unplaced, 1..4=rank; seats eliminated in the same advance call share a rank",
-            "worker_elapsed_ns": clocks,
-            "timing_scope": "wall includes worker startup, pod admission, play and unsampled disposal; excludes catalog load, sampled disposal/proofs, aggregation and output. Phase clocks sum concurrent worker elapsed times.",
-            "proofs_verified": verified,
-            "proofs": proofs, "rows": rows,
-        }),
-        verified,
-    ))
+    let mut report = serde_json::json!({
+        "schema": "bench-pods-v1",
+        "build": {"id": BUILD_ID, "profile": BUILD_PROFILE, "opt_level": BUILD_OPT_LEVEL,
+                  "debug": BUILD_DEBUG, "debug_assertions": BUILD_DEBUG_ASSERTIONS,
+                  "rustc": BUILD_RUSTC, "target": BUILD_TARGET, "rustflags": BUILD_RUSTFLAGS},
+        "profile": profile.name,
+        "catalog_sha256": profile.catalog_sha256,
+        "policy": Policy::Develop,
+        "trace_mode": TraceMode::Off,
+        "threads": workers, "threads_requested": options.threads,
+        "games": options.games, "seed_start": options.seed_start, "rotate_seats": options.rotate,
+        "limits": {"quantum": QUANTUM, "decisions": options.decision_limit, "turns": TURN_LIMIT, "host_calls": WORK_LIMIT},
+        "wall_ns": wall.as_nanos(), "proof_wall_ns": proof_wall.as_nanos(),
+        "games_per_second": games / seconds,
+        "completed_games_per_second": (options.games - unfinished) as f64 / seconds,
+        "decisions": decisions, "decisions_per_second": decisions as f64 / seconds,
+        "unfinished": unfinished, "unfinished_percent": 100.0 * unfinished as f64 / games,
+        "budget_capped": capped, "budget_capped_percent": 100.0 * capped as f64 / games,
+        "outcomes": outcomes,
+        "wins_by_seat": wins_by_seat,
+        "wins_by_deck_slot": wins_by_deck,
+        "wins_by_turn_order": wins_by_turn_order,
+        "win_rate_by_turn_order": wins_by_turn_order.map(|wins| wins as f64 / games),
+        "win_rate_by_seat": wins_by_seat.map(|wins| wins as f64 / games),
+        "placements_by_seat": ranks_by_seat,
+        "placements_by_deck_slot": ranks_by_deck,
+        "placement_method": "columns 0=unplaced, 1..4=rank; seats eliminated in the same advance call share a rank",
+        "worker_elapsed_ns": clocks,
+        "timing_scope": "wall includes worker startup, pod admission, play and unsampled disposal; excludes catalog load, sampled disposal/proofs, aggregation and output. Phase clocks sum concurrent worker elapsed times.",
+        "proofs_verified": verified,
+        "proofs": proofs, "rows": rows,
+    });
+    if let Some(elapsed) = analytics_wall {
+        report["analytics_wall_ns"] = serde_json::json!(elapsed);
+        report["analytics_out"] = serde_json::json!(options.analytics_out);
+        report["timing_scope"] = serde_json::json!(
+            "wall includes optional terminal journal/digest capture. Detailed analytics replays and file output are measured separately."
+        );
+    }
+    Ok((report, verified))
 }
 
 pub(crate) fn cli(args: &[String]) -> Result<(), String> {
@@ -532,6 +617,18 @@ pub(crate) fn cli(args: &[String]) -> Result<(), String> {
     let options = Options::parse(&args[1..])?;
     let profile =
         mtg_core::match_profile(name).ok_or_else(|| format!("unknown match profile {name}"))?;
+    if let Some(path) = &options.analytics_out {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return Err(format!(
+                    "analytics output already exists: {}",
+                    path.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
     let (report, verified) = run(profile, &options)?;
     println!(
         "{}",
@@ -583,5 +680,85 @@ mod tests {
         assert_eq!(parallel["budget_capped"], 4);
         assert_eq!(parallel["rows"], serial["rows"]);
         assert_eq!(parallel["proofs"], serial["proofs"]);
+
+        let directory = test_output("capped");
+        options.analytics_out = Some(directory.clone());
+        let (instrumented, verified) = run(profile, &options).unwrap();
+        let analytics: serde_json::Value =
+            serde_json::from_slice(&fs::read(directory.join("analytics.json")).unwrap()).unwrap();
+        fs::remove_dir_all(&directory).unwrap();
+        assert!(verified);
+        assert_eq!(instrumented["rows"], parallel["rows"]);
+        assert_eq!(instrumented["proofs"], parallel["proofs"]);
+        assert!(instrumented["analytics_wall_ns"].is_number());
+        assert!(parallel.get("analytics_wall_ns").is_none());
+        assert_eq!(analytics["verified_terminal_replays"], 0);
+        let decks = analytics["decks"].as_array().unwrap();
+        assert_eq!(decks.len(), 2);
+        for deck in decks {
+            assert_eq!(deck["attempts"], 8);
+            assert_eq!(deck["decision_cap_rate"]["count"], 8);
+            assert!(deck["win_rate"]["rate"].is_null());
+        }
+    }
+    #[test]
+    fn terminal_analytics_replay_preserves_state_and_journal() {
+        let profile = mtg_core::match_profile("commander-foundations-v1").unwrap();
+        let mut options =
+            Options::parse(&["--games", "1", "--threads", "1"].map(String::from)).unwrap();
+        let (plain, verified) = run(profile, &options).unwrap();
+        assert!(verified);
+        assert_eq!(plain["unfinished"], 0);
+
+        let directory = test_output("terminal");
+        options.analytics_out = Some(directory.clone());
+        let (enabled, verified) = run(profile, &options).unwrap();
+        let analytics: serde_json::Value =
+            serde_json::from_slice(&fs::read(directory.join("analytics.json")).unwrap()).unwrap();
+        let markdown = fs::read_to_string(directory.join("summary.md")).unwrap();
+        fs::remove_dir_all(&directory).unwrap();
+        assert!(verified);
+        assert_eq!(enabled["rows"], plain["rows"]);
+        assert_eq!(enabled["proofs"], plain["proofs"]);
+        assert_eq!(analytics["verified_terminal_replays"], 1);
+        assert!(markdown.contains("OH WR") && markdown.contains("GIH WR"));
+
+        let decks = analytics["decks"].as_array().unwrap();
+        let seats: u64 = decks
+            .iter()
+            .map(|deck| deck["completed"].as_u64().unwrap())
+            .sum();
+        let wins: u64 = decks
+            .iter()
+            .map(|deck| deck["win_rate"]["count"].as_u64().unwrap())
+            .sum();
+        assert_eq!((seats, wins), (4, 1));
+        assert!(
+            decks
+                .iter()
+                .all(|deck| deck["unclassified_library_to_hand_moves"] == 0)
+        );
+        assert!(decks.iter().any(|deck| {
+            deck["cards_by_oracle_id"]
+                .as_object()
+                .unwrap()
+                .values()
+                .any(|card| {
+                    card["games_drawn"].as_u64().unwrap() > 0
+                        && card["games_land_played"].as_u64().unwrap() > 0
+                        && card["cast_rate"]["rate"].is_null()
+                })
+        }));
+    }
+
+    fn test_output(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "mtg-bench-analytics-{label}-{}-{nonce}",
+            std::process::id()
+        ))
     }
 }

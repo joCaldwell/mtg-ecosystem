@@ -80,30 +80,58 @@ pub(crate) fn spend(
     cost: &ManaCost,
     available: &BTreeMap<Color, Quantity>,
 ) -> Option<BTreeMap<Color, Quantity>> {
-    let mut used = BTreeMap::<Color, Quantity>::new();
+    let used = payment(cost, available)?;
+    Some(
+        PAYMENT_ORDER
+            .into_iter()
+            .zip(used)
+            .filter(|(_, n)| *n > Quantity::zero())
+            .collect(),
+    )
+}
+
+pub(crate) fn can_fund(
+    catalog: &Catalog,
+    view: &mtg_core::PermittedView,
+    cost: ManaCost,
+    symbols: &[mtg_contracts::ColorHybridSymbol],
+) -> bool {
+    mana_policy::hybrid_plan(catalog, view, cost, symbols).is_some()
+}
+
+const PAYMENT_ORDER: [Color; 6] = [Color::B, Color::G, Color::W, Color::U, Color::R, Color::C];
+
+fn payment(cost: &ManaCost, available: &BTreeMap<Color, Quantity>) -> Option<[Quantity; 6]> {
+    let mut used: [Quantity; 6] = Default::default();
     let one = Quantity::from(1);
     for c in &cost.colored {
-        let n = used.entry(*c).or_default();
+        let index = match c {
+            Color::B => 0,
+            Color::G => 1,
+            Color::W => 2,
+            Color::U => 3,
+            Color::R => 4,
+            Color::C => 5,
+        };
+        let n = &mut used[index];
         n.add(&one);
         if &*n > available.get(c)? {
             return None;
         }
     }
     let mut rest = cost.generic.clone();
-    for c in [Color::B, Color::G, Color::W, Color::U, Color::R, Color::C] {
+    for (c, already) in PAYMENT_ORDER.into_iter().zip(&mut used) {
         if rest == Quantity::zero() {
             break;
         }
         let Some(mut n) = available.get(&c).cloned() else {
             continue;
         };
-        if let Some(already) = used.get(&c) {
-            n.subtract(already);
-        }
+        n.subtract(already);
         let n = n.min(rest.clone());
         if n > Quantity::zero() {
             rest.subtract(&n);
-            used.entry(c).or_default().add(&n);
+            already.add(&n);
         }
     }
     (rest == Quantity::zero()).then_some(used)
@@ -577,7 +605,7 @@ impl Strategy<'_> {
                     .find(|p| p.player == v.viewer)
                     .ok_or("missing mana payer")?
                     .mana;
-                let payable = spend(cost, available).is_some();
+                let payable = payment(cost, available).is_some();
                 let outer = mana_ability_source.is_none();
                 if outer && self.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
