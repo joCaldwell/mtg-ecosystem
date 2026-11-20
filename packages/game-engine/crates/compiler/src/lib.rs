@@ -39,6 +39,7 @@ mod draw_discard;
 mod draw_discard_tests;
 mod draw_land_allowance;
 mod each_player_draw;
+mod entry_graveyard_exile;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
@@ -2511,6 +2512,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
+    entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
     {
@@ -5222,6 +5224,11 @@ fn lower_trigger(
     intervening: Option<&SourceCondition>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
+    if let Some(ability) =
+        entry_graveyard_exile::lower_trigger(trigger, effects, intervening, block)
+    {
+        return Ok(ability);
+    }
     if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {
         if matches!(what, TriggerObject::This { noun } if noun == "creature") {
             return successor_tuck::lower(effects, intervening, from, to, source_block(block)?);
