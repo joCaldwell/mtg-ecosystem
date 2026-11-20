@@ -76,6 +76,7 @@ impl ResolvedEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
+    RegenerationShield,
     ProtectControllerUntilNextTurn,
     RemoveIndestructibleSet {
         targets: Vec<ObjectId>,
@@ -485,6 +486,16 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         let (kind, block) = match instruction {
+            Instruction::RegenerateSource { source_block } => {
+                if !self
+                    .current(frame.spell.source)
+                    .is_ok_and(|o| o.present_on_battlefield())
+                {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (ResolvedEffectKind::RegenerationShield, source_block)
+            }
             Instruction::ModifySourcePowerToughness {
                 power,
                 toughness,
@@ -1423,6 +1434,20 @@ impl Game {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        Instruction::RegenerateSource { source_block },
+                        ResolvedEffectKind::RegenerationShield,
+                    ) => {
+                        *source_block == effect.origin.source_block
+                            && frame.spell.kind.activated_index().is_some()
+                            && frame.spell.paid.is_some()
+                            && self.top()? == &frame.spell
+                            && self.current(frame.spell.source)?.present_on_battlefield()
+                            && !self.state.rules.effects.iter().any(|active| {
+                                active.origin.stack_id == frame.spell.id
+                                    && active.origin.cursor == frame.cursor
+                            })
+                    }
+                    (
                         Instruction::RemoveOpponentNonlandIndestructible { source_block },
                         ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp },
                     ) => {
@@ -1941,6 +1966,15 @@ impl Game {
             for (program, instruction) in instructions {
                 bound |= match (instruction, &e.kind) {
                     (
+                        Instruction::RegenerateSource { source_block },
+                        ResolvedEffectKind::RegenerationShield,
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && e.origin.activated_ability.is_some()
+                            && e.origin.mode.is_none()
+                            && e.target_handles.is_empty()
+                    }
+                    (
                         Instruction::RemoveOpponentNonlandIndestructible { source_block },
                         ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp },
                     ) => {
@@ -2262,6 +2296,11 @@ pub struct VisibleEffectSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VisibleEffect {
+    RegenerationShield {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        expires_in_cleanup_of_turn: u64,
+    },
     DelayedChapter {
         origin: VisibleEffectSource,
         chapter: u32,
@@ -2542,6 +2581,11 @@ impl Game {
                 .collect()
         };
         Ok(match &e.kind {
+            ResolvedEffectKind::RegenerationShield => VisibleEffect::RegenerationShield {
+                handle,
+                origin,
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
             ResolvedEffectKind::RemoveIndestructibleSet { targets, .. } => {
                 VisibleEffect::RemoveIndestructibleSet {
                     handle,

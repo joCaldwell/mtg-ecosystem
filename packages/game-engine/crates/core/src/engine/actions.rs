@@ -1412,6 +1412,7 @@ impl Game {
                 self.execute_token_instruction(frame, op)
             }
             op @ (Instruction::GrantKeywords { .. }
+            | Instruction::RegenerateSource { .. }
             | Instruction::GrantSourceKeywords { .. }
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::ProtectControllerUntilNextTurn { .. }

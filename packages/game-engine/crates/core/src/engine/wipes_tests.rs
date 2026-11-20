@@ -1,4 +1,4 @@
-//! Every gameplay witness begins with admit_pod and seeded legal 100-card decks.
+//! The natural gameplay harness begins with admit_pod and seeded legal 100-card decks.
 //! Host-only seed selection arranges no cards; all draws, land plays, casts,
 //! costs, choices and concessions are recorded accepted inputs. No injected state.
 use super::*;
@@ -1965,4 +1965,162 @@ fn wurm_simultaneous_death_looks_back() {
             assert_eq!(life(g, 1), l1);
         },
     );
+}
+
+#[test]
+fn paid_self_regeneration_replaces_destruction_and_offers_anger_order() {
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/8661d773-3b92-4fcf-8ffc-aced1ff7be8a.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("{compiled:?}");
+    };
+    let mut catalog = catalog();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    let mut config = ScenarioConfig::turns_permanents();
+    config.profile = "paid-self-regeneration".into();
+    config.initial.turn_step = TurnStep::PrecombatMain;
+    config.cards.clear();
+    for (seat, zone, names) in [
+        (
+            0,
+            Zone::Hand { owner: PlayerId(0) },
+            &[
+                "Lightning Bolt",
+                "Anger of the Gods",
+                "Pongify",
+                "Day of Judgment",
+            ][..],
+        ),
+        (
+            0,
+            Zone::Battlefield,
+            &[
+                "Mountain", "Mountain", "Mountain", "Mountain", "Plains", "Plains", "Island",
+            ][..],
+        ),
+        (
+            1,
+            Zone::Battlefield,
+            &[
+                "Trestle Troll",
+                "Swamp",
+                "Swamp",
+                "Forest",
+                "Forest",
+                "Forest",
+                "Forest",
+                "Grizzly Bears",
+            ][..],
+        ),
+    ] {
+        for name in names {
+            config.cards.push(CardSetup {
+                id: CardId(config.cards.len() as u32),
+                oracle_id: catalog
+                    .definitions
+                    .iter()
+                    .find(|d| d.name == *name)
+                    .unwrap()
+                    .oracle_id
+                    .clone(),
+                controller: PlayerId(seat),
+                owner: PlayerId(seat),
+                zone,
+            });
+        }
+    }
+    let prepared = Prepared {
+        catalog_digest: digest(&catalog).unwrap(),
+        profile_digest: digest(&config).unwrap(),
+        catalog: Arc::new(catalog),
+        config,
+        match_config: None,
+    };
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let troll = named(&g, "Trestle Troll", 1);
+    let bear = named(&g, "Grizzly Bears", 1);
+    for count in 1..=2 {
+        activate(&mut g, "Trestle Troll", 1, None, None);
+        assert_eq!(
+            g.top().unwrap().paid.as_ref(),
+            Some(&g.top().unwrap().total_cost)
+        );
+        settle(&mut g);
+        assert!(!g.current(troll).unwrap().tapped);
+        assert_eq!(
+            g.state
+                .rules
+                .effects
+                .iter()
+                .filter(|e| matches!(e.kind, ResolvedEffectKind::RegenerationShield))
+                .count(),
+            count
+        );
+    }
+    let first = g.state.rules.effects[0].id;
+    let second = g.state.rules.effects[1].id;
+    let mut forbidden = g.fork();
+    announce(&mut forbidden, "Pongify", 0, obj(troll), None);
+    settle(&mut forbidden);
+    assert_eq!(
+        forbidden.zone(named(&forbidden, "Trestle Troll", 1)),
+        Some(Zone::Graveyard { owner: PlayerId(1) })
+    );
+    assert!(!forbidden.events().iter().any(|event| matches!(
+        event,
+        Event::Committed {
+            actual: EventOutcome::Regenerated { .. },
+            ..
+        }
+    )));
+    let mut wipe = g.fork();
+    announce(&mut wipe, "Day of Judgment", 0, None, None);
+    settle(&mut wipe);
+    assert!(wipe.current(troll).unwrap().tapped);
+    assert!(wipe.current(bear).is_err());
+    check(&wipe);
+
+    announce(&mut g, "Lightning Bolt", 0, obj(troll), None);
+    settle(&mut g);
+    assert_eq!(g.current(troll).unwrap().marked_damage, 3.into());
+    announce(&mut g, "Anger of the Gods", 0, None, None);
+    for _ in 0..4 {
+        answer(&mut g, Response::Pass);
+    }
+    let r = request(&mut g);
+    assert!(
+        matches!(r, Request::GraveyardReplacementOrder { offered:Some(GraveyardOrderOption::Regenerate), object, player:PlayerId(1), ..} if object == troll)
+    );
+    assert!(matches!(
+        observation(&g, 1).decision,
+        Some(PlayerRequest::GraveyardReplacementOrder {
+            offered: Some(GraveyardOrderOption::Regenerate),
+            ..
+        })
+    ));
+    assert!(observation(&g, 0).decision.is_none());
+    assert_eq!(g.current(bear).unwrap().zone, Zone::Battlefield);
+    check(&g);
+    let mut exile = g.fork();
+    answer(&mut exile, Response::OptionalEffect { perform: false });
+    settle(&mut exile);
+    assert_eq!(
+        exile.zone(named(&exile, "Trestle Troll", 1)),
+        Some(Zone::Exile)
+    );
+    check(&exile);
+    answer(&mut g, Response::OptionalEffect { perform: true });
+    settle(&mut g);
+    assert_eq!(g.current(troll).unwrap().marked_damage, Quantity::zero());
+    assert!(g.current(troll).unwrap().tapped);
+    assert_eq!(g.zone(named(&g, "Grizzly Bears", 1)), Some(Zone::Exile));
+    assert!(g.events().iter().any(|event| matches!(event, Event::Committed {proposed:ProposedEvent::StateBasedGraveyard {object, reason:CreatureLossReason::LethalDamage}, actual:EventOutcome::Regenerated { shield,tapped:true, .. }} if *object == troll && *shield == first)));
+    assert!(g.state.rules.effects.iter().any(|e| e.id == second));
+    check(&g);
 }

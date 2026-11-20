@@ -266,6 +266,9 @@ pub enum PlayerRequest {
         candidates: Vec<ObjectHandle>,
     },
     GraveyardReplacementOrder {
+        /// OptionalEffect(true) selects this alternative to exile. Omission selects the printed shuffle.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offered: Option<GraveyardOrderOption>,
         token: DecisionToken,
         player: PlayerId,
         object: ObjectHandle,
@@ -1577,11 +1580,16 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
-        if let Some(Request::GraveyardReplacementOrder { player, object, .. }) =
-            self.group_replacement_request()
+        if let Some(Request::GraveyardReplacementOrder {
+            player,
+            object,
+            offered,
+            ..
+        }) = self.group_replacement_request()
         {
             return if player == viewer {
                 Ok(Some(PlayerRequest::GraveyardReplacementOrder {
+                    offered,
                     token,
                     player,
                     object: self.handle_for(viewer, object)?,

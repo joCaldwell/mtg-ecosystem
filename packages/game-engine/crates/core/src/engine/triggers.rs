@@ -537,9 +537,12 @@ impl Game {
                     }
                     witnesses
                 }
-                EventOutcome::Tapped { object } => {
-                    self.source_tap_witness(*object)?.into_iter().collect()
-                }
+                EventOutcome::Tapped { object }
+                | EventOutcome::Regenerated {
+                    object,
+                    tapped: true,
+                    ..
+                } => self.source_tap_witness(*object)?.into_iter().collect(),
                 EventOutcome::TokensCreated { objects, .. } => objects
                     .iter()
                     .map(|object| TriggerEventWitness::TokenEntered { object: *object })

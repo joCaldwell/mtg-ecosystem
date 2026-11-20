@@ -34,6 +34,7 @@ mod activated_spell_counter_tests;
 mod each_player_draw;
 mod graveyard_group;
 mod graveyard_replacement;
+mod regeneration;
 use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
 mod group_discard;
 use graveyard_replacement::GraveyardReplacement;
@@ -1434,6 +1435,12 @@ pub struct AcceptedInput {
     pub player: PlayerId,
     pub response: Response,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GraveyardOrderOption {
+    Regenerate,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
@@ -1460,6 +1467,9 @@ pub enum Request {
         candidates: Vec<ObjectId>,
     },
     GraveyardReplacementOrder {
+        /// OptionalEffect(true) selects this alternative to exile. Omission selects the printed shuffle.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offered: Option<GraveyardOrderOption>,
         decision_id: u64,
         player: PlayerId,
         object: ObjectId,
@@ -2156,6 +2166,11 @@ pub enum EventOutcome {
         movement: MoveOutcome,
         target: ObjectId,
         attachment_timestamp: u64,
+    },
+    Regenerated {
+        object: ObjectId,
+        shield: EffectId,
+        tapped: bool,
     },
     DestructionPrevented {
         object: ObjectId,

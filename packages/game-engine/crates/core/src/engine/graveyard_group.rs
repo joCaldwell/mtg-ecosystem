@@ -67,6 +67,8 @@ pub(super) struct GraveyardGroup {
     cause: BatchCause,
     group: EventGroup,
     members: Vec<Member>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) shields: Vec<regeneration::ShieldMember>,
     owed: Vec<PlayerId>,
     draft: Option<Randomization>,
     #[serde(skip)]
@@ -208,6 +210,14 @@ impl GraveyardGroup {
         }))
     }
 
+    pub(super) fn is_publication(&self, cause: &BatchCause, group: &EventGroup) -> bool {
+        cause == &self.cause && group == &self.group && self.publishing_shuffle.is_none()
+    }
+
+    fn uses_shuffle_transaction(&self) -> bool {
+        !self.owed.is_empty() || !self.members.is_empty()
+    }
+
     fn next(&self, game: &Game) -> Option<Request> {
         let decision_id = game.state.rules.revision;
         for player in game.apnap_seats() {
@@ -220,6 +230,19 @@ impl GraveyardGroup {
                     decision_id,
                     player,
                     object: m.object,
+                    offered: None,
+                });
+            }
+            if let Some(m) = self
+                .shields
+                .iter()
+                .find(|m| m.affected == player && m.regenerate.is_none())
+            {
+                return Some(Request::GraveyardReplacementOrder {
+                    decision_id,
+                    player,
+                    object: m.object,
+                    offered: Some(GraveyardOrderOption::Regenerate),
                 });
             }
         }
@@ -373,6 +396,17 @@ impl GraveyardGroup {
         {
             return Err("graveyard replacement member invariant".into());
         }
+        let expected_shields = game.regeneration_members(&self.group, &self.finish)?;
+        if self.shields.len() != expected_shields.len()
+            || self.shields.iter().zip(expected_shields).any(|(m, c)| {
+                m.object != c.object
+                    || m.affected != c.affected
+                    || m.shield != c.shield
+                    || c.regenerate.is_some() && m.regenerate != c.regenerate
+            })
+        {
+            return Err("regeneration wave member invariant".into());
+        }
         let producing = match &self.finish {
             GroupFinish::Instruction { frame, result } => {
                 game.validate_resolving(frame)?;
@@ -385,8 +419,8 @@ impl GraveyardGroup {
                     GroupResult::Sacrifice {..} => matches!(i, Instruction::SacrificeCreature {..} | Instruction::TargetPlayerSacrificeCreature {..}),
                 };
                 kind && self.cause == Game::staple_cause(frame,i.source_block()) && leaves.iter().all(|e| match (i,e) {
-                    (Instruction::DestroyPermanent {target_slot,..},ProposedEvent::DestroyPermanent {object})
-                    | (Instruction::DestroyTargetCreature {target_slot,..},ProposedEvent::DestroyCreature {object}) => frame.spell.targets.get(*target_slot as usize) == Some(object) && frame.legal_targets.get(*target_slot as usize) == Some(&true),
+                    (Instruction::DestroyPermanent {target_slot,..},ProposedEvent::DestroyPermanent {object}) => game.bound_object_target(&frame.spell,*target_slot as usize) == Some(object) && frame.legal_targets.get(*target_slot as usize) == Some(&true),
+                    (Instruction::DestroyTargetCreature {target_slot,..},ProposedEvent::DestroyCreature {object}) => frame.spell.targets.get(*target_slot as usize) == Some(object) && frame.legal_targets.get(*target_slot as usize) == Some(&true),
                     (Instruction::MoveSet {..}|Instruction::DestroySet {..}|Instruction::DestroyAllCreatures {..},ProposedEvent::DestroyPermanent {..}) => true,
                     (Instruction::DiscardPlayerSet {..},ProposedEvent::DiscardCard {..}) => true,
                     (_,ProposedEvent::DiscardCard {player,..}) => matches!(result, GroupResult::Discard {player:p} if p == player),
@@ -414,13 +448,16 @@ impl GraveyardGroup {
         if !producing {
             return Err("graveyard wave producer mismatch".into());
         }
-        let seeded = game
-            .state
-            .rules
-            .match_state
-            .as_ref()
-            .ok_or("missing graveyard replacement entropy")?;
+        if self.uses_shuffle_transaction() && game.state.rules.match_state.is_none() {
+            return Err("missing graveyard replacement entropy".into());
+        }
         if let Some(d) = &self.draft {
+            let seeded = game
+                .state
+                .rules
+                .match_state
+                .as_ref()
+                .ok_or("missing graveyard replacement entropy")?;
             let expected = self.randomization(game)?;
             if d.start != seeded.random.word_position
                 || d.random.seed != seeded.random.seed
@@ -484,15 +521,19 @@ impl GraveyardGroup {
             return Ok(None);
         }
         if group != &self.group
-            || !self
-                .draft
-                .as_ref()
-                .is_some_and(|d| d.cursor == d.shuffles.len())
+            || (self.uses_shuffle_transaction()
+                && !self
+                    .draft
+                    .as_ref()
+                    .is_some_and(|d| d.cursor == d.shuffles.len()))
         {
             return Err("graveyard wave origin or preparation mismatch".into());
         }
         if self.next(game).is_some() {
             return Err("outstanding graveyard choice".into());
+        }
+        if !self.shields.is_empty() {
+            self.validate(game)?;
         }
         self.destinations().map(Some)
     }
@@ -518,11 +559,12 @@ impl Game {
                 members.push(m)
             }
         }
-        if members.is_empty() {
+        let shields = self.regeneration_members(&group, &finish)?;
+        if members.is_empty() && shields.is_empty() {
             let batch = self.commit_batch(cause, group)?;
             return finish.complete(self, Some(&batch));
         }
-        if self.state.rules.match_state.is_none() {
+        if !members.is_empty() && self.state.rules.match_state.is_none() {
             return Err("printed graveyard shuffle requires a seeded match".into());
         }
         let revealed: Vec<_> = members
@@ -542,6 +584,7 @@ impl Game {
                 cause,
                 group,
                 members,
+                shields,
                 owed: vec![],
                 draft: None,
                 publishing_shuffle: None,
@@ -670,11 +713,22 @@ impl Game {
                 occurrences: leaves,
             }
         };
-        if tx.members != next || tx.group != next_group {
+        let mut shields = self.regeneration_members(&next_group, &tx.finish)?;
+        for m in &mut shields {
+            if m.regenerate.is_none()
+                && let Some(old) = tx.shields.iter().find(|old| {
+                    old.object == m.object && old.shield == m.shield && old.affected == m.affected
+                })
+            {
+                m.regenerate = old.regenerate;
+            }
+        }
+        if tx.members != next || tx.group != next_group || tx.shields != shields {
             self.state.rules.pending = None;
         }
         tx.group = next_group;
         tx.members = next;
+        tx.shields = shields;
         // No uncommitted trials have changed the live random stream. Rebuild
         // against the remaining libraries before sampling the next paid word.
         tx.draft = None;
@@ -778,7 +832,25 @@ impl Game {
             }
             match (request, input.response) {
                 (
-                    Request::GraveyardReplacementOrder { object, .. },
+                    Request::GraveyardReplacementOrder {
+                        object,
+                        offered: Some(GraveyardOrderOption::Regenerate),
+                        ..
+                    },
+                    Response::OptionalEffect { perform },
+                ) => {
+                    tx.shields
+                        .iter_mut()
+                        .find(|m| m.object == object && m.regenerate.is_none())
+                        .ok_or("missing regeneration choice")?
+                        .regenerate = Some(perform);
+                }
+                (
+                    Request::GraveyardReplacementOrder {
+                        object,
+                        offered: None,
+                        ..
+                    },
                     Response::OptionalEffect { perform },
                 ) => {
                     tx.members
@@ -805,6 +877,15 @@ impl Game {
                 }
                 _ => return Err("unexpected graveyard response".into()),
             }
+        } else if !tx.uses_shuffle_transaction()
+            && !matches!(tx.finish, GroupFinish::Payment { .. })
+        {
+            let batch = if GraveyardGroup::leaves(&tx.group)?.is_empty() {
+                None
+            } else {
+                Some(self.commit_batch(tx.cause.clone(), tx.group.clone())?)
+            };
+            return tx.finish.complete(self, batch.as_ref());
         } else if tx.draft.is_none() {
             tx.draft = Some(tx.randomization(self)?);
         } else {
