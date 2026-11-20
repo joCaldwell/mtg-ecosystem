@@ -244,6 +244,8 @@ impl Game {
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
+                battlefield_entry_turn: (zone == Zone::Battlefield)
+                    .then_some(self.state.rules.turn.number),
                 keyword_timestamp: (zone == Zone::Battlefield)
                     .then_some(self.state.rules.next_batch_id),
                 plus_one_counters: Quantity::zero(),

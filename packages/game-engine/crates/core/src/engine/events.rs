@@ -100,6 +100,8 @@ pub enum EventGroup {
 pub struct ObjectBefore {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyword_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battlefield_entry_turn: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1347,6 +1349,7 @@ impl Game {
             .map(|object| {
                 let o = self.current(object)?;
                 Ok(ObjectBefore {
+                    battlefield_entry_turn: o.battlefield_entry_turn,
                     keyword_timestamp: o.keyword_timestamp,
                     keywords: { self.current_keywords(object) },
                     deathtouch_damage: o.deathtouch_damage,
@@ -2041,6 +2044,8 @@ impl Game {
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
+                battlefield_entry_turn: (*destination == Zone::Battlefield)
+                    .then_some(self.state.rules.turn.number),
                 keyword_timestamp: (*destination == Zone::Battlefield)
                     .then_some(self.state.rules.next_batch_id),
                 plus_one_counters: Quantity::zero(),

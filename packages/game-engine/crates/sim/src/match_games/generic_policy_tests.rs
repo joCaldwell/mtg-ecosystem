@@ -10,6 +10,7 @@ mod reactive_tests {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             VisibleObject {
                 phased_out: false,
+                entered_this_turn: false,
                 mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
@@ -217,6 +218,7 @@ mod wipe_tests {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
             phased_out: false,
+            entered_this_turn: false,
             mana_ability_used: None,
             attached_to: None,
             attachments: vec![],
