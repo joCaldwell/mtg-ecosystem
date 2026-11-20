@@ -858,7 +858,10 @@ impl Game {
                             Frame::ManaSourceChoice { scope, .. },
                             PlayerResponse::ManaColor { .. },
                         ) => *scope != ManaSourceScope::Mixed,
-                        (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
+                        (
+                            Frame::LandEntry { .. } | Frame::GraveyardGroup { .. },
+                            PlayerResponse::OptionalEffect { .. },
+                        ) => true,
                         (
                             Frame::HandCast { child: None, .. },
                             PlayerResponse::Cast { .. } | PlayerResponse::Pass,
@@ -916,7 +919,9 @@ impl Game {
                         | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
                         | (Frame::SpendMana { .. }, PlayerResponse::SpendMana { .. })
                         | (
-                            Frame::CommanderReturn { .. } | Frame::GraveyardReplacement { .. },
+                            Frame::CommanderReturn { .. }
+                            | Frame::GraveyardReplacement { .. }
+                            | Frame::GraveyardGroup { .. },
                             PlayerResponse::CommanderReturn { .. },
                         )
                         | (Frame::Attackers, PlayerResponse::Attackers { .. })

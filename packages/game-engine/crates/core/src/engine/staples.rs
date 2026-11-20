@@ -370,10 +370,16 @@ impl Game {
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
                     && self.is_battlefield_creature(target)
                 {
-                    self.commit(
-                        ProposedEvent::DestroyCreature { object: target },
+                    return self.complete_graveyard_group(
                         Self::staple_cause(&frame, source_block),
-                    )?;
+                        EventGroup::Occurrence {
+                            proposed: ProposedEvent::DestroyCreature { object: target },
+                        },
+                        GroupFinish::Instruction {
+                            frame,
+                            result: GroupResult::Effect,
+                        },
+                    );
                 }
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }

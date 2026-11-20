@@ -32,7 +32,9 @@ mod activated_permanent_tap_tests;
 #[cfg(test)]
 mod activated_spell_counter_tests;
 mod each_player_draw;
+mod graveyard_group;
 mod graveyard_replacement;
+use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
 mod group_discard;
 use graveyard_replacement::GraveyardReplacement;
 #[cfg(test)]
@@ -1063,6 +1065,9 @@ struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 enum Frame {
+    GraveyardGroup {
+        tx: Box<GraveyardGroup>,
+    },
     GraveyardReplacement {
         transaction: Box<GraveyardReplacement>,
     },
@@ -1360,6 +1365,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    GraveyardReplacementOrder {
+        decision_id: u64,
+        player: PlayerId,
+        object: ObjectId,
+    },
     HandCast {
         player: PlayerId,
         decision_id: u64,
@@ -1631,6 +1641,7 @@ impl Request {
             | Self::LegendRule { decision_id, .. }
             | Self::ResolveDiscard { decision_id, .. }
             | Self::SpendMana { decision_id, .. }
+            | Self::GraveyardReplacementOrder { decision_id, .. }
             | Self::CommanderReturn { decision_id, .. }
             | Self::Attackers { decision_id, .. }
             | Self::Blockers { decision_id, .. }
@@ -1675,6 +1686,7 @@ impl Request {
             | Self::LegendRule { player, .. }
             | Self::ResolveDiscard { player, .. }
             | Self::SpendMana { player, .. }
+            | Self::GraveyardReplacementOrder { player, .. }
             | Self::CommanderReturn { player, .. }
             | Self::Attackers { player, .. }
             | Self::Blockers { player, .. }
@@ -2740,7 +2752,10 @@ impl Game {
         if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
             return Ok(None);
         }
-        if matches!(self.state.rules.frame, Frame::GraveyardReplacement { .. }) {
+        if matches!(
+            self.state.rules.frame,
+            Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
+        ) {
             return Ok(self.replacement_request().filter(|r| r.player() == viewer));
         }
         if matches!(self.state.rules.frame, Frame::Setup) {
@@ -2925,12 +2940,23 @@ impl Game {
         Ok((req.player() == viewer).then_some(req))
     }
     fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
-        if matches!(self.state.rules.frame, Frame::GraveyardReplacement { .. }) {
-            return if matches!(response, Response::CommanderReturn { .. })
-                && self
-                    .replacement_request()
-                    .is_some_and(|r| r.player() == player)
-            {
+        if matches!(
+            self.state.rules.frame,
+            Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
+        ) {
+            return if self.replacement_request().is_some_and(|r| {
+                r.player() == player
+                    && matches!(
+                        (r, response),
+                        (
+                            Request::CommanderReturn { .. },
+                            Response::CommanderReturn { .. }
+                        ) | (
+                            Request::GraveyardReplacementOrder { .. },
+                            Response::OptionalEffect { .. }
+                        )
+                    )
+            }) {
                 Ok(())
             } else {
                 Err("invalid graveyard replacement decision".into())
@@ -3243,6 +3269,7 @@ impl Game {
             return self.apply_departure(player);
         }
         match self.state.rules.frame.clone() {
+            Frame::GraveyardGroup { tx } => self.graveyard_group_step(tx)?,
             Frame::GraveyardReplacement { transaction } => {
                 self.graveyard_replacement_step(transaction)?
             }
@@ -3885,7 +3912,10 @@ impl Game {
             | Frame::Payment { cast } => {
                 let top = self.top()?;
                 if (!cast.sacrifices.is_empty()
-                    && !matches!(s.rules.frame, Frame::SacrificeCost { .. }))
+                    && !matches!(
+                        self.underlying_mana_frame(&s.rules.frame),
+                        Frame::SacrificeCost { .. }
+                    ))
                     || cast.origin.is_spell() != top.kind.is_spell()
                     || cast.stack_id != top.id
                     || cast.original_object.card != top.source.card

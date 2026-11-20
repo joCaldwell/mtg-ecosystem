@@ -198,7 +198,16 @@ impl Game {
         action: SetMove,
         block: u32,
     ) -> Result<(), String> {
-        let mut destroyed_creatures = 0;
+        if !occurrences.is_empty() && action == SetMove::Destroy {
+            return self.complete_graveyard_group(
+                Self::wipe_cause(&frame, block),
+                EventGroup::Simultaneous { occurrences },
+                GroupFinish::Instruction {
+                    frame,
+                    result: GroupResult::DestroySet,
+                },
+            );
+        }
         let mut movements = vec![];
         if !occurrences.is_empty() {
             let batch = self.commit_batch(
@@ -207,14 +216,6 @@ impl Game {
             )?;
             for r in batch.occurrences {
                 if let EventOutcome::Moved { movement } = r.actual {
-                    if matches!(action, SetMove::Destroy)
-                        && r.before.objects.iter().any(|o| {
-                            o.object == movement.previous
-                                && o.characteristics.kind == CardKind::Creature
-                        })
-                    {
-                        destroyed_creatures += 1;
-                    }
                     movements.push(movement);
                 }
             }
@@ -223,7 +224,7 @@ impl Game {
             frame,
             InstructionOutcome::SetMoved {
                 movements,
-                destroyed_creatures,
+                destroyed_creatures: 0,
             },
         )
     }

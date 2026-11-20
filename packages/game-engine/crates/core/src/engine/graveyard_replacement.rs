@@ -232,13 +232,15 @@ impl Game {
 
     pub(super) fn replacement_request(&self) -> Option<Request> {
         match &self.state.rules.frame {
+            Frame::GraveyardGroup { .. } => self.group_replacement_request(),
             Frame::GraveyardReplacement { transaction } => transaction.request(self),
             _ => None,
         }
     }
 
     pub(super) fn replacement_reveals(&self, object: ObjectId) -> bool {
-        matches!(&self.state.rules.frame, Frame::GraveyardReplacement { transaction }
+        matches!(&self.state.rules.frame, Frame::GraveyardGroup { tx } if tx.reveals(object))
+            || matches!(&self.state.rules.frame, Frame::GraveyardReplacement { transaction }
             if matches!(transaction.phase, ReplacementPhase::BeforeMovement)
             && transaction.revealed.contains(&object))
     }
@@ -249,6 +251,9 @@ impl Game {
         cause: &BatchCause,
         group: &EventGroup,
     ) -> Result<Option<BTreeMap<ObjectId, Zone>>, String> {
+        if let Frame::GraveyardGroup { tx } = &self.state.rules.frame {
+            return tx.authorize(self, cause, group);
+        }
         let Frame::GraveyardReplacement { transaction: tx } = &self.state.rules.frame else {
             return Ok(None);
         };
@@ -393,7 +398,10 @@ impl Game {
 
     pub(super) fn replacement_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
-        if matches!(frame, Frame::GraveyardReplacement { .. }) {
+        if matches!(
+            frame,
+            Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
+        ) {
             stored_history::payload_charge(frame)
         } else {
             0
@@ -401,6 +409,11 @@ impl Game {
     }
 
     pub(super) fn validate_graveyard_replacement(&self) -> Result<(), String> {
+        if let Frame::GraveyardGroup { tx } =
+            spell_cascade_grants::retained_effect_frame(&self.state.rules.frame)
+        {
+            return tx.validate(self);
+        }
         let Frame::GraveyardReplacement { transaction: tx } =
             spell_cascade_grants::retained_effect_frame(&self.state.rules.frame)
         else {
