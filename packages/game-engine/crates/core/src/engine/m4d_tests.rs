@@ -63,7 +63,7 @@ pub(super) fn root(original: &str, library: &[&str], board: &[&str]) -> Prepared
     p
 }
 pub(super) fn flags(g: &Game, seat: usize) -> (bool, bool) {
-    let h = g.state.rules.cast_history[seat];
+    let h = &g.state.rules.cast_history[seat];
     (h.any_cast, h.exile_cast)
 }
 pub(super) fn witness(g: &Game, original: StackId) -> &triggers::CastOccurrence {
