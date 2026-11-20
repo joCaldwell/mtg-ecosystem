@@ -12,7 +12,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && o.controller == player)
+            .filter(|o| o.present_on_battlefield() && o.controller == player)
             .filter(|o| {
                 self.definition(o.id.card).is_ok_and(|d| {
                     (filter.types.is_empty()
@@ -308,9 +308,9 @@ impl Game {
                         .into_iter()
                         .filter(|(p, o)| {
                             self.is_live(*p)
-                                && self.current(*o).is_ok_and(|v| {
-                                    v.zone == Zone::Battlefield && v.controller == *p
-                                })
+                                && self
+                                    .current(*o)
+                                    .is_ok_and(|v| v.present_on_battlefield() && v.controller == *p)
                         })
                         .map(|(player, object)| ProposedEvent::Sacrifice { player, object })
                         .collect::<Vec<_>>();

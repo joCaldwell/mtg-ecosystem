@@ -411,6 +411,23 @@ mod tests {
         );
         assert!(g.current(opposing).unwrap().present_on_battlefield());
         assert!(g.mana_abilities(land).unwrap().is_empty());
+        let filter = SacrificeFilter {
+            types: vec![CardKind::Land],
+            subtypes: vec![],
+        };
+        assert!(g.sacrifice_candidates(PlayerId(0), &filter).is_empty());
+        assert_eq!(g.sacrifice_candidates(PlayerId(1), &filter), [opposing]);
+        assert!(
+            g.commit(
+                ProposedEvent::Sacrifice {
+                    player: PlayerId(0),
+                    object: land
+                },
+                BatchCause::Fixture
+            )
+            .is_err()
+        );
+
         assert_eq!(g.handle_for(PlayerId(1), land).unwrap(), handle);
         recover(&g);
         for _ in 0..600 {
@@ -429,6 +446,7 @@ mod tests {
         assert_eq!(g.state.rules.turn_owner, PlayerId(0));
         assert!(g.current(land).unwrap().present_on_battlefield());
         assert!(!g.current(land).unwrap().tapped);
+        assert_eq!(g.sacrifice_candidates(PlayerId(0), &filter), [land]);
         assert_eq!(g.handle_for(PlayerId(1), land).unwrap(), handle);
         recover(&g);
     }
@@ -495,6 +513,7 @@ mod tests {
             .is_err()
         );
         game.phase_out_controller_permanents(PlayerId(0)).unwrap();
+        assert!(!game.controlled_creatures(PlayerId(0)).contains(&bear));
         for viewer in (0..4).map(PlayerId) {
             assert!(
                 game.visible_object(viewer, game.current(bear).unwrap())

@@ -42,7 +42,7 @@ impl Game {
         life: &Quantity,
     ) -> Result<(), String> {
         let object = self.current(source)?;
-        if object.zone != Zone::Battlefield
+        if !object.present_on_battlefield()
             || object.controller != player
             || !self.is_live(player)
             || object.tapped

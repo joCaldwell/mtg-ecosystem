@@ -1831,7 +1831,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
         {
             let c = self.characteristics(o.id)?;
             if c.basic && c.has_type(CardKind::Land) {
@@ -2165,7 +2165,7 @@ impl Game {
                     || !self.attachment_target_type_valid(object.card, target.card)?
                     || !self
                         .current(*target)
-                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                        .is_ok_and(|o| o.present_on_battlefield())
                     || !self
                         .current(*target)
                         .is_ok_and(|o| self.is_live(o.controller))
@@ -2204,13 +2204,13 @@ impl Game {
                     Some(t) => {
                         *t != *object
                             && self.current(*t).is_ok_and(|o| {
-                                o.zone == Zone::Battlefield && self.is_live(o.controller)
+                                o.present_on_battlefield() && self.is_live(o.controller)
                             })
                             && self.attachment_target_type_valid(object.card, t.card)?
                     }
                     None => true,
                 };
-                if self.current(*object)?.zone != Zone::Battlefield
+                if !self.current(*object)?.present_on_battlefield()
                     || !self.is_live(self.current(*object)?.controller)
                     || !self
                         .definition(object.card)?
@@ -2253,7 +2253,7 @@ impl Game {
             ProposedEvent::DestroyPermanent { object } => {
                 if !self
                     .current(*object)
-                    .is_ok_and(|o| o.zone == Zone::Battlefield)
+                    .is_ok_and(|o| o.present_on_battlefield())
                 {
                     return Err("invalid destroy permanent event".into());
                 }
@@ -2442,7 +2442,7 @@ impl Game {
             }
             ProposedEvent::Sacrifice { object, player } => {
                 if !self.is_live(*player)
-                    || self.current(*object)?.zone != Zone::Battlefield
+                    || !self.current(*object)?.present_on_battlefield()
                     || self.current(*object)?.controller != *player
                 {
                     return Err("invalid sacrifice event".into());
@@ -2714,7 +2714,7 @@ impl Game {
             }
             ProposedEvent::Untap { object } => {
                 let o = self.current(*object)?;
-                if o.zone != Zone::Battlefield || !o.tapped {
+                if !o.present_on_battlefield() || !o.tapped {
                     return Err("invalid untap event".into());
                 }
                 self.state
@@ -2798,7 +2798,7 @@ impl Game {
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;
-                if o.zone != Zone::Battlefield || o.tapped {
+                if !o.present_on_battlefield() || o.tapped {
                     return Err("invalid tap event".into());
                 }
                 self.state
