@@ -238,17 +238,16 @@ lethal assignment, actual dealt damage and prevention are different facts.
 Vigilance, flying/reach, haste, defender, menace, hexproof/shroud, lifelink and
 other admitted keywords use common predicates, never card text in the runtime.
 
-Validate an entire simultaneous damage group before life/history writes. Capture
-assignment facts separately from current or latest-departure damage-time source
-appearance. Damage-time deathtouch/lifelink and its beneficiary use that current/
-LKI source, including equipment departure and simultaneous common-prior facts.
-Noncombat damage retains its source incarnation and invocation controller despite
-control changes. Fixed damage spells recheck the announced creature (CR 608.2b).
-Synthetic fixed damage retains its announced opponent through resolution and recovery.
-Its compiler admission remains open.
-Old assignment-time keywords cannot fabricate damage-time benefits. Commander
-combat history uses actual combat damage. Opponent drain credits committed
-simultaneous life losses before state-based actions.
+Validate simultaneous damage before life/history writes. Assignment stays distinct
+from current or latest-departure
+source facts governing damage-time deathtouch, lifelink, and beneficiary, including
+Equipment departure. Noncombat damage retains exact source and invocation controller.
+Fixed damage rechecks its creature target or preserves its synthetic announced opponent.
+Compiler admission of the latter remains open.
+Named-color protection checks derived or last-known source colors for targeting,
+attachments, blocking, and separately ordered prevention per matching color.
+Commander combat history uses actual damage. Opponent drain credits committed
+simultaneous losses before state-based actions.
 
 Replacement/prevention applies once per effect/member, under affected-recipient
 choices and APNAP ordering. Freeze the consumed prefix; later source departure
