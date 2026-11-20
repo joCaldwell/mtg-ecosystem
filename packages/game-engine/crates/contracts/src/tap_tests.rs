@@ -112,6 +112,7 @@ fn tap_rejects_qualified_or_mismatched_targets_and_additional_costs() {
             "player" => p.targets[0].domain = TargetDomain::AnyPlayer,
             "empty_filter" | "typed_filter" | "tapped_filter" => {
                 p.targets[0].filter = Some(PermanentFilter {
+                    power: None,
                     types: if case == "typed_filter" {
                         vec![CardKind::Creature]
                     } else {

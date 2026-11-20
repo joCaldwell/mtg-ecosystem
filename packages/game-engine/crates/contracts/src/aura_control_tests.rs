@@ -108,6 +108,7 @@ fn aura_control_rejects_every_outside_shape_even_with_recomputed_capabilities() 
         }),
         ("target filter", |d| {
             d.spell.as_mut().unwrap().targets[0].filter = Some(PermanentFilter {
+                power: None,
                 types: vec![CardKind::Creature],
                 non_types: vec![],
                 non_colors: vec![],
@@ -337,6 +338,7 @@ pub(super) fn typed_aura(kind: CardKind) -> Definition {
         let t = &mut d.spell.as_mut().unwrap().targets[0];
         t.domain = TargetDomain::BattlefieldPermanent;
         t.filter = Some(PermanentFilter {
+            power: None,
             types: vec![kind],
             non_types: vec![],
             non_colors: vec![],

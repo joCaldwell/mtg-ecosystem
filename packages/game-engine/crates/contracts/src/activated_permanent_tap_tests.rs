@@ -38,6 +38,7 @@ pub(super) fn activated_tap() -> Definition {
                 stage: EvaluationStage::Announcement,
                 domain: TargetDomain::BattlefieldPermanent,
                 filter: Some(PermanentFilter {
+                    power: None,
                     types: vec![CardKind::Artifact, CardKind::Creature, CardKind::Land],
                     non_types: vec![],
                     non_colors: vec![],

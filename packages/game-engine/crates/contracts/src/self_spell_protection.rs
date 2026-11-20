@@ -44,6 +44,7 @@ fn target() -> TargetSpec {
         stage: EvaluationStage::Announcement,
         domain: TargetDomain::BattlefieldPermanent,
         filter: Some(PermanentFilter {
+            power: None,
             types: vec![],
             non_types: vec![CardKind::Land],
             non_colors: vec![],
