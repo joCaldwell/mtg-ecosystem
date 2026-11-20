@@ -76,3 +76,43 @@ pub(super) fn lower(
         optional_additional_costs: vec![],
     }))
 }
+
+#[test]
+fn controller_window_rejects_cross_scope_self_and_missing_duration_edges() {
+    let header = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+    let record =
+        include_str!("../../../tests/fixtures/ramos/0d4ecdb1-ec90-497f-a7a4-1c68092b8757.json");
+    assert!(matches!(
+        compile(header, record),
+        CompileResult::Lowered { .. }
+    ));
+    for change in [
+        "source reference",
+        "duration reference",
+        "phase selection",
+        "terminal result",
+        "duration ast",
+    ] {
+        let changed = crate::tests::changed_source(record, |r| {
+            let graph = &mut r["binding"];
+            match change {
+                "source reference" => {
+                    graph["references"][8]["target"] = graph["references"][0]["target"].clone()
+                }
+                "duration reference" => {
+                    graph["references"].as_array_mut().unwrap().remove(1);
+                }
+                "phase selection" => graph["nodes"][7]["timing"] = json!("stack-announcement"),
+                "terminal result" => graph["nodes"][12]["cardinality"] = json!("many"),
+                _ => {
+                    r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][1]["duration"]
+                        ["duration"] = json!("until-end-of-turn")
+                }
+            }
+        });
+        assert!(
+            !matches!(compile(header, &changed), CompileResult::Lowered { .. }),
+            "{change}"
+        );
+    }
+}
