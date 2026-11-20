@@ -420,6 +420,12 @@ grantor departure; whole batches preflight IDs, fanout, ledger and retained
 payloads atomically. Cast witnesses freeze pre-completion firstness; failed
 payments never consume it.
 
+A source-relative combat-damage trigger can place fixed +1/+1 counters on
+the creature that dealt the damage. The instruction retains that battlefield
+incarnation, including when the source also has supported intrinsic keywords
+(CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
+counters.
+
 Grouped combat-damage triggers fire once per observer, ability, occurrence and
 damaged player, using trigger-time appearance and frozen membership. Opponent
 cast prohibition bars opponent spells, not lands, abilities or already-cast

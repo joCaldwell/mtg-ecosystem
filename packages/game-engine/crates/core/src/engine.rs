@@ -67,6 +67,8 @@ mod sacrifice;
 #[cfg(test)]
 mod sacrifice_tests;
 #[cfg(test)]
+mod source_damage_counters_tests;
+#[cfg(test)]
 mod tap_source_destroy_tests;
 #[cfg(test)]
 mod tap_source_untap_tests;

@@ -146,6 +146,7 @@ pub mod intrinsic_keyword_blocks;
 pub mod optional_block;
 pub mod optional_trigger;
 pub mod permanent_entry;
+pub mod source_damage_counters;
 pub use impulse_play::PlayWindow;
 pub mod resolution_mana;
 pub use resolution_mana::ManaResolutionQuantity;
@@ -3332,6 +3333,7 @@ impl Definition {
         combat_window::validate(self)?;
         optional_block::validate(self)?;
         optional_trigger::validate(self)?;
+        source_damage_counters::validate(self)?;
         resolution_mana::validate(self)?;
         impulse_play::validate(self)?;
         predefined_tokens::validate(self)?;
@@ -8115,6 +8117,7 @@ pub fn catalog_schema() -> serde_json::Value {
     cast_subtype::extend_schema(&mut schema);
     combat_window::extend_schema(&mut schema);
     optional_block::extend_schema(&mut schema);
+    source_damage_counters::extend_schema(&mut schema);
     impulse_play::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{

@@ -109,8 +109,8 @@ mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_block;
-mod optional_trigger;
 mod optional_costs;
+mod optional_trigger;
 mod ordinary_sequence;
 mod other_land_entry;
 mod own_graveyard_card_return;
@@ -137,6 +137,7 @@ mod self_spell_protection;
 mod set_exile;
 mod source_attack_pump;
 mod source_combat_restrictions;
+mod source_damage_counters;
 mod source_dies_nonland_destroy;
 mod source_regeneration;
 mod source_tap_damage;
@@ -1768,6 +1769,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     || (types.kind == CardKind::Creature
                         && mtg_contracts::permanent_entry::each_creature_sacrifice(&l.text))
                     || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
+                    || mtg_contracts::source_damage_counters::candidate(&l.text)
                     || mtg_contracts::optional_trigger::candidate(&l.text, types.kind)
                     || mtg_contracts::cast_subtype::candidate(&l.text)
                     || (types.kind == CardKind::Land
@@ -1806,8 +1808,22 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     {
                         return Ok(a);
                     }
+                    if let Some(a) = source_damage_counters::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                    )? {
+                        return Ok(a);
+                    }
                     if let Some(a) = optional_trigger::lower(
-                        block, &result, &binding, &shape, &r.oracle_identity, types.kind
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                        types.kind,
                     )? {
                         return Ok(a);
                     }
