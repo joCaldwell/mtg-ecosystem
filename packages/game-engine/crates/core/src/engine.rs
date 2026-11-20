@@ -73,9 +73,11 @@ mod blocking_target_tests;
 mod counter_placement;
 mod resolution_payment;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
+mod colored_search;
 #[cfg(test)]
 mod four_colors_tests;
 mod land_entry;
+pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
 mod staples;
 pub use counter_placement::*;
 use land_entry::{EntryOrigin, PreparedEntryAuthority};
@@ -639,6 +641,12 @@ impl Prepared {
                 .contains(&Capability::ControllerLandBasicTypesV1)
         })
     }
+    fn colored_search_formats(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::ColoredLibrarySearchV1))
+    }
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
         let profile_digest = pod
@@ -1195,6 +1203,9 @@ pub enum Response {
     ManaColor {
         color: Color,
     },
+    ColoredSearch {
+        assignments: Vec<ColoredCardAssignment>,
+    },
     SearchLands {
         objects: Vec<ObjectId>,
     },
@@ -1370,6 +1381,12 @@ pub enum Request {
         player: PlayerId,
         candidates: Vec<ObjectId>,
     },
+    ColoredSearch {
+        decision_id: u64,
+        player: PlayerId,
+        colors: Vec<Color>,
+        candidates: Vec<ColoredCardCandidate>,
+    },
     SearchLands {
         decision_id: u64,
         player: PlayerId,
@@ -1532,6 +1549,7 @@ impl Request {
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
+            | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
@@ -1573,6 +1591,7 @@ impl Request {
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
             | Self::ManaColor { player, .. }
+            | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }
             | Self::SearchLandBattlefield { player, .. }
             | Self::OptionalEffect { player, .. }
@@ -3423,7 +3442,11 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 60,
+            snapshot_version: if self.prepared.colored_search_formats() {
+                61
+            } else {
+                60
+            },
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3465,7 +3488,12 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 60
+        if s.snapshot_version
+            != (if prepared.colored_search_formats() {
+                61
+            } else {
+                60
+            })
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

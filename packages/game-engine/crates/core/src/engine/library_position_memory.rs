@@ -10,6 +10,35 @@ impl Game {
     pub(super) fn update_library_position_memory(&mut self, event: &ProposedEvent) {
         let objects = &self.state.rules.objects;
         for (seat, knowledge) in self.state.knowledge.visibility.iter_mut().enumerate() {
+            // A secret choice from hand into a hidden zone cannot identify
+            // which previously revealed card stayed. Forget that hand's rows.
+            if let ProposedEvent::Move {
+                destination: Zone::Library { owner },
+                ..
+            } = event
+            {
+                if let ProposedEvent::HandReturn { player, .. } = event {
+                    knowledge.revealed_hand.retain(|id| {
+                        self.state
+                            .rules
+                            .cards
+                            .get(&id.card)
+                            .is_none_or(|c| c.owner != *player)
+                    });
+                }
+                knowledge.revealed_hand.retain(|id| {
+                    self.state
+                        .rules
+                        .cards
+                        .get(&id.card)
+                        .is_none_or(|c| c.owner != *owner)
+                });
+            }
+            knowledge.revealed_hand.retain(|id| {
+                objects
+                    .get(&id.card)
+                    .is_some_and(|o| o.id == *id && matches!(o.zone, Zone::Hand { .. }))
+            });
             knowledge.public_tucked_cards.retain(|id| {
                 let Some(Object {
                     id: current,
@@ -85,6 +114,7 @@ impl Game {
 
     pub(super) fn validate_library_position_memory(&self) -> Result<(), String> {
         for seat in 0..4 {
+            self.publicly_searched_hand(PlayerId(seat))?;
             self.known_library_positions(PlayerId(seat))?;
         }
         Ok(())

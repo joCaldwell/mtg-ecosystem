@@ -164,6 +164,9 @@ impl Strategy<'_> {
                         .ok_or("empty revealed land partition")?,
                 }
             }
+            PlayerRequest::ColoredSearch { .. } => PlayerResponse::ColoredSearch {
+                assignments: vec![],
+            },
             PlayerRequest::SearchLands {
                 maximum,
                 candidates,

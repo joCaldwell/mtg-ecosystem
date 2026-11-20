@@ -18,6 +18,7 @@ mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
 mod commander_modal_keyword;
+mod colored_library_search;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -1544,6 +1545,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let mut source_tap_trigger = source_tap_damage::lower(&abilities, &result, &binding, &source)?;
     nonland_exile_life::validate_binding(&source, &result, &binding)?;
     let set_exile = set_exile::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let colored_library = colored_library_search::lower(&source, &shape, &result, &binding)?;
     let opponent_nonland_destroy = opponent_nonland_destroy::lower(&source, &binding)?;
     let keyword_removal_wipe = keyword_removal_wipe::lower(&source, &shape, &result, &binding)?;
     source_dies_nonland_destroy::bind(&source, &result, &binding)?;
@@ -1732,6 +1734,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
         CardKind::Sorcery if keyword_removal_wipe.is_some() => {
             definition.spell = keyword_removal_wipe;
+        }
+        CardKind::Sorcery if colored_library.is_some() => {
+            definition.spell = colored_library;
         }
         CardKind::Sorcery if opponent_nonland_destroy.is_some() => {
             definition.spell = opponent_nonland_destroy;

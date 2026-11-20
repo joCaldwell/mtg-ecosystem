@@ -302,6 +302,7 @@ impl Strategy {
             }
             PlayerRequest::ChooseManaAbility { .. }
             | PlayerRequest::ManaColor { .. }
+            | PlayerRequest::ColoredSearch { .. }
             | PlayerRequest::SearchLands { .. }
             | PlayerRequest::SearchLandBattlefield { .. }
             | PlayerRequest::OptionalEffect { .. }
