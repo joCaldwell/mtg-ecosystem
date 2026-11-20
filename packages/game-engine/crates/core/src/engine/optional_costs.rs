@@ -1,5 +1,5 @@
 //! CR 601.2b/f and 702.33d/e: announcement declarations persist on this exact
-//! invocation. Only a completed, paid invocation can execute its linked draw.
+//! invocation. A spell copy retains those decisions under CR 707.10.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 impl Game {
@@ -87,6 +87,7 @@ impl Game {
         }
         let Some(selected) = &entry.selected_additional_costs else {
             return if entry.paid.is_none()
+                && !self.is_spell_copy(entry)
                 && (matches!(&self.state.rules.frame, Frame::AdditionalCosts {cast} if cast.stack_id == entry.id)
                     || matches!(
                         self.state.rules.frame,
@@ -117,7 +118,7 @@ impl Game {
         entry: &StackInstance,
         identity: &str,
     ) -> Result<bool, String> {
-        if !entry.kind.is_spell() || entry.paid.as_ref() != Some(&entry.total_cost) {
+        if !entry.kind.is_spell() || !self.stack_entry_complete(entry) {
             return Err("conditional draw requires a completed spell".into());
         }
         let selected = entry

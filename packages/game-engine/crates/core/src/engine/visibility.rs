@@ -170,6 +170,8 @@ pub struct VisibleStackEntry {
     pub player_targets: Vec<PlayerId>,
     pub controller: PlayerId,
     pub cast_complete: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spell_copy: bool,
     pub targets: Vec<VisibleTarget>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1117,6 +1119,7 @@ impl Game {
                 .rules
                 .tokens
                 .get(&object.id.card)
+                .filter(|t| t.is_token(object))
                 .map(|t| VisibleToken {
                     name: t.definition.name.clone(),
                     keywords: t.definition.keywords.clone(),
@@ -1131,9 +1134,15 @@ impl Game {
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
-            // Tokens have no Oracle identity. Never expose their physical IDs
-            // through a synthetic Oracle string; their public row has a handle.
-            oracle_id: if self.state.rules.tokens.contains_key(&object.id.card) {
+            // A copy can show the original printed Oracle ID. An instruction-defined
+            // token has only its public handle and visible token template.
+            oracle_id: if self
+                .state
+                .rules
+                .tokens
+                .get(&object.id.card)
+                .is_some_and(|t| !t.is_copy())
+            {
                 String::new()
             } else {
                 physical.oracle_id.clone()
@@ -1294,6 +1303,7 @@ impl Game {
             player_targets: instance.player_targets.clone(),
             controller: instance.controller,
             cast_complete: instance.paid.is_some(),
+            spell_copy: self.is_spell_copy(instance),
             targets,
         })
     }
@@ -1839,6 +1849,7 @@ impl Game {
                     candidates: self
                         .eligible_stack_targets_for(
                             &self.program()?.targets[0],
+                            viewer,
                             Some(self.top()?.id),
                         )
                         .into_iter()

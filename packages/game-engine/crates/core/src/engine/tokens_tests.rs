@@ -1208,7 +1208,9 @@ fn capacity_release_probe() {
         );
         g.state.rules.tokens.insert(id, token);
     }
-    let spec = identity.spec.clone();
+    let tokens::TokenTemplate::Created(spec) = identity.spec else {
+        panic!("expected a created token")
+    };
     g.commit(
         ProposedEvent::CreateCreatureTokens {
             controller: PlayerId(0),
