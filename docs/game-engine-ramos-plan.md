@@ -46,9 +46,8 @@ unspent-mana replacement and private choices.
 
 ### M6 Complete card advantage and flexible choices
 
-Whirlwind and Rhystic payments have focused witnesses. Complete distributed Abzan
-counters, Quandrix choose-two/graveyard targets, Conflux colored
-search. Urban Evolution has a focused land-permission witness.
+Whirlwind, Rhystic, Abzan and Urban have focused witnesses. Complete Quandrix
+choose-two/graveyard targets and Conflux colored search.
 
 ### M7 Complete protection and board interaction
 

@@ -530,6 +530,8 @@ layout and its ordinary cast-kind capability. Permanent grants exclude creature-
 Attachments/Indestructible alongside Board Wipes and ordinary/family capabilities.
 Targeted subset/general labels never admit this shape. The optional modifier requires no targeted P/T capability. Standalone
 `PumpSet` retains its existing behavior and Board Wipes capability.
+Akroma's Will binds both modes only with current battlefield commander control.
+Protection prevents colored damage, attachment, blocking and targeting.
 
 The instruction captures one full current ordered set and creates all properties
 atomically. CR 611.2c fixes that membership when the effect begins; CR 613.5–6

@@ -42,6 +42,10 @@ fn commander_modal_keyword_paid_borrowed_commander_and_protection() {
         ("Unsummon", 0, 0, true),
         ("Bonesplitter", 0, 0, false),
         ("Island", 0, 0, false),
+        ("Pyroclasm", 0, 0, true),
+        ("Mountain", 0, 0, false),
+        ("Grizzly Bears", 2, 2, false),
+        ("Island", 0, 0, false),
     ];
     lands(&mut rows, "Plains", 0, 5);
     let mut prepared = prepared_with_sources(&rows, &[WILL]);
@@ -50,6 +54,7 @@ fn commander_modal_keyword_paid_borrowed_commander_and_protection() {
     prepared.profile_digest = digest(&prepared.config).unwrap();
     let mut game = Game::with_trace(prepared.clone(), TraceMode::Detailed);
 
+    announce(&mut game, 4096, 7, vec![]);
     let recipient = object(&game, 2);
     announce(
         &mut game,
@@ -147,5 +152,13 @@ fn commander_modal_keyword_paid_borrowed_commander_and_protection() {
         event, Event::SpellCompleted { stack_id, resolved: false } if *stack_id == bounce
     )));
     assert_eq!(game.zone(recipient), Some(Zone::Battlefield));
+    assert_eq!(
+        game.current(recipient).unwrap().marked_damage,
+        Quantity::zero()
+    );
+    assert_eq!(
+        game.zone(object(&game, 9)),
+        Some(Zone::Graveyard { owner: PlayerId(2) })
+    );
     equip(&mut game, 4096, 5, 2);
 }
