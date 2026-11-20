@@ -89,6 +89,10 @@ pub struct VisiblePlayer {
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub face_down: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exiled_by: Option<ObjectHandle>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phased_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_ability_used: Option<bool>,
@@ -250,6 +254,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
         count: usize,
+    },
+    Hideaway {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
     },
     LibrarySelect {
         token: DecisionToken,
@@ -487,6 +496,7 @@ impl PlayerRequest {
             Self::HandCast { token, .. }
             | Self::HandReturn { token, .. }
             | Self::LibraryOrder { token, .. }
+            | Self::Hideaway { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
@@ -547,6 +557,9 @@ pub enum PlayerResponse {
     },
     LibraryOrder {
         objects: Vec<ObjectHandle>,
+    },
+    Hideaway {
+        object: ObjectHandle,
     },
     LibrarySelect {
         hand: Vec<ObjectHandle>,
@@ -1095,7 +1108,36 @@ impl Game {
             .cards
             .get(&object.id.card)
             .ok_or("missing object definition")?;
+        if let Some(link) = &object.hideaway {
+            return Ok(Some(VisibleObject {
+                face_down: true,
+                exiled_by: Some(link.source_handle(viewer).clone()),
+                oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
+                    physical.oracle_id.clone()
+                } else {
+                    String::new()
+                },
+                handle: self.handle_for(viewer, object.id)?,
+                owner: physical.owner,
+                controller: object.controller,
+                zone: object.zone,
+                characteristics: None,
+                mana_ability_used: None,
+                token: None,
+                keywords: vec![],
+                restrictions: vec![],
+                attachments: vec![],
+                attached_to: None,
+                marked_damage: Quantity::zero(),
+                plus_one_counters: Quantity::zero(),
+                attack_ready: false,
+                tapped: false,
+                phased_out: false,
+            }));
+        }
         Ok(Some(VisibleObject {
+            face_down: false,
+            exiled_by: None,
             phased_out: object.phased_out.is_some(),
             attached_to: object
                 .attached_to
@@ -1650,6 +1692,14 @@ impl Game {
                 candidates: vec![],
             }));
         }
+        if matches!(&self.state.rules.frame, Frame::ResolutionChoice {choice:ResolutionChoice::Hideaway {player,bottom:None,..},..} if *player == viewer && self.is_live(viewer))
+        {
+            return Ok(Some(PlayerRequest::Hideaway {
+                token,
+                player: viewer,
+                candidates: vec![],
+            }));
+        }
         if self.library_looked(viewer).is_some() {
             return Ok(Some(PlayerRequest::Scry {
                 token,
@@ -2038,6 +2088,21 @@ impl Game {
             _ => return Err("payment request invariant".into()),
         })
     }
+    pub(super) fn order_view_objects(view: &mut PermittedView) {
+        // A face-down card's position among older exile handles must not
+        // disclose the ordering of its physical card ID.
+        for player in &mut view.players {
+            if view
+                .objects
+                .iter()
+                .any(|o| o.face_down && o.owner == player.player)
+            {
+                player.exile.sort_by(|a, b| a.0.cmp(&b.0));
+            }
+        }
+        view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+    }
+
     fn permitted_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
         let mut view = self.blank_view(viewer)?;
         view.effects = self.visible_effects(viewer)?;
@@ -2057,7 +2122,7 @@ impl Game {
         for index in 0..self.state.rules.stack.len() {
             view.stack.push(self.visible_stack(viewer, index)?);
         }
-        view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+        Self::order_view_objects(&mut view);
         Ok(view)
     }
     pub(super) fn refresh_visibility(&mut self) -> Result<(), String> {
@@ -2389,6 +2454,9 @@ impl Game {
                     .iter()
                     .map(|h| self.resolve_handle(viewer, h))
                     .collect::<Result<_, _>>()?,
+            }),
+            PlayerResponse::Hideaway { object } => Ok(Response::Hideaway {
+                object: self.resolve_handle(viewer, object)?,
             }),
             PlayerResponse::LibrarySelect { hand, remainder } => Ok(Response::LibrarySelect {
                 hand: hand

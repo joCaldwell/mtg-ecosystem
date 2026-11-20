@@ -1211,3 +1211,6 @@ mod cast_payer_draw_tests;
 
 #[path = "controlled_creature_spell_copy_tests.rs"]
 mod controlled_creature_spell_copy_tests;
+
+#[path = "hideaway_tests.rs"]
+mod hideaway_tests;

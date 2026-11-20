@@ -80,6 +80,7 @@ impl Game {
                     | ProposedEvent::Surveil { player, looked, .. } => {
                         player.0 as usize == seat || !looked.contains(id)
                     }
+                    ProposedEvent::Hideaway { looked, .. } => !looked.contains(id),
                     ProposedEvent::Setup { .. } => false,
                     _ => true,
                 }

@@ -133,6 +133,9 @@ pub struct AttachmentBefore {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreEventFacts {
+    /// CR 406.3a: these exile objects have no characteristics to capture.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub face_down_exile: Vec<(ObjectId, PlayerId)>,
     /// Exact common-prior controller counts; narrow consumed entry authority.
     #[serde(
         default,
@@ -380,6 +383,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             (keys.clone(), keys)
         }
         ProposedEvent::OrderLibraryTop { player, looked, .. }
+        | ProposedEvent::Hideaway { player, looked, .. }
         | ProposedEvent::LibrarySelect { player, looked, .. }
         | ProposedEvent::Mill {
             player,
@@ -923,6 +927,7 @@ impl Game {
                     ..
                 }
                 | ProposedEvent::OrderLibraryTop { player, looked, .. }
+                | ProposedEvent::Hideaway { player, looked, .. }
                 | ProposedEvent::LibrarySelect { player, looked, .. }
                 | ProposedEvent::Mill {
                     player,
@@ -1322,26 +1327,15 @@ impl Game {
                 });
             }
         }
-        let objects = objects
-            .into_iter()
-            .map(|object| {
-                let o = self.current(object)?;
-                Ok(ObjectBefore {
-                    keyword_timestamp: o.keyword_timestamp,
-                    keywords: { self.current_keywords(object) },
-                    deathtouch_damage: o.deathtouch_damage,
-                    object,
-                    owner: self.state.rules.cards[&object.card].owner,
-                    controller: o.controller,
-                    default_controller: o.default_controller,
-                    zone: o.zone,
-                    tapped: o.tapped,
-                    marked_damage: o.marked_damage.clone(),
-                    attack_ready: o.attack_ready,
-                    characteristics: self.characteristics(object)?,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+        let mut face_down_exile = Vec::new();
+        let mut object_facts = Vec::new();
+        for id in objects {
+            if self.current(id)?.hideaway.is_some() {
+                face_down_exile.push((id, self.state.rules.cards[&id.card].owner));
+            } else {
+                object_facts.push(self.object_before(id)?);
+            }
+        }
         let players = players
             .into_iter()
             .map(|player| {
@@ -1408,6 +1402,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
+            face_down_exile,
             entry_basic_lands: if events.iter().any(|e| self.conditional_entry(e)) {
                 counts.clone()
             } else {
@@ -1447,7 +1442,7 @@ impl Game {
             commander_damage,
             libraries,
             turn,
-            objects,
+            objects: object_facts,
             players,
         })
     }
@@ -1551,6 +1546,15 @@ impl Game {
             {
                 return Err("invalid targeted loss batch".into());
             }
+        }
+        if events
+            .iter()
+            .any(|e| matches!(e, ProposedEvent::Hideaway { .. }))
+        {
+            let EventGroup::Occurrence { proposed } = &group else {
+                return Err("hideaway requires its single authorized occurrence".into());
+            };
+            self.authorize_hideaway_event(&cause, proposed)?;
         }
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let authority = if placing
@@ -2018,6 +2022,7 @@ impl Game {
         self.state.rules.objects.insert(
             object.card,
             Object {
+                hideaway: None,
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
@@ -2103,6 +2108,9 @@ impl Game {
         ) {
             return Err("targeted loss requires an authorized instruction batch".into());
         }
+        if matches!(proposed, ProposedEvent::Hideaway { .. }) {
+            return Err("hideaway requires an authorized instruction batch".into());
+        }
         self.apply_prepared_occurrence(proposed, before, BatchAuthority::Ordinary)
     }
     fn apply_prepared_occurrence(
@@ -2136,6 +2144,12 @@ impl Game {
                 order,
             } => self.apply_library_order(*player, amount, looked, order)?,
             ProposedEvent::HandReturn { .. } => self.apply_hand_return(proposed, before)?,
+            ProposedEvent::Hideaway {
+                player,
+                selected,
+                bottom,
+                ..
+            } => self.apply_hideaway(*player, *selected, bottom, before)?,
             ProposedEvent::LibrarySelect { .. } => {
                 self.apply_library_selection(proposed, before)?
             }

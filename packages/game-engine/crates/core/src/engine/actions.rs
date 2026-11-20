@@ -60,6 +60,11 @@ pub(super) enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
+    Hideaway {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        bottom: Option<hideaway::RandomBottom>,
+    },
     LibrarySelect {
         player: PlayerId,
         looked: Vec<ObjectId>,
@@ -431,6 +436,15 @@ impl Game {
                     count: looked.len(),
                 })
             }
+            ResolutionChoice::Hideaway {
+                player,
+                looked,
+                bottom: None,
+            } if self.is_live(*player) => Some(Request::Hideaway {
+                decision_id,
+                player: *player,
+                candidates: looked.clone(),
+            }),
             ResolutionChoice::LibrarySelect { player, looked, .. } if self.is_live(*player) => {
                 Some(Request::LibrarySelect {
                     decision_id,
@@ -600,6 +614,27 @@ impl Game {
                             return Err("invalid ordering chooser".into());
                         }
                         self.validate_library_partition(player, looked, objects, &[])
+                    }),
+            ),
+            (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice:
+                        ResolutionChoice::Hideaway {
+                            player: chooser,
+                            looked,
+                            bottom: None,
+                        },
+                },
+                Response::Hideaway { object },
+            ) => Some(
+                self.validate_hideaway_choice(frame, *chooser, looked, None)
+                    .and_then(|_| {
+                        if player == *chooser && self.is_live(player) && looked.contains(object) {
+                            Ok(())
+                        } else {
+                            Err("invalid hideaway selection".into())
+                        }
                     }),
             ),
             (
@@ -785,6 +820,14 @@ impl Game {
                     return self.optional_shuffle_step(frame, player, source_block);
                 }
 
+                if let ResolutionChoice::Hideaway {
+                    player,
+                    looked,
+                    bottom,
+                } = choice
+                {
+                    return self.hideaway_step(frame, player, looked, bottom);
+                }
                 if let ResolutionChoice::LibrarySelect {
                     player,
                     looked,
@@ -842,6 +885,7 @@ impl Game {
                         ResolutionChoice::HandReturn { .. }
                         | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
+                        | ResolutionChoice::Hideaway { .. }
                         | ResolutionChoice::LibrarySelect { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::Scry { .. }
@@ -878,6 +922,7 @@ impl Game {
                     ResolutionChoice::HandReturn { .. }
                     | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
+                    | ResolutionChoice::Hideaway { .. }
                     | ResolutionChoice::LibrarySelect { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::Scry { .. }
@@ -1041,6 +1086,7 @@ impl Game {
             Instruction::OptionalShuffleLibrary { source_block } => {
                 self.begin_optional_shuffle(frame, source_block)
             }
+            Instruction::Hideaway { .. } => self.begin_hideaway(frame),
             Instruction::SelectLibraryCard {
                 amount,
                 source_block,
@@ -1967,6 +2013,16 @@ impl Game {
                     Instruction::OptionalShuffleLibrary { source_block: b },
                 ) => *player == frame.spell.controller && source_block == b,
 
+                (
+                    ResolutionChoice::Hideaway {
+                        player,
+                        looked,
+                        bottom,
+                    },
+                    Instruction::Hideaway { .. },
+                ) => self
+                    .validate_hideaway_choice(frame, *player, looked, bottom.as_ref())
+                    .is_ok(),
                 (
                     ResolutionChoice::LibrarySelect {
                         player,

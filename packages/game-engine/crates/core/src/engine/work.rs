@@ -489,6 +489,7 @@ impl Game {
         if let Some(
             PlayerRequest::HandReturn { candidates, .. }
             | PlayerRequest::LibraryOrder { candidates, .. }
+            | PlayerRequest::Hideaway { candidates, .. }
             | PlayerRequest::LibrarySelect { candidates, .. }
             | PlayerRequest::Scry { candidates, .. }
             | PlayerRequest::Surveil { candidates, .. },
@@ -534,6 +535,7 @@ impl Game {
                 Some(
                     PlayerRequest::HandReturn { .. }
                         | PlayerRequest::LibraryOrder { .. }
+                        | PlayerRequest::Hideaway { .. }
                         | PlayerRequest::LibrarySelect { .. }
                         | PlayerRequest::Scry { .. }
                         | PlayerRequest::Surveil { .. }
@@ -547,7 +549,7 @@ impl Game {
         if b.cursor as usize
             >= 4 + self.state.rules.objects.len() + self.state.rules.stack.len() + extra
         {
-            b.view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
+            Self::order_view_objects(&mut b.view);
             return Ok(true);
         }
         Ok(false)
@@ -590,6 +592,7 @@ impl Game {
                 if let Some(
                     PlayerRequest::HandReturn { candidates, .. }
                     | PlayerRequest::LibraryOrder { candidates, .. }
+                    | PlayerRequest::Hideaway { candidates, .. }
                     | PlayerRequest::LibrarySelect { candidates, .. }
                     | PlayerRequest::Scry { candidates, .. }
                     | PlayerRequest::Surveil { candidates, .. },
@@ -790,6 +793,18 @@ impl Game {
                             PlayerResponse::HandReturn { objects }
                             | PlayerResponse::LibraryOrder { objects },
                         ) => player == viewer && objects.len() == looked.len(),
+                        (
+                            Frame::ResolutionChoice {
+                                choice:
+                                    ResolutionChoice::Hideaway {
+                                        player,
+                                        bottom: None,
+                                        ..
+                                    },
+                                ..
+                            },
+                            PlayerResponse::Hideaway { .. },
+                        ) => player == viewer,
                         (
                             Frame::ResolutionChoice {
                                 choice: ResolutionChoice::LibrarySelect { player, looked, .. },
@@ -1218,6 +1233,7 @@ impl Game {
             Some(
                 PlayerRequest::HandReturn { .. }
                 | PlayerRequest::LibraryOrder { .. }
+                | PlayerRequest::Hideaway { .. }
                 | PlayerRequest::LibrarySelect { .. }
                 | PlayerRequest::Scry { .. }
                 | PlayerRequest::Surveil { .. },
@@ -1277,6 +1293,7 @@ impl Game {
                     | PlayerRequest::CascadeLandEntry { .. }
                     | PlayerRequest::HandReturn { .. }
                     | PlayerRequest::LibraryOrder { .. }
+                    | PlayerRequest::Hideaway { .. }
                     | PlayerRequest::LibrarySelect { .. }
                     | PlayerRequest::Scry { .. }
                     | PlayerRequest::Surveil { .. }

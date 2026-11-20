@@ -197,6 +197,9 @@ impl Game {
             .collect()
     }
     pub(super) fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
+        if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
+            return vec![];
+        }
         let mut keywords = self
             .definition(object.card)
             .map(|d| d.keywords.clone())

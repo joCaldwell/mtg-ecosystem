@@ -162,6 +162,10 @@ impl Game {
     // leaves, including paid tap state; a successor cannot become this source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String> {
+        // This exile incarnation has no printed or activated source characteristics.
+        if self.current(object)?.hideaway.is_some() {
+            return Ok(());
+        }
         let fact = self.object_before(object)?;
         self.retain_source_facts(&fact);
         Ok(())
