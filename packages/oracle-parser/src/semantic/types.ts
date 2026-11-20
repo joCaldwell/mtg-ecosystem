@@ -149,6 +149,12 @@ export type BindingNode = NodeBase & (
       action: { kind: "copy"; event: string; count: number; retarget: boolean }
         | { kind: "change-targets"; scope: "all" | "one" | "any" }
         | { kind: "choose-new-targets"; timing: "resolution" | "copy-creation"; copyEvent?: string } }
+  | { node: "alternate-target-copy"; scope: string; event: string; subject: string; caster: string;
+      targetPolicy: NonNullable<Extract<Effect, { effect: "copy-stack-object" }>["fixedTargets"]> }
+  | { node: "per-player-copies"; scope: string; event: string; subject: string; group: string; member: string;
+      retarget: "optional-per-copy" }
+  | { node: "permanent-spell-copy-grant"; scope: string; copy: string; applies: "permanent-spell-and-resulting-token"; cardinality: "one" }
+  | { node: "random-target-reselection"; scope: string; event: string; subject: string; guard: "single-target-intervening-if" }
   | { node: "face-down-exile-look"; scope: string; viewer: string; card: string; event: string;
       duration: Extract<Effect, { effect: "grant-look-permission" }>["duration"]; continuedUntil: "leaves-exile-or-shuffled" }
   | { node: "private-library-look"; scope: string; viewer: string; libraryOwner: string;

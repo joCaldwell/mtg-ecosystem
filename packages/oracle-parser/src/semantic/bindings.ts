@@ -327,6 +327,9 @@ interface Context {
   /** The object of one lexical cast/activation occurrence, independent of
    * salient nouns in the surrounding text. Never derived from proximity. */
   triggerObject?: { event: "cast" | "activate"; candidate: Candidate };
+  castActors?: { caster: Candidate; filter: ObjectFilter };
+  stackPlacement?: Candidate;
+  singleTargetStackGuard?: true;
   /** A scope whose capture/antecedent rules are not implemented. */
   barrier?: string;
   replacementSubjectPath?: string;
@@ -2647,7 +2650,7 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, exileResults: undefined,
+      sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
       copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined,
@@ -3328,9 +3331,76 @@ class Analyzer {
     return true;
   }
 
+  private specializedStackInstruction(effect: StackInstruction, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "resolution" || context.decider || context.conditional ||
+        effect.optional || effect.decidedBy || effect.forEach || effect.forEachVote) return false;
+    if (effect.effect === "change-targets" && context.stackPlacement && context.singleTargetStackGuard && context.lexicalAbilityPath &&
+        effect.scope === "each" && !effect.also && !effect.to && !effect.newTarget && effect.who.player === "you" &&
+        isDeepStrictEqual(effect.what, { ref: "it" }) &&
+        isDeepStrictEqual(effect.reselection, { method: "random", unit: "target-slot", whenUnavailable: "keep" })) {
+      const guard = this.at(`${context.lexicalAbilityPath}/condition/what`);
+      if (guard?.id !== context.stackPlacement.id || context.objects.some(object => object.id !== guard.id)) return false;
+      const rules = ["115.7e", "115.7f", "115.8", "603.4"];
+      const subject = this.bound(effect.what, child(path, "what"), guard.id, rules);
+      const chooser = this.player(effect.who, child(path, "who"), context);
+      if (!chooser) return true;
+      const event = this.event(path, context, effect.effect, [subject, chooser]);
+      this.node({ id: this.id(path, "random-target-reselection"), path, node: "random-target-reselection",
+        scope: context.ability, event, subject: subject.id, guard: "single-target-intervening-if", rules });
+      this.engineFeature("stack-instruction", path, "Reselect the one slot among all legal options after rechecking the intervening condition.", rules);
+      return true;
+    }
+    if (effect.effect !== "copy-stack-object" || !isDeepStrictEqual(effect.what, { ref: "trigger-event-object", event: "cast" }) ||
+        context.triggerObject?.event !== "cast" || !context.castActors || effect.copyExceptions || effect.copyGrant ||
+        !isDeepStrictEqual(effect.count, { amount: "fixed", value: 1 })) return false;
+    const { caster, filter } = context.castActors;
+    if (context.players.some(player => player.id !== caster.id && !this.weakPlayers.has(player.id))) return false;
+    const otherPlayers = effect.who.player === "filtered" && effect.who.base.player === "each-player" && !effect.who.random &&
+      isDeepStrictEqual(effect.who.filter, { otherThan: { player: "that-player" } }) &&
+      !effect.fixedTargets && effect.retarget?.optional && isDeepStrictEqual(effect.retarget.who, effect.who);
+    const fixed = effect.fixedTargets;
+    const target = filter.targetsOnly;
+    const alternateTargets = !effect.retarget && effect.who.player === "that-player" && fixed &&
+      target && "ref" in target && target.ref === "filter" && objectCardinality(target) === "one" && isDeepStrictEqual(target.filter, fixed.filter) &&
+      Object.keys(fixed.filter).length === 1 && fixed.filter.subtypes?.length === 1;
+    if (!otherPlayers && !alternateTargets) return false;
+
+    const subject = this.object(effect.what, child(path, "what"), context);
+    if (!subject) return true;
+    const rules = ["603.2c", "707.10", otherPlayers ? "707.10c" : "707.10d", ...(otherPlayers ? ["101.4"] : ["115.9c"])];
+    if (alternateTargets && fixed) {
+      this.bound(effect.who, child(path, "who"), caster.id, rules);
+      const event = this.event(path, context, effect.effect, [subject, caster]);
+      this.node({ id: this.id(path, "alternate-target-copy"), path, node: "alternate-target-copy", scope: context.ability,
+        event, subject: subject.id, caster: caster.id, targetPolicy: fixed, rules });
+    } else if (otherPlayers && effect.who.player === "filtered" && effect.retarget) {
+      const at = child(path, "who");
+      const everyone = this.player(effect.who.base, child(at, "base"), context);
+      if (!everyone) return true;
+      const group = this.node({ id: this.id(at, "relative-players"), path: at, node: "relative-player-group",
+        scope: context.ability, base: everyone.id, filter: { kind: "other-than", player: caster.id }, cardinality: "many", rules });
+      const member = this.node({ id: this.id(at, "instruction-member"), path: at, node: "instruction-member",
+        scope: context.ability, group, domain: "player", rules });
+      this.bound({ player: "that-player" }, `${at}/filter/otherThan`, caster.id, rules);
+      this.bound({ player: "that-player" }, `${path}/retarget/who/filter/otherThan`, caster.id, rules);
+      this.bound(effect.who.base, `${path}/retarget/who/base`, everyone.id, rules);
+      this.bound(effect.who, at, member, rules);
+      this.bound(effect.retarget.who, `${path}/retarget/who`, member, rules);
+      const event = this.event(path, context, effect.effect, [subject, { id: member, cardinality: "one", domain: "player" }]);
+      this.node({ id: this.id(path, "per-player-copies"), path, node: "per-player-copies",
+        scope: context.ability, event, subject: subject.id, group, member, retarget: "optional-per-copy", rules });
+    }
+    this.engineFeature("stack-instruction", path, "Create copies only for the bound eligible choices and preserve the printed target policy.", rules);
+    context.uncertainStackOrigin = true;
+    context.objects = [];
+    context.mentionedObject = true;
+    return true;
+  }
+
   /** CR 115.7a–f, 707.10: copies retain the original choices and source.
    * Selecting new targets during copy creation is tied to the copy event. */
   stackInstruction(effect: StackInstruction, path: string, context: Context, precedingEffect?: string): boolean {
+    if (this.specializedStackInstruction(effect, path, context)) return true;
     if (context.barrier || context.phase !== "resolution" || effect.forEach || effect.forEachVote ||
         effect.decidedBy || effect.who.player !== "you" || effect === context.directCreatureSpellCopy) return false;
     const whatPath = child(path, "what");
@@ -3371,8 +3441,10 @@ class Analyzer {
         ? subject.event === "cast" ? "spell" : "ability" : undefined;
     if (!stack || objectCardinality(subject) !== "one") return false;
     if (effect.effect === "change-targets" && effect.scope === "each") return false;
-    if (effect.effect === "change-targets" && (effect.to || effect.newTarget)) return false;
-    if (effect.effect === "copy-stack-object" && (effect.copyExceptions || effect.copyGrant ||
+    if (effect.effect === "change-targets" && (effect.to || effect.newTarget || effect.reselection || effect.also)) return false;
+    if (effect.effect === "copy-stack-object" && (effect.copyExceptions || effect.fixedTargets ||
+        (effect.copyGrant && (stack !== "spell" || effect.count.amount !== "fixed" || effect.count.value !== 1 ||
+          !effect.copyGrant.abilities.every(grant => grant.gained === "keyword" || grant.gained === "quoted"))) ||
         effect.count.amount !== "fixed" || !Number.isSafeInteger(effect.count.value) || effect.count.value < 1 ||
         (effect.retarget && (effect.retarget.who.player !== "you" || !effect.retarget.optional)))) return false;
 
@@ -3398,6 +3470,15 @@ class Analyzer {
         stack === "spell-or-ability" ? undefined : { cls: stack });
       this.node({ id: at, path, node: "stack-instruction", scope, subject: candidate.id, chooser: chooser.id,
         action: { kind: "copy", event, count, retarget: Boolean(effect.retarget) }, rules });
+      if (effect.copyGrant) {
+        const grantPath = child(path, "copyGrant");
+        const grantRules = ["400.7a", "608.3f", "611.2c", "707.10f"];
+        const successor = this.node({ id: this.id(grantPath, "copy-grant"), path: grantPath, node: "permanent-spell-copy-grant",
+          scope, copy: result.id, applies: "permanent-spell-and-resulting-token", cardinality: "one", rules: grantRules });
+        const grantContext: Context = { ...context, recipient: { candidate: { id: successor, domain: "object", cardinality: "one" } } };
+        effect.copyGrant.abilities.forEach((grant, index) => this.gained(grant, `${grantPath}/abilities/${index}`, grantContext));
+        this.engineFeature("permanent-spell-copy", grantPath, "Apply the printed separate grant to the permanent spell copy and the token it becomes.", grantRules);
+      }
       // The copy is not the original. A later bare pronoun with both in
       // scope is ambiguous; an explicit copy-result has its own capture.
       context.objects = combine(context.objects, [result]);
@@ -4118,6 +4199,9 @@ class Analyzer {
     if (eventObject && "what" in trigger && trigger.what && "ref" in trigger.what
       && ["self", "this", "equipped", "enchanted", "fortified"].includes(trigger.what.ref)) this.sourceAliases.add(eventObject.id);
     if (stackEvent && eventObject) context.triggerObject = { event: stackEvent, candidate: eventObject };
+    if (trigger.trigger === "put-into-zone" && trigger.to.zone === "stack" &&
+        eventObject?.cardinality === "one" && eventObject.description && stackClasses(eventObject.description))
+      context.stackPlacement = eventObject;
     if (["attacks", "attacks-and-isnt-blocked", "becomes-blocked"].includes(trigger.trigger) && eventObject?.cardinality === "one") context.attacker = eventObject;
     if (recipient) {
       if (recipient.domain === "player") context.players = combine(context.players, [recipient]);
@@ -4134,6 +4218,8 @@ class Analyzer {
     if (related) context.players = combine(context.players, [related]);
     // "That player" never means the player the text calls "you".
     if (who && who.id !== context.you) context.players = [this.eventResult(path, event, "player", "one", "same-objects")];
+    if (trigger.trigger === "cast" && trigger.what && !("ref" in trigger.what) && who?.cardinality === "one" && stackEvent === "cast")
+      context.castActors = { caster: who.id === context.you ? who : context.players[0], filter: trigger.what };
     // "deals damage to a player" (one occurrence per damaged player), "at the
     // beginning of each player's upkeep": "that player" is the event's player.
     else if ((trigger.trigger === "deals-damage" && trigger.to === "any" && !trigger.recipients)
@@ -4321,6 +4407,9 @@ class Analyzer {
         context.interveningIf = true;
         this.namingCondition(ability.condition, child(path, "condition"), context);
         context.interveningIf = undefined;
+        if (context.stackPlacement && isDeepStrictEqual(ability.condition,
+          { condition: "is-filter", what: { ref: "it" }, filter: { singleTarget: true } }))
+          context.singleTargetStackGuard = true;
         this.sentences(ability.effects, child(path, "effects"), context);
         break;
       case "spell": {

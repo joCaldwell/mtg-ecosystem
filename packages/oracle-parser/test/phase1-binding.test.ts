@@ -1131,3 +1131,63 @@ describe("exile qualification for card copies", () => {
     assert.ok(!graph.nodes.some(node => node.node === "card-copy"));
   });
 });
+
+describe("copies with fixed targets, actor sets, and grants", () => {
+  it("copies the triggering spell for each other legal Golem target", () => {
+    const graph = analyze("Whenever a player casts an instant or sorcery spell that targets only a single Golem, "
+      + "that player copies that spell for each other Golem that spell could target. Each copy targets a different one of those Golems.", "Artifact Creature — Golem");
+    boundCard(graph);
+    const copy = graph.nodes.find(node => node.node === "alternate-target-copy");
+    assert.ok(copy && copy.targetPolicy.allTargetSlots);
+    assert.equal(copy.targetPolicy.exclude, "original-target");
+    assert.equal(copy.caster, bound(graph, "/steps/0/who"));
+    assert.equal(copy.subject, bound(graph, "/steps/0/what"));
+  });
+
+  it("does not reuse a different cast trigger's restriction to prove fixed targets", () => {
+    const name = "Fixture";
+    const typeLine = "Artifact Creature — Golem";
+    const result = parseOracleText("Whenever a player casts an instant or sorcery spell that targets only a single Golem, "
+      + "that player copies that spell for each other Golem that spell could target. Each copy targets a different one of those Golems.",
+      name, { typeLine, includeSourceProvenance: true });
+    assert.ok(result.ok);
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "triggered" && ability.trigger.trigger === "cast" && ability.trigger.what && !("ref" in ability.trigger.what));
+    delete ability.trigger.what.targetsOnly;
+    const graph = analyzeCardBindings({ identity: "fixture", source: { name, type_line: typeLine, layout: "normal" },
+      faces: [{ sourceFaceIndex: 0, result }] });
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "alternate-target-copy"));
+  });
+
+  it("makes mandatory copies for the other players with optional per-copy retargeting", () => {
+    const graph = analyze("Whenever a player casts an instant or sorcery spell, each other player copies that spell. "
+      + "Each of those players may choose new targets for their copy.", "Enchantment");
+    boundCard(graph);
+    const copies = graph.nodes.find(node => node.node === "per-player-copies");
+    const group = graph.nodes.find(node => node.node === "relative-player-group");
+    assert.ok(copies && group?.filter.kind === "other-than");
+    assert.equal(copies.group, group.id);
+    assert.equal(bound(graph, "/steps/0/who"), bound(graph, "/retarget/who"));
+    assert.ok(graph.nodes.some(node => node.id === copies.event && node.node === "event" && !node.optional));
+  });
+
+  it("carries a separate grant only onto the permanent spell copy and its token", () => {
+    const graph = analyze("Whenever you cast a spell from exile, copy it. You may choose new targets for the copy. "
+      + "If it's a permanent spell, the copy gains haste and \"At the beginning of the end step, sacrifice this permanent.\"", "Creature");
+    boundCard(graph);
+    const grant = graph.nodes.find(node => node.node === "permanent-spell-copy-grant");
+    assert.ok(grant);
+    assert.equal(grant.applies, "permanent-spell-and-resulting-token");
+    assert.ok(graph.nodes.some(node => node.node === "recipient" && node.of === grant.id));
+  });
+
+  it("randomly reselects the one target of the stack occurrence after rechecking", () => {
+    const graph = analyze("Whenever a spell or ability is put onto the stack, if it has a single target, reselect its target at random.", "Enchantment");
+    boundCard(graph);
+    const reselect = graph.nodes.find(node => node.node === "random-target-reselection");
+    assert.ok(reselect);
+    assert.equal(reselect.subject, bound(graph, "/condition/what"));
+    assert.equal(reselect.subject, bound(graph, "/steps/0/what"));
+  });
+});
