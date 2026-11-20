@@ -203,16 +203,13 @@ Capability derivation traverses modes/activations/triggers too.
 
 `BlockingBattlefieldCreature` / `BlockingCreatureTargetV1` is limited to ordinary
 instant/sorcery fixed P/T pumps until cleanup. Other opcodes, modes, extra sacrifice
-costs, activations and triggers reject. Committed blockers retain status through
-EndCombat even after the attacker leaves; their own combat departure clears it.
-Damage links alone do not define blocking. Existing target/query predicates use
-this rules state without adding a public object field.
+costs, activations and triggers reject. Blockers retain status through EndCombat or their own combat departure, independently of damage links or attacker departure.
 
 | Family | Complete supported shape; other contexts reject |
 | --- | --- |
-| Ordinary tap (`TapPermanentV1`) | One unqualified creature target, instant/sorcery tap, optionally followed by one mandatory controller draw-one |
+| Ordinary tap (`TapPermanentV1`) | Instant/sorcery, one creature target, optional mandatory draw-one rider |
 | Artifact tap activation (`ActivatedTapPermanentV1`) | Battlefield artifact, finite mana plus tap-source cost, one tap instruction, artifact/creature/land target union; no sacrifice/modes/triggers/extra effects |
-| Cast-entry land untap (`UntapControllerLandsV1`) | Standalone paid creature entry. Simultaneously untap the trigger controller’s currently tapped lands, including multitype lands. |
+| Cast-entry land untap (`UntapControllerLandsV1`) | Paid creature entry. Simultaneously untap the trigger controller’s currently tapped lands, including multitype lands. |
 | Ordinary untap (`UntapPermanentV1`) | One ordinary nonmodal instant/sorcery, one unqualified permanent target and instruction; no additional costs/qualifiers/extra instructions |
 | Tap-source creature untap (`TapSourceUntapCreatureV1`) | Battlefield creature, pure tap-source cost, instant-timed stack, one mandatory creature-filter target at slot zero and one untap instruction |
 | Tap-source destruction | Separately validated creature activation and tapped-creature target; preserve cost/readiness and ordinary destruction guards |
@@ -221,7 +218,7 @@ this rules state without adding a public object field.
 Already tapped/untapped is a legal target; produce no false second status event.
 Tap/untap does not itself remove combat membership. Self-targeting tap/untap
 abilities still pay tap first. Paid activations survive source departure.
-Compiler tests fence each complete source shape.
+Fixed-mana creatures may combine controller life gain, targeted creature damage and artifact-or-enchantment destruction with cast-entry untap.
 
 <a id="combat-damage-and-state-based-actions"></a>
 

@@ -211,6 +211,7 @@ impl Game {
                         Frame::StackTargets { cast }
                     }
                     TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BattlefieldCreature
                     | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
                     _ => Frame::EntityTargets { cast },
                 }
@@ -355,6 +356,7 @@ impl Game {
                     !matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::BattlefieldCreature
                             | TargetDomain::BattlefieldPermanent
                     )
                 }))

@@ -9,6 +9,11 @@ pub use opponent_mana::opponent_land_mana_family;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
 mod cast_entry;
+mod fixed_creature_activation;
+pub use fixed_creature_activation::{
+    FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
+    has_fixed_creature_activation,
+};
 mod cast_origin;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -2495,7 +2500,8 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
-        cast_entry::validate_source(self)?;
+        let fixed_activations = fixed_creature_activation::validate(self)?;
+        cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
         conditional_lands::validate_definition(self)?;
@@ -3010,6 +3016,10 @@ impl Definition {
                     return Err("unsupported fixed artifact sacrifice activation".into());
                 }
                 validate_instruction_program(p)?;
+                continue;
+            }
+            // Each complete cost, target and instruction was reconstructed from its printed block.
+            if fixed_activations {
                 continue;
             }
             if ability.functioning_zone == FunctioningZone::Hand
@@ -6622,6 +6632,7 @@ pub fn catalog_schema() -> serde_json::Value {
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
+    fixed_creature_activation::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{

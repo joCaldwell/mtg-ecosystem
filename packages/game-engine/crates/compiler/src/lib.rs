@@ -1987,13 +1987,27 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 ));
                             }
                             labels.activated.push(source_block(block)?);
-                            definition
-                                .activated
-                                .push(if let Some(loss) = artifact_loss.take() {
-                                    loss
-                                } else {
-                                    lower_activation(costs, effects, block, kind)?
-                                });
+                            let fixed = fixed_creature_activation(
+                                &result.lines[block].text,
+                                "~",
+                                source_block(block)?,
+                            );
+                            let activated = if let Some(loss) = artifact_loss.take() {
+                                loss
+                            } else if let Some(spec) = fixed {
+                                let raw: serde_json::Value =
+                                    decode(original[block].get(), "activated")?;
+                                if raw != spec.ast {
+                                    return Err(unsupported(
+                                        "activation",
+                                        "printed fixed activation differs from AST",
+                                    ));
+                                }
+                                spec.ability
+                            } else {
+                                lower_activation(costs, effects, block, kind)?
+                            };
+                            definition.activated.push(activated);
                         }
                     }
                     Ability::Triggered {
