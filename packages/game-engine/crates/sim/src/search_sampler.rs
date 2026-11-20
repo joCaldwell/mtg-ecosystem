@@ -272,6 +272,9 @@ mod tests {
                         );
                     }
                     let response = match observation.decision.unwrap() {
+                        PlayerRequest::OpeningPlacement { .. } => {
+                            PlayerResponse::OpeningPlacement { object: None }
+                        }
                         PlayerRequest::Mulligan { .. } => PlayerResponse::Mulligan { take: false },
                         PlayerRequest::Priority { .. } => PlayerResponse::Pass,
                         other => panic!("unexpected preparation choice {other:?}"),

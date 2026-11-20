@@ -164,10 +164,17 @@ impl Game {
                     {
                         return Err("resolution payment completion identity".into());
                     }
-                    progress.child = Some(completed.stack_id);
-                    progress.stage = cascade::CascadeStage::Randomize;
-                    self.prepare_cascade_remainder(&mut progress)?;
-                    self.state.rules.frame = Frame::Cascade { progress };
+                    match &mut progress {
+                        CastOwner::Cascade(progress) => {
+                            progress.child = Some(completed.stack_id);
+                            progress.stage = cascade::CascadeStage::Randomize;
+                            self.prepare_cascade_remainder(progress)?;
+                        }
+                        CastOwner::RevealAndCast(progress) => {
+                            progress.complete_cast(permission.object, completed.stack_id)?
+                        }
+                    }
+                    self.state.rules.frame = progress.resume();
                 }
             },
             AnnouncementPayment::Unpayable => {

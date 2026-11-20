@@ -108,6 +108,10 @@ pub enum ResolvedEffectKind {
     AdditionalLandPlays {
         count: Quantity,
     },
+    GrantHandCastCascade {
+        triggered_ability_index: u32,
+        source_facts: Box<ObjectBefore>,
+    },
     PreventNextDamage {
         target: TargetEntity,
         remaining: Quantity,
@@ -239,13 +243,40 @@ impl Game {
         }
         Ok(())
     }
-    fn characteristics_before_power_toughness(
+    // CR 105.2, 611.3, 613.1b/e: battlefield membership and control
+    // have already been reconciled before the color layer is evaluated.
+    pub(super) fn color_layer(
         &self,
         object: ObjectId,
-    ) -> Result<&Characteristics, String> {
-        // The admitted layers leave color unchanged. Read the same earlier
-        // characteristics as full derivation, including instantiated tokens.
-        Ok(&self.definition(object.card)?.characteristics)
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let base = &self.definition(object.card)?.characteristics;
+        if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
+            let target = self.current(object)?;
+            if target.present_on_battlefield() {
+                for source in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|s| s.present_on_battlefield() && s.controller == target.controller)
+                {
+                    if self
+                        .definition(source.id.card)?
+                        .static_abilities
+                        .iter()
+                        .any(|a| {
+                            a.effect == StaticEffect::ControllerNonlandsAllColors
+                                && a.functioning_zone == FunctioningZone::Battlefield
+                        })
+                    {
+                        let mut effective = base.clone();
+                        effective.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
+                        return Ok(std::borrow::Cow::Owned(effective));
+                    }
+                }
+            }
+        }
+        Ok(std::borrow::Cow::Borrowed(base))
     }
 
     pub(super) fn permanent_colors(
@@ -263,7 +294,7 @@ impl Game {
                 }
         }) {
             colors.extend(
-                self.characteristics_before_power_toughness(permanent.id)?
+                self.color_layer(permanent.id)?
                     .colors
                     .iter()
                     .copied()
@@ -277,7 +308,7 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<Characteristics, String> {
-        let mut c = self.characteristics_before_power_toughness(object)?.clone();
+        let mut c = self.color_layer(object)?.into_owned();
         self.apply_land_subtype_grants(object, &mut c)?;
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
@@ -539,6 +570,27 @@ impl Game {
                     ResolvedEffectKind::PreventNextDamage {
                         target,
                         remaining: amount,
+                    },
+                    source_block,
+                )
+            }
+            Instruction::GrantHandCastCascade { source_block } => {
+                let StackKind::Triggered {
+                    ability: EffectiveTriggerAbility::Intrinsic { index },
+                    ..
+                } = frame.spell.kind
+                else {
+                    return Err("hand cast cascade requires an intrinsic trigger".into());
+                };
+                let source_facts = frame
+                    .spell
+                    .source_facts
+                    .clone()
+                    .ok_or("missing hand cast cascade source facts")?;
+                (
+                    ResolvedEffectKind::GrantHandCastCascade {
+                        triggered_ability_index: index,
+                        source_facts: Box::new(source_facts),
                     },
                     source_block,
                 )
@@ -1419,6 +1471,21 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::GrantHandCastCascade { source_block },
+                        ResolvedEffectKind::GrantHandCastCascade {
+                            triggered_ability_index,
+                            source_facts,
+                        },
+                    ) => {
+                        matches!(frame.spell.kind, StackKind::Triggered {
+                            ability: EffectiveTriggerAbility::Intrinsic { index },
+                            ..
+                        } if index == *triggered_ability_index)
+                            && frame.spell.source_facts.as_ref() == Some(source_facts.as_ref())
+                            && *source_block == effect.origin.source_block
+                            && self.is_live(effect.origin.controller)
+                    }
+                    (
                         Instruction::PreventNextDamage {
                             target_slot,
                             amount,
@@ -1721,6 +1788,27 @@ impl Game {
             }
             if e.origin.stack_id.0 >= self.state.rules.next_stack_id {
                 return Err("effect origin stack identity invariant".into());
+            }
+            if let ResolvedEffectKind::GrantHandCastCascade {
+                triggered_ability_index,
+                source_facts,
+            } = &e.kind
+            {
+                self.temporary_grant_program(e.origin.source, *triggered_ability_index)?;
+                self.validate_grant_source_facts(
+                    e.origin.source,
+                    source_facts,
+                    &e.origin.source_handles,
+                )?;
+                if e.origin.source_block != spell_cascade_grants::HAND_CAST_CASCADE_BLOCK
+                    || e.origin.cursor != 0
+                    || e.origin.activated_ability.is_some()
+                    || e.origin.mode.is_some()
+                    || !e.target_handles.is_empty()
+                {
+                    return Err("invalid hand cast cascade effect attachment".into());
+                }
+                continue;
             }
             let programs = self.origin_programs(&e.origin)?;
             let instructions = programs.iter().filter_map(|p| {
@@ -2102,6 +2190,11 @@ pub enum VisibleEffect {
         count: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
+    GrantHandCastCascade {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        expires_in_cleanup_of_turn: u64,
+    },
     PreventNextDamage {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2358,6 +2451,13 @@ impl Game {
                     expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
                 }
             }
+            ResolvedEffectKind::GrantHandCastCascade { .. } => {
+                VisibleEffect::GrantHandCastCascade {
+                    handle,
+                    origin,
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
             ResolvedEffectKind::PreventNextDamage { target, remaining } => {
                 VisibleEffect::PreventNextDamage {
                     handle,
@@ -2533,6 +2633,14 @@ impl Game {
             && self.catalog_has_land_type_grant
         {
             Self::add_basic_land_types(&mut base);
+        }
+        // Replay authenticates which provider existed at the original capture.
+        if base.colors != c.colors
+            && self.catalog_has_nonland_color_grant
+            && zone == Zone::Battlefield
+            && !base.has_type(CardKind::Land)
+        {
+            base.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
         }
         base.power = c.power.clone();
         base.toughness = c.toughness.clone();
