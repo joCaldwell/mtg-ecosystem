@@ -164,6 +164,7 @@ fn counter_spell_controller_mill_exact_capabilities_and_shape() {
         },
         |d| {
             d.spell.as_mut().unwrap().targets[0].filter = Some(PermanentFilter {
+                power: None,
                 types: vec![CardKind::Creature],
                 non_types: vec![],
                 non_colors: vec![],

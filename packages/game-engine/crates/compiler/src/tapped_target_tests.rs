@@ -121,6 +121,7 @@ fn complete_tapped_creature_spells_preserve_source_and_current_target_predicate(
                     stage: EvaluationStage::Announcement,
                     domain: TargetDomain::BattlefieldPermanent,
                     filter: Some(PermanentFilter {
+                        power: None,
                         types: vec![CardKind::Creature],
                         non_types: vec![],
                         non_colors: vec![],
@@ -239,6 +240,7 @@ fn tapped_target_composes_only_with_represented_filters_and_cannot_overwrite_reu
     assert_eq!(
         definition.spell.as_ref().unwrap().targets[0].filter,
         Some(PermanentFilter {
+            power: None,
             types: vec![CardKind::Creature],
             non_types: vec![CardKind::Artifact],
             non_colors: vec![Color::B],

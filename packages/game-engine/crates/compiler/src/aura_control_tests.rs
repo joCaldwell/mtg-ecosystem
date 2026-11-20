@@ -682,6 +682,7 @@ fn aura_control_generalized_artifact_land_bind_exact_targets_costs_and_control_u
         assert_eq!(
             t.filter,
             Some(PermanentFilter {
+                power: None,
                 types: vec![kind],
                 non_types: vec![],
                 non_colors: vec![],
@@ -957,6 +958,7 @@ fn aura_control_confiscate_complete_general_lowering_keeps_explicit_filter_and_l
             stage: EvaluationStage::Announcement,
             domain: TargetDomain::BattlefieldPermanent,
             filter: Some(PermanentFilter {
+                power: None,
                 types: vec![],
                 non_types: vec![],
                 non_colors: vec![],

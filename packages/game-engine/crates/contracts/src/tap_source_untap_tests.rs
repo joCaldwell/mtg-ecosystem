@@ -14,6 +14,7 @@ pub(super) fn tap_source_untap() -> Definition {
     let p = &mut d.activated[0].program;
     p.targets[0].domain = TargetDomain::BattlefieldPermanent;
     p.targets[0].filter = Some(PermanentFilter {
+        power: None,
         types: vec![CardKind::Creature],
         non_types: vec![],
         non_colors: vec![],

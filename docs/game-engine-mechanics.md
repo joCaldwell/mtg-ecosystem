@@ -116,8 +116,8 @@ optional fixed life loss (`LifeLossV1`) on ordinary spells. Flash creatures with
 opponent hand-size reductions draw at their controller's end step. Paid draws
 survive source sacrifice. Counted
 draws precede hand returns or simultaneous discards. Commander replacements
-precede return successors. Returning a targeted creature from your graveyard
-uses ordinary battlefield entry. Targeted and group discards clamp to hand size.
+precede hand-return successors. Own-graveyard card returns target exact cards;
+creature battlefield returns use ordinary entry. Discards clamp to hand size.
 Group choices stay private until one simultaneous discard before Commander SBAs.
 Each-player draws finish each seat in turn order, including failed attempts.
 Seeded random discard samples without replacement. Departure never redirects attempts.
@@ -157,6 +157,7 @@ spell. Reversal refunds only receipt-recorded casting-time mana/taps, preserving
 pre-cast mana, combat taps and departures; retained legal mana activations clear
 passes. Mixed-color spending needs explicit choices. Nested permanent-mana costs,
 colored production and X use exact supported cost shapes, never guessed colors.
+A fixed counter tax gives the targeted spell's controller a resolution payment window.
 X is announced nonnegative and frozen; stack mana value and supported draw, damage, life and mill effects use it.
 CountedSelfGenericCostReductionV1 admits artifact/caster self reducers independently
 of BoardWipes. Every validated slot applies; the legacy creature reducer shares
@@ -197,8 +198,9 @@ refresh current/LKI facts only at their defined boundaries.
 
 `PermanentFilter.tapped: true` requires current tapped status; absent/false means
 no restriction, not untapped. Complete-source status must be exactly `["tapped"]`;
-empty/null/mixed/unknown statuses reject. Stack filters reject battlefield status.
-Capability derivation traverses modes/activations/triggers too.
+empty/null/mixed/unknown statuses reject. Stack filters exclude battlefield predicates.
+Power bounds use derived power at announcement and resolution.
+Capability derivation recurses.
 
 `BlockingBattlefieldCreature` / `BlockingCreatureTargetV1` is limited to ordinary
 instant/sorcery fixed P/T pumps until cleanup. Other opcodes, modes, extra sacrifice

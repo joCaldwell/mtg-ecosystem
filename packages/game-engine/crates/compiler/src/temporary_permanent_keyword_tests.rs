@@ -103,6 +103,7 @@ fn temporary_permanent_keyword_compiler_exact_tamiyo_archive_source_and_provenan
             stage: EvaluationStage::Announcement,
             domain: TargetDomain::ControlledBattlefieldPermanent,
             filter: Some(PermanentFilter {
+                power: None,
                 types: vec![],
                 non_types: vec![],
                 non_colors: vec![],

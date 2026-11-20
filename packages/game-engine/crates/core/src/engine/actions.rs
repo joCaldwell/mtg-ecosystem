@@ -148,9 +148,14 @@ impl Game {
                 .objects
                 .values()
                 .any(|o| self.permanent_target_legal(o.id, player, &program.targets[0])),
-            Some(TargetDomain::OwnGraveyardCreatureCard) => {
-                !self.graveyard_creatures(player).is_empty()
-            }
+            Some(
+                domain @ (TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard),
+            ) => self
+                .state
+                .rules
+                .objects
+                .values()
+                .any(|object| self.graveyard_target_legal(object, player, domain)),
             Some(TargetDomain::BlockingBattlefieldCreature) => self
                 .state
                 .rules
@@ -1016,6 +1021,7 @@ impl Game {
             | Instruction::DestroyAllCreatures { .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
             | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
+            | Instruction::ReturnOwnGraveyardCardToHand { .. }
             | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
@@ -1234,6 +1240,11 @@ impl Game {
                 target_slot,
                 source_block,
             } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
+            Instruction::CounterSpellUnlessPays {
+                target_slot,
+                generic,
+                ..
+            } => self.begin_counter_payment(frame, target_slot, generic),
             Instruction::CounterSpellAndMillController {
                 target_slot,
                 count,

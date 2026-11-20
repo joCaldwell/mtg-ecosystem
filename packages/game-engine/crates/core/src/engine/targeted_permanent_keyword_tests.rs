@@ -66,6 +66,7 @@ fn prepared(rows: &[Row]) -> Prepared {
             non_colors: vec![],
             opponent: false,
             tapped: false,
+            power: None,
         })
     );
     assert_eq!(program.instructions.len(), 2, "reminder adds no semantics");

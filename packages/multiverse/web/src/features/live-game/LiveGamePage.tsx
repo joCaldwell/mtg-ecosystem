@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { LiveGamePage as GameLiveGamePage } from "@multiverse/game/live-page";
-import type { GameBrowserHost } from "@multiverse/game/browser-host";
 import { beginGameRequestBudget, productFetch, waitForGameRequestCooldown } from "../../api/request-budget.ts";
 import { gameBrowserHost } from "../../app/game-host.ts";
 import { useSession } from "../../app/Session.tsx";
@@ -10,7 +9,7 @@ export function LiveGamePage({ gameId }: { gameId: string }) {
   const policy = session.mode === "hosted" && session.user ? session.ui_request_budget : undefined;
   const count = policy?.count;
   const windowMs = policy?.window_ms;
-  const host = useMemo<GameBrowserHost>(() => {
+  const host = useMemo<typeof gameBrowserHost>(() => {
     if (count === undefined || windowMs === undefined) return gameBrowserHost;
     return {
       ...gameBrowserHost,

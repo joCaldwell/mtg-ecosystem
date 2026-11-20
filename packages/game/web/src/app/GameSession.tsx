@@ -11,7 +11,7 @@ export interface GameSessionProps {
   /** Host-owned pause/result disables input without settling saved commands. */
   readonly interactive?: boolean;
   /** Host transport for the app-selected same-origin game proxy. */
-  readonly requestFetch?: typeof fetch;
+  readonly requestFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 function OwnedGameSession({ gameId, bootstrapFile, headingLevel = 2, interactive = true, requestFetch }: GameSessionProps) {
   const [session] = useState(() => browserCommandSession(protocolSchemaHash, {

@@ -1772,6 +1772,7 @@ impl Game {
                             TargetDomain::BattlefieldPermanent
                                 | TargetDomain::BattlefieldCreature
                                 | TargetDomain::OwnGraveyardCreatureCard
+                                | TargetDomain::OwnGraveyardCard
                         )
                     }) =>
             {
@@ -1806,23 +1807,18 @@ impl Game {
                 colors: self.mana_source_colors(*player, *source, *scope)?,
                 mana_ability_source: Some(self.handle_for(viewer, *source)?),
             })),
+            Frame::CounterUnless { payment, .. } if payment.payer == viewer => self
+                .visible_payment_request(viewer, token, self.counter_payment_request(payment), None)
+                .map(Some),
             Frame::ManaAbility { activation } if activation.player == viewer => {
                 Ok(Some(match self.permanent_mana_request(activation)? {
-                    Request::Mana { cost, .. } => PlayerRequest::Mana {
-                        token,
-                        player: viewer,
-                        cost,
-                        mana_ability_source: Some(self.handle_for(viewer, activation.source)?),
-                    },
-                    Request::SpendMana {
-                        cost, available, ..
-                    } => PlayerRequest::SpendMana {
-                        token,
-                        player: viewer,
-                        cost,
-                        available,
-                        mana_ability_source: Some(self.handle_for(viewer, activation.source)?),
-                    },
+                    request @ (Request::Mana { .. } | Request::SpendMana { .. }) => self
+                        .visible_payment_request(
+                            viewer,
+                            token,
+                            request,
+                            Some(self.handle_for(viewer, activation.source)?),
+                        )?,
                     Request::ManaColor { colors, .. } => PlayerRequest::ManaColor {
                         token,
                         player: viewer,
@@ -1838,21 +1834,9 @@ impl Game {
                     _ => return Err("nested mana request invariant".into()),
                 }))
             }
-            Frame::SpendMana { .. } if self.top()?.controller == viewer => {
-                let Request::SpendMana {
-                    cost, available, ..
-                } = self.spend_mana_request()?
-                else {
-                    return Err("spending request invariant".into());
-                };
-                Ok(Some(PlayerRequest::SpendMana {
-                    token,
-                    player: viewer,
-                    cost,
-                    available,
-                    mana_ability_source: None,
-                }))
-            }
+            Frame::SpendMana { .. } if self.top()?.controller == viewer => self
+                .visible_payment_request(viewer, token, self.spend_mana_request()?, None)
+                .map(Some),
             Frame::CommanderReturn {
                 object,
                 destination,
@@ -1891,6 +1875,36 @@ impl Game {
             }
             _ => Ok(None),
         }
+    }
+    fn visible_payment_request(
+        &self,
+        viewer: PlayerId,
+        token: DecisionToken,
+        request: Request,
+        mana_ability_source: Option<ObjectHandle>,
+    ) -> Result<PlayerRequest, String> {
+        Ok(match request {
+            Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
+                token,
+                player: viewer,
+            },
+            Request::Mana { cost, .. } => PlayerRequest::Mana {
+                token,
+                player: viewer,
+                cost,
+                mana_ability_source,
+            },
+            Request::SpendMana {
+                cost, available, ..
+            } => PlayerRequest::SpendMana {
+                token,
+                player: viewer,
+                cost,
+                available,
+                mana_ability_source,
+            },
+            _ => return Err("payment request invariant".into()),
+        })
     }
     fn permitted_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
         let mut view = self.blank_view(viewer)?;
@@ -2085,6 +2099,9 @@ impl Game {
                             .land_entry_offer()?
                             .is_some_and(|(player, _, _)| player == viewer) =>
                     {
+                        Some((self.state.rules.revision, 20))
+                    }
+                    Frame::CounterUnless { ref payment, .. } if payment.payer == viewer => {
                         Some((self.state.rules.revision, 20))
                     }
                     Frame::ManaSourceChoice { player, .. } if player == viewer => {

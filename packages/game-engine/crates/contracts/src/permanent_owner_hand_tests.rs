@@ -12,6 +12,7 @@ pub(super) fn permanent_owner_hand() -> Definition {
     .unwrap();
     let p = d.spell.as_mut().unwrap();
     p.targets[0].filter = Some(PermanentFilter {
+        power: None,
         types: vec![],
         non_types: vec![],
         non_colors: vec![],

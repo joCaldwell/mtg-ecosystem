@@ -26,6 +26,7 @@ mod controller_surveil_tests;
 mod counter_spell_controller_mill;
 #[cfg(test)]
 mod counter_spell_controller_mill_tests;
+mod counter_unless_generic;
 pub mod coverage;
 mod creature_entry_return;
 mod diagnostics;
@@ -55,9 +56,11 @@ mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_costs;
+mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
+mod power_filtered_removal;
 mod self_reference;
 mod self_spell_protection;
 mod source_dies_nonland_destroy;
@@ -173,6 +176,9 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    // Constructed only after validating the complete raw sentence and payer graph.
+    #[serde(skip)]
+    CounterUnlessGeneric { generic: Quantity },
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1406,7 +1412,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
+    let abilities = match counter_unless_generic::lower(&shape, &result, &binding)? {
+        Some(ability) => vec![ability],
+        None => read_abilities(&canonical_abilities)?,
+    };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
@@ -1419,7 +1428,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         | Ability::Static { ability_word, .. }
         | Ability::Spell { ability_word, .. }
         | Ability::Activated { ability_word, .. }
-        | Ability::Triggered { ability_word, .. }) = ability;
+        | Ability::Triggered { ability_word, .. }) = ability
+        else {
+            continue;
+        };
         if ability_word.as_ref().is_some_and(|s| s.trim().is_empty()) {
             return Err(unsupported("abilities.abilityWord", "empty annotation"));
         }
@@ -1495,6 +1507,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let mut power_removal = power_filtered_removal::lower(&shape, &result, &binding)?;
     let counter_mill = counter_spell_controller_mill::lower(&shape, &result, &binding)?;
     let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let drain = opponent_life_drain::lower(&shape, &result, &binding)?;
@@ -1791,6 +1804,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                     stage: EvaluationStage::Announcement,
                                     filter: (target != AuraControlTarget::Creature).then(|| {
                                         PermanentFilter {
+                                            power: None,
                                             types: target.kind().into_iter().collect(),
                                             non_types: vec![],
                                             non_colors: vec![],
@@ -2059,12 +2073,33 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     definition.static_abilities.push(a);
                     continue;
                 }
+                if let Ability::CounterUnlessGeneric { generic } = ability {
+                    let target_slot = bind_target(
+                        &mut program,
+                        &mut slots,
+                        counter_unless_generic::SELECTION,
+                        TargetDomain::StackSpell,
+                    )?;
+                    program
+                        .instructions
+                        .push(Instruction::CounterSpellUnlessPays {
+                            target_slot,
+                            generic: generic.clone(),
+                            source_block: 0,
+                        });
+                    continue;
+                }
                 let Ability::Spell { effects, .. } = ability else {
                     return Err(unsupported(
                         "abilities.kind",
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some((target, instruction)) = power_removal.take() {
+                    program.targets.push(target);
+                    program.instructions.push(instruction);
+                    continue;
+                }
                 if let Some(count) = &counter_mill {
                     let target_slot = bind_target(
                         &mut program,
@@ -2408,6 +2443,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .validate()
         .map_err(|e| unsupported("definition", e))?;
     self_spell_protection::validate_binding(&definition, &binding)?;
+    own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
@@ -3242,6 +3278,26 @@ fn append_spell_effects(
                             id,
                             TargetDomain::OwnGraveyardCreatureCard,
                         )?,
+                        source_block,
+                    }
+                }
+                Step::ReturnToHand { what, to, optional }
+                    if to == "your"
+                        && what["filter"]
+                            == serde_json::json!({"cls":"card","zone":{"zone":"graveyard","owner":"your"}}) =>
+                {
+                    // Definition validation binds the complete raw selector, sentence and printed block.
+                    let id = what["selectionId"].as_str().ok_or_else(|| {
+                        unsupported("effects.return", "missing graveyard card target")
+                    })?;
+                    Instruction::ReturnOwnGraveyardCardToHand {
+                        target_slot: bind_target(
+                            program,
+                            slots,
+                            id,
+                            TargetDomain::OwnGraveyardCard,
+                        )?,
+                        optional: optional.unwrap_or(false),
                         source_block,
                     }
                 }
@@ -4153,6 +4209,7 @@ fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Fail
         }
     };
     Ok(PermanentFilter {
+        power: None,
         types,
         non_types,
         non_colors,
@@ -4897,6 +4954,7 @@ fn bind_temporary_permanent_target(
         ));
     }
     let filter = Some(PermanentFilter {
+        power: None,
         types: vec![],
         non_types: vec![],
         non_colors: vec![],

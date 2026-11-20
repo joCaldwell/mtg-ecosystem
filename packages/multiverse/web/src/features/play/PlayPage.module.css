@@ -24,10 +24,9 @@
 .lobbyArt, .deckCaption {
   display: grid;
   align-content: end;
-  min-block-size: var(--art-feature-height);
   padding: var(--s-7);
 }
-.lobbyArt:empty { background: radial-gradient(ellipse at 68% 25%, rgb(184 173 134 / .12), transparent 72%); }
+.lobbyArt { min-block-size: var(--art-feature-height); }
 .deckCaption {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;

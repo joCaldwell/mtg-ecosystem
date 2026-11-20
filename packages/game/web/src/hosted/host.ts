@@ -3,7 +3,7 @@ import type { GameAdmission, GameLaunchResult, GameRecord } from "../../../share
 /** Product navigation, HTTP and visual primitives; no product-private imports. */
 export interface GameBrowserHost {
   /** Share the hosted game proxy's requests with the product transport. */
-  requestFetch?: typeof fetch;
+  requestFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   startRequestBudget?: () => () => void;
   api: {
     gameAdmission(deckId: number, revision: number): Promise<{ admission: GameAdmission }>;

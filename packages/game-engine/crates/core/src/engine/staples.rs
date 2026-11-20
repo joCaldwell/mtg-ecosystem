@@ -229,20 +229,21 @@ impl Game {
         }
     }
 
-    pub(super) fn graveyard_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
-        self.state
-            .rules
-            .objects
-            .values()
-            .filter(|o| {
-                o.zone == (Zone::Graveyard { owner: player })
-                    && !self.state.rules.tokens.contains_key(&o.id.card)
-                    && self
-                        .definition(o.id.card)
-                        .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
-            })
-            .map(|o| o.id)
-            .collect()
+    pub(super) fn graveyard_target_legal(
+        &self,
+        object: &Object,
+        player: PlayerId,
+        domain: TargetDomain,
+    ) -> bool {
+        object.zone == (Zone::Graveyard { owner: player })
+            && !self.state.rules.tokens.contains_key(&object.id.card)
+            && match domain {
+                TargetDomain::OwnGraveyardCard => true,
+                TargetDomain::OwnGraveyardCreatureCard => self
+                    .definition(object.id.card)
+                    .is_ok_and(|d| d.characteristics.kind == CardKind::Creature),
+                _ => false,
+            }
     }
     pub(super) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
         match self
@@ -258,9 +259,11 @@ impl Game {
                 .ok()
                 .and_then(|p| p.targets.first())
                 .is_some_and(|spec| self.permanent_target_legal(object, entry.controller, spec)),
-            Some(TargetDomain::OwnGraveyardCreatureCard) => {
-                self.graveyard_creatures(entry.controller).contains(&object)
-            }
+            Some(
+                domain @ (TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard),
+            ) => self
+                .current(object)
+                .is_ok_and(|o| self.graveyard_target_legal(o, entry.controller, domain)),
             Some(TargetDomain::ControlledBattlefieldCreature) => {
                 self.is_battlefield_creature(object)
                     && self.targetable_by(object, entry.controller)
@@ -392,6 +395,11 @@ impl Game {
                 target_slot,
                 optional,
                 source_block,
+            }
+            | Instruction::ReturnOwnGraveyardCardToHand {
+                target_slot,
+                optional,
+                source_block,
             } => {
                 let target = frame.spell.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
@@ -411,7 +419,7 @@ impl Game {
                     };
                     Ok(())
                 } else {
-                    self.recur_creature(frame, target, source_block)
+                    self.return_graveyard_card(frame, target, source_block)
                 }
             }
             op @ (Instruction::SearchBasicLands { .. }
@@ -442,7 +450,7 @@ impl Game {
             _ => Err("not a staples instruction".into()),
         }
     }
-    fn recur_creature(
+    fn return_graveyard_card(
         &mut self,
         frame: Resolving,
         target: ObjectId,
@@ -760,7 +768,7 @@ impl Game {
                     input.response,
                     Response::OptionalRecursion { perform: true }
                 ) {
-                    self.recur_creature(frame, target, source_block)
+                    self.return_graveyard_card(frame, target, source_block)
                 } else {
                     self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
                 }
@@ -916,6 +924,11 @@ impl Game {
                     source_block,
                 },
                 Instruction::ReturnOwnGraveyardCreatureToHand {
+                    target_slot,
+                    optional: true,
+                    source_block: b,
+                }
+                | Instruction::ReturnOwnGraveyardCardToHand {
                     target_slot,
                     optional: true,
                     source_block: b,

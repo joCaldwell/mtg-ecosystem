@@ -33,6 +33,7 @@ pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
+mod counter_unless_generic;
 mod each_player_draw;
 mod opponent_life_drain;
 mod targeted_counted_draw;
@@ -70,8 +71,10 @@ pub use archives::*;
 mod creature_entry_return;
 mod flash_end_step_draw;
 mod hand_size_adjustments;
+mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
+mod power_filtered_removal;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -291,6 +294,7 @@ pub enum Capability {
     CreatureTargetV1,
     BlockingCreatureTargetV1,
     TappedPermanentTargetV1,
+    PowerFilteredRemovalV1,
     UntapPermanentV1,
     TapPermanentV1,
     ActivatedTapPermanentV1,
@@ -323,6 +327,7 @@ pub enum Capability {
     StackAbilityTargetV1,
     CounterStackObjectV1,
     CounterSpellControllerMillV1,
+    CounterUnlessGenericV1,
     TapSourceCostV1,
     PayLifeCostV1,
     ManaActivationCostV1,
@@ -370,6 +375,7 @@ pub enum Capability {
     DestroyCreatureV1,
     GraveyardRecursionV1,
     GraveyardBattlefieldReturnV1,
+    OwnGraveyardCardReturnV1,
     BasicLandSearchV1,
     BasicLandSplitSearchV1,
     TypedLandSearchV1,
@@ -416,6 +422,7 @@ pub enum TargetDomain {
     /// CR 509.1g: a current blocking creature; ordinary spell pumps only.
     BlockingBattlefieldCreature,
     OwnGraveyardCreatureCard,
+    OwnGraveyardCard,
     OpponentPlayer,
     StackSpell,
     StackActivatedOrTriggeredAbility,
@@ -448,6 +455,20 @@ pub struct PermanentFilter {
     /// 601.2c, 608.2b). False imposes no tap-status restriction.
     #[serde(default, skip_serializing_if = "is_false")]
     pub tapped: bool,
+    /// Derived creature power at target selection and resolution (CR 601.2c, 608.2b).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "power_filtered_removal::deserialize_power"
+    )]
+    #[schemars(with = "CreaturePowerFilter")]
+    pub power: Option<CreaturePowerFilter>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "comparison", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CreaturePowerFilter {
+    AtLeast { value: Quantity },
+    AtMost { value: Quantity },
 }
 /// Closed non-targeted sets, evaluated as an instruction is performed (CR 608.2h).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -829,6 +850,12 @@ pub enum Instruction {
         optional: bool,
         source_block: u32,
     },
+    ReturnOwnGraveyardCardToHand {
+        target_slot: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        optional: bool,
+        source_block: u32,
+    },
     /// Own-library optional zero-to-two basics, reveal, one tapped/remaining hand, shuffle.
     SearchBasicLandsSplit {
         source_block: u32,
@@ -1010,6 +1037,15 @@ pub enum Instruction {
         #[schemars(range(max = 0))]
         source_block: u32,
     },
+    /// CR 118.12a: the targeted spell's controller may pay during resolution.
+    CounterSpellUnlessPays {
+        #[schemars(range(max = 0))]
+        target_slot: u32,
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        generic: Quantity,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     CounterStackObject {
         target_slot: u32,
         source_block: u32,
@@ -1088,6 +1124,7 @@ impl Instruction {
             Self::DestroyAllCreatures { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
+            Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
             Self::SearchBasicLands { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. } => *source_block,
             Self::PutPlusOneCounters { source_block, .. } => *source_block,
@@ -1115,6 +1152,7 @@ impl Instruction {
             | Self::DiscardTargetPlayerAtRandom { source_block, .. }
             | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterSpellAndMillController { source_block, .. }
+            | Self::CounterSpellUnlessPays { source_block, .. }
             | Self::CounterStackObject { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. } => *source_block,
@@ -2069,6 +2107,7 @@ pub fn aura_control_domain(definition: &Definition) -> Option<AuraControlDomain>
             ) && f.non_types.is_empty()
                 && f.non_colors.is_empty()
                 && !f.opponent
+                && f.power.is_none()
                 && !f.tapped =>
         {
             match f.types.as_slice() {
@@ -2466,12 +2505,14 @@ impl Definition {
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
+        counter_unless_generic::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
         hand_return::validate_definition(self)?;
         unlimited_hand_size::validate_definition(self)?;
         hand_size_adjustments::validate_definition(self)?;
         power_entry_draw::validate_definition(self)?;
+        power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         if self
             .static_abilities
@@ -2848,6 +2889,7 @@ impl Definition {
         }
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
+        own_graveyard_card_return::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3375,6 +3417,7 @@ impl Definition {
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
+                            | TargetDomain::OwnGraveyardCard
                     )
                 })
                 || p.instructions.iter().any(|instruction| {
@@ -3386,6 +3429,7 @@ impl Definition {
                             | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+                            | Instruction::ReturnOwnGraveyardCardToHand { .. }
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
@@ -3704,6 +3748,7 @@ fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
                 && f.non_types.is_empty()
                 && f.non_colors.is_empty()
                 && !f.opponent
+                && f.power.is_none()
                 && !f.tapped
         })
 }
@@ -3731,7 +3776,7 @@ fn untap_program(p: &SpellProgram, types: &[CardKind]) -> bool {
             && t.stage == EvaluationStage::Announcement
             && t.domain == TargetDomain::BattlefieldPermanent
             && t.filter.as_ref().is_some_and(|f| f.types == types && f.non_types.is_empty()
-                && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+                && f.non_colors.is_empty() && !f.opponent && f.power.is_none() && !f.tapped))
 }
 fn ordinary_untap_program(p: &SpellProgram) -> bool {
     untap_program(p, &[])
@@ -3766,6 +3811,7 @@ fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
         && p.targets[0].filter.as_ref().is_some_and(|f| {
             f.types == [CardKind::Creature]
+                && f.power.is_none()
                 && f.tapped
                 && !f.opponent
                 && f.non_types.is_empty()
@@ -3813,6 +3859,7 @@ fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
                 && f.non_types.is_empty()
                 && f.non_colors.is_empty()
                 && !f.opponent
+                && f.power.is_none()
                 && !f.tapped
         })
 }
@@ -3920,6 +3967,7 @@ pub fn temporary_permanent_keyword_program(
                     && f.non_types.is_empty()
                     && f.non_colors.is_empty()
                     && !f.opponent
+                    && f.power.is_none()
                     && !f.tapped
             })
     });
@@ -3930,6 +3978,7 @@ pub fn temporary_permanent_keyword_program(
                     && f.non_types.is_empty()
                     && f.non_colors.is_empty()
                     && !f.opponent
+                    && f.power.is_none()
                     && !f.tapped
             })
     });
@@ -4171,6 +4220,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     || !matches!(f.non_types.as_slice(), [] | [CardKind::Land])
                     || !f.non_colors.is_empty()
                     || f.opponent
+                    || f.power.is_some()
                     || f.tapped
             })
             || !matches!(
@@ -4273,6 +4323,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     || !f.non_types.is_empty()
                     || !f.non_colors.is_empty()
                     || f.opponent
+                    || f.power.is_some()
                     || f.tapped))
                 || f.types
                     .iter()
@@ -4496,6 +4547,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
             }
+            Instruction::ReturnOwnGraveyardCardToHand { target_slot, .. } => {
+                Some((*target_slot, TargetDomain::OwnGraveyardCard))
+            }
             Instruction::SearchTypedLands { search, .. } => {
                 search.validate()?;
                 None
@@ -4594,7 +4648,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OpponentPlayer))
             }
-            Instruction::CounterSpellAndMillController { target_slot, .. } => {
+            Instruction::CounterSpellAndMillController { target_slot, .. }
+            | Instruction::CounterSpellUnlessPays { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::StackSpell))
             }
             Instruction::CounterStackObject { target_slot, .. } => {
@@ -4944,6 +4999,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if target.filter.is_some() {
             set.insert(Capability::PermanentRemovalV1);
         }
+        if target
+            .filter
+            .as_ref()
+            .is_some_and(|filter| filter.power.is_some())
+        {
+            set.insert(Capability::PowerFilteredRemovalV1);
+        }
         if target.filter.as_ref().is_some_and(|filter| filter.tapped) {
             set.insert(Capability::TappedPermanentTargetV1);
         }
@@ -4955,6 +5017,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             TargetDomain::BlockingBattlefieldCreature => Capability::BlockingCreatureTargetV1,
             TargetDomain::ControlledBattlefieldCreature => Capability::AttachmentsV1,
             TargetDomain::OwnGraveyardCreatureCard => Capability::GraveyardRecursionV1,
+            TargetDomain::OwnGraveyardCard => Capability::OwnGraveyardCardReturnV1,
             TargetDomain::OpponentPlayer => Capability::OpponentTargetV1,
             TargetDomain::StackSpell => Capability::StackSpellTargetV1,
             TargetDomain::StackActivatedOrTriggeredAbility => Capability::StackAbilityTargetV1,
@@ -5024,6 +5087,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::GrantKeywordsSet { .. }) {
             set.insert(Capability::BoardWipesV1);
         }
+        if matches!(instruction, Instruction::CounterSpellUnlessPays { .. }) {
+            set.insert(Capability::CounterStackObjectV1);
+        }
         if matches!(instruction, Instruction::DrainOpponents { .. }) {
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
@@ -5065,6 +5131,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             }
             Instruction::ReturnOwnGraveyardCreatureToHand { .. } => {
                 Capability::GraveyardRecursionV1
+            }
+            Instruction::ReturnOwnGraveyardCardToHand { .. } => {
+                Capability::OwnGraveyardCardReturnV1
             }
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
@@ -5146,6 +5215,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 Capability::CounterSpellControllerMillV1
             }
             Instruction::CounterStackObject { .. } => Capability::CounterStackObjectV1,
+            Instruction::CounterSpellUnlessPays { .. } => Capability::CounterUnlessGenericV1,
             Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
                 Capability::NoncombatDamageV1
             }
@@ -6522,6 +6592,7 @@ pub fn catalog_schema() -> serde_json::Value {
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
+    counter_unless_generic::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
     controller_counted_draw::extend_schema(&mut schema);
@@ -6551,7 +6622,9 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
+    own_graveyard_card_return::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -6705,6 +6778,7 @@ mod tests {
             CreatureTargetV1,
             BlockingCreatureTargetV1,
             TappedPermanentTargetV1,
+            PowerFilteredRemovalV1,
             UntapPermanentV1,
             TapPermanentV1,
             ActivatedTapPermanentV1,
@@ -6737,6 +6811,7 @@ mod tests {
             StackAbilityTargetV1,
             CounterStackObjectV1,
             CounterSpellControllerMillV1,
+            CounterUnlessGenericV1,
             TapSourceCostV1,
             PayLifeCostV1,
             ManaActivationCostV1,
@@ -6790,6 +6865,7 @@ mod tests {
             DestroyCreatureV1,
             GraveyardRecursionV1,
             GraveyardBattlefieldReturnV1,
+            OwnGraveyardCardReturnV1,
             BasicLandSearchV1,
             BasicLandSplitSearchV1,
             TypedLandSearchV1,
@@ -7127,12 +7203,15 @@ mod tests {
         definitions.push(each_player_draw::witness());
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
+        definitions.push(power_filtered_removal::witness());
         definitions.push(creature_entry_return::witness());
+        definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());
         definitions.push(targeted_discard::random_witness());
         definitions.push(group_discard::witness());
         definitions.push(opponent_life_drain::witness());
+        definitions.push(counter_unless_generic::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
@@ -8659,6 +8738,7 @@ mod tests {
         for change in [
             (|p: &mut SpellProgram| {
                 p.targets[0].filter = Some(PermanentFilter {
+                    power: None,
                     types: vec![CardKind::Creature],
                     non_types: vec![],
                     non_colors: vec![],

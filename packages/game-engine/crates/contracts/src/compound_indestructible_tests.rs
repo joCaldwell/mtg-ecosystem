@@ -101,6 +101,7 @@ fn compound_indestructible_rejects_structural_near_misses() {
             6 => p.targets[0].domain = TargetDomain::BlockingBattlefieldCreature,
             7 => {
                 p.targets[0].filter = Some(PermanentFilter {
+                    power: None,
                     types: vec![CardKind::Creature],
                     non_types: vec![],
                     non_colors: vec![],
