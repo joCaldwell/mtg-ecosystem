@@ -940,3 +940,69 @@ describe("quantified selections and simultaneous damage", () => {
     assert.ok(!graph.nodes.some(node => node.node === "sequential-cast"));
   });
 });
+
+describe("event-bound player sets and private access", () => {
+  it("binds each opposing attacker relative to the player that was attacked", () => {
+    const graph = analyze("Enchant player\nWhenever enchanted player is attacked, create a Gold token. "
+      + "Each opponent attacking that player does the same.", "Enchantment — Aura");
+    boundCard(graph);
+    const group = graph.nodes.find(node => node.node === "relative-player-group");
+    assert.ok(group?.filter.kind === "attacking");
+    assert.equal(group.filter.player, bound(graph, "/filter/attackingPlayer"));
+    assert.ok(graph.nodes.some(node => node.id === group.filter.player && node.node === "event-result" && node.result === "player"));
+  });
+
+  it("does not borrow an attacked player from a different ability", () => {
+    const graph = analyze("Enchant player\nWhenever enchanted player is attacked, draw a card.\n"
+      + "At the beginning of your upkeep, each opponent attacking that player creates a Gold token.", "Enchantment — Aura");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "relative-player-group"));
+  });
+
+  it("binds each other player as the chooser of their own sacrifice", () => {
+    const graph = analyze("Whenever a creature you control dies, each other player sacrifices a creature of their choice.", "Enchantment");
+    boundCard(graph);
+    const group = graph.nodes.find(node => node.node === "relative-player-group");
+    assert.equal(group?.filter.kind, "other-than");
+    assert.equal(bound(graph, "/steps/0/who"), bound(graph, "/steps/0/chosenBy"));
+    assert.equal(group?.filter.player, bound(graph, "/who/filter/other"));
+  });
+
+  it("uses the recipient's exile incarnation at counter removal time", () => {
+    const graph = analyze("Whenever a time counter is removed from this card while it's exiled, draw a card.", "Creature");
+    boundCard(graph);
+    const event = graph.nodes.find(node => node.node === "counter-change-match");
+    assert.deepEqual(event?.gate, { zone: "exile", timing: "matching-event" });
+    assert.ok(graph.nodes.some(node => node.id === bound(graph, "/gate/condition/what") &&
+      node.node === "event-result" && node.identity === "same-objects"));
+  });
+
+  it("keeps an intervening-if separate from the removal event's gate", () => {
+    const name = "Fixture";
+    const typeLine = "Creature";
+    const result = parseOracleText("Whenever a time counter is removed from this card while it's exiled, draw a card.",
+      name, { typeLine, includeSourceProvenance: true });
+    assert.ok(result.ok);
+    const [ability] = result.abilities;
+    assert.ok(ability.kind === "triggered" && ability.trigger.trigger === "event-gated" && ability.trigger.gate.gate === "condition");
+    ability.condition = ability.trigger.gate.condition;
+    ability.trigger = ability.trigger.event;
+    const graph = analyzeCardBindings({ identity: "fixture", source: { name, type_line: typeLine, layout: "normal" },
+      faces: [{ sourceFaceIndex: 0, result }] });
+    assert.ok(!graph.nodes.some(node => node.node === "counter-change-match" && node.gate));
+  });
+
+  it("retains private inspection of a face-down exile successor independently of play duration", () => {
+    const graph = analyze("Exile the top card of your library face down. You may look at and play that card this turn.", "Sorcery");
+    boundCard(graph);
+    const look = graph.nodes.find(node => node.node === "face-down-exile-look");
+    assert.equal(look?.continuedUntil, "leaves-exile-or-shuffled");
+    assert.equal(look?.card, bound(graph, "/permission/what/0"));
+    assert.equal(look?.card, bound(graph, "/permission/what"));
+  });
+
+  it("does not infer a face-down exile successor from an ordinary exile", () => {
+    const graph = analyze("Exile the top card of your library. You may look at and play that card this turn.", "Sorcery");
+    assert.ok(!graph.nodes.some(node => node.node === "face-down-exile-look"));
+  });
+});

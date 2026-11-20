@@ -142,12 +142,15 @@ export type BindingNode = NodeBase & (
       operands: string[] }
   /** CR 122.2, 122.6, 603.2c: a matched counter change, grouped by its one recipient. */
   | { node: "counter-change-match"; scope: string; event: string;
-      pattern: Extract<Trigger, { trigger: "counter-change" }>; recipients: string[]; actor?: string }
+      pattern: Extract<Trigger, { trigger: "counter-change" }>; recipients: string[]; actor?: string;
+      gate?: { zone: "exile"; timing: "matching-event" } }
   /** CR 115.7, 707.10: operate on one exact stack object or on copies as they are created. */
   | { node: "stack-instruction"; scope: string; subject: string; chooser: string;
       action: { kind: "copy"; event: string; count: number; retarget: boolean }
         | { kind: "change-targets"; scope: "all" | "one" | "any" }
         | { kind: "choose-new-targets"; timing: "resolution" | "copy-creation"; copyEvent?: string } }
+  | { node: "face-down-exile-look"; scope: string; viewer: string; card: string;
+      duration: Extract<Effect, { effect: "grant-look-permission" }>["duration"]; continuedUntil: "leaves-exile-or-shuffled" }
   | { node: "private-library-look"; scope: string; viewer: string; libraryOwner: string;
       refresh: "after-announcement-or-special-action" }
   | { node: "text-choice"; scope: string; subject: string; chooser: string;
@@ -172,6 +175,8 @@ export type BindingNode = NodeBase & (
       execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }
         | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise" } }
   /** The targets that are still legal when this set of per-player targets resolves. */
+  | { node: "relative-player-group"; scope: string; base: string; cardinality: "many";
+      filter: { kind: "attacking" | "other-than"; player: string } }
   | { node: "filtered-result-group"; scope: string; pool: string; filter: ObjectFilter; cardinality: "many" }
   | { node: "eligible-target-group"; scope: string; template: string; member: string; cardinality: "many" }
   | { node: "sequential-cast"; scope: string; event: string; pool: string; caster: string; limit: string }
@@ -248,7 +253,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

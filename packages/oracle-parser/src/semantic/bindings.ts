@@ -333,7 +333,7 @@ interface Context {
   interveningIf?: true;
   resolutionCount?: { path: string; operation: ResolutionCountOperation };
   distributedCount?: boolean;
-  exileResults?: { event: string; result: Candidate }[];
+  exileResults?: { event: string; result: Candidate; faceDown?: true }[];
   uncertainExileOrigin?: boolean;
   uncertainStackOrigin?: boolean;
   characteristicSubject?: string;
@@ -345,6 +345,7 @@ interface Context {
   uncertainCardCopyOrigin?: boolean;
   announcementMember?: string;
   definiteEventPlayer?: Candidate;
+  attackedTriggerPlayer?: Candidate;
   measuredEvents?: { operation: "damage" | "lose-life"; event: string }[];
   uncertainMeasureOrigin?: boolean;
   triggerX?: string;
@@ -2589,7 +2590,7 @@ class Analyzer {
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
       sacrificedCost: undefined, stackCopies: undefined, previousEffect: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined,
-      copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined,
+      copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined,
       linkedExile: undefined, lexicalAbilityPath: undefined, delayedSchedule: kind === "delayed-triggered",
       declaredTargets: undefined, uncertainTargetOrigin: undefined };
@@ -3009,6 +3010,84 @@ class Analyzer {
     return true;
   }
 
+  private lookAtFaceDownExile(effect: Extract<Effect, { effect: "grant-look-permission" }>, path: string, context: Context): boolean {
+    const { permission, duration } = effect;
+    if (context.barrier || context.decider || context.phase !== "resolution" || effect.optional || effect.decidedBy ||
+        effect.forEach || effect.forEachVote || permission.who.player !== "you" || permission.timing !== "any-time" ||
+        context.uncertainExileOrigin || context.exileResults?.length !== 1 || !context.exileResults[0].faceDown ||
+        !isDeepStrictEqual(permission.what, [{ ref: "that", filter: { cls: "card" } }])) return false;
+    const at = child(path, "permission");
+    this.walk(permission, at, context);
+    this.walk(duration, child(path, "duration"), context);
+    const card = this.at(`${at}/what/0`);
+    if (!card) return true;
+    if (card.id !== context.exileResults[0].result.id || card.cardinality !== "one") {
+      this.diagnostic("unsupported-scope", path, "Private access requires the exact face-down exile successor.", ["400.7j", "406.3"]);
+      return true;
+    }
+    const rules = ["400.7j", "406.3", "406.3a", "611.2a"];
+    this.node({ id: this.id(path, "face-down-exile-look"), path, node: "face-down-exile-look", scope: context.ability,
+      viewer: context.you, card: card.id, duration, continuedUntil: "leaves-exile-or-shuffled", rules });
+    this.engineFeature("private-exile-look", path, "Only the bound player may inspect the card. Retain access while it stays in exile unshuffled.", rules);
+    return true;
+  }
+
+  private relativePlayerAction(effect: Effect, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "resolution" || effect.optional || context.decider ||
+        effect.decidedBy || effect.forEach || effect.forEachVote ||
+        (effect.effect !== "sacrifice" && effect.effect !== "create-token" && effect.effect !== "untap") ||
+        effect.who?.player !== "filtered" || effect.who.random) return false;
+    const { who } = effect;
+    const attacked = context.attackedTriggerPlayer;
+    const againstAttacked = attacked && who.base.player === "each-opponent" &&
+      isDeepStrictEqual(who.filter, { attackingPlayer: { player: "that-player" } }) &&
+      (effect.effect === "create-token" && effect.count.amount === "fixed" ||
+        effect.effect === "untap" && effect.what.ref === "all" && effect.what.filter.controlledBy?.player === "they" &&
+          !effect.what.filter.control);
+    const otherPlayers = effect.effect === "sacrifice" && who.base.player === "each-player" &&
+      isDeepStrictEqual(who.filter, { other: true }) && isDeepStrictEqual(effect.chosenBy, who) &&
+      effect.what.ref === "filter" && objectCardinality(effect.what) === "one";
+    if (!againstAttacked && !otherPlayers) return false;
+
+    const rules = againstAttacked ? ["102.2", "508.1k", "508.3b", "608.2f", "805.10b"]
+      : ["101.4", "109.5", "608.2f", "701.21a"];
+    const at = child(path, "who");
+    const base = this.player(who.base, child(at, "base"), context);
+    if (!base) return true;
+    const filter = againstAttacked ? { kind: "attacking" as const, player: attacked!.id }
+      : { kind: "other-than" as const, player: context.you };
+    const group = this.node({ id: this.id(at, "relative-players"), path: at, node: "relative-player-group",
+      scope: context.ability, base: base.id, filter, cardinality: "many", rules });
+    const member = this.node({ id: this.id(at, "instruction-member"), path: at, node: "instruction-member",
+      scope: context.ability, group, domain: "player", rules });
+    this.bound(who, at, member, rules);
+    if (againstAttacked) {
+      this.bound({ player: "that-player" }, `${at}/filter/attackingPlayer`, attacked!.id, rules);
+    } else if (effect.effect === "sacrifice" && effect.chosenBy) {
+      this.bound({ player: "you" }, `${at}/filter/other`, context.you, rules);
+      this.bound(who.base, `${path}/chosenBy/base`, base.id, rules);
+      this.bound({ player: "you" }, `${path}/chosenBy/filter/other`, context.you, rules);
+      this.bound(effect.chosenBy, child(path, "chosenBy"), member, rules);
+    }
+    const scope: Context = { ...this.branch(context), actor: { id: member, domain: "player", cardinality: "one" } };
+    for (const [key, value] of Object.entries(effect)) {
+      if (key !== "who" && key !== "chosenBy") this.walk(value, child(path, key), scope);
+    }
+    const object = this.at(child(path, "what"));
+    const event = this.event(path, scope, effect.effect, [scope.actor!, ...(object ? [object] : [])],
+      context.conditional ? { conditional: true } : {});
+    this.node({ id: this.id(path, "group-instruction"), path, node: "group-instruction", scope: context.ability, event,
+      execution: { kind: "for-each", domain: group, member, membership: "resolution", processing: "instruction-wise" }, rules });
+    this.engineFeature("group-instruction", path,
+      "Evaluate the specified player membership and apply the instruction independently to each player, preserving simultaneous outcomes.", rules);
+
+    // The action did not select a single player or object for a later pronoun.
+    context.objects = [];
+    context.players = [];
+    context.mentionedObject = true;
+    return true;
+  }
+
   private damageByEachSource(effect: Extract<Effect, { effect: "damage" }>, path: string, context: Context): boolean {
     if (context.barrier || context.phase !== "resolution" || !context.spellAbility || context.conditional || context.decider ||
         effect.optional || effect.forEach || effect.forEachVote || effect.decidedBy || context.mentionedObject ||
@@ -3275,6 +3354,8 @@ class Analyzer {
     context.previousEffect = path;
     if (effect.effect === "choose-object") context.uncertainTargetOrigin = true;
     if (this.distinctAction(effect, path, context)) return;
+    if (this.relativePlayerAction(effect, path, context)) return;
+    if (effect.effect === "grant-look-permission" && this.lookAtFaceDownExile(effect, path, context)) return;
     if (effect.effect === "damage" && this.damageByEachSource(effect, path, context)) return;
     if (effect.effect === "draw" && this.groupedDraw(effect, path, context)) return;
     if (effect.effect === "for-each" && this.quantifiedInstruction(effect, path, context)) return;
@@ -3683,7 +3764,7 @@ class Analyzer {
       if (effect.effect === "exile") {
         const fromPool = effect.what.ref === "from-pool" ? this.at(`${path}/what/pool`) : undefined;
         if (objects[0]?.description?.cls === "card" || fromPool?.description?.cls === "card")
-          context.exileResults = [...(context.exileResults ?? []), { event, result }];
+          context.exileResults = [...(context.exileResults ?? []), { event, result, ...(effect.faceDown ? { faceDown: true as const } : {}) }];
         else context.uncertainExileOrigin = true;
       } else if (effect.effect === "exile-until" || effect.effect === "airbend" ||
           (effect.effect === "move-zone" && effect.to.zone === "exile")) context.uncertainExileOrigin = true;
@@ -3747,7 +3828,8 @@ class Analyzer {
     // targets this creature, put a +1/+1 counter on it").
     if (context.triggerObject && !/"ref":"(self|this)"/.test(JSON.stringify(trigger))) context.spellPronoun = true;
   }
-  counterChange(trigger: Extract<Trigger, { trigger: "counter-change" }>, path: string, context: Context): boolean {
+  counterChange(trigger: Extract<Trigger, { trigger: "counter-change" }>, path: string, context: Context,
+    gate?: { path: string; condition: Extract<Condition, { condition: "is-filter" }> }): boolean {
     const { on, match, by } = trigger;
     const recipients = on.recipient === "any-of" ? on.recipients : [on];
     if (context.barrier || !("recipients" in match) || match.recipients !== "each" ||
@@ -3768,7 +3850,8 @@ class Analyzer {
     const event = this.event(path, context, "trigger:counter-change", [...candidates, ...(actor ? [actor] : [])]);
     const rules = ["122.2", "122.6", "122.6a", "603.2c", "603.10", "700.1"];
     this.node({ id: this.id(path, "counter-change"), path, node: "counter-change-match", scope: context.ability,
-      event, pattern: trigger, recipients: candidates.map(candidate => candidate.id), ...(actor ? { actor: actor.id } : {}), rules });
+      event, pattern: trigger, recipients: candidates.map(candidate => candidate.id), ...(actor ? { actor: actor.id } : {}),
+      ...(gate ? { gate: { zone: "exile" as const, timing: "matching-event" as const } } : {}), rules });
     this.engineFeature("counter-change-event", path,
       "Match actual counter changes by kind, actor and recipient. Partition each event by recipient and apply the printed counter grouping.", rules);
     context.quantities = [this.eventResult(child(path, "count"), event, "quantity", "one", "measured-quantity")];
@@ -3777,6 +3860,7 @@ class Analyzer {
       const result = this.eventResult(path, event, "objects", "one", "same-objects", candidate.description);
       context.objects = [result];
       if (candidate.id === context.source) this.sourceAliases.add(result.id);
+      if (gate) this.bound(gate.condition.what, child(gate.path, "what"), result.id, ["122.2", "603.2c", "603.10"]);
     } else if (on.recipient === "player" && candidate.id !== context.you) {
       context.players = [this.eventResult(path, event, "player", "one", "same-objects")];
     } else if (on.recipient === "any-of") {
@@ -3806,6 +3890,16 @@ class Analyzer {
         return;
       }
     }
+    if (trigger.trigger === "is-attacked" && !context.barrier) {
+      const who = this.player(trigger.who, child(path, "who"), { ...context, phase: "trigger-match", eventPredicate: true });
+      if (who?.cardinality === "one") {
+        const event = this.event(path, context, "trigger:is-attacked", [who]);
+        const player = this.eventResult(path, event, "player", "one", "same-objects");
+        context.attackedTriggerPlayer = player;
+        context.players = [player];
+        return;
+      }
+    }
     if (trigger.trigger === "counter-change") {
       if (this.counterChange(trigger, path, context)) return;
       const barrier = "Counter-change triggers need per-counter/per-recipient/group occurrence, placing/removing actor, and event quantity/recipient captures bound.";
@@ -3814,6 +3908,13 @@ class Analyzer {
       return;
     }
     if (trigger.trigger === "event-gated") {
+      const { event, gate } = trigger;
+      if (event.trigger === "counter-change" && event.direction === "remove" && event.on.recipient === "object" &&
+          isDeepStrictEqual(event.on.what, { ref: "this", noun: "card" }) && gate.gate === "condition" &&
+          gate.condition.condition === "is-filter" &&
+          isDeepStrictEqual(gate.condition, { condition: "is-filter", what: { ref: "it" }, filter: { zone: { zone: "exile" } } }) &&
+          this.counterChange(event, child(path, "event"), context, { path: `${path}/gate/condition`, condition: gate.condition }))
+        return;
       const barrier = "Trigger event-time conditions need the matching event's participant, source snapshot, and branch-local gate bindings.";
       this.diagnostic("unsupported-scope", path, barrier, ["603.1", "603.4", "603.10"]);
       this.walk(trigger, path, { ...context, phase: "trigger-match", barrier });
