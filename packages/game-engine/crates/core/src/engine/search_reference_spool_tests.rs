@@ -384,7 +384,7 @@ fn search_spool_every_prefix_and_result_matches_full_old_vec_and_generic_actual_
         scratch(&directory, &mut reference, &work.data).unwrap();
         if reference.history.len() == 1 || (reference.history.len() == 2 && checkpoints == 1) {
             let saved = game.save_work(&work).unwrap();
-            let meta = serde_json::json!({"work_version":44,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":game.state_digest().unwrap(),"data":reference.data().unwrap()});
+            let meta = serde_json::json!({"work_version":45,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":game.state_digest().unwrap(),"data":reference.data().unwrap()});
             assert_eq!(
                 bytes(
                     |out| replaced(&meta, &["data", "task", "history"], out, &mut |out| {

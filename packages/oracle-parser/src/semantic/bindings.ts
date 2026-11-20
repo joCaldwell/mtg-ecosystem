@@ -1935,7 +1935,13 @@ class Analyzer {
       return;
     }
     const plain = !effect.optional && !effect.forEach && !effect.forEachVote;
-    if (plain && effect.effect === "modal" && !effect.allowRepeat && !effect.unchosen && !effect.distinctTargetPlayers) { this.modal(effect, path, context); return; }
+    if (plain && effect.effect === "modal" && !effect.unchosen && !effect.distinctTargetPlayers &&
+        (!effect.allowRepeat || ("exactly" in effect.count && !effect.conditionalCount && !effect.random && !effect.chooser && !effect.keyword))) {
+      if (effect.allowRepeat) this.engineFeature("repeatable-modal-selection", path,
+        "Each chosen occurrence needs its own announced targets and resolves in printed mode order.", ["700.2", "601.2b", "601.2c", "608.2c"]);
+      this.modal(effect, path, context);
+      return;
+    }
     if (plain && effect.effect === "choice") { this.choice(effect, path, context); return; }
     if (plain && effect.effect === "flip-coin" && !effect.until && effect.outcomes?.length && effect.count.amount === "fixed" && effect.count.value === 1) {
       this.flipCoin(effect, path, context); return;

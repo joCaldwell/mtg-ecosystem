@@ -1555,6 +1555,8 @@ pub enum Request {
         player: PlayerId,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         one_or_more: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_repeat: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exactly: Option<u32>,
         candidates: Vec<u32>,
@@ -1782,6 +1784,9 @@ pub enum ProposedEvent {
     },
     PhaseOutControlled {
         controller: PlayerId,
+    },
+    PhaseOutTarget {
+        object: ObjectId,
     },
     RevealSearchLands {
         player: PlayerId,
@@ -2027,6 +2032,7 @@ pub enum EventOutcome {
         player: PlayerId,
     },
     PermanentsPhasedOut {
+        /// Controller of the directly phased permanents at phase-out (CR 702.26a).
         controller: PlayerId,
         members: Vec<(ObjectId, PhaseReturn)>,
     },
@@ -2822,7 +2828,10 @@ impl Game {
         let entry = self.top()?;
         if matches!(
             self.state.rules.frame,
-            Frame::Targets { .. } | Frame::StackTargets { .. } | Frame::EntityTargets { .. }
+            Frame::PlayerTargets { .. }
+                | Frame::Targets { .. }
+                | Frame::StackTargets { .. }
+                | Frame::EntityTargets { .. }
         ) {
             if let Some(child) = self.next_mode_target(entry)? {
                 return Ok(child);
@@ -3807,7 +3816,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 71,
+            snapshot_version: 72,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3849,7 +3858,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 71
+        if s.snapshot_version != 72
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

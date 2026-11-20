@@ -277,6 +277,10 @@ impl Game {
                             .contains(id)
                         }));
                     }
+                    TargetDomain::AnyDamageTarget => legal.push(
+                        self.bound_damage_target(entry, slot)
+                            .is_some_and(|t| self.entity_target_legal(*t, entry)),
+                    ),
                     _ => {
                         legal.push(self.bound_object_target(entry, slot).is_some_and(|id| {
                             self.object_target_legal_for(entry, *id, Some(target))
@@ -827,10 +831,13 @@ impl Game {
                 let caster = top.controller;
                 if player != caster
                     || players.len() != self.program()?.targets.len()
-                    || players
-                        .iter()
-                        .enumerate()
-                        .any(|(slot, p)| !self.player_target_legal(top, slot, *p))
+                    || players.iter().enumerate().any(|(slot, p)| {
+                        !self.program().is_ok_and(|program| {
+                            program.targets.get(slot).is_some_and(|spec| {
+                                self.eligible_players(spec.domain, caster).contains(p)
+                            })
+                        })
+                    })
                 {
                     return Err("invalid player targets".into());
                 }
@@ -897,11 +904,12 @@ impl Game {
                     .stack
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
-                    .player_targets = players;
+                    .player_targets
+                    .extend(players);
                 if cast.origin == AnnouncementOrigin::Activated {
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.state.rules.frame = self.continue_spell_targeting(cast)?;
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
@@ -1263,6 +1271,34 @@ impl Game {
                     },
                 )
             }
+            Instruction::PhaseOutTargetPermanent {
+                target_slot,
+                source_block,
+            } => {
+                let slot = target_slot as usize;
+                let target = *self
+                    .bound_object_target(&frame.spell, slot)
+                    .ok_or("missing phasing target")?;
+                // CR 608.2b, 702.26b: keep resolution-start legality, but a
+                // previous mode may already have phased this incarnation out.
+                let outcome = if frame.legal_targets.get(slot) != Some(&true) {
+                    InstructionOutcome::IllegalTarget { target }
+                } else if !self
+                    .current(target)
+                    .is_ok_and(|o| o.present_on_battlefield())
+                {
+                    InstructionOutcome::ObjectNoLongerPresent { target }
+                } else {
+                    let actual = self.commit(
+                        ProposedEvent::PhaseOutTarget { object: target },
+                        Self::wipe_cause(&frame, source_block),
+                    )?;
+                    InstructionOutcome::Effect {
+                        actual: Some(actual),
+                    }
+                };
+                self.finish_instruction(frame, outcome)
+            }
             Instruction::PhaseOutControllerPermanents { source_block } => {
                 let actual = self.commit(
                     ProposedEvent::PhaseOutControlled {
@@ -1475,10 +1511,8 @@ impl Game {
                                 InstructionOutcome::Effect { actual: None },
                             );
                         }
-                        *frame
-                            .spell
-                            .player_targets
-                            .get(target_slot as usize)
+                        *self
+                            .bound_player_target(&frame.spell, target_slot as usize)
                             .ok_or("missing draw player target")?
                     }
                 };

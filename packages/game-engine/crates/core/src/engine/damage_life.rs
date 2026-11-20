@@ -351,8 +351,14 @@ impl Game {
             .stack
             .last_mut()
             .ok_or("missing targeted invocation")?;
-        top.entity_targets = entities;
-        top.announced_entity_targets = announced;
+        top.entity_targets.extend(entities);
+        if top.announced_entity_targets.is_empty() {
+            top.announced_entity_targets = announced;
+        } else {
+            for (old, new) in top.announced_entity_targets.iter_mut().zip(announced) {
+                old.extend(new);
+            }
+        }
         if cast.origin.is_spell() {
             self.state.rules.frame = self.continue_spell_targeting(cast)?;
         } else {
@@ -475,8 +481,8 @@ impl Game {
             .or_else(|| mtg_contracts::graveyard_shuffle::offered_by(program));
         let damage = program
             .targets
-            .first()
-            .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget);
+            .iter()
+            .any(|t| t.domain == TargetDomain::AnyDamageTarget);
         {
             let fact = entry
                 .source_facts
@@ -499,7 +505,7 @@ impl Game {
         if !entry.entity_targets.is_empty() {
             if (!damage && graveyard.is_none())
                 || (mixed.is_none() && !entry.targets.is_empty())
-                || !entry.player_targets.is_empty()
+                || (mixed.is_none() && !entry.player_targets.is_empty())
                 || (mixed.is_none() && !entry.stack_targets.is_empty())
                 || if let Some(maximum) = graveyard {
                     !self.graveyard_group_structure(&entry.entity_targets, maximum)
@@ -529,7 +535,7 @@ impl Game {
         if mixed.is_none()
             && (damage || graveyard.is_some())
             && (!entry.targets.is_empty()
-                || !entry.player_targets.is_empty()
+                || (mixed.is_none() && !entry.player_targets.is_empty())
                 || (mixed.is_none() && !entry.stack_targets.is_empty()))
         {
             return Err("snapshot wrong damage binding domain".into());
@@ -565,9 +571,8 @@ impl Game {
             .get(index)
             .map(|spec| spec.domain)
         {
-            Some(TargetDomain::AnyDamageTarget) => *spell
-                .entity_targets
-                .get(index)
+            Some(TargetDomain::AnyDamageTarget) => *self
+                .bound_damage_target(spell, index)
                 .ok_or("missing damage binding")?,
             Some(TargetDomain::PlayerOrPlaneswalker) => {
                 let player = *spell

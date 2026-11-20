@@ -340,6 +340,14 @@ impl BoundModeSubset {
                                 recipient: LifeRecipient::Target { target_slot },
                                 ..
                             }
+                            | Instruction::DrawCards {
+                                recipient: Some(LifeRecipient::Target { target_slot }),
+                                ..
+                            }
+                            | Instruction::ExileTargetGraveyard { target_slot, .. }
+                            | Instruction::DealDamage { target_slot, .. }
+                            | Instruction::DestroyPermanent { target_slot, .. }
+                            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
                             | Instruction::CounterStackObject { target_slot, .. }
                             | Instruction::ReturnToOwnerHand { target_slot, .. }
                             | Instruction::PutPlusOneCounters {
@@ -408,6 +416,9 @@ impl Game {
                     .ok_or_else(|| "missing selected mode".to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
+        if matches!(root.resolution, SpellResolution::ChooseRepeatedModes { .. }) {
+            return Ok(Some(children));
+        }
         Ok(children
             .iter()
             .any(|p| {
@@ -431,21 +442,27 @@ impl Game {
         let Some(children) = self.mixed_mode_children(entry)? else {
             return Ok(None);
         };
+        let mut players = entry.player_targets.len();
+        let mut entities = entry.entity_targets.len();
         let mut objects = entry.targets.len();
         let mut stack = entry.stack_targets.len();
         let mut group = usize::from(!entry.entity_targets.is_empty());
         for child in children {
             let used = match child.targets.first().map(|t| t.domain) {
                 None => continue,
-                Some(TargetDomain::BattlefieldCreature | TargetDomain::CreatureOrPlaneswalker) => {
-                    &mut objects
-                }
+                Some(
+                    TargetDomain::BattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::CreatureOrPlaneswalker,
+                ) => &mut objects,
                 Some(TargetDomain::StackSpell) => &mut stack,
                 Some(TargetDomain::AnyPlayer)
                     if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() =>
                 {
                     &mut group
                 }
+                Some(TargetDomain::AnyPlayer) => &mut players,
+                Some(TargetDomain::AnyDamageTarget) => &mut entities,
                 _ => return Err("unsupported selected-mode target group".into()),
             };
             if *used == 0 {
@@ -464,42 +481,43 @@ impl Game {
         let Some(children) = self.mixed_mode_children(entry)? else {
             return Ok(false);
         };
-        if !entry.player_targets.is_empty() {
-            return Ok(false);
-        }
-        let mut objects = 0;
-        let mut stack = 0;
-        let mut entities = 0;
+        let mut found = [0usize; 4];
+        let actual = [
+            entry.targets.len(),
+            entry.stack_targets.len(),
+            entry.player_targets.len(),
+            entry.entity_targets.len(),
+        ];
         for child in children {
-            let bound = match child.targets.first().map(|t| t.domain) {
+            let (bucket, count) = match child.targets.first().map(|t| t.domain) {
                 None => continue,
-                Some(TargetDomain::CreatureOrPlaneswalker | TargetDomain::BattlefieldCreature) => {
-                    objects += 1;
-                    objects <= entry.targets.len()
-                }
-                Some(TargetDomain::StackSpell) => {
-                    stack += 1;
-                    stack <= entry.stack_targets.len()
-                }
+                Some(
+                    TargetDomain::CreatureOrPlaneswalker
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::BattlefieldPermanent,
+                ) => (0, 1),
+                Some(TargetDomain::StackSpell) => (1, 1),
+                Some(TargetDomain::AnyDamageTarget) => (3, 1),
                 Some(TargetDomain::AnyPlayer) => {
-                    let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(child) else {
-                        return Ok(false);
-                    };
-                    entities += 1;
-                    entities == 1 && self.graveyard_group_structure(&entry.entity_targets, maximum)
+                    if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(child) {
+                        if !entry.entity_targets.is_empty()
+                            && !self.graveyard_group_structure(&entry.entity_targets, maximum)
+                        {
+                            return Ok(false);
+                        }
+                        (3, entry.entity_targets.len().max(1))
+                    } else {
+                        (2, 1)
+                    }
                 }
                 _ => return Ok(false),
             };
-            if !bound {
-                return Ok(!complete
-                    && entry.targets.len() <= objects
-                    && entry.stack_targets.len() <= stack
-                    && entry.entity_targets.is_empty());
+            if found[bucket] == actual[bucket] {
+                return Ok(!complete && found == actual);
             }
+            found[bucket] += count;
         }
-        Ok(objects == entry.targets.len()
-            && stack == entry.stack_targets.len()
-            && entities == usize::from(!entry.entity_targets.is_empty()))
+        Ok(found == actual)
     }
     pub(super) fn continue_spell_targeting(&mut self, cast: Casting) -> Result<Frame, String> {
         if self.mixed_mode_children(self.top()?)?.is_some() {
@@ -528,6 +546,29 @@ impl Game {
         })
     }
 
+    pub(super) fn bound_player_target<'a>(
+        &self,
+        entry: &'a StackInstance,
+        slot: usize,
+    ) -> Option<&'a PlayerId> {
+        let i = self.selected_storage_index(entry, slot, |d| {
+            matches!(
+                d,
+                TargetDomain::AnyPlayer
+                    | TargetDomain::OpponentPlayer
+                    | TargetDomain::PlayerOrPlaneswalker
+            )
+        })?;
+        entry.player_targets.get(i)
+    }
+    pub(super) fn bound_damage_target<'a>(
+        &self,
+        entry: &'a StackInstance,
+        slot: usize,
+    ) -> Option<&'a TargetEntity> {
+        let i = self.selected_storage_index(entry, slot, |d| d == TargetDomain::AnyDamageTarget)?;
+        entry.entity_targets.get(i)
+    }
     pub(super) fn bound_object_target<'a>(
         &self,
         entry: &'a StackInstance,
@@ -630,8 +671,10 @@ impl Game {
             decision_id: self.state.rules.revision,
             player: top.controller,
             one_or_more: root.resolution == SpellResolution::OneOrMoreModes,
+            allow_repeat: matches!(root.resolution, SpellResolution::ChooseRepeatedModes { .. }),
             exactly: match root.resolution {
-                SpellResolution::ChooseModes { exactly } => Some(exactly),
+                SpellResolution::ChooseModes { exactly }
+                | SpellResolution::ChooseRepeatedModes { exactly } => Some(exactly),
                 _ => None,
             },
             candidates,
@@ -646,7 +689,7 @@ impl Game {
         else {
             return Err("no mode choice".into());
         };
-        if matches!(self.root_program_for(self.top()?)?.resolution,SpellResolution::ChooseModes{exactly} if exactly!=1)
+        if matches!(self.root_program_for(self.top()?)?.resolution,SpellResolution::ChooseModes{exactly} | SpellResolution::ChooseRepeatedModes{exactly} if exactly!=1)
             || p != player
             || !candidates.contains(&mode)
         {
@@ -1077,6 +1120,134 @@ mod fixed_target_mode_tests {
     use crate::engine::equipped_indestructible_tests::{
         answer, object, pay_and_resolve, pay_to_priority, prepared, recover, request,
     };
+    #[test]
+    fn paid_repeated_modes_resolve_all_five_printed_effects_and_preserve_duplicate_targets() {
+        let result = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!(
+                "../../../../tests/fixtures/ramos/164651c5-b831-4070-8491-16d30ac8395b.json"
+            ),
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("{result:?}")
+        };
+        let mut p = prepared(
+            &[
+                ("Forest", true),
+                ("Plains", false),
+                ("Island", false),
+                ("Swamp", false),
+                ("Mountain", false),
+                ("Forest", false),
+                ("Forest", false),
+                ("Forest", false),
+                ("Grizzly Bears", false),
+                ("Short Sword", false),
+                ("Forest", false),
+                ("Island", false),
+            ],
+            false,
+        );
+        p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        let seat = PlayerId(1);
+        for n in [10, 11] {
+            p.config.cards[n].owner = seat;
+            p.config.cards[n].controller = seat;
+        }
+        p.config.cards[10].zone = Zone::Graveyard { owner: seat };
+        p.config.cards[11].zone = Zone::Library { owner: seat };
+        let c = Arc::make_mut(&mut p.catalog);
+        c.definitions.push(*definition);
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        p.catalog_digest = digest(&*p.catalog).unwrap();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::with_trace(p, TraceMode::Detailed);
+        request(&mut g, 1);
+        let spell = object(&g, 0).card;
+        let bear = object(&g, 8);
+        let sword = object(&g, 9);
+        answer(&mut g, 1, Response::Cast { card: spell });
+        let offered = request(&mut g, 1);
+        assert!(matches!(
+            offered,
+            Request::Modes {
+                allow_repeat: true,
+                exactly: Some(5),
+                ..
+            }
+        ));
+        let mut repeated = g.fork();
+        answer(&mut repeated, 1, Response::ModeSubset { modes: vec![3; 5] });
+        for _ in 0..5 {
+            answer(
+                &mut repeated,
+                1,
+                Response::EntityTargets {
+                    entities: vec![TargetEntity::Player { player: seat }],
+                },
+            );
+        }
+        pay_and_resolve(&mut repeated, 1, vec![]);
+        assert_eq!(repeated.state.rules.players[1].life, 30.into());
+        recover(&repeated);
+        answer(
+            &mut g,
+            1,
+            Response::ModeSubset {
+                modes: vec![4, 3, 2, 1, 0],
+            },
+        );
+        answer(
+            &mut g,
+            1,
+            Response::Targets {
+                objects: vec![bear],
+            },
+        );
+        for _ in 0..2 {
+            answer(
+                &mut g,
+                1,
+                Response::PlayerTargets {
+                    players: vec![seat],
+                },
+            );
+        }
+        answer(
+            &mut g,
+            1,
+            Response::EntityTargets {
+                entities: vec![TargetEntity::Player { player: seat }],
+            },
+        );
+        answer(
+            &mut g,
+            1,
+            Response::Targets {
+                objects: vec![sword],
+            },
+        );
+        pay_and_resolve(&mut g, 1, vec![]);
+        assert!(g.current(bear).unwrap().phased_out.is_some());
+        assert_eq!(
+            g.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == (Zone::Hand { owner: seat }))
+                .count(),
+            1
+        );
+        assert_eq!(g.zone(object(&g, 10)), Some(Zone::Exile));
+        assert_eq!(g.state.rules.players[1].life, 38.into());
+        assert!(matches!(
+            g.zone(object(&g, 9)),
+            Some(Zone::Graveyard { .. })
+        ));
+        recover(&g);
+    }
+
     #[test]
     fn paid_mixed_target_modes_place_counters_then_shuffle_opposing_graveyard_and_replay() {
         let result = mtg_compiler::compile(

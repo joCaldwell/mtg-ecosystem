@@ -93,6 +93,7 @@ pub mod graveyard_shuffle;
 mod group_discard;
 mod hand_return;
 pub mod modal_targets;
+pub mod repeated_target_modes;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
@@ -317,6 +318,7 @@ pub enum Capability {
     ControllerProtectionUntilNextTurnV1,
     ControllerLifeFreezeV1,
     ControlledPermanentPhasingV1,
+    TargetedPhasingV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
@@ -455,6 +457,7 @@ pub enum Capability {
     InterveningIfV1,
     CreatureOrPlaneswalkerTargetV1,
     FixedTargetModesV1,
+    RepeatedTargetModesV1,
     ModalChoiceV1,
     CommanderModalKeywordGrantV1,
     NonemptyModeSubsetV1,
@@ -909,6 +912,10 @@ pub enum Instruction {
     PhaseOutControllerPermanents {
         source_block: u32,
     },
+    PhaseOutTargetPermanent {
+        target_slot: u32,
+        source_block: u32,
+    },
     MoveSet {
         set: ObjectSet,
         action: SetMove,
@@ -1330,6 +1337,7 @@ impl Instruction {
             | Self::ProtectControllerUntilNextTurn { source_block }
             | Self::FreezeControllerLifeUntilNextTurn { source_block }
             | Self::PhaseOutControllerPermanents { source_block }
+            | Self::PhaseOutTargetPermanent { source_block, .. }
             | Self::MoveSet { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
@@ -1662,6 +1670,7 @@ pub enum SpellTiming {
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
     ChooseModes { exactly: u32 },
+    ChooseRepeatedModes { exactly: u32 },
     OneOrMoreModes,
     Instructions,
     Permanent,
@@ -4134,6 +4143,7 @@ impl Definition {
                         SpellResolution::Instructions
                             | SpellResolution::OneOrMoreModes
                             | SpellResolution::ChooseModes { .. }
+                            | SpellResolution::ChooseRepeatedModes { .. }
                     )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
@@ -4719,6 +4729,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 SpellResolution::Instructions
                     | SpellResolution::OneOrMoreModes
                     | SpellResolution::ChooseModes { .. }
+                    | SpellResolution::ChooseRepeatedModes { .. }
             )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
@@ -4928,6 +4939,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
             | Instruction::ExilePermanent { target_slot, .. }
+            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
             | Instruction::UntapPermanent { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::BattlefieldPermanent))
             }
@@ -5484,6 +5496,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if matches!(
+            program.resolution,
+            SpellResolution::ChooseRepeatedModes { .. }
+        ) {
+            set.insert(Capability::RepeatedTargetModesV1);
+        }
         if matches!(program.resolution, SpellResolution::ChooseModes { .. }) {
             set.insert(Capability::FixedTargetModesV1);
         }
@@ -5651,6 +5669,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::PhaseOutControllerPermanents { .. } => {
                 Capability::ControlledPermanentPhasingV1
             }
+            Instruction::PhaseOutTargetPermanent { .. } => Capability::TargetedPhasingV1,
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
@@ -7206,6 +7225,7 @@ pub fn catalog_schema() -> serde_json::Value {
     fixed_artifact_sacrifice_schema(&mut schema);
     creature_planeswalker_return::schema(&mut schema);
     modal_targets::schema(&mut schema);
+    repeated_target_modes::schema(&mut schema);
     graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
@@ -7447,6 +7467,7 @@ mod tests {
             ControllerProtectionUntilNextTurnV1,
             ControllerLifeFreezeV1,
             ControlledPermanentPhasingV1,
+            TargetedPhasingV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
@@ -7541,6 +7562,7 @@ mod tests {
             InterveningIfV1,
             CreatureOrPlaneswalkerTargetV1,
             FixedTargetModesV1,
+            RepeatedTargetModesV1,
             ModalChoiceV1,
             CommanderModalKeywordGrantV1,
             NonemptyModeSubsetV1,

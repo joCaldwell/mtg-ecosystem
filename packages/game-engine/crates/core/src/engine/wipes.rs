@@ -400,10 +400,8 @@ impl Game {
                 // CR 400.7, 603.3d, 608.2b/h: the player was targeted at placement.
                 // Determine the cards from that player's graveyard at resolution.
                 let slot = target_slot as usize;
-                let player = *frame
-                    .spell
-                    .player_targets
-                    .get(slot)
+                let player = *self
+                    .bound_player_target(&frame.spell, slot)
                     .ok_or("missing graveyard player target")?;
                 if frame.legal_targets.get(slot) != Some(&true) || !self.is_live(player) {
                     return self.finish_instruction(

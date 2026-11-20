@@ -85,6 +85,12 @@ fn enters_tapped() -> StaticAbility {
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
+    if d.spell
+        .as_ref()
+        .is_some_and(|p| matches!(p.resolution, SpellResolution::ChooseRepeatedModes { .. }))
+    {
+        return crate::modal_targets::validate_definition(d);
+    }
     let reserved = d.capabilities.contains(&Capability::EntryGraveyardExileV1);
     let raw = &d.provenance.source_json;
     let phrase = "exile target player's graveyard";
@@ -253,7 +259,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"spell":{"not":has_op},"activated":{"items":{"not":trigger}}},
-        "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":EntryGraveyardExileV1}}}},
+        "if":{"not":{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/RepeatedTargetRoot"}}},"anyOf":[{"properties":{"capabilities":{"contains":{"const":EntryGraveyardExileV1}}}},
             {"required":["triggered"],"properties":{"triggered":{"contains":trigger}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"[^"]*exile target player's graveyard"#}}}}}
         ]},
