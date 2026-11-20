@@ -840,6 +840,10 @@ impl Game {
                         (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
                             matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
                         }
+                        (
+                            Frame::RevealAndCast { progress },
+                            PlayerResponse::OptionalEffect { .. },
+                        ) => progress.permission().is_ok(),
                         (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
                             progress.stage == cascade::CascadeStage::Offer
                         }

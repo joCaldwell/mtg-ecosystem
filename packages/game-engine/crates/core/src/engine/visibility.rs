@@ -1521,7 +1521,7 @@ impl Game {
                 (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
             );
         }
-        if let Some(request) = self.cascade_request()? {
+        if let Some(request) = self.resolution_cast_request()? {
             if request.player() != viewer {
                 return Ok(None);
             }
@@ -2142,7 +2142,7 @@ impl Game {
                 .is_some_and(|r| r.player() == viewer)
             {
                 Some((self.state.rules.revision, 17))
-            } else if let Some(request) = self.cascade_request()?
+            } else if let Some(request) = self.resolution_cast_request()?
                 && request.player() == viewer
             {
                 let kind = if matches!(request, Request::CascadeLandEntry { .. }) {

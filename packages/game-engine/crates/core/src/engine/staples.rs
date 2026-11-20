@@ -152,13 +152,22 @@ impl Game {
     }
     pub(super) fn resume_entry_search(&mut self, frame: Resolving) -> Result<(), String> {
         let source_block = self.entry_search_block(&frame)?;
+        self.begin_library_shuffle(frame, source_block)
+    }
+    pub(super) fn begin_library_shuffle(
+        &mut self,
+        frame: Resolving,
+        source_block: u32,
+    ) -> Result<(), String> {
         let player = frame.spell.controller;
-        let index = self
-            .state
-            .rules
-            .libraries
-            .get(&player)
-            .map_or(0, |l| l.len().saturating_sub(1)) as u32;
+        let index = u32::try_from(
+            self.state
+                .rules
+                .libraries
+                .get(&player)
+                .map_or(0, |l| l.len().saturating_sub(1)),
+        )
+        .map_err(|_| "shuffle length resource limit")?;
         self.state.rules.frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Shuffle {
@@ -602,6 +611,20 @@ impl Game {
                         ProposedEvent::FinishLibraryShuffle { player },
                         Self::staple_cause(&frame, source_block),
                     )?;
+                    if matches!(
+                        self.program_for(&frame.spell)?
+                            .instructions
+                            .get(frame.cursor as usize),
+                        Some(Instruction::RevealAndCast { .. })
+                    ) {
+                        self.state.rules.frame = Frame::RevealAndCast {
+                            progress: Box::new(RevealAndCastProgress::after_shuffle(
+                                frame,
+                                source_block,
+                            )),
+                        };
+                        return Ok(());
+                    }
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
@@ -945,41 +968,4 @@ impl Game {
                 | Instruction::SearchColoredLibrary {
                     source_block: b, ..
                 }
-                | Instruction::OptionalShuffleLibrary { source_block: b },
-            ) => {
-                *player == frame.spell.controller
-                    && source_block == b
-                    && (*index as usize)
-                        < self
-                            .state
-                            .rules
-                            .libraries
-                            .get(player)
-                            .map_or(1, Vec::len)
-                            .max(1)
-            }
-            (
-                ResolutionChoice::OptionalRecursion {
-                    player,
-                    target,
-                    source_block,
-                },
-                Instruction::ReturnOwnGraveyardCreatureToHand {
-                    target_slot,
-                    optional: true,
-                    source_block: b,
-                }
-                | Instruction::ReturnOwnGraveyardCardToHand {
-                    target_slot,
-                    optional: true,
-                    source_block: b,
-                },
-            ) => {
-                *player == frame.spell.controller
-                    && source_block == b
-                    && frame.spell.targets.get(*target_slot as usize) == Some(target)
-            }
-            _ => false,
-        }
-    }
-}
+                | Instruction::RevealAndCast { source_block: b }
