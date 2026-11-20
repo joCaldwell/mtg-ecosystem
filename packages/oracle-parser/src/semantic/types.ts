@@ -124,7 +124,9 @@ export type BindingNode = NodeBase & (
       lifetime: { kind: "resolution" } | { kind: "source-incarnation"; source: string; lookup: "current-or-last-known" } }
   | { node: "player-state-condition"; scope: string; who: string;
       query: "designation" | "completed-dungeon" | "opponent-count" | "turn-of" }
-  | { node: "target-count"; scope: string; chooser: string; minimum: number; maximum?: number }
+  | { node: "target-count"; scope: string; chooser: string; minimum: number; maximum?: number; maximumNumber?: string }
+  | { node: "casting-exile-commitment"; scope: string; caster: string; filter: ObjectFilter;
+      minimum: 0; discountPerCard: number }
   | { node: "resolution-count"; scope: string; chooser: string; minimum: number; maximum?: number;
       operation: "discard" | "sacrifice" | "move-from-hand" | "search" | "draw" | "cast-from-exile" }
   | { node: "recipient-member"; scope: string; group: string; use: "damage-amount" }
@@ -277,7 +279,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

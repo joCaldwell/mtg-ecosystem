@@ -372,6 +372,7 @@ interface Context {
   copiedCards?: Candidate[];
   uncertainCardCopyOrigin?: boolean;
   announcementMember?: string;
+  targetPlayerGroup?: true;
   definiteEventPlayer?: Candidate;
   attackedTriggerPlayer?: Candidate;
   measuredEvents?: { operation: "damage" | "lose-life"; event: string }[];
@@ -2426,8 +2427,11 @@ class Analyzer {
     }
   }
   player(expression: PlayerRef, path: string, context: Context): Candidate | undefined {
-    this.walkChildren(expression as unknown as Record<string, unknown>, path,
-      expression.player === "target-player" || expression.player === "target-opponent" ? { ...context, announcementOperand: true } : context);
+    const target = expression.player === "target-player" || expression.player === "target-opponent";
+    const count = target ? this.boundTargetCount(expression, context) : undefined;
+    const scope = target ? { ...context, announcementOperand: true } : context;
+    for (const [key, value] of Object.entries(expression))
+      if (key !== "count" || !count) this.walk(value, child(path, key), scope);
     if (context.barrier) {
       this.unresolved(expression, path, "unsupported-scope", context.barrier, ["109.5"]);
       return undefined;
@@ -2501,9 +2505,17 @@ class Analyzer {
     return this.selection(expression, path, context,
       expression.player === "target-player" || expression.player === "target-opponent");
   }
-  boundTargetCount(expression: ObjectRef | PlayerRef, context: Context): ReturnType<typeof chosenRange> {
-    if (!context.barrier && !context.distributedCount && context.phase === "resolution" && "ref" in expression &&
-        expression.ref === "target" && expression.selectionId && !expression.chosenBy && !expression.random)
+  boundTargetCount(expression: ObjectRef | PlayerRef, context: Context):
+    { minimum: number; maximum?: number; maximumNumber?: string } | undefined {
+    if (context.barrier || context.distributedCount || context.phase !== "resolution") return;
+    if ("ref" in expression && expression.ref === "target" && expression.selectionId &&
+        !expression.chosenBy && !expression.random) {
+      if (expression.count.amount === "x" && expression.upTo && context.announcedX)
+        return { minimum: 0, maximumNumber: context.announcedX };
+      return chosenRange(expression.count);
+    }
+    if (context.targetPlayerGroup && "player" in expression &&
+        (expression.player === "target-player" || expression.player === "target-opponent") && expression.selectionId)
       return chosenRange(expression.count);
   }
   boundResolutionCount(expression: ObjectRef | PlayerRef, path: string, context: Context): ReturnType<typeof chosenRange> {
@@ -2546,6 +2558,7 @@ class Analyzer {
           const at = child(path, "count");
           countChoice = this.node({ id: `${id}/count`, path: at, node: "target-count", scope, chooser: announcing.you,
             ...count, rules: ["115.3", "601.2c", "602.2b", "603.3d"] });
+          if (count.maximumNumber) this.bound({ amount: "x" }, at, count.maximumNumber, ["107.3a", "601.2b", "601.2c"]);
         } else this.diagnostic("unsupported-number-binding", child(path, "count"),
           "The target count requires its announcing ability.", ["601.2c"]);
       }
@@ -2804,7 +2817,7 @@ class Analyzer {
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
       sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
-      copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
+      copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, targetPlayerGroup: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined, lifeGain: undefined, resolutionPaymentX: undefined,
       linkedExile: undefined, lexicalAbilityPath: undefined, delayedSchedule: kind === "delayed-triggered",
       declaredTargets: undefined, uncertainTargetOrigin: undefined };
@@ -3144,6 +3157,32 @@ class Analyzer {
       "Look privately at the top card, offer its public reveal only when eligible, and allocate the printed amount among its colors only after revealing it. Put the looked-at card into hand in either branch.",
       ["105.2", "106.1a", "107.4e", "107.4f", "400.1", "608.2c", "608.2d", "609.3", "701.20"]);
   }
+  private exileCastingDiscount(ability: Extract<Ability, { kind: "additional-cost" }>, path: string, context: Context): boolean {
+    if (!ability.optional || ability.variableConstraints?.length || ability.costs.length !== 1 ||
+        ability.costModifications?.length !== 1) return false;
+    const [cost] = ability.costs;
+    const [discount] = ability.costModifications;
+    if (cost.cost !== "exile" || cost.what.ref !== "filter" || cost.what.filter.cls !== "card" ||
+        Object.keys(cost.what.filter).some(key => !["cls", "zone", "colors"].includes(key)) ||
+        !cost.what.filter.colors?.length || !isDeepStrictEqual(cost.what.filter.zone, { zone: "hand", owner: "your" }) ||
+        !isDeepStrictEqual(cost.what.count, { amount: "chosen", minimum: 0 }) ||
+        discount.change.direction !== "reduce" || discount.change.symbols.length !== 1 ||
+        !/^[1-9][0-9]*$/.test(discount.change.symbols[0]) || Object.keys(discount).length !== 2 ||
+        !isDeepStrictEqual(discount.multiplier, { amount: "count", of: {
+          cls: "card", relation: { relation: "event-result", event: "exile", scope: "this-way" },
+        } })) return false;
+    const at = `${path}/costs/0/what`;
+    const rules = ["601.2b", "601.2f", "601.2h", "701.13a"];
+    this.walk(cost.what.filter, child(at, "filter"), context);
+    const selection = this.node({ id: this.id(at, "exile-commitment"), path: at, node: "casting-exile-commitment",
+      scope: context.ability, caster: context.you, filter: cost.what.filter, minimum: 0,
+      discountPerCard: Number(discount.change.symbols[0]), rules });
+    this.bound(cost.what, at, selection, rules);
+    this.engineFeature("casting-exile-discount", path,
+      "Commit to a count of eligible cards for the additional cost, use that count for cost calculation, then pay the full committed exile cost.", rules);
+    return true;
+  }
+
   costModifications(modifications: CostModification[] | undefined, path: string, payment: Context): void {
     modifications?.forEach((modification, index) => {
       const at = child(path, index);
@@ -3400,6 +3439,38 @@ class Analyzer {
     this.node({ id: this.id(path, "face-down-exile-look"), path, node: "face-down-exile-look", scope: context.ability,
       viewer: context.you, card: card.id, duration, event, continuedUntil: "leaves-exile-or-shuffled", rules });
     this.engineFeature("private-exile-look", path, "Only the bound player may inspect the card. Retain access while it stays in exile unshuffled.", rules);
+    return true;
+  }
+
+  private targetedPlayerAction(effect: Effect, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "resolution" || context.decider || effect.optional || effect.decidedBy ||
+        effect.forEach || effect.forEachVote || (effect.effect !== "lose-life" && effect.effect !== "sacrifice"))
+      return false;
+    const who = effect.who;
+    if ((who.player !== "target-player" && who.player !== "target-opponent") || !who.selectionId ||
+        !chosenRange(who.count) || chosenRange(who.count)?.maximum === 1) return false;
+    if (effect.effect === "lose-life" && effect.amount.amount !== "fixed") return false;
+    if (effect.effect === "sacrifice" &&
+        (effect.what.ref !== "filter" || objectCardinality(effect.what) !== "one" || effect.what.random ||
+          (effect.chosenBy && !isDeepStrictEqual(effect.chosenBy, who)))) return false;
+    const rules = ["101.4", "115.3", "601.2c", "602.2b", "608.2b", "608.2f",
+      effect.effect === "sacrifice" ? "701.21a" : "119.3"];
+    const group = this.player(who, child(path, "who"), { ...context, targetPlayerGroup: true });
+    if (!group) return true;
+    const memberId = this.node({ id: this.id(path, "targeted-player-member"), path, node: "instruction-member",
+      scope: context.ability, group: group.id, domain: "player", rules });
+    const member: Candidate = { id: memberId, domain: "player", cardinality: "one" };
+    const operands: Candidate[] = [member];
+    if (effect.effect === "sacrifice") {
+      const what = this.object(effect.what, child(path, "what"), { ...context, actor: member });
+      if (what) operands.push(what);
+      if (effect.chosenBy) this.bound(effect.chosenBy, child(path, "chosenBy"), memberId, rules);
+    }
+    const event = this.event(path, context, effect.effect, operands, context.conditional ? { conditional: true } : {});
+    this.node({ id: this.id(path, "group-instruction"), path, node: "group-instruction", scope: context.ability, event,
+      execution: { kind: "for-each", domain: group.id, member: memberId, membership: "announcement", processing: "instruction-wise" }, rules });
+    this.engineFeature("group-instruction", path,
+      "Apply this instruction to every still-legal member of the announced player group, separately binding their choices.", rules);
     return true;
   }
 
@@ -3829,6 +3900,7 @@ class Analyzer {
     if (effect.effect === "reveal") context.uncertainRevealOrigin = true;
     if (this.distinctAction(effect, path, context)) return;
     if (this.relativePlayerAction(effect, path, context)) return;
+    if (this.targetedPlayerAction(effect, path, context)) return;
     if (effect.effect === "grant-look-permission" && this.lookAtFaceDownExile(effect, path, context)) return;
     if (effect.effect === "create-replacement" && this.moveToExileRule(effect, path, context, precedingEffect)) return;
     if (effect.effect === "damage" && this.damageByEachSource(effect, path, context)) return;
@@ -4825,6 +4897,8 @@ class Analyzer {
       case "keywords": ability.keywords.forEach((keyword, index) => this.keyword(keyword, child(child(path, "keywords"), index), context)); break;
       case "additional-cost": {
         const payment = { ...context, phase: "payment" as const };
+        if (cardAbilities?.filter(entry => entry.kind === "additional-cost").length === 1 &&
+            this.exileCastingDiscount(ability, path, payment)) break;
         // Additional costs and the spell paragraph use one announced X on
         // the stack. Do not share it with activated or triggered abilities.
         const spells = cardAbilities?.flatMap((entry, index) => entry.kind === "spell" ? [{ entry, index }] : []);

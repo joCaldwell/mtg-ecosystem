@@ -4,12 +4,12 @@ import { parseOracleText } from "../src/parser/index.ts";
 import { analyzeCardBindings } from "../src/semantic/bindings.ts";
 import type { CardBindingAnalysis } from "../src/semantic/types.ts";
 
-function analyze(oracleText: string, typeLine: string): CardBindingAnalysis {
+function analyze(oracleText: string, typeLine: string, manaCost?: string): CardBindingAnalysis {
   const name = "Fixture";
   const result = parseOracleText(oracleText, name, { typeLine, includeSourceProvenance: true });
   assert.ok(result.ok, JSON.stringify(result.lines));
   return analyzeCardBindings({
-    identity: "fixture", source: { name, type_line: typeLine, layout: "normal" },
+    identity: "fixture", source: { name, type_line: typeLine, mana_cost: manaCost, layout: "normal" },
     faces: [{ sourceFaceIndex: 0, result }],
   });
 }
@@ -1456,5 +1456,52 @@ describe("specific later moves replaced by exile", () => {
     assert.ok(replacement?.match.resolving);
     assert.equal(bound(graph, "/replace/effects/1/condition/of/what"), bound(graph, "/replace/effects/1/steps/0/what"));
     assert.notEqual(bound(graph, "/replacement/event/what"), bound(graph, "/replace/effects/1/steps/0/what"));
+  });
+});
+
+describe("announcement counts and payment commitments", () => {
+  it("shares the announced player set without sharing each player's sacrifice choice", () => {
+    const graph = analyze("{T}: Any number of target players each lose 2 life and sacrifice a creature of their choice.", "Creature");
+    boundCard(graph);
+    const groups = graph.nodes.flatMap(node => node.node === "group-instruction" && node.execution.kind === "for-each"
+      ? [node.execution] : []);
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0].domain, groups[1].domain);
+    assert.notEqual(groups[0].member, groups[1].member);
+    assert.equal(bound(graph, "/steps/1/chosenBy"), groups[1].member);
+    assert.equal(graph.nodes.find(node => node.node === "target-count")?.minimum, 0);
+  });
+
+  it("does not assume a per-player sacrifice choice when another chooser is specified", () => {
+    const name = "Fixture";
+    const typeLine = "Creature";
+    const result = parseOracleText("{T}: Any number of target players each lose 2 life and sacrifice a creature of their choice.",
+      name, { typeLine, includeSourceProvenance: true });
+    assert.ok(result.ok && result.abilities[0].kind === "activated");
+    const sacrifice = result.abilities[0].effects[0].steps[1];
+    assert.ok(sacrifice.effect === "sacrifice");
+    sacrifice.chosenBy = { player: "you" };
+    const graph = analyzeCardBindings({ identity: "fixture", source: { name, type_line: typeLine, layout: "normal" },
+      faces: [{ sourceFaceIndex: 0, result }] });
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "group-instruction" && node.path.endsWith("/steps/1")));
+  });
+
+  it("uses the spell's announced X and counts committed exile cards for the discount", () => {
+    const graph = analyze("As an additional cost to cast this spell, you may exile any number of blue cards from your hand. "
+      + "This spell costs {2} less to cast for each card exiled this way.\nUp to X target creatures phase out.", "Instant", "{X}{U}");
+    boundCard(graph);
+    const commitment = graph.nodes.find(node => node.node === "casting-exile-commitment");
+    assert.equal(commitment?.discountPerCard, 2);
+    const range = graph.nodes.find(node => node.node === "target-count");
+    assert.ok(range?.maximumNumber && range.minimum === 0);
+    assert.equal(range.maximumNumber, bound(graph, "/steps/0/what/count"));
+    assert.notEqual(range.maximumNumber, commitment?.id);
+  });
+
+  it("does not invent a target count when the spell lacks an announced X", () => {
+    const graph = analyze("Up to X target creatures phase out.", "Instant", "{U}");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "target-count"));
   });
 });
