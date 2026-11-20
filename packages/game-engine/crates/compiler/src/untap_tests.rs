@@ -151,10 +151,7 @@ fn untap_source_rejects_all_unrepresented_target_and_step_fields() {
             a["effects"][0]["steps"][0]["what"]["filter"] = filter
         });
         let result = compile(MANIFEST, &raw);
-        assert!(
-            matches!(result, CompileResult::Unsupported { .. }),
-            "{result:?}"
-        );
+        assert!(crate::tests::family_rejects(&result), "{result:?}");
     }
     for (field, value) in [
         ("optional", json!(true)),
@@ -237,9 +234,6 @@ fn untap_source_does_not_acquire_activated_or_triggered_support() {
             }
         });
         let result = compile(MANIFEST, &raw);
-        assert!(
-            matches!(result, CompileResult::Unsupported { .. }),
-            "{text}: {result:?}"
-        );
+        assert!(crate::tests::family_rejects(&result), "{text}: {result:?}");
     }
 }

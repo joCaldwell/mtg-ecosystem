@@ -35,6 +35,7 @@ mod colored_library_search;
 mod combat_hand_cast;
 mod combat_window;
 mod commander_modal_keyword;
+mod compose;
 mod composed_spell;
 #[cfg(test)]
 mod composition_wave_a_tests;
@@ -1516,7 +1517,16 @@ fn compile_result(result: Result<Definition, Failure>) -> CompileResult {
         },
     }
 }
+/// Whole-card families first; a record no family supports falls back to the
+/// block-by-block compositional pipeline. A family rejection that is not
+/// recovered keeps its original path and reason.
 fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
+    match lower_families(archive, record) {
+        Err(family) if family.unsupported => compose::lower(archive, record).map_err(|_| family),
+        other => other,
+    }
+}
+fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
     let r: Record = decode(record, "record")?;
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
@@ -2167,6 +2177,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             power,
             toughness,
         },
+        composed: false,
         intrinsic_zone: if kind == CardKind::Land {
             Some(FunctioningZone::Battlefield)
         } else {
@@ -8007,6 +8018,36 @@ mod tests {
         let abilities = serde_json::json!([r["faces"][0]["result"]["abilities"]]);
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
+    }
+    /// A family probe: the changed source must not lower as the family under
+    /// test. The block-by-block pipeline may still lower a self-consistent
+    /// probe as an ordinary card; that definition is then marked composed and
+    /// admitted only by the composition matrix, never by the family.
+    pub(crate) fn family_rejects(result: &CompileResult) -> bool {
+        match result {
+            CompileResult::Unsupported { .. } => true,
+            CompileResult::Invalid { .. } => false,
+            CompileResult::Lowered { definition } => {
+                eprintln!(
+                    "composed probe {}: {}",
+                    definition.composed,
+                    serde_json::to_string(&(
+                        &definition.spell,
+                        &definition.activated,
+                        &definition.triggered
+                    ))
+                    .unwrap()
+                );
+                definition.composed
+                    && definition
+                        .capabilities
+                        .contains(&Capability::ComposedAbilityV1)
+            }
+        }
+    }
+    /// As `family_rejects`, for probes whose source may also be invalid.
+    pub(crate) fn family_or_source_rejects(result: &CompileResult) -> bool {
+        matches!(result, CompileResult::Invalid { .. }) || family_rejects(result)
     }
     fn match_record(name: &str) -> &'static str {
         fixtures::MATCH_RECORDS

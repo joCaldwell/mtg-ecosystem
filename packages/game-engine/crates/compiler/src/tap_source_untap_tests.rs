@@ -124,7 +124,7 @@ fn tap_source_untap_rejects_unrepresented_target_qualifiers() {
     ] {
         let raw = changed(|a| a["effects"][0]["steps"][0]["what"][field] = value);
         assert!(
-            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            crate::tests::family_rejects(&compile(MANIFEST, &raw)),
             "{field}"
         );
     }

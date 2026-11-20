@@ -186,6 +186,7 @@ mod source_tap_damage;
 mod static_controller;
 pub use archives::*;
 pub mod composed_spell;
+pub mod composition;
 mod creature_entry_return;
 mod divided_plus_one_counters;
 mod flash_end_step_draw;
@@ -626,6 +627,9 @@ pub enum Capability {
     RandomPlayerDiscardV1,
     GroupHandDiscardV1,
     TargetedGameLossV1,
+    // Admitted by `composition`, not by a whole-card family. A plain comment:
+    // a documented variant would change the published enum schema shape.
+    ComposedAbilityV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -2607,6 +2611,9 @@ pub struct Definition {
     pub keywords: Vec<KeywordAbility>,
     pub capabilities: BTreeSet<Capability>,
     pub provenance: SourceProvenance,
+    /// True only when `composition` admitted every ability of this definition.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub composed: bool,
 }
 // Shared live creature-modifier boundary, including attachments. Keep family
 // recognition and Definition validation on the same keyword/restriction rules.
@@ -2845,6 +2852,9 @@ impl Definition {
         }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
+        }
+        if self.composed {
+            set.insert(Capability::ComposedAbilityV1);
         }
 
         match self.characteristics.kind {
@@ -3278,6 +3288,9 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.composed {
+            return composition::validate(self);
+        }
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
         let source_regeneration = source_regeneration::validate(self)?;
@@ -5327,6 +5340,17 @@ fn validate_instruction_program_with_chapter(
     {
         return Err("blocking creature targets require a complete ordinary pump program".into());
     }
+    validate_program_bindings(p, chapter, scalar_sequence, &validate_instruction_program)
+}
+/// The per-instruction half of program validation: target slots, domains,
+/// filters and operand ranges. Whole-program family shapes are checked by the
+/// caller; `child` validates each mode of a modal root.
+fn validate_program_bindings(
+    p: &SpellProgram,
+    chapter: bool,
+    scalar_sequence: bool,
+    child: &dyn Fn(&SpellProgram) -> Result<(), String>,
+) -> Result<(), String> {
     if let Some(f) = &p.additional_sacrifice {
         f.validate()?;
         if p.resolution != SpellResolution::Instructions || !p.modes.is_empty() {
@@ -5348,16 +5372,16 @@ fn validate_instruction_program_with_chapter(
             return Err("modal root must choose exactly one of multiple complete programs".into());
         }
         for mode in &p.modes {
-            let child = &mode.program;
-            if !child.modes.is_empty()
-                || child.timing != p.timing
-                || child.functioning_zone != p.functioning_zone
-                || child.resolution != SpellResolution::Instructions
-                || child.instructions.is_empty()
+            let option = &mode.program;
+            if !option.modes.is_empty()
+                || option.timing != p.timing
+                || option.functioning_zone != p.functioning_zone
+                || option.resolution != SpellResolution::Instructions
+                || option.instructions.is_empty()
             {
                 return Err("nested, empty, or inconsistent modal program".into());
             }
-            validate_instruction_program(child)?;
+            child(&mode.program)?;
         }
         return Ok(());
     }
@@ -8096,6 +8120,7 @@ pub fn catalog_schema() -> serde_json::Value {
     opening_placement::permit_composition(&mut schema);
     opening_placement::require_composition(&mut schema);
     library_top_mana::extend_schema(&mut schema);
+    composition::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -8232,6 +8257,7 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            ComposedAbilityV1,
             PlayerGraveyardShuffleV1,
             ExileResolvingSpellV1,
             ControllerProtectionUntilNextTurnV1,
@@ -8626,6 +8652,30 @@ mod tests {
         }];
         permanent_grant.capabilities = permanent_grant.requirements();
         definitions.push(permanent_grant);
+        // The composition matrix admits this pairing without any family.
+        let mut composed = counted.clone();
+        composed.source_labels = None;
+        composed.composed = true;
+        composed.activated.push(ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            cost: ActivationCost::TapSource,
+            program: SpellProgram {
+                functioning_zone: FunctioningZone::Stack,
+                timing: SpellTiming::Instant,
+                resolution: SpellResolution::Instructions,
+                instructions: vec![Instruction::GainLife {
+                    recipient: LifeRecipient::Controller,
+                    amount: 1.into(),
+                    source_block: 0,
+                }],
+                targets: vec![],
+                modes: vec![],
+                additional_sacrifice: None,
+                optional_additional_costs: vec![],
+            },
+        });
+        composed.capabilities = composed.requirements();
+        definitions.push(composed);
         let mut distinct_colors = counted.clone();
         distinct_colors.source_labels = None;
         distinct_colors.characteristics.toughness = Some(Quantity::zero());

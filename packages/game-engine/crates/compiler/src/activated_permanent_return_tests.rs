@@ -140,7 +140,7 @@ fn activated_permanent_return_rejects_qualified_or_incomplete_selectors() {
     ] {
         let raw = changed(|a| a["effects"][0]["steps"][0]["what"][field] = value);
         assert!(
-            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            crate::tests::family_rejects(&compile(MANIFEST, &raw)),
             "{field}"
         );
     }

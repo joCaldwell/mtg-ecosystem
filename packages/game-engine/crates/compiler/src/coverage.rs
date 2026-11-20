@@ -201,6 +201,62 @@ pub(crate) fn assess_record(
     }
 }
 
+/// Diagnostic only: for every record that neither a family nor the
+/// compositional pipeline lowers, the compositional pipeline's own first
+/// rejection. Family reasons name whole-card shapes; these name the block
+/// table row (cost, event, step, instruction or matrix cell) that is missing.
+/// Rows are `(oracle_id, name, commander_legal, reason)`.
+pub fn composition_gaps(
+    archive: &Path,
+) -> Result<Vec<(String, String, bool, String)>, CoverageError> {
+    let bytes = fs::read(archive).map_err(io)?;
+    let text = std::str::from_utf8(&bytes).map_err(|e| CoverageError::InvalidRecord {
+        line: 1,
+        reason: e.to_string(),
+    })?;
+    let header = text
+        .lines()
+        .next()
+        .ok_or_else(|| CoverageError::UnknownArchive {
+            reason: "empty archive".into(),
+        })?;
+    let accepted =
+        accepted_manifest(header).map_err(|reason| CoverageError::UnknownArchive { reason })?;
+    if accepted.file_sha256.as_deref() != Some(sha256(&bytes).as_str()) {
+        return Err(CoverageError::ArchiveHashMismatch);
+    }
+    let mut gaps = vec![];
+    for (i, raw) in text.lines().skip(1).enumerate() {
+        let row: Value = strict_read(raw).map_err(|reason| CoverageError::InvalidRecord {
+            line: i + 2,
+            reason,
+        })?;
+        if archive_exclusion(&row).is_some() || crate::lower_families(accepted, raw).is_ok() {
+            continue;
+        }
+        let Err(gap) = crate::compose::lower(accepted, raw) else {
+            continue;
+        };
+        gaps.push((
+            row["oracleIdentity"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            row["source"]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            row["source"]["legalities"]["commander"] == "legal",
+            reason_code(
+                &gap.path,
+                &gap.reason,
+                &row["faces"][0]["result"]["abilities"],
+            ),
+        ));
+    }
+    Ok(gaps)
+}
+
 pub fn coverage(archive: &Path, out: &Path) -> Result<CoverageSummary, CoverageError> {
     let bytes = fs::read(archive).map_err(io)?;
     let text = std::str::from_utf8(&bytes).map_err(|e| CoverageError::InvalidRecord {

@@ -114,7 +114,7 @@ fn library_selection_rejects_partial_qualified_and_unbound_source() {
                 }
             });
             assert!(
-                !matches!(compile(HEADER, &changed), CompileResult::Lowered { .. }),
+                crate::tests::family_or_source_rejects(&compile(HEADER, &changed)),
                 "case {case}"
             );
         }

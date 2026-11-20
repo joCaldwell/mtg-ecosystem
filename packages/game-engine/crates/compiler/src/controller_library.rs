@@ -624,7 +624,7 @@ fn fixed_cast_opponent_damage_proves_actor_selection_event_and_omission() {
             row[key] = value;
         });
         assert!(
-            !matches!(compile(manifest, &corrupted), CompileResult::Lowered { .. }),
+            crate::tests::family_or_source_rejects(&compile(manifest, &corrupted)),
             "{change}"
         );
     }

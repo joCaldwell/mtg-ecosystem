@@ -87,6 +87,30 @@ only for development tests. It never alters the index; arbitrary renamed JSON or
 transitive feature behavior still requires review. Focused guards are
 `python3 scripts/test-engine-structure.py` and `python3 scripts/test-engine-cache.py`.
 
+## Compositional lowering
+
+`compiler/src/lib.rs` tries whole-card families first. A record no family
+supports falls back to `compiler/src/compose.rs`, which repeats the archive
+integrity checks, requires a completely bound reference graph that covers the AST, and lowers each block
+through small tables: `compose/costs.rs`, `compose/events.rs`,
+`compose/keywords.rs`, `compose/steps.rs` and the shared typed step lowerer.
+Unknown kinds, fields, operands and unconsumed references reject. A family
+rejection that composition does not recover keeps its original reason, so
+coverage reasons stay comparable. `--example composition_gaps ARCHIVE` lists the
+table row each remaining card lacks; `--example inspect ARCHIVE NAME` prints one
+compile result.
+
+Adding a primitive touches the row that owns it, not every family:
+
+| Primitive | Files |
+| --- | --- |
+| Cost term, self event, keyword or step shape that lowers to existing IR | One `compose/*.rs` table row and its test; a frozen fixture when it opens a new runtime path |
+| Existing instruction, target route or cost in another kind of stack object | One `contracts/src/composition.rs` row, a core witness in `core/src/engine/composition_tests.rs`, and the core fix if recovery assumed a shape |
+| New instruction | The `Instruction` variant and its binding arm in `contracts/src/lib.rs`, its `composition.rs` row (the match is exhaustive), a `compose/steps.rs` row, the core executor and a witness |
+
+Capabilities, schema, labels and source blocks come from the shared assembly;
+no per-card capability, schema branch or family validator is added.
+
 ## Match profile data
 
 Strict JSON under `tests/fixtures/profiles/` is discovered at build time and

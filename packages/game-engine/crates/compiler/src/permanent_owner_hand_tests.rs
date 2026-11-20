@@ -179,10 +179,7 @@ fn permanent_bounce_rejects_unrepresented_selector_filter_and_destination_terms(
                 filter
         });
         let result = compile(MANIFEST, &raw);
-        assert!(
-            matches!(result, CompileResult::Unsupported { .. }),
-            "{result:?}"
-        );
+        assert!(crate::tests::family_rejects(&result), "{result:?}");
     }
     for to in [json!("controller"), json!("your"), json!("opponent")] {
         let raw = changed("Synthetic nonowner bounce destination.", |r| {
@@ -249,7 +246,7 @@ fn permanent_bounce_rejects_extra_effects_and_nonordinary_program_contexts() {
         });
         let result = compile(MANIFEST, &raw);
         assert!(
-            matches!(result, CompileResult::Unsupported { .. }),
+            crate::tests::family_rejects(&result),
             "{context}: {result:?}"
         );
     }

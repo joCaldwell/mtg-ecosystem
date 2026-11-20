@@ -240,7 +240,7 @@ mod tests {
                 result["lines"][0]["ability"] = result["abilities"][0].clone();
             });
             assert!(
-                !matches!(compile(MANIFEST, &bad), CompileResult::Lowered { .. }),
+                crate::tests::family_or_source_rejects(&compile(MANIFEST, &bad)),
                 "{path}"
             );
         }

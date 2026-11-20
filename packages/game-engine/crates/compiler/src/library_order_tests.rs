@@ -106,7 +106,7 @@ fn library_order_rejects_qualified_null_partial_and_wrong_binding_source() {
             }
         });
         assert!(
-            !matches!(compile(HEADER, &changed), CompileResult::Lowered { .. }),
+            crate::tests::family_or_source_rejects(&compile(HEADER, &changed)),
             "case {case}"
         );
     }

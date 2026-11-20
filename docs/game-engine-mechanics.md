@@ -419,6 +419,37 @@ cast prohibition bars opponent spells, not lands, abilities or already-cast
 spells; prohibition arising during cost determination or payment preserves a
 completed proposal (CR 601.6).
 
+## Composition matrix
+
+A card no whole-card family supports is lowered one printed block at a time and
+admitted by the tables in `crates/contracts/src/composition.rs`. Such a
+definition carries `composed: true` and `composed_ability_v1`; the marker and the
+capability are inseparable in validation and in the published schema. Families
+keep precedence, so composition never changes an already supported card, and no
+hosted or search profile reviews the capability.
+
+Each table decides one independent question (CR 113.3, 602.1, 603.1, 608.2):
+
+| Row | Admits |
+| --- | --- |
+| Instruction × stack object | An instruction whose executor and recovery read only the frozen controller, announced targets, exact source and its own operands. Event data, announced X, a resolving card or a sibling instruction keep their family. |
+| Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
+| Cost × route | Tap, mana, source sacrifice, one sacrificed permanent of a type, type union or subtype, and tap/mana/sacrifice combinations, only where that announcement route pays the complete cost (CR 602.2b). |
+| Event | Self entry of any permanent type, self dies, becomes tapped, beginning steps, casts, attacks, damage to a player, other creature entries, creature deaths and controlled land entries, without intervening conditions. |
+| Static, mana, keyword | Own entry tapped, uncounterable spells, controller creature modifiers; tap-only fixed/any/commander-color mana; evergreen keywords without parameters. |
+| Step table | Target creature can't block or be blocked this turn; Treasure, Food and Clue tokens; countering a spell of one card type. |
+| Card shell | Single-face normal cards with fixed costs and a completely bound, diagnostic-free reference graph that covers every AST step; nonbasic lands with only basic land types or only descriptive subtypes. Hybrid/X costs, snow, Auras, Equipment, Sagas and basic lands keep their families. |
+
+Sentences resolve in printed order (CR 608.2c). A pronoun must be bound by the
+archive to a target of its own block or to an earlier step of that block;
+`its controller` and `its power` require the sole announced target (CR 608.2h).
+Sorcery-speed activations use main-phase announcement timing (CR 602.5d).
+Tokens recover from the creating recipe of a spell, activation or trigger.
+Private R3 witnesses cover noncreature tap abilities, paid and unpaid
+tap/sacrifice land and enchantment activations, creature tap damage, mana
+pumps, land entry triggers, a dies trigger and an ordered spell sequence; they
+qualify those paths only, not full games or consumers.
+
 ## Admission and policy boundaries
 
 Foundations and attachments remain the only hosted profiles; foundations alone

@@ -146,6 +146,7 @@ fn definition(provenance: SourceProvenance) -> Result<Definition, String> {
         },
         provenance,
         spell: Some(spell),
+        composed: false,
         intrinsic_zone: None,
         triggered: vec![trigger],
         activated: vec![],

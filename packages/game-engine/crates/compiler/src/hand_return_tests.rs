@@ -52,7 +52,7 @@ fn hand_return_rejects_qualified_partial_wrong_domain_and_binding() {
             r["faces"][0]["result"]["lines"][0]["ability"] = copy;
         });
         assert!(
-            !matches!(compile(HEADER, &changed), CompileResult::Lowered { .. }),
+            crate::tests::family_or_source_rejects(&compile(HEADER, &changed)),
             "{case}"
         );
     }

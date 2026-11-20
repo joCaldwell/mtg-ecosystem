@@ -89,6 +89,8 @@ mod blocking_target_tests;
 mod combat_window_tests;
 #[cfg(test)]
 mod composed_spell_tests;
+#[cfg(test)]
+mod composition_tests;
 mod counter_placement;
 mod equipped_events;
 #[cfg(test)]

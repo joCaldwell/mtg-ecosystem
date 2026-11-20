@@ -169,10 +169,7 @@ fn tap_source_consumes_complete_target_and_rejects_optional_or_qualified_steps()
                 filter
         });
         let result = compile(MANIFEST, &raw);
-        assert!(
-            matches!(result, CompileResult::Unsupported { .. }),
-            "{result:?}"
-        );
+        assert!(crate::tests::family_rejects(&result), "{result:?}");
     }
     for (field, value) in [
         ("optional", json!(true)),
@@ -237,10 +234,7 @@ fn tap_source_preserves_standalone_support_and_rejects_unreviewed_composition() 
             }
         });
         let result = compile(MANIFEST, &raw);
-        assert!(
-            matches!(result, CompileResult::Unsupported { .. }),
-            "{case}: {result:?}"
-        );
+        assert!(crate::tests::family_rejects(&result), "{case}: {result:?}");
     }
 }
 

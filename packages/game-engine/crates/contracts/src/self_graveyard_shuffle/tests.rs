@@ -50,6 +50,7 @@ pub(crate) fn definition() -> Definition {
         oracle_id: source["oracle_id"].as_str().unwrap().into(),
         name: name.into(),
         characteristics: characteristics(),
+        composed: false,
         intrinsic_zone: None,
         spell: Some(spell()),
         activated: vec![],

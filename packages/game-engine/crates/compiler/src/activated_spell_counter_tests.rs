@@ -131,7 +131,7 @@ fn activated_counter_rejects_unrepresented_target_filters_and_occurrences() {
     ] {
         let raw = changed(|a| a["effects"][0]["steps"][0]["what"][field] = value);
         assert!(
-            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
+            crate::tests::family_rejects(&compile(MANIFEST, &raw)),
             "{field}"
         );
     }
