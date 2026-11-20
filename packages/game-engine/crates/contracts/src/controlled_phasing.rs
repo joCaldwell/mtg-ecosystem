@@ -67,6 +67,10 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let fail = || "phasing requires the complete ordinary controller spell".to_string();
     if d.activated.iter().any(|a|contains(&a.program)) || d.triggered.iter().any(|a|contains(&a.program))
         || d.static_abilities.iter().any(|a|matches!(&a.effect,StaticEffect::GrantSpellCascade{program,..} if contains(program))) {return Err(fail());}
+    // The dedicated validator has already checked exact source and root context.
+    if d.spell.as_ref().is_some_and(composed_spell::program) {
+        return Ok(());
+    }
     let uses = d.spell.as_ref().is_some_and(contains);
     if !uses
         && !d.provenance.abilities_json.contains("phase-out")
@@ -206,7 +210,7 @@ pub(super) fn schema(s: &mut Value) {
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}}},
         "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}}}},{"properties":{"spell":{"type":"object","not":free}}}]},
-        "then":{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}},"spell":{"$ref":"#/$defs/RepeatedTargetRoot"}}}
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::TargetedPhasingV1}},"spell":{"anyOf":[{"$ref":"#/$defs/RepeatedTargetRoot"},{"$ref":composed_spell::SCHEMA}]}}}
     }));
     for (name, capability, free_name, pattern) in [
         (
