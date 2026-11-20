@@ -1672,3 +1672,181 @@ fn cascade_complete_opt_child_scry_draw_preserves_original_and_private_recovery(
         prove(&g);
     }
 }
+
+#[test]
+#[ignore = "requires the frozen one-card MTG_CASCADE_LAND_ENTRY_ARCHIVE_PROBE"]
+fn cascade_land_entry_paid_averna_before_hit_or_bottom() {
+    let archive = std::fs::read_to_string(
+        std::env::var_os("MTG_CASCADE_LAND_ENTRY_ARCHIVE_PROBE").expect("external Averna sheet"),
+    )
+    .unwrap();
+    assert_eq!(
+        mtg_contracts::sha256(archive.as_bytes()),
+        "77f05799c86e9b978130d58909100259cdca766cafedab30b7f8483826e92c4c"
+    );
+    let mut lines = archive.lines();
+    let manifest = lines.next().unwrap();
+    let row = lines.next().unwrap();
+    assert_eq!(
+        mtg_contracts::sha256(row.as_bytes()),
+        "5472a36613d5d9a84db4d240c6e244a1da42ec3c5a0daa2f30613326c059ae46"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(manifest, row)
+    else {
+        panic!("complete Averna source must lower");
+    };
+    let player = PlayerId(0);
+    for hit in [true, false] {
+        let mut library = vec!["Forest", "Island"];
+        if hit {
+            library.push("Sol Ring");
+        }
+        let mut p = prepared("Shardless Agent", &library);
+        let c = Arc::make_mut(&mut p.catalog);
+        c.definitions.push((*definition).clone());
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        p.catalog_digest = digest(c).unwrap();
+        m4a_tests::replace(
+            &mut p,
+            player,
+            &definition.name,
+            Zone::Hand { owner: player },
+        );
+        let unrelated = m4a_tests::replace(&mut p, player, "Forest", Zone::Exile);
+        p.profile_digest = digest(&p.config).unwrap();
+
+        let mut g = Game::with_trace(p, TraceMode::Off);
+        let hand_land = g
+            .state
+            .rules
+            .objects
+            .values()
+            .find(|o| {
+                o.zone == (Zone::Hand { owner: player })
+                    && g.definition(o.id.card).unwrap().name == "Forest"
+            })
+            .unwrap()
+            .id
+            .card;
+        answer(&mut g, Response::PlayLand { card: hand_land });
+        let averna = paid(&mut g, &definition.name);
+        m4a_tests::resolve_entry(&mut g, averna);
+        let original = paid(&mut g, "Shardless Agent");
+        let parent = g.top().unwrap().id;
+        for _ in 0..4 {
+            answer(&mut g, Response::Pass);
+        }
+        let Request::CascadeLandEntry {
+            candidates: lands, ..
+        } = request(&mut g)
+        else {
+            panic!("land offer immediately after the scan")
+        };
+        assert_eq!(lands.len(), 2);
+        assert_eq!(g.definition(lands[0].card).unwrap().name, "Forest");
+        let QueryResult::Complete(QueryValue::Observation(observation)) =
+            g.observe(player, Budget::unlimited())
+        else {
+            panic!("complete land observation")
+        };
+        let QueryResult::Incomplete { work, .. } = g.player_decision_for(player, Budget::new(2))
+        else {
+            panic!("one reconstructed choice row expected")
+        };
+        let saved = g.save_work(&work).unwrap();
+        let QueryResult::Complete(QueryValue::Decision(decision)) =
+            g.resume_work(g.restore_work(&saved).unwrap(), Budget::unlimited())
+        else {
+            panic!("complete restored land decision")
+        };
+        assert_eq!(observation.decision, decision);
+        assert!(observation.view.priority.is_none());
+        let Some(PlayerRequest::CascadeLandEntry {
+            token, candidates, ..
+        }) = decision
+        else {
+            panic!("public land offer")
+        };
+        assert_eq!(
+            candidates,
+            lands
+                .iter()
+                .map(|o| g.handle_for(player, *o).unwrap())
+                .collect::<Vec<_>>()
+        );
+        if hit {
+            let mut decline = g.fork();
+            answer(&mut decline, Response::CascadeLandEntry { object: None });
+            assert!(matches!(
+                request(&mut decline),
+                Request::OptionalEffect { .. }
+            ));
+            assert!(
+                lands
+                    .iter()
+                    .all(|id| decline.current(*id).unwrap().zone == Zone::Exile)
+            );
+        }
+        let foreign = g
+            .handle_for(player, g.object_id(unrelated).unwrap())
+            .unwrap();
+        assert!(matches!(
+            g.check_player_response(
+                player,
+                token.clone(),
+                PlayerResponse::CascadeLandEntry {
+                    object: Some(foreign)
+                },
+                Budget::unlimited()
+            ),
+            QueryResult::Rejected(_)
+        ));
+        let QueryResult::Complete(QueryValue::Validated(choice)) = g.check_player_response(
+            player,
+            token.clone(),
+            PlayerResponse::CascadeLandEntry {
+                object: Some(candidates[0].clone()),
+            },
+            Budget::unlimited(),
+        ) else {
+            panic!("accepted exact public land")
+        };
+        g.submit(choice).unwrap();
+        if hit {
+            assert!(matches!(request(&mut g), Request::OptionalEffect { .. }));
+            assert!(matches!(
+                g.check_player_response(
+                    player,
+                    token,
+                    PlayerResponse::OptionalEffect { perform: true },
+                    Budget::unlimited()
+                ),
+                QueryResult::Rejected(_)
+            ));
+            assert!(g.state.rules.stack.iter().any(|s| s.id == parent));
+            prove(&g);
+            answer(&mut g, Response::OptionalEffect { perform: true });
+        }
+        assert!(matches!(request(&mut g), Request::Priority { .. }));
+        let entered = &g.state.rules.objects[&lands[0].card];
+        assert_eq!(entered.id.incarnation, lands[0].incarnation + 1);
+        assert_eq!(
+            (entered.zone, entered.controller, entered.tapped),
+            (Zone::Battlefield, player, true)
+        );
+        assert_eq!(g.turn().lands_played, 1);
+        assert_eq!(g.state.rules.objects[&unrelated].zone, Zone::Exile);
+        assert_eq!(g.state.rules.libraries[&player], [lands[1].card]);
+        assert!(!g.state.rules.stack.iter().any(|s| s.id == parent));
+        if hit {
+            let child = g.top().unwrap();
+            assert_eq!(g.definition(child.source.card).unwrap().name, "Sol Ring");
+            assert_eq!(child.cast_from, Zone::Exile);
+            assert_eq!(child.paid.as_ref(), Some(&zero_mana_cost()));
+            assert!(g.state.rules.stack.iter().any(|s| s.id == original));
+        } else {
+            assert_eq!(g.top().unwrap().id, original);
+        }
+    }
+}

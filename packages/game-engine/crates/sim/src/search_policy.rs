@@ -98,6 +98,7 @@ pub(super) fn choose(
         }
         PlayerRequest::ManaColor { .. }
         | PlayerRequest::SearchLands { .. }
+        | PlayerRequest::CascadeLandEntry { .. }
         | PlayerRequest::SearchLandBattlefield { .. }
         | PlayerRequest::OptionalEffect { .. }
         | PlayerRequest::OptionalRecursion { .. } => {

@@ -444,6 +444,14 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(handle) = self
+                .cascade_land_query_row(viewer, cursor - base - effect_count)
+                .map_err(|_| QueryRejection::Invariant)?
+        {
+            candidates.push(handle);
+        }
         if let Some(PlayerRequest::CounterPlacementEffect { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(key) = cache
@@ -501,6 +509,8 @@ impl Game {
         let extra = effect_count
             + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
                 cache.allocation(self)?.map_or(0, |ids| ids.len())
+            } else if matches!(b.decision, Some(PlayerRequest::CascadeLandEntry { .. })) {
+                self.cascade_land_query_len()
             } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
                 cache.modes(self)?.map_or(0, |ids| ids.len())
             } else if matches!(
@@ -589,6 +599,17 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
+                if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = request {
+                    if let Some(handle) = self
+                        .cascade_land_query_row(*viewer, *cursor as usize)
+                        .map_err(|_| QueryRejection::Invariant)?
+                    {
+                        candidates.push(handle);
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= self.cascade_land_query_len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
@@ -806,7 +827,12 @@ impl Game {
                         ) => true,
                         (Frame::ManaSourceChoice { .. }, PlayerResponse::ManaColor { .. }) => true,
                         (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
-                        (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
+                        (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
+                            matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
+                        }
+                        (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
+                            progress.stage == cascade::CascadeStage::Offer
+                        }
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
                         }
@@ -1161,6 +1187,7 @@ impl Game {
             ) => self
                 .private_library_choice_candidates(viewer)
                 .map_or(0, |ids| ids.len() as u64),
+            Some(PlayerRequest::CascadeLandEntry { .. }) => self.cascade_land_query_len() as u64,
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
             Some(PlayerRequest::Modes { .. }) => {
                 if let Some(Request::Modes { candidates, .. }) = self.modes_request()? {
@@ -1208,6 +1235,7 @@ impl Game {
                     .ok_or("decision work resource limit")?,
                 Some(
                     PlayerRequest::OrderTriggers { .. }
+                    | PlayerRequest::CascadeLandEntry { .. }
                     | PlayerRequest::HandReturn { .. }
                     | PlayerRequest::LibraryOrder { .. }
                     | PlayerRequest::LibrarySelect { .. }

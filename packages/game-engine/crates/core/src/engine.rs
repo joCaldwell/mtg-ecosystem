@@ -1178,6 +1178,9 @@ pub enum Response {
     SearchLands {
         objects: Vec<ObjectId>,
     },
+    CascadeLandEntry {
+        object: Option<ObjectId>,
+    },
     SearchLandBattlefield {
         object: ObjectId,
     },
@@ -1339,6 +1342,11 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
         colors: Vec<Color>,
+    },
+    CascadeLandEntry {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<ObjectId>,
     },
     SearchLandBattlefield {
         decision_id: u64,
@@ -1507,6 +1515,7 @@ impl Request {
             | Self::AnnounceX { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
+            | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
@@ -1547,6 +1556,7 @@ impl Request {
             | Self::AnnounceX { player, .. }
             | Self::ManaColor { player, .. }
             | Self::SearchLands { player, .. }
+            | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
@@ -1644,6 +1654,10 @@ pub enum ProposedEvent {
     },
     DestroyCreature {
         object: ObjectId,
+    },
+    CascadeLandEntry {
+        object: ObjectId,
+        player: PlayerId,
     },
     SearchLandEntry {
         object: ObjectId,

@@ -147,6 +147,9 @@ impl Strategy<'_> {
                     .or_else(|| colors.first().copied())
                     .ok_or("empty mana colors")?,
             },
+            PlayerRequest::CascadeLandEntry { .. } => {
+                return Err("cascade land entry outside this policy admission".into());
+            }
             PlayerRequest::SearchLandBattlefield { candidates, .. } => {
                 PlayerResponse::SearchLandBattlefield {
                     object: candidates
