@@ -174,7 +174,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let words = COLORS.map(|(_, _, keyword)| keyword);
     let fixed = json!({"contains":{"enum":words}});
     let cap = json!({"contains":{"const":Capability::FixedColorProtectionV1}});
-    let attached = json!({"required":["modify_creatures"],"properties":{"modify_creatures":{"properties":{
+    let attached = json!({"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["scope","keywords"],"properties":{
         "scope":{"enum":["equipped","enchanted"]},"keywords":fixed
     }}}});
     let has_grant = json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{
