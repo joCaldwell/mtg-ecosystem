@@ -266,6 +266,25 @@ mod tests {
         }
         let spell = catalog.definitions[0].oracle_id.clone();
         let land = catalog.definitions[1].oracle_id.clone();
+        let attacker = if catalog.definitions[0]
+            .capabilities
+            .contains(&Capability::ControllerProtectionUntilNextTurnV1)
+        {
+            let base = Catalog::read(include_str!(
+                "../../../../tests/fixtures/expected-wipes-ir.json"
+            ))
+            .unwrap();
+            let creature = base
+                .definitions
+                .into_iter()
+                .find(|d| d.name == "Grizzly Bears")
+                .unwrap();
+            let id = creature.oracle_id.clone();
+            catalog.definitions.push(creature);
+            Some(id)
+        } else {
+            None
+        };
         catalog
             .definitions
             .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -290,6 +309,15 @@ mod tests {
                 owner: PlayerId(seat),
                 controller: PlayerId(seat),
                 zone,
+            });
+        }
+        if let Some(oracle_id) = attacker {
+            config.cards.push(CardSetup {
+                id: CardId(3),
+                oracle_id,
+                owner: PlayerId(1),
+                controller: PlayerId(1),
+                zone: Zone::Battlefield,
             });
         }
         for seat in (0..4).map(PlayerId) {
@@ -406,6 +434,7 @@ mod tests {
         );
         assert!(g.targetable_player(PlayerId(1)));
         recover(&g);
+        let mut attacked = false;
         for _ in 0..600 {
             let r = request(&mut g, 1);
             if !g.player_protected(player) {
@@ -413,11 +442,46 @@ mod tests {
             }
             let response = match r {
                 Request::Priority { .. } => Response::Pass,
+                Request::Attackers {
+                    player: seat,
+                    candidates,
+                    defenders,
+                    ..
+                } if seat == PlayerId(1) => {
+                    let attacker = object(&g, 3);
+                    assert!(candidates.contains(&attacker) && defenders.contains(&player));
+                    attacked = true;
+                    Response::Attackers {
+                        attacks: vec![(attacker, player)],
+                    }
+                }
+                Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+                Request::DamageEffect { candidates, .. } => Response::DamageEffect {
+                    damage: candidates[0].damage,
+                    effect: candidates[0].effect.clone(),
+                },
                 Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
                 other => panic!("unexpected turn request {other:?}"),
             };
             answer(&mut g, 1, response);
         }
+        assert!(attacked);
+        let outcomes = g
+            .trace
+            .records
+            .iter()
+            .filter_map(|r| {
+                if let EvidenceRecord::Batch { batch } = &r.record {
+                    Some(&batch.occurrences)
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .map(|o| &o.actual)
+            .collect::<Vec<_>>();
+        assert!(outcomes.iter().any(|o| matches!(o,EventOutcome::DamageEffectApplied {application} if application.prevented == Quantity::from(2) && application.after == Quantity::zero())));
+        assert!(outcomes.iter().any(|o| matches!(o, EventOutcome::DamageCommitted {actual,commander_damage,..} if actual.is_empty() && commander_damage.is_empty())));
         assert!(g.targetable_player(player));
         assert_eq!(g.state.rules.turn_owner, player);
         recover(&g);
