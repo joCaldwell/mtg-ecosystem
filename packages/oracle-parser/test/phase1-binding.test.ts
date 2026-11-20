@@ -1191,3 +1191,49 @@ describe("copies with fixed targets, actor sets, and grants", () => {
     assert.equal(reselect.subject, bound(graph, "/steps/0/what"));
   });
 });
+
+describe("resolution choices and participant identity", () => {
+  it("grants play of the one card chosen from the preceding exile set", () => {
+    const graph = analyze("Exile the top two cards of your library. Choose one of them. You may play that card this turn.", "Sorcery");
+    boundCard(graph);
+    const choice = bound(graph, "/permission/what");
+    const pool = bound(graph, "/what/pool");
+    assert.ok(graph.nodes.some(node => node.id === choice && node.node === "event-result" && node.subsetOf === pool));
+  });
+
+  it("does not replace an intervening card choice with the previous one", () => {
+    const graph = analyze("Exile the top two cards of your library. Choose one of them. Draw a card. You may play that card this turn.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+  });
+
+  it("uses one opponent set for both kinds of simultaneous damage recipients", () => {
+    const graph = analyze("This spell deals 2 damage to each opponent and each creature they control.", "Instant");
+    boundCard(graph);
+    const damage = graph.nodes.find(node => node.node === "opponent-group-damage");
+    assert.ok(damage);
+    assert.equal(damage.players, bound(graph, "/to/refs/1/filter/controlledBy"));
+    assert.equal(damage.players, bound(graph, "/to/refs/0"));
+  });
+
+  it("gives the search, entry and shuffle to one bound previous controller", () => {
+    const graph = analyze("Exile target creature. Its controller may search their library for a basic land card, "
+      + "put that card onto the battlefield tapped, then shuffle.", "Instant");
+    boundCard(graph);
+    const search = graph.nodes.find(node => node.node === "controller-search");
+    assert.ok(search);
+    const player = graph.nodes.find(node => node.id === search.player);
+    assert.ok(player?.node === "derived-player" && player.information === "current-or-last-known");
+    assert.equal(player.of, bound(graph, "/effects/0/steps/0/what"));
+    assert.equal(search.player, bound(graph, "/steps/2/library/owner"));
+    const entry = graph.nodes.find(node => node.id === search.entry);
+    assert.ok(entry?.node === "event" && entry.condition === search.decision && entry.requiresResult);
+    assert.ok(graph.nodes.some(node => node.id === search.shuffle && node.node === "event" &&
+      node.condition === search.decision && !node.requiresResult));
+  });
+
+  it("does not use a nonadjacent exile as the optional search's anchor", () => {
+    const graph = analyze("Exile target creature. Tap target creature. Its controller may search their library for a basic land card, "
+      + "put that card onto the battlefield tapped, then shuffle.", "Instant");
+    assert.ok(!graph.nodes.some(node => node.node === "controller-search"));
+  });
+});

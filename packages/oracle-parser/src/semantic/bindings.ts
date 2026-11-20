@@ -341,6 +341,8 @@ interface Context {
   stackCopies?: StackCopyCapture[];
   previousEffect?: string;
   precedingSentence?: { path: string; steps: Effect[] };
+  directCardChoice?: { path: string; result: Candidate };
+  boundOperand?: { path: string; candidate: Candidate; rules: string[] };
   targetLegalityQuery?: true;
   interveningIf?: true;
   resolutionCount?: { path: string; operation: ResolutionCountOperation };
@@ -1847,7 +1849,29 @@ class Analyzer {
     return id;
   }
   private walkDamageAmount(effect: Extract<Effect, { effect: "damage" }>, path: string, context: Context): boolean {
-    if (context.barrier || effect.to.to !== "player") return false;
+    if (context.barrier) return false;
+    if (effect.to.to === "each" && effect.to.refs.length === 2) {
+      const [players, creatures] = effect.to.refs;
+      if (isDeepStrictEqual(players, { player: "each-opponent" }) &&
+          "ref" in creatures && creatures.ref === "each" &&
+          isDeepStrictEqual(creatures.filter, { types: ["creature"], controlledBy: { player: "they" } })) {
+        const at = `${path}/to/refs`;
+        const opponents = this.player({ player: "each-opponent" }, child(at, 0), context);
+        if (opponents) {
+          const rules = ["102.2", "120.4b", "608.2f"];
+          const controlled = this.object(creatures, child(at, 1), { ...context, actor: opponents });
+          if (controlled) {
+            this.node({ id: this.id(path, "opponent-group-damage"), path, node: "opponent-group-damage",
+              scope: context.ability, event: this.id(path, "event"), players: opponents.id, creatures: controlled.id, rules });
+            this.engineFeature("opponent-group-damage", path,
+              "Use the same opponent set for the player and controlled-creature recipients of one simultaneous damage event.", rules);
+          }
+        }
+        this.walk(effect.amount, child(path, "amount"), context);
+        return true;
+      }
+    }
+    if (effect.to.to !== "player") return false;
     const quantity = effect.amount.amount === "twice" ? effect.amount.of : effect.amount;
     if (quantity.amount !== "count" || !(quantity.of.control === "that-player" ||
         quantity.of.controlledBy?.player === "they" || quantity.of.controlledBy?.player === "that-player")) return false;
@@ -2034,6 +2058,10 @@ class Analyzer {
   }
 
   object(expression: ObjectRef, path: string, context: Context): Candidate | undefined {
+    if (!context.barrier && context.boundOperand?.path === path) {
+      const { candidate, rules } = context.boundOperand;
+      return this.antecedent(expression, path, [candidate], objectCardinality(expression), rules);
+    }
     if (expression.ref === "related" && expression.number === "plural" &&
         isDeepStrictEqual(expression.filter, { cls: "card" }) &&
         expression.relation.relation === "exile-and-search-results" && expression.relation.from === "preceding-sentence") {
@@ -2650,7 +2678,7 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, exileResults: undefined,
+      sacrificedCost: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, boundOperand: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
       copiedCards: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined,
@@ -2749,6 +2777,65 @@ class Analyzer {
     if (effect.costs.length === 1 && (effect.costs[0].cost === "pay-life" || effect.costs[0].cost === "remove-counters"))
       context.quantities = combine(context.quantities, [this.eventResult(path, event, "quantity", "one", "measured-quantity")]);
   }
+  private controllerSearch(effect: Extract<Effect, { effect: "optional-group" }>, path: string, context: Context,
+    precedingEffect?: string): boolean {
+    if (context.barrier || context.phase !== "resolution" || context.decider || !precedingEffect ||
+        !isDeepStrictEqual(effect.who, { player: "controller", of: { ref: "it" } }) || effect.steps.length !== 3)
+      return false;
+    const [search, move, shuffle] = effect.steps;
+    if (search.effect !== "search" || move.effect !== "move-zone" || shuffle.effect !== "shuffle" ||
+        Object.keys(search).length !== 4 || Object.keys(move).length !== 5 || Object.keys(shuffle).length !== 3 ||
+        !isDeepStrictEqual(search.who, effect.who) || !isDeepStrictEqual(move.who, effect.who) ||
+        !isDeepStrictEqual(shuffle.who, effect.who) ||
+        !isDeepStrictEqual(search.zones, { selection: "all", of: [{ zone: "library", owner: "their" }] }) ||
+        search.for.ref !== "filter" || search.for.filter.cls !== "card" || objectCardinality(search.for) !== "one" ||
+        !isDeepStrictEqual(move.what, { ref: "that", filter: { cls: "card" } }) ||
+        !isDeepStrictEqual(move.to, { zone: "battlefield" }) || move.tapped !== true ||
+        shuffle.library.zone !== "library" || !isDeepStrictEqual(shuffle.library.owner, effect.who)) return false;
+    const original = this.result.nodes.find(node => node.id === this.id(precedingEffect, "event"));
+    const target = this.at(child(precedingEffect, "what"));
+    if (original?.node !== "event" || original.operation !== "exile" || original.scope !== context.ability ||
+        original.optional || original.conditional || !target || !this.announced(target) || target.cardinality !== "one" ||
+        !target.description?.types?.includes("creature") || target.description.cls === "card" || target.description.cls === "spell")
+      return false;
+
+    const rules = ["110.2a", "400.7", "608.2b", "608.2c", "608.2d", "608.2h", "701.23b", "701.24a"];
+    const whoPath = child(path, "who");
+    const player = this.node({ id: this.id(whoPath, "controller-before-exile"), path: whoPath, node: "derived-player",
+      scope: context.ability, role: "controller", of: target.id, information: "current-or-last-known", rules });
+    for (const at of [whoPath, `${path}/steps/0/who`, `${path}/steps/1/who`, `${path}/steps/2/who`, `${path}/steps/2/library/owner`]) {
+      this.bound({ ref: "it" }, child(at, "of"), target.id, rules);
+      this.bound(effect.who, at, player, rules);
+    }
+
+    const actor: Candidate = { id: player, domain: "player", cardinality: "one" };
+    const searchPath = `${path}/steps/0`;
+    const movePath = `${path}/steps/1`;
+    const shufflePath = `${path}/steps/2`;
+    this.walk(search.zones, child(searchPath, "zones"), { ...context, actor });
+    const selection = this.object(search.for, child(searchPath, "for"), context);
+    if (!selection) return true;
+    this.rememberDecision(path, context);
+    context.decisions?.push(path);
+    const decision = this.event(path, context, "optional-controller-search", [actor], {
+      optional: true, decider: player, ...(context.conditional ? { conditional: true as const } : {}),
+    });
+    const searchEvent = this.event(searchPath, context, search.effect, [actor, selection], { conditional: true, condition: decision });
+    const found = this.eventResult(searchPath, searchEvent, "objects", "one", "same-objects", selection.description);
+    this.bound(move.what, child(movePath, "what"), found.id, rules);
+    const entry = this.event(movePath, context, move.effect, [actor, found], { conditional: true, condition: decision, requiresResult: found.id });
+    const shuffled = this.event(shufflePath, context, shuffle.effect, [actor], { conditional: true, condition: decision });
+    this.node({ id: this.id(path, "controller-search"), path, node: "controller-search", scope: context.ability,
+      exile: original.id, player, decision, search: searchEvent, entry, shuffle: shuffled, rules });
+    this.engineFeature("controller-search", path,
+      "Use the exiled target's controller or last known controller for the single optional search, entry and shuffle sequence, including searches that find nothing.", rules);
+    context.objects = [];
+    context.players = [];
+    context.quantities = [];
+    context.mentionedObject = true;
+    return true;
+  }
+
   /** "You may [A] and [B]": one decision covers the instructions, which are
    * then performed in order (CR 608.2c-d). Their results exist only if the
    * player chose to perform them. */
@@ -3501,6 +3588,8 @@ class Analyzer {
   effect(effect: Effect, path: string, context: Context): void {
     const precedingEffect = context.previousEffect;
     context.previousEffect = path;
+    const cardChoice = context.directCardChoice?.path === precedingEffect ? context.directCardChoice : undefined;
+    context.directCardChoice = undefined;
     if (effect.effect === "choose-object") context.uncertainTargetOrigin = true;
     if (effect.effect === "reveal") context.uncertainRevealOrigin = true;
     if (this.distinctAction(effect, path, context)) return;
@@ -3603,7 +3692,10 @@ class Analyzer {
       this.dieTable(effect, path, context); return;
     }
     if (plain && effect.effect === "simultaneous") { this.simultaneous(effect, path, context); return; }
-    if (plain && effect.effect === "optional-group") { this.optionalGroup(effect, path, context); return; }
+    if (plain && effect.effect === "optional-group") {
+      if (!this.controllerSearch(effect, path, context, precedingEffect)) this.optionalGroup(effect, path, context);
+      return;
+    }
     if (effect.effect === "pay-cost" && !effect.times && !effect.forEach && !effect.forEachVote) { this.payCost(effect, path, context); return; }
     if (plain && effect.effect === "create-delayed-trigger") { this.delayedTrigger(effect, path, context); return; }
     if (plain && effect.effect === "create-reflexive-trigger") { this.reflexiveTrigger(effect, path, context); return; }
@@ -3661,8 +3753,12 @@ class Analyzer {
     } else {
       const count = immediateCasts ? { path: `${path}/instruction/what`, operation: "cast-from-exile" as const }
         : resolutionCount(effect, path);
-      this.walk(effect, path, count || effect.effect === "distribute-counters"
-        ? { ...context, resolutionCount: count, distributedCount: effect.effect === "distribute-counters" } : context);
+      const chosenCard = cardChoice && effect.effect === "grant-play-permission" &&
+        effect.permission.who.player === "you" && !effect.permission.fromAmong &&
+        isDeepStrictEqual(effect.permission.what, { ref: "that", filter: { cls: "card" } })
+        ? { path: `${path}/permission/what`, candidate: cardChoice.result, rules: ["400.7j", "608.2c", "608.2d"] } : undefined;
+      this.walk(effect, path, count || effect.effect === "distribute-counters" || chosenCard
+        ? { ...context, resolutionCount: count, distributedCount: effect.effect === "distribute-counters", boundOperand: chosenCard } : context);
     }
     // CR 608.2d: "[player] may" is decided while the instruction is applied;
     // declining it produces no results, as any impossible instruction would.
@@ -3894,6 +3990,13 @@ class Analyzer {
         context.objects = combine(context.objects, [model]);
         context.mentionedObject = true;
       }
+    }
+    if (effect.effect === "choose-object" && !effect.optional && !effect.forEach && !effect.forEachVote && !effect.decidedBy &&
+        !context.decider && castPool?.cardinality === "many" && effect.who.player === "you" &&
+        isDeepStrictEqual(effect.what, { ref: "from-pool", pool: { ref: "them" }, count: { amount: "fixed", value: 1 } }) &&
+        this.at(`${path}/what/pool`)?.id === castPool.id && objects.length === 1) {
+      const result = this.eventResult(path, event, "objects", "one", "same-objects", { cls: "card" }, castPool.id);
+      context.directCardChoice = { path, result };
     }
     if (effect.effect === "declare-target" && objects.length === 1 && this.announced(objects[0]))
       context.declaredTargets = [...(context.declaredTargets ?? []), objects[0]];
