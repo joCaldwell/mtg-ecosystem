@@ -2641,10 +2641,7 @@ impl Game {
                     .get(index as usize)
                     .map(|a| &a.program)
                     .ok_or_else(|| "missing triggered program".to_string()),
-                EffectiveTriggerAbility::Granted {
-                    grant_source,
-                    static_ability_index,
-                } => self.grant_program(grant_source, static_ability_index),
+                grant => self.effective_cascade_program(grant),
             },
             StackKind::Activated { ability, .. } => definition
                 .activated
