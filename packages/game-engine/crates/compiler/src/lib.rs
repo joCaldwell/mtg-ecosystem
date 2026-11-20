@@ -1416,7 +1416,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
+    let abilities = if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)?
+    {
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
         vec![ability]
