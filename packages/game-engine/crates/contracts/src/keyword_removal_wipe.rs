@@ -81,13 +81,20 @@ pub(super) fn validate_definition(definition: &Definition) -> Result<(), String>
     }
     let reserved_spell = definition.spell.as_ref().is_some_and(reserved);
     let raw = &definition.provenance.source_json;
-    if !reserved_spell && !raw.contains(" lose indestructible until end of turn.") && !raw.contains(r"\u") {
+    if !reserved_spell
+        && !raw.contains(" lose indestructible until end of turn.")
+        && !raw.contains(r"\u")
+    {
         return Ok(());
     }
     let source: Value = strict_read(raw)?;
     let text = source["oracle_text"].as_str().unwrap_or("");
     let Some(expected) = keyword_removal_wipe_source(text) else {
-        return if reserved_spell { Err(ERROR.into()) } else { Ok(()) };
+        return if reserved_spell {
+            Err(ERROR.into())
+        } else {
+            Ok(())
+        };
     };
     let c = &definition.characteristics;
     let mut printed_cost = String::new();
@@ -108,10 +115,15 @@ pub(super) fn validate_definition(definition: &Definition) -> Result<(), String>
         || source["mana_cost"] != printed_cost
         || source["colors"] != json!(c.colors)
         || source["color_identity"] != json!(c.color_identity)
-        || definition.source_labels.as_ref().is_some_and(|l|
-            l.text != text || !text.lines().eq(l.blocks.iter().map(String::as_str))
-            || !l.activated.is_empty() || !l.triggered.is_empty() || !l.mana.is_empty()
-            || !l.statics.is_empty() || !l.spell_modes.is_empty())
+        || definition.source_labels.as_ref().is_some_and(|l| {
+            l.text != text
+                || !text.lines().eq(l.blocks.iter().map(String::as_str))
+                || !l.activated.is_empty()
+                || !l.triggered.is_empty()
+                || !l.mana.is_empty()
+                || !l.statics.is_empty()
+                || !l.spell_modes.is_empty()
+        })
         || definition.characteristics.kind != CardKind::Sorcery
         || definition.characteristics.basic
         || definition.characteristics.legendary
@@ -178,19 +190,23 @@ pub(super) fn extend_schema(schema: &mut Value) {
     }));
 }
 
-
 #[cfg(test)]
 pub(super) fn witness(mut definition: Definition) -> Definition {
     let mut source: Value = strict_read(&definition.provenance.source_json).unwrap();
     let selector = "Nonland permanents";
     let term = "indestructible";
-    let text = format!("{selector} your opponents control lose {term} until end of turn.\nDestroy all {}.", selector.to_lowercase());
+    let text = format!(
+        "{selector} your opponents control lose {term} until end of turn.\nDestroy all {}.",
+        selector.to_lowercase()
+    );
     source["oracle_text"] = json!(text);
     definition.source_labels = None;
     definition.provenance.source_json = canonical(&source).unwrap();
     definition.provenance.source_sha256 = sha256(definition.provenance.source_json.as_bytes());
-    definition.provenance.abilities_json = canonical(&keyword_removal_wipe_source(&text).unwrap()).unwrap();
-    definition.provenance.ast_sha256 = sha256(format!("[{}]",definition.provenance.abilities_json).as_bytes());
+    definition.provenance.abilities_json =
+        canonical(&keyword_removal_wipe_source(&text).unwrap()).unwrap();
+    definition.provenance.ast_sha256 =
+        sha256(format!("[{}]", definition.provenance.abilities_json).as_bytes());
     definition.spell = Some(keyword_removal_wipe_program());
     definition.capabilities = definition.requirements();
     definition

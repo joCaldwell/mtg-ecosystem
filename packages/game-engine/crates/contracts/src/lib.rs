@@ -7685,7 +7685,11 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
-        let sweep = definitions.iter().find(|d| d.name == "Planar Cleansing").unwrap().clone();
+        let sweep = definitions
+            .iter()
+            .find(|d| d.name == "Planar Cleansing")
+            .unwrap()
+            .clone();
         definitions.push(keyword_removal_wipe::witness(sweep));
         for cap in vocabulary {
             assert!(

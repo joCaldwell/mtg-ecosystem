@@ -117,13 +117,20 @@ fn keyword_removal_wipe_checks_complete_binding_and_definition() {
     omitted.capabilities = omitted.requirements();
     assert!(omitted.validate().is_err());
     let mut cost_mismatch = definition.clone();
-    cost_mismatch.characteristics.mana_cost.generic.add(&1.into());
+    cost_mismatch
+        .characteristics
+        .mana_cost
+        .generic
+        .add(&1.into());
     assert!(cost_mismatch.validate().is_err());
     let mut stripped = omitted;
     stripped.spell.as_mut().unwrap().instructions.clear();
     stripped.capabilities = stripped.requirements();
     stripped.source_labels = None;
-    stripped.provenance.source_json = stripped.provenance.source_json.replace("indestructible", r"\u0069ndestructible");
+    stripped.provenance.source_json = stripped
+        .provenance
+        .source_json
+        .replace("indestructible", r"\u0069ndestructible");
     stripped.provenance.source_sha256 = sha256(stripped.provenance.source_json.as_bytes());
     assert!(stripped.validate().is_err());
 
