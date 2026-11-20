@@ -1060,6 +1060,10 @@ impl Game {
                 let cause = Self::staple_cause(&frame, source_block);
                 self.begin_counter_placements(frame, allocations, cause)
             }
+            Instruction::CopyControlledCreatureSpell {
+                target_slot,
+                source_block,
+            } => self.copy_creature_spell(frame, target_slot, source_block),
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
@@ -1674,25 +1678,37 @@ impl Game {
         self.stabilize()
     }
     pub(super) fn remove_resolved_entry(&mut self, entry: &StackInstance) -> Result<(), String> {
+        if let Some(index) = self.resolving_entry_index(entry)? {
+            self.state.rules.stack.remove(index);
+        }
+        Ok(())
+    }
+    pub(super) fn resolving_entry_index(
+        &self,
+        entry: &StackInstance,
+    ) -> Result<Option<usize>, String> {
         if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == entry.id) {
-            let child = self.resolution_child(entry.id);
+            let child = match &self.state.rules.frame {
+                Frame::Resolve { frame } if frame.stack_id == entry.id => frame.copied_child(),
+                _ => self.resolution_child(entry.id),
+            };
             if self.state.rules.stack[index] != *entry
                 || match child {
                     None => index + 1 != self.state.rules.stack.len(),
                     Some(child) => {
                         index + 2 != self.state.rules.stack.len()
                             || self.top()?.id != child
-                            || self.top()?.paid.is_none()
+                            || !self.stack_entry_complete(self.top()?)
                     }
                 }
             {
                 return Err("exact resolving owner completion invariant".into());
             }
-            self.state.rules.stack.remove(index);
+            return Ok(Some(index));
         } else if self.invocation_lives(entry) {
             return Err("missing live resolving owner".into());
         }
-        Ok(())
+        Ok(None)
     }
     pub(super) fn invocation_lives(&self, entry: &StackInstance) -> bool {
         if entry.kind.is_spell() {
@@ -1706,7 +1722,7 @@ impl Game {
         }
     }
     pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
-        self.validate_resolving_owned(frame, None)
+        self.validate_resolving_owned(frame, frame.copied_child())
     }
     pub(super) fn validate_resolving_owned(
         &self,
@@ -1726,10 +1742,24 @@ impl Game {
         let entry = &frame.spell;
         let program = self.program_for(entry)?;
         self.validate_damage_bindings(entry)?;
+        if let Some(copy) = frame.copied_child()
+            && (!matches!(
+                program.instructions.as_slice(),
+                [Instruction::CopyControlledCreatureSpell { .. }]
+            ) || child != Some(copy)
+                || self.invocation_lives(entry)
+                    && !self.state.rules.stack.last().is_some_and(|top| {
+                        top.id == copy
+                            && self.is_spell_copy(top)
+                            && self.state.rules.tokens[&top.source.card].source == entry.source
+                    }))
+        {
+            return Err("snapshot resolving spell copy authority".into());
+        }
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
             || !self.announced_target_count_valid(program, entry)
-            || entry.paid.as_ref() != Some(&entry.total_cost)
+            || !self.stack_entry_complete(entry)
             // Immediate loss and completion of its activated ability share one
             // atomic rule step. There is no post-loss resolving continuation.
             || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)

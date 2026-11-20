@@ -1089,6 +1089,7 @@ impl Game {
                 .rules
                 .tokens
                 .get(&object.id.card)
+                .filter(|t| t.is_token(object))
                 .map(|t| VisibleToken {
                     name: t.definition.name.clone(),
                     keywords: t.definition.keywords.clone(),
@@ -1103,9 +1104,15 @@ impl Game {
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
             handle: self.handle_for(viewer, object.id)?,
-            // Tokens have no Oracle identity. Never expose their physical IDs
-            // through a synthetic Oracle string; their public row has a handle.
-            oracle_id: if self.state.rules.tokens.contains_key(&object.id.card) {
+            // A copy can show the original printed Oracle ID. An instruction-defined
+            // token has only its public handle and visible token template.
+            oracle_id: if self
+                .state
+                .rules
+                .tokens
+                .get(&object.id.card)
+                .is_some_and(|t| !t.is_copy())
+            {
                 String::new()
             } else {
                 physical.oracle_id.clone()

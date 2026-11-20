@@ -79,6 +79,7 @@ mod land_entry;
 mod staples;
 pub use counter_placement::*;
 use land_entry::{EntryOrigin, PreparedEntryAuthority};
+mod spell_copy;
 mod tokens;
 pub use staples::VisibleSearchLand;
 pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
@@ -1693,6 +1694,9 @@ pub enum ProposedEvent {
         object: ObjectId,
         amount: Quantity,
     },
+    CeaseSpellCopy {
+        object: ObjectId,
+    },
     CeaseToken {
         object: ObjectId,
     },
@@ -1913,6 +1917,9 @@ pub enum EventOutcome {
         previous: Quantity,
         current: Quantity,
     },
+    SpellCopyCeased {
+        object: ObjectId,
+    },
     TokenCeased {
         object: ObjectId,
     },
@@ -2065,6 +2072,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    SpellCopied {
+        copy: StackId,
+    },
     CounterPlacements {
         actual: Vec<EventOutcome>,
     },
@@ -2131,6 +2141,12 @@ enum InstructionOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    SpellCopied {
+        cause: BatchCause,
+        target: StackId,
+        copy: StackId,
+        object: ObjectId,
+    },
     XAnnounced {
         stack_id: StackId,
         player: PlayerId,
@@ -3320,9 +3336,9 @@ impl Game {
         }
         let owner = self.state.rules.cards[&stack.source.card].owner;
         if self.current(stack.source).is_ok() {
-            if self.top()?.id != stack.id {
-                return Err("completion is not the top stack entry".into());
-            }
+            let index = self
+                .resolving_entry_index(stack)?
+                .ok_or("missing resolving spell")?;
             // CR 608.3a: a resolving permanent spell becomes a permanent;
             // targetless spells do not fail the targeted-spell legality test.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -3356,7 +3372,7 @@ impl Game {
                     },
                 )?;
             }
-            self.state.rules.stack.pop();
+            self.state.rules.stack.remove(index);
         } else if self.is_live(owner) || self.state.rules.stack.iter().any(|s| s.id == stack.id) {
             return Err("unsupported resolving-source movement".into());
         }
@@ -3638,10 +3654,11 @@ impl Game {
                 ) || (matches!(
                     self.underlying_mana_frame(&s.rules.frame),
                     Frame::Finished { .. } | Frame::Fault { .. }
-                ) && stack.paid.is_none()));
+                ) && stack.paid.is_none()
+                    && !self.is_spell_copy(stack)));
             if !incomplete_top
                 && (!self.announced_target_count_valid(program, stack)
-                    || stack.paid.as_ref() != Some(&stack.total_cost))
+                    || !self.stack_entry_complete(stack))
             {
                 return Err("snapshot completed lower/top cast invariant".into());
             }
@@ -3700,7 +3717,7 @@ impl Game {
                 }
                 let sources: BTreeSet<_> = cast.mana_activations.iter().map(|a| a.object).collect();
                 if sources.len() != cast.mana_activations.len()
-                    || cast.mana_activations.len() > self.prepared.config.cards.len()
+                    || cast.mana_activations.len() > s.rules.cards.len()
                     || cast.mana_activations.iter().any(|a| {
                         a.player != top.controller
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
