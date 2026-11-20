@@ -10,6 +10,9 @@ use mtg_contracts::bulk_catalog::{
 };
 use std::sync::LazyLock;
 
+mod roster_review;
+use roster_review::Review;
+
 pub const DYNAMIC_PROFILE: &str = "commander-dynamic-headless-v1";
 const ADMISSION_DOMAIN: &str = "commander-dynamic-pair-admission-v2";
 pub const DYNAMIC_MAX_DECK_ROWS: usize = 100;
@@ -65,7 +68,12 @@ static POLICY_STATE: LazyLock<Result<DynamicPolicy, String>> = LazyLock::new(|| 
         .into_iter()
         .map(|ban| ban.oracle_id)
         .collect();
-    let digest = digest(&(ADMISSION_DOMAIN, POLICY_SHA256, REVIEWED))?;
+    let digest = digest(&(
+        ADMISSION_DOMAIN,
+        POLICY_SHA256,
+        REVIEWED,
+        roster_review::POLICY_INPUT,
+    ))?;
     Ok(DynamicPolicy { banned_ids, digest })
 });
 fn policy() -> Result<&'static DynamicPolicy, String> {
@@ -219,13 +227,15 @@ pub fn inspect_dynamic_deck(
     artifact: &BulkArtifact,
     rows: &[DynamicDeckEntry],
 ) -> Result<DeckInspection, String> {
-    Ok(inspect(artifact, rows, policy()?))
+    let review = roster_review::seat(artifact.catalog().catalog(), rows);
+    Ok(inspect(artifact, rows, policy()?, review))
 }
 
 fn inspect(
     artifact: &BulkArtifact,
     rows: &[DynamicDeckEntry],
     policy: &DynamicPolicy,
+    review: Option<Review>,
 ) -> DeckInspection {
     let mut report = DeckInspection {
         total_slots: 0,
@@ -343,6 +353,7 @@ fn inspect(
                 role,
                 quantity,
                 &names,
+                review,
                 &mut issues,
             );
         }
@@ -406,6 +417,7 @@ fn inspect_definition(
     role: DeckRole,
     quantity: u64,
     names: &BTreeMap<&str, BTreeSet<&str>>,
+    review: Option<Review>,
     issues: &mut Vec<CardGapIssue>,
 ) {
     if role == DeckRole::Commander
@@ -429,6 +441,11 @@ fn inspect_definition(
         if land {
             issues.push(CardGapIssue::new(CardGapCode::BasicLandColor));
         }
+    }
+    // The pinned roster review covers these exact compiled definitions.
+    // Pod admission still requires the accompanying four-seat capacity proof.
+    if review == Some(Review::Copy) {
+        return;
     }
     let requirements = d.requirements();
     let unreviewed: Vec<_> = requirements
@@ -570,14 +587,18 @@ impl DynamicPodTemplate {
         decks: &[Vec<DynamicDeckEntry>; 4],
     ) -> Result<Self, DynamicAdmissionError> {
         let policy = policy().map_err(unavailable)?;
-        let inspections = decks.each_ref().map(|rows| inspect(artifact, rows, policy));
+        let catalog = artifact.catalog().catalog();
+        let reviews = decks
+            .each_ref()
+            .map(|rows| roster_review::seat(catalog, rows));
+        let inspections =
+            std::array::from_fn::<_, 4, _>(|i| inspect(artifact, &decks[i], policy, reviews[i]));
         if inspections.iter().any(|r| !r.admissible()) {
             return Err(DynamicAdmissionError::DeckGaps {
                 decks: Vec::from(inspections),
             });
         }
         let decks = decks.each_ref().map(|rows| NormalizedDeck::new(rows));
-        let catalog = artifact.catalog().catalog();
         let mut selected = BTreeMap::<&str, &Definition>::new();
         let mut native_triggers = 0usize;
         for row in decks.iter().flat_map(|deck| &deck.cards) {
@@ -596,7 +617,13 @@ impl DynamicPodTemplate {
             rules_sha256: catalog.rules_sha256.clone(),
             definitions: selected.into_values().cloned().collect(),
         };
-        if !capacity_supported(&projection, native_triggers) {
+        let copy_roster = reviews.contains(&Some(Review::Copy));
+        let fits = if copy_roster {
+            roster_review::capacity_supported(&projection, reviews)
+        } else {
+            capacity_supported(&projection, native_triggers)
+        };
+        if !fits {
             return Err(DynamicAdmissionError::PodCapacity);
         }
         Ok(Self {
