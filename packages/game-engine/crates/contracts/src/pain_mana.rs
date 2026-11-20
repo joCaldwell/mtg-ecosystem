@@ -69,7 +69,10 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
             "required":["self_damage"],"properties":{"self_damage":{"type":"string"}}
         }}]}
     }});
-    let selected = json!({"allOf":[selected,{"not":hybrid_filter_mana::selector()}]});
+    let selected = json!({"allOf":[selected,
+        {"not":hybrid_filter_mana::selector()},
+        {"not":paid_restricted_land::schema_candidate()}
+    ]});
     let tap_only = json!({"properties":{
         "tap":{"const":true},"mana":{"type":"null"},"sacrifice":{"const":false},
         "remove_source_plus_one_counters":{"type":"null"}

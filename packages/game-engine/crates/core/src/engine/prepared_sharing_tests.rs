@@ -42,6 +42,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
         catalog_has_land_type_grant: game.catalog_has_land_type_grant,
         catalog_has_land_reclamation: game.catalog_has_land_reclamation,
         catalog_has_nonland_color_grant: game.catalog_has_nonland_color_grant,
+        catalog_has_target_color_set: game.catalog_has_target_color_set,
     }
 }
 fn complete(game: &Game, mut value: QueryResult) -> QueryValue {

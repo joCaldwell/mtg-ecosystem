@@ -463,7 +463,8 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutPlusOneCounters { object, .. } => {
+        ProposedEvent::ProliferateCounters { object, .. }
+        | ProposedEvent::PutPlusOneCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -1077,7 +1078,8 @@ impl Game {
                 ProposedEvent::ApplyCounterPlacementEffect { effect } => {
                     objects.insert(effect.source);
                 }
-                ProposedEvent::PutPlusOneCounters { object, .. } => {
+                ProposedEvent::ProliferateCounters { object, .. }
+                | ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
                 }
                 ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
@@ -1163,7 +1165,8 @@ impl Game {
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
                         | ResolvedEffectKind::CombatRestriction { target, .. }
-                        | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                        | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                        | ResolvedEffectKind::SetColor { target, .. } => {
                             objects.insert(*target);
                         }
                         ResolvedEffectKind::PreventNextDamage {
@@ -1811,6 +1814,29 @@ impl Game {
             };
             self.authorize_hideaway_event(&cause, proposed)?;
         }
+        if events.iter().any(|event| {
+            matches!(event, ProposedEvent::CreateEffect {effect}
+            if matches!(effect.kind, ResolvedEffectKind::SetColor {..}))
+        }) {
+            let (
+                Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::SetColor { source_block },
+                },
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::CreateEffect { .. },
+                },
+            ) = (&self.state.rules.frame, &group)
+            else {
+                return Err(
+                    "a color effect requires its resolving choice and a single occurrence".into(),
+                );
+            };
+            self.validate_resolving(frame)?;
+            if cause != Self::staple_cause(frame, *source_block) {
+                return Err("color effect creation cause mismatch".into());
+            }
+        }
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
         let authority = if placing
@@ -1818,6 +1844,7 @@ impl Game {
                 matches!(
                     e,
                     ProposedEvent::PutPlusOneCounters { .. }
+                        | ProposedEvent::ProliferateCounters { .. }
                         | ProposedEvent::ApplyCounterPlacementEffect { .. }
                 )
             }) {
@@ -2150,7 +2177,8 @@ impl Game {
                 StaticEffect::EntersTappedUnlessOpponentCount { .. } => {
                     Some(EntryLandCount::Opponents)
                 }
-                StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                | StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
                     Some(EntryLandCount::LandTypes)
                 }
                 _ => None,
@@ -2248,7 +2276,17 @@ impl Game {
                     }
                     continue;
                 }
-                StaticEffect::EntersTappedUnlessControllerLandTypes { subtypes } => {
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                | StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
+                    let subtypes: &[BasicLandType] = match &ability.effect {
+                        StaticEffect::EntersTappedUnlessControllerLandTypes { subtypes } => {
+                            subtypes
+                        }
+                        StaticEffect::EntersTappedUnlessControllerLandType { subtype } => {
+                            std::slice::from_ref(subtype)
+                        }
+                        _ => unreachable!(),
+                    };
                     if self.current(object)?.zone == Zone::Battlefield {
                         return Err("checkland replacement requires an entrant from outside the battlefield".into());
                     }
@@ -2854,6 +2892,16 @@ impl Game {
                     return Err("counter replacement requires transaction authority".into());
                 }
                 self.apply_counter_placement_effect(effect)?
+            }
+            ProposedEvent::ProliferateCounters {
+                object,
+                plus_one,
+                lore,
+            } => {
+                if !matches!(authority, BatchAuthority::PlaceCounters) {
+                    return Err("proliferation requires complete batch authority".into());
+                }
+                self.apply_proliferate(*object, plus_one, *lore)?
             }
             ProposedEvent::PutPlusOneCounters { object, amount } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {
