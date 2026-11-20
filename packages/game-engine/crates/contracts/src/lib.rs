@@ -2594,7 +2594,9 @@ impl Definition {
                 set.insert(Capability::LandPlayV1);
                 if self.characteristics.basic {
                     set.insert(Capability::BasicLandManaV1);
-                } else if !self.characteristics.subtypes.is_empty() {
+                } else if !self.characteristics.subtypes.is_empty()
+                    && !listed_mana_choice::descriptive_land_subtype(self)
+                {
                     set.insert(Capability::TypedNonbasicIntrinsicManaV1);
                 }
             }
@@ -4186,7 +4188,7 @@ impl Definition {
                         || basic_land_color(&c.subtypes[0]).is_none()
                         || !self.mana_abilities.is_empty()
                 } else {
-                    if c.subtypes.is_empty() {
+                    if c.subtypes.is_empty() || listed_mana_choice::descriptive_land_subtype(self) {
                         self.mana_abilities.is_empty()
                             && !typed_land_search::activation_definition(self)
                     } else {
