@@ -282,6 +282,7 @@ fn compound_policy_exact_shape_capability_and_identity_controls() {
                     non_colors: vec![],
                     opponent: false,
                     tapped: false,
+                    power: None,
                 })
             }
             12 => p.functioning_zone = mtg_contracts::FunctioningZone::Battlefield,
