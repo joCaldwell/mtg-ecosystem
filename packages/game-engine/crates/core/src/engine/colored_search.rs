@@ -86,7 +86,21 @@ impl Game {
             .into_iter()
             .map(|(_, candidate)| candidate)
             .collect();
+        // CR 701.23a: a searcher may see all cards in the zone, including those
+        // that cannot fill a slot. Publish no positions or handles for those rows.
+        let mut library = Vec::new();
+        for object in self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Library { owner: player })
+        {
+            library.push(self.definition(object.id.card)?.oracle_id.clone());
+        }
+        library.sort();
         Ok(Request::ColoredSearch {
+            library,
             decision_id,
             player,
             colors: colors.to_vec(),

@@ -1469,10 +1469,14 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
                 decision_id,
                 player,
                 colors,
+                library,
                 candidates,
             } => {
                 assert_eq!(player, chooser);
                 assert_eq!(colors, [Color::R, Color::G]);
+                assert_eq!(library.len(), g.state.rules.libraries[&chooser].len());
+                assert!(library.iter().any(|id| id == FOREST));
+                assert!(!candidates.iter().any(|row| row.oracle_id == FOREST));
                 break (decision_id, candidates);
             }
             Request::Priority {
@@ -1511,6 +1515,41 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
     )
     .unwrap();
     let _ = request(&mut g);
+    let mut concealed = g.fork();
+    let hand = concealed
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| o.id.card != replacement && o.zone == Zone::Hand { owner: chooser })
+        .unwrap()
+        .id;
+    let next = concealed.object_id(replacement).unwrap();
+    for k in &mut concealed.state.knowledge.visibility {
+        k.revealed_hand.insert(hand);
+    }
+    let event = ProposedEvent::HandReturn {
+        player: chooser,
+        count: 1.into(),
+        objects: vec![next],
+        command: vec![],
+    };
+    let hidden = EventOutcome::HandReturned {
+        player: chooser,
+        movements: vec![MoveOutcome {
+            previous: next,
+            successor: next,
+            from: Zone::Hand { owner: chooser },
+            destination: Zone::Library { owner: chooser },
+        }],
+    };
+    concealed.update_library_position_memory(&event, &hidden);
+    assert!(
+        concealed
+            .publicly_searched_hand(PlayerId(1))
+            .unwrap()
+            .is_empty()
+    );
     let after = g.state.rules.match_state.as_ref().unwrap().library_shuffles;
     assert_eq!(after[0], shuffles[0] + 1);
     assert_eq!(after[1..], shuffles[1..]);

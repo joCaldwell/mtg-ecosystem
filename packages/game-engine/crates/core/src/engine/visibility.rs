@@ -298,6 +298,7 @@ pub enum PlayerRequest {
     ColoredSearch {
         token: DecisionToken,
         player: PlayerId,
+        library: Vec<String>,
         colors: Vec<Color>,
         candidates: Vec<ColoredCardCandidate>,
     },
@@ -1651,10 +1652,14 @@ impl Game {
                     candidates: vec![],
                 },
                 Request::ColoredSearch {
-                    colors, candidates, ..
+                    library,
+                    colors,
+                    candidates,
+                    ..
                 } => PlayerRequest::ColoredSearch {
                     token,
                     player: viewer,
+                    library,
                     colors,
                     candidates,
                 },

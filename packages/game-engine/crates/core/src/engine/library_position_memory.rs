@@ -7,31 +7,43 @@ impl Game {
         }
     }
 
-    pub(super) fn update_library_position_memory(&mut self, event: &ProposedEvent) {
+    pub(super) fn update_library_position_memory(
+        &mut self,
+        event: &ProposedEvent,
+        actual: &EventOutcome,
+    ) {
         let objects = &self.state.rules.objects;
         for (seat, knowledge) in self.state.knowledge.visibility.iter_mut().enumerate() {
             // A secret choice from hand into a hidden zone cannot identify
             // which previously revealed card stayed. Forget that hand's rows.
-            if let ProposedEvent::Move {
-                destination: Zone::Library { owner },
-                ..
-            } = event
-            {
-                if let ProposedEvent::HandReturn { player, .. } = event {
-                    knowledge.revealed_hand.retain(|id| {
-                        self.state
-                            .rules
-                            .cards
-                            .get(&id.card)
-                            .is_none_or(|c| c.owner != *player)
-                    });
+            let concealed_hand = match (event, actual) {
+                (
+                    ProposedEvent::HandReturn { player, .. },
+                    EventOutcome::HandReturned { movements, .. },
+                ) if movements.iter().any(|m| {
+                    matches!(
+                        (m.from, m.destination),
+                        (Zone::Hand { .. }, Zone::Library { .. })
+                    )
+                }) =>
+                {
+                    Some(*player)
                 }
+                (ProposedEvent::Move { .. }, EventOutcome::Moved { movement }) => {
+                    match (movement.from, movement.destination) {
+                        (Zone::Hand { owner }, Zone::Library { .. }) => Some(owner),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if let Some(owner) = concealed_hand {
                 knowledge.revealed_hand.retain(|id| {
                     self.state
                         .rules
                         .cards
                         .get(&id.card)
-                        .is_none_or(|c| c.owner != *owner)
+                        .is_none_or(|c| c.owner != owner)
                 });
             }
             knowledge.revealed_hand.retain(|id| {

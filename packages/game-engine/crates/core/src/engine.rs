@@ -1384,6 +1384,7 @@ pub enum Request {
     ColoredSearch {
         decision_id: u64,
         player: PlayerId,
+        library: Vec<String>,
         colors: Vec<Color>,
         candidates: Vec<ColoredCardCandidate>,
     },
