@@ -181,10 +181,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
         ControlledLandEntryV1,
         LifeGainV1,
     ];
-    let all_caps = [caps.as_slice(), &[ControllerDrawV1]].concat();
+    let all_caps = [caps.as_slice(), &[ControllerDrawV1, CommanderIdentityV1]].concat();
     let with_draw = json!({"contains":{"const":ControllerDrawV1}});
+    let as_commander = json!({"contains":{"const":CommanderIdentityV1}});
     let primary = json!({"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},
-        "amount":{"pattern":"^[1-9][0-9]*$"},"source_block":{"const":0}}});
+        "amount":{"pattern":"^[1-9][0-9]*$","maxLength":19},"source_block":{"const":0}}});
     let secondary = json!({"const":Instruction::DrawCards { recipient: None, count: 1.into(), source_block: 0 }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[
@@ -198,6 +199,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
             }}}}}}},
             "then":{"properties":{"capabilities":with_draw}},
             "else":{"properties":{"capabilities":{"not":with_draw}}}
+        },{
+            "if":{"properties":{"characteristics":{"required":["legendary"],
+                "properties":{"legendary":{"const":true}}}}},
+            "then":{"properties":{"capabilities":as_commander}},
+            "else":{"properties":{"capabilities":{"not":as_commander}}}
         }],"properties":{
             "capabilities":{"items":{"enum":all_caps},
                 "allOf":caps.map(|cap|json!({"contains":{"const":cap}}))},
