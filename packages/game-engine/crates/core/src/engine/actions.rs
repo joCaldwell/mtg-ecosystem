@@ -272,6 +272,10 @@ impl Game {
                             .contains(id)
                         }));
                     }
+                    TargetDomain::AnyDamageTarget => legal.push(
+                        self.bound_damage_target(entry, slot)
+                            .is_some_and(|t| self.entity_target_legal(*t, entry)),
+                    ),
                     _ => {
                         legal.push(self.bound_object_target(entry, slot).is_some_and(|id| {
                             self.object_target_legal_for(entry, *id, Some(target))
@@ -792,10 +796,13 @@ impl Game {
                 let caster = top.controller;
                 if player != caster
                     || players.len() != self.program()?.targets.len()
-                    || players
-                        .iter()
-                        .enumerate()
-                        .any(|(slot, p)| !self.player_target_legal(top, slot, *p))
+                    || players.iter().enumerate().any(|(slot, p)| {
+                        !self.program().is_ok_and(|program| {
+                            program.targets.get(slot).is_some_and(|spec| {
+                                self.eligible_players(spec.domain, caster).contains(p)
+                            })
+                        })
+                    })
                 {
                     return Err("invalid player targets".into());
                 }

@@ -1557,7 +1557,8 @@ impl Game {
                         target_slot,
                         source_block,
                     }),
-                ) if frame.spell.targets.get(*target_slot as usize) == Some(object)
+                ) if self.bound_object_target(&frame.spell, *target_slot as usize)
+                    == Some(object)
                     && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                     && self
                         .current(*object)
