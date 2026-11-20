@@ -1003,3 +1003,138 @@ fn paid_bestow_ordinary_attachment_detachment_and_illegal_target_fallback() {
         recover(&g);
     }
 }
+
+#[test]
+fn paid_fixed_saga_chapters_create_select_and_sacrifice_after_resolution() {
+    let mut p = prepared(false, false);
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
+        include_str!("../../../../tests/fixtures/phase1-r3/origin-of-the-hulk.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("{compiled:?}");
+    };
+    let owner = PlayerId(0);
+    let saga = CardId(1);
+    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    p.config.cards[0] = CardSetup {
+        id: CardId(0),
+        owner,
+        controller: owner,
+        zone: Zone::Battlefield,
+        oracle_id: FOREST.into(),
+    };
+    for _ in 0..2 {
+        let id = CardId(p.config.cards.len() as u32);
+        p.config.cards.push(CardSetup {
+            id,
+            owner,
+            controller: owner,
+            zone: Zone::Battlefield,
+            oracle_id: FOREST.into(),
+        });
+    }
+    let opposing_card = CardId(p.config.cards.len() as u32);
+    p.config.cards.push(CardSetup {
+        id: opposing_card,
+        owner: PlayerId(1),
+        controller: PlayerId(1),
+        zone: Zone::Battlefield,
+        oracle_id: ISAMARU.into(),
+    });
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::new(p);
+    let lands: Vec<_> = g
+        .state
+        .rules
+        .objects
+        .values()
+        .filter(|o| o.zone == Zone::Battlefield && o.controller == owner)
+        .map(|o| o.id)
+        .collect();
+    assert_eq!(lands.len(), 3);
+    answer(&mut g, Response::Cast { card: saga });
+    for object in lands {
+        answer(&mut g, Response::ActivateMana { object });
+    }
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    if matches!(settle(&mut g), Request::SpendMana { .. }) {
+        answer(
+            &mut g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::G, 3.into())]),
+            },
+        );
+    }
+    let mut selections = vec![];
+    for _ in 0..400 {
+        let r = settle(&mut g);
+        let saga_object = g.current(g.object_id(saga).unwrap()).unwrap();
+        if saga_object.zone == (Zone::Graveyard { owner }) {
+            let [counter_target, grant_target] = selections.as_slice() else {
+                panic!("expected two chapter target selections");
+            };
+            assert_eq!(counter_target, grant_target);
+            assert_eq!(
+                g.current(*grant_target).unwrap().plus_one_counters,
+                2.into()
+            );
+            assert_eq!(
+                g.derived_characteristics(*grant_target).unwrap().power,
+                Some(6.into())
+            );
+            assert!(g.has_keyword(*grant_target, KeywordAbility::Trample));
+            recover(&g);
+            return;
+        }
+        let lore = saga_object.lore_counters.clone();
+        if let Request::Targets {
+            candidates,
+            decision_id,
+            ..
+        } = r
+        {
+            let opposing = g.object_id(opposing_card).unwrap();
+            assert!(!candidates.contains(&opposing));
+            let prior = g.state_digest().unwrap();
+            assert!(
+                g.respond(
+                    owner,
+                    decision_id,
+                    Response::Targets {
+                        objects: vec![opposing]
+                    }
+                )
+                .is_err()
+            );
+            assert_eq!(g.state_digest().unwrap(), prior);
+            let [target] = candidates.as_slice() else {
+                panic!("expected precisely the created token, got {candidates:?}");
+            };
+            assert_eq!(g.current(*target).unwrap().controller, owner);
+            assert_eq!(lore, Quantity::from(2 + selections.len() as i64));
+            if !selections.is_empty() {
+                assert_eq!(g.current(*target).unwrap().plus_one_counters, 2.into());
+            }
+            recover(&g);
+            selections.push(*target);
+            answer(
+                &mut g,
+                Response::Targets {
+                    objects: vec![*target],
+                },
+            );
+        } else {
+            passive(&mut g);
+        }
+    }
+    panic!("fixed chapter Saga did not complete");
+}

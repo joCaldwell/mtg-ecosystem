@@ -381,6 +381,21 @@ impl Game {
             })
             .flatten()
             .copied()
+            .chain(
+                self.state
+                    .rules
+                    .effects
+                    .iter()
+                    .filter_map(move |effect| match effect.kind {
+                        ResolvedEffectKind::CombatRestriction {
+                            target,
+                            restriction,
+                        } if target == object && self.target_is_creature(object) => {
+                            Some(restriction)
+                        }
+                        _ => None,
+                    }),
+            )
     }
 
     pub(super) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {

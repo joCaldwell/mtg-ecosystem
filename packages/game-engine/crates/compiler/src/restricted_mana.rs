@@ -26,10 +26,10 @@ pub(super) fn lower(
     }
     let mut graph = bindings::Bindings::new(&source.oracle_id, shape);
     if ability.source_block == 1 {
-        basic_landwalk::bind_intrinsic_keyword_block(
+        basic_landwalk::bind_block(
             &mut graph,
-            0,
-            &[KeywordAbility::Haste],
+            "/faces/0/abilities/0",
+            std::iter::once(KeywordAbility::Haste),
             "mana",
         )?;
     }

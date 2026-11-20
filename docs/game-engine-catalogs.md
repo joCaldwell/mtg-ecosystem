@@ -144,7 +144,12 @@ requires executable definitions and reviewed capabilities. The two color
 identities combine for deck legality and commander-color mana. Each physical
 designation keeps its own command-zone cast and combat damage history
 ([CR 702.124, 903.3–903.10](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
-Dynamic identities carry headless admission only.
+Dynamic identities carry headless admission only. The R3 copy-capable pod review
+pins both normalized roster rows and complete compiled definitions for one
+Cascade seat and three Isamaru control seats. Individual deck inspection can
+recognize the reviewed copy deck. Pod admission also checks the exact mix and
+copy-aware trigger bound before allocating a game. Changed definitions, quantities,
+or combinations require their own review.
 
 `mtg-sim bench-pods --bulk-artifact DIR --manifest-sha SHA --pod-decks JSON`
 reads an object with a `decks` array of four seat lists. Each entry contains

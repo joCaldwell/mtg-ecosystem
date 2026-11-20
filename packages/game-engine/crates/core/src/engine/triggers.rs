@@ -77,6 +77,8 @@ pub struct CastOccurrence {
     pub stack_id: StackId,
     pub caster: PlayerId,
     pub cast_from: Zone,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) priority_paid_exile: bool,
     pub spell: ObjectBefore,
 }
 /// One positive actual damage member and its separate ordinary trigger-time
@@ -713,6 +715,8 @@ impl Game {
                 stack_id: entry.id,
                 caster: entry.controller,
                 cast_from: entry.cast_from,
+                priority_paid_exile: entry.cast_from == Zone::Exile
+                    && entry.alternative_cost != Some(cascade::AlternativeCost::WithoutManaCost),
                 spell: self.object_before(entry.source)?,
             }),
         };
@@ -1524,6 +1528,7 @@ impl Game {
                         t.domain,
                         TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
+                            | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     )
@@ -1990,6 +1995,7 @@ impl Game {
                         .is_some_and(|c| c.owner == cast.spell.owner)
                     && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
                         || cast.cast_from == Zone::Exile)
+                    && (!cast.priority_paid_exile || cast.cast_from == Zone::Exile)
                     && cast.x.as_ref().is_none_or(|x| !x.is_negative())
                     && cast_matches(condition, cast, source, controller)
                     && death_controller.is_none()
@@ -2206,7 +2212,8 @@ impl Game {
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
-                    )
+                    ) && !(t.domain == TargetDomain::ControlledBattlefieldCreature
+                        && matches!(witness, TriggerEventWitness::LoreAdded { .. }))
                 }))
             || !entry.stack_targets.is_empty()
             || entry.total_cost

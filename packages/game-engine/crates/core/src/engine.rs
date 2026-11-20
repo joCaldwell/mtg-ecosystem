@@ -50,12 +50,16 @@ mod opponent_nonland_destroy_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
 use hideaway::HideawayLink;
+mod impulse_play;
+#[cfg(test)]
+mod impulse_play_tests;
 mod random_discard;
 mod removal;
 #[cfg(test)]
 mod removal_information_tests;
 #[cfg(test)]
 mod removal_tests;
+mod resolution_mana;
 mod sacrifice;
 #[cfg(test)]
 mod sacrifice_tests;
@@ -81,6 +85,8 @@ mod attachments_tests;
 mod aura_control_tests;
 #[cfg(test)]
 mod blocking_target_tests;
+#[cfg(test)]
+mod combat_window_tests;
 #[cfg(test)]
 mod composed_spell_tests;
 mod counter_placement;
@@ -2705,6 +2711,9 @@ pub struct Game {
     catalog_has_target_color_set: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
+    // Derived accelerator only, never state: catalog row for each physical
+    // card when this executor was built. Every use rechecks the Oracle ID.
+    definition_index: Arc<[u32]>,
     state: State,
     trace: TraceEvidence,
     executor: Arc<()>,
@@ -2750,7 +2759,7 @@ pub enum Advance {
 
 impl Game {
     pub fn new(prepared: Prepared) -> Self {
-        let cards = prepared
+        let cards: BTreeMap<_, _> = prepared
             .config
             .cards
             .iter()
@@ -2799,7 +2808,7 @@ impl Game {
         let state = State {
             rules: RulesState {
                 mana_ability_uses: BTreeSet::new(),
-                tokens: BTreeMap::new(),
+                tokens: Arc::default(),
                 entry_copies: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
@@ -2838,7 +2847,7 @@ impl Game {
                         last_known: None,
                     })
                     .collect(),
-                cards,
+                cards: Arc::new(cards),
                 objects,
                 active: Some(PlayerId(0)),
                 turn_owner: PlayerId(0),
@@ -2881,6 +2890,7 @@ impl Game {
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             catalog_has_target_color_set: prepared.has_target_color_set(),
+            definition_index: Self::definition_index(&prepared.catalog, &state.rules.cards),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2908,6 +2918,7 @@ impl Game {
             catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             catalog_has_target_color_set: self.catalog_has_target_color_set,
             prepared: self.prepared.clone(),
+            definition_index: self.definition_index.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
             executor: Arc::new(()),
@@ -3018,6 +3029,38 @@ impl Game {
         }
         Ok(colors)
     }
+    // Dense by CardId. The row is whatever the catalog lookup itself returns, so
+    // a hit below is that same lookup's answer while the Oracle IDs still agree.
+    // Generated token IDs and untrusted oversized IDs stay on the lookup path.
+    fn definition_index(catalog: &Catalog, cards: &BTreeMap<CardId, Card>) -> Arc<[u32]> {
+        const LIMIT: usize = 1 << 16;
+        let len = cards
+            .keys()
+            .rev()
+            .map(|card| card.0 as usize)
+            .find(|card| *card < LIMIT)
+            .map_or(0, |card| card + 1);
+        let mut index = vec![u32::MAX; len];
+        let mut rows = BTreeMap::<&str, u32>::new();
+        for (card, physical) in cards {
+            let Some(slot) = index.get_mut(card.0 as usize) else {
+                continue;
+            };
+            *slot = *rows.entry(&physical.oracle_id).or_insert_with(|| {
+                catalog
+                    .definition_by_oracle_id(&physical.oracle_id)
+                    .and_then(|found| {
+                        catalog
+                            .definitions
+                            .iter()
+                            .position(|definition| std::ptr::eq(definition, found))
+                    })
+                    .and_then(|row| u32::try_from(row).ok())
+                    .unwrap_or(u32::MAX)
+            });
+        }
+        index.into()
+    }
     /// Immutable physical card or generated token definition, independent of zone copies.
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
         if let Some(token) = self.state.rules.tokens.get(&card) {
@@ -3029,6 +3072,14 @@ impl Game {
             .cards
             .get(&card)
             .ok_or("unknown physical card")?;
+        if let Some(definition) = self
+            .definition_index
+            .get(card.0 as usize)
+            .and_then(|row| self.prepared.catalog.definitions.get(*row as usize))
+            && definition.oracle_id == physical.oracle_id
+        {
+            return Ok(definition);
+        }
         self.prepared
             .catalog
             .definition_by_oracle_id(&physical.oracle_id)
@@ -4177,6 +4228,7 @@ impl Game {
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             catalog_has_target_color_set: prepared.has_target_color_set(),
+            definition_index: Self::definition_index(&prepared.catalog, &s.state.rules.cards),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
@@ -4752,9 +4804,7 @@ mod tests {
     #[test]
     fn forest_intrinsic_is_derived_and_partial_multiblock_legality_keeps_other_block() {
         let mut game = Game::new(prepared());
-        game.state
-            .rules
-            .cards
+        Arc::make_mut(&mut game.state.rules.cards)
             .get_mut(&CardId(0))
             .unwrap()
             .oracle_id = FOREST.into();
@@ -4918,6 +4968,8 @@ mod tests {
 
 #[cfg(test)]
 mod indestructible_tests;
+#[cfg(test)]
+mod scoped_creature_stats_tests;
 #[cfg(test)]
 mod static_permanent_indestructible_tests;
 

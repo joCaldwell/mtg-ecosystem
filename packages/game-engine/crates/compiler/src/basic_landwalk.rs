@@ -1,40 +1,8 @@
-//! Whole-source gate for printed basic subtype landwalk, CR 702.14.
+//! Archive scope binding for intrinsic keyword occurrences, CR 113.3d and 702.14.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::bindings::Bindings;
 use serde_json::{Value, json};
-
-pub(super) fn lower(
-    source: &Source,
-    shape: &Value,
-    kind: CardKind,
-    result: &ParseResult,
-    binding: &Value,
-) -> Result<Option<Vec<KeywordAbility>>, Failure> {
-    let path = "abilities.landwalk";
-    let Some(blocks) =
-        mtg_contracts::basic_landwalk::source_keywords(&source.oracle_text, result.abilities.get())
-            .map_err(|message| unsupported(path, message))?
-    else {
-        return Ok(None);
-    };
-    if kind != CardKind::Creature || source.layout != "normal" {
-        return Err(unsupported(
-            path,
-            "basic landwalk requires a normal creature",
-        ));
-    }
-
-    bind_intrinsic_keywords(
-        &source.oracle_id,
-        shape,
-        binding,
-        &blocks,
-        path,
-        "requires complete basic-landwalk keyword bindings",
-    )?;
-    Ok(Some(blocks.into_iter().flatten().collect()))
-}
 
 pub(super) fn bind_intrinsic_keywords(
     identity: &str,
@@ -46,21 +14,21 @@ pub(super) fn bind_intrinsic_keywords(
 ) -> Result<(), Failure> {
     let mut graph = Bindings::new(identity, shape);
     for (block, keywords) in blocks.iter().enumerate() {
-        bind_intrinsic_keyword_block(&mut graph, block, keywords, path)?;
+        let root = format!("/faces/0/abilities/{block}");
+        bind_block(&mut graph, &root, keywords.iter().copied(), path)?;
     }
     graph.validate_ordered(binding, message)
 }
 
-pub(super) fn bind_intrinsic_keyword_block(
-    graph: &mut Bindings,
-    block: usize,
-    keywords: &[KeywordAbility],
+pub(super) fn bind_block(
+    graph: &mut Bindings<'_>,
+    root: &str,
+    keywords: impl Iterator<Item = KeywordAbility>,
     path: &str,
 ) -> Result<(), Failure> {
-    let root = format!("/faces/0/abilities/{block}");
-    graph.ability(&root, "keywords", "static-source-controller");
-    let scope = graph.id(&root, "ability");
-    for (index, &keyword) in keywords.iter().enumerate() {
+    graph.ability(root, "keywords", "static-source-controller");
+    let scope = graph.id(root, "ability");
+    for (index, keyword) in keywords.enumerate() {
         let keyword_path = format!("{root}/keywords/{index}");
         let (word, rule) = keyword_metadata(keyword)
             .ok_or_else(|| unsupported(path, "no exact archived keyword scope"))?;

@@ -371,14 +371,16 @@ fn hidden_identity_order_and_card_facts_do_not_change_results_or_budget_transcri
             .unwrap();
         game.refresh_visibility().unwrap();
     }
-    let mut physical = other.state.rules.cards.remove(&CardId(2)).unwrap();
+    let mut physical = Arc::make_mut(&mut other.state.rules.cards)
+        .remove(&CardId(2))
+        .unwrap();
     physical.oracle_id = ISLAND.into();
     let mut object = other.state.rules.objects.remove(&CardId(2)).unwrap();
     object.id = ObjectId {
         card: CardId(999),
         incarnation: 42,
     };
-    other.state.rules.cards.insert(CardId(999), physical);
+    Arc::make_mut(&mut other.state.rules.cards).insert(CardId(999), physical);
     other.state.rules.objects.insert(CardId(999), object);
     other.refresh_visibility().unwrap();
     assert_eq!(

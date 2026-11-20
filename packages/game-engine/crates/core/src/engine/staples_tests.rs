@@ -804,10 +804,7 @@ fn search_zero_one_two_private_handles_shuffle_and_pending_restore() {
                     .get_mut(&PlayerId(0))
                     .unwrap()
                     .reverse();
-                alternate
-                    .state
-                    .rules
-                    .cards
+                Arc::make_mut(&mut alternate.state.rules.cards)
                     .get_mut(&candidates[0].card)
                     .unwrap()
                     .oracle_id = SWAMP.into();

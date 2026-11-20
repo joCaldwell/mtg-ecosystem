@@ -243,6 +243,17 @@ fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
                     if costs.tap && !costs.sacrifice && costs.mana.is_some())
         })
 }
+fn ordinary_hand_or_granted_exile(view: &PermittedView, object: &VisibleObject) -> bool {
+    object.zone == (Zone::Hand { owner: view.viewer })
+        || (object.zone == Zone::Exile
+            && view.effects.iter().any(|effect| {
+                matches!(effect,
+                    mtg_core::VisibleEffect::PlayExiled { origin, cards, .. }
+                        if origin.controller == view.viewer && cards.contains(&object.handle)
+                )
+            }))
+}
+
 impl Strategy<'_> {
     pub(super) fn legend_choice(
         &self,
@@ -1737,7 +1748,7 @@ impl Strategy<'_> {
         for o in v
             .objects
             .iter()
-            .filter(|o| o.zone == (Zone::Hand { owner: v.viewer }))
+            .filter(|o| ordinary_hand_or_granted_exile(v, o))
         {
             let d = definition(self.catalog, &o.oracle_id)?;
             let Some(p) = &d.spell else { continue };
@@ -2105,7 +2116,7 @@ impl Strategy<'_> {
             for o in v
                 .objects
                 .iter()
-                .filter(|o| o.zone == (Zone::Hand { owner: v.viewer }))
+                .filter(|o| ordinary_hand_or_granted_exile(v, o))
             {
                 let d = definition(self.catalog, &o.oracle_id)?;
                 if d.keywords.contains(&KeywordAbility::Flash)
@@ -2195,7 +2206,7 @@ impl Strategy<'_> {
         }
         if Quantity::from(i64::from(v.turn.lands_played)) < land_allowance
             && let Some(o) = v.objects.iter().find(|o| {
-                (o.zone == (Zone::Hand { owner: v.viewer })
+                (ordinary_hand_or_granted_exile(v, o)
                     || (graveyard_lands && o.zone == (Zone::Graveyard { owner: v.viewer })))
                     && definition(self.catalog, &o.oracle_id)
                         .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
@@ -2224,7 +2235,7 @@ impl Strategy<'_> {
         for stage in 0..5 {
             for o in &v.objects {
                 let command = o.zone == (Zone::Command { owner: v.viewer });
-                if !command && o.zone != (Zone::Hand { owner: v.viewer }) {
+                if !command && !ordinary_hand_or_granted_exile(v, o) {
                     continue;
                 }
                 let d = definition(self.catalog, &o.oracle_id)?;

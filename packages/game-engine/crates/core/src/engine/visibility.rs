@@ -866,12 +866,29 @@ pub struct SearchContext {
 // lexical-first lookup even for duplicate IDs in an untrusted snapshot; replay
 // still proves whether that snapshot is reachable. Every mutation invalidates
 // the derived index, and clones may share it while their maps remain unchanged.
+// Staged forks and per-viewer publication copies share the forward map until
+// one of them mints or retires a handle; the wire form is the map itself.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 struct ObjectHandles {
-    entries: BTreeMap<String, ObjectId>,
+    #[serde(with = "shared_entries")]
+    entries: Arc<BTreeMap<String, ObjectId>>,
     #[serde(skip)]
     reverse: Arc<std::sync::OnceLock<BTreeMap<ObjectId, ObjectHandle>>>,
+}
+mod shared_entries {
+    use super::*;
+    pub(super) fn serialize<S: serde::Serializer>(
+        value: &Arc<BTreeMap<String, ObjectId>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.as_ref().serialize(serializer)
+    }
+    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Arc<BTreeMap<String, ObjectId>>, D::Error> {
+        BTreeMap::deserialize(deserializer).map(Arc::new)
+    }
 }
 impl PartialEq for ObjectHandles {
     fn eq(&self, other: &Self) -> bool {
@@ -884,7 +901,7 @@ impl ObjectHandles {
         self.reverse
             .get_or_init(|| {
                 let mut reverse = BTreeMap::new();
-                for (handle, object) in &self.entries {
+                for (handle, object) in self.entries.iter() {
                     reverse
                         .entry(*object)
                         .or_insert_with(|| ObjectHandle(handle.clone()));
@@ -897,16 +914,20 @@ impl ObjectHandles {
         self.entries.get(handle)
     }
     fn insert(&mut self, handle: String, object: ObjectId) {
-        if self.entries.insert(handle, object) != Some(object) {
-            self.reverse = Arc::default();
+        // An unchanged row leaves the shared map and its index alone.
+        if self.entries.get(&handle) == Some(&object) {
+            return;
         }
+        Arc::make_mut(&mut self.entries).insert(handle, object);
+        self.reverse = Arc::default();
     }
     fn retain_objects(&mut self, current: &BTreeSet<ObjectId>) {
-        let previous_len = self.entries.len();
-        self.entries.retain(|_, object| current.contains(object));
-        if self.entries.len() != previous_len {
-            self.reverse = Arc::default();
+        // Unshare only when a row actually leaves.
+        if self.entries.values().all(|object| current.contains(object)) {
+            return;
         }
+        Arc::make_mut(&mut self.entries).retain(|_, object| current.contains(object));
+        self.reverse = Arc::default();
     }
     fn objects(&self) -> BTreeSet<ObjectId> {
         self.entries.values().copied().collect()
@@ -961,18 +982,50 @@ impl Knowledge {
         )
     }
 }
-// Scratch for one publication. Rules are stable while the four observers'
-// handles and histories are updated. Lists preserve object-table order.
+// Scratch for one publication or one query's Work. Rules are stable while the
+// four observers' handles and histories are updated, and for as long as a
+// Work's state token is current. Lists preserve object-table order.
 #[derive(Default)]
-struct ProjectionIndex {
+pub(super) struct ProjectionIndex {
     hand_counts: [usize; 4],
     library_counts: [usize; 4],
     attachments: BTreeMap<ObjectId, Vec<ObjectId>>,
     static_sources: Vec<CardId>,
 }
+// Publication only: the four viewers share each table row's handle-free
+// projection. A row is kept once derived without error; an error ends the
+// publication. Keyed by the row's address in the borrowed object table.
+type ObjectCores = std::cell::RefCell<BTreeMap<usize, ObjectCore>>;
+#[derive(Clone)]
+struct ObjectCore {
+    keywords: Vec<KeywordAbility>,
+    restrictions: Vec<CreatureRestriction>,
+    token: Option<VisibleToken>,
+    mana_ability_used: Option<bool>,
+    characteristics: Characteristics,
+}
 
 impl Game {
-    fn projection_index(&self) -> ProjectionIndex {
+    // Keep unresolved sources so the rules layer still decides when to skip
+    // or propagate a lookup error.
+    fn indexed_static_source(&self, object: &Object) -> bool {
+        object.present_on_battlefield()
+            && !self
+                .copiable_definition(object.id)
+                .is_ok_and(|definition| definition.static_abilities.is_empty())
+    }
+    /// Object-table-ordered sources for `*_with_sources`, valid only while
+    /// the rules state it was read from is unchanged.
+    pub(super) fn static_source_index(&self) -> Vec<CardId> {
+        self.state
+            .rules
+            .objects
+            .iter()
+            .filter(|(_, object)| self.indexed_static_source(object))
+            .map(|(card, _)| *card)
+            .collect()
+    }
+    pub(super) fn projection_index(&self) -> ProjectionIndex {
         let mut index = ProjectionIndex::default();
         for (&card, object) in &self.state.rules.objects {
             match object.zone {
@@ -991,13 +1044,7 @@ impl Game {
                     if let Some(host) = object.attached_to {
                         index.attachments.entry(host).or_default().push(object.id);
                     }
-                    if object.present_on_battlefield()
-                        && !self
-                            .copiable_definition(object.id)
-                            .is_ok_and(|definition| definition.static_abilities.is_empty())
-                    {
-                        // Keep unresolved sources so the rules layer still
-                        // decides when to skip or propagate a lookup error.
+                    if self.indexed_static_source(object) {
                         index.static_sources.push(card);
                     }
                 }
@@ -1257,8 +1304,18 @@ impl Game {
             .filter(|id| self.state.rules.stack.iter().any(|entry| entry.id == *id))
             .ok_or_else(|| "stale or foreign stack handle".into())
     }
+    // Unindexed reference projection, kept for the frozen query oracle.
+    #[cfg(test)]
     pub(super) fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String> {
         self.project_player(player, None)
+    }
+    /// `visible_player` for seats 0..4, with an index of this unchanged state.
+    pub(super) fn visible_player_indexed(
+        &self,
+        player: PlayerId,
+        index: &ProjectionIndex,
+    ) -> Result<VisiblePlayer, String> {
+        self.project_player(player, Some(index))
     }
 
     fn project_player(
@@ -1337,6 +1394,8 @@ impl Game {
             &original.oracle_id
         })
     }
+    // Unindexed reference projection, kept for the frozen query oracle.
+    #[cfg(test)]
     pub(super) fn visible_object(
         &self,
         viewer: PlayerId,
@@ -1345,7 +1404,21 @@ impl Game {
         if !self.visible_to(viewer, object) {
             return Ok(None);
         }
-        self.project_visible_object(viewer, object, None).map(Some)
+        self.project_visible_object(viewer, object, None, None)
+            .map(Some)
+    }
+    /// `visible_object`, with an index of this unchanged state.
+    pub(super) fn visible_object_indexed(
+        &self,
+        viewer: PlayerId,
+        object: &Object,
+        index: &ProjectionIndex,
+    ) -> Result<Option<VisibleObject>, String> {
+        if !self.visible_to(viewer, object) {
+            return Ok(None);
+        }
+        self.project_visible_object(viewer, object, Some(index), None)
+            .map(Some)
     }
 
     fn project_visible_object(
@@ -1353,6 +1426,7 @@ impl Game {
         viewer: PlayerId,
         object: &Object,
         index: Option<&ProjectionIndex>,
+        cores: Option<&ObjectCores>,
     ) -> Result<VisibleObject, String> {
         let physical = self
             .state
@@ -1400,35 +1474,95 @@ impl Game {
         } else {
             None
         };
-        let static_sources = index.map(|index| index.static_sources.as_slice());
+        let attached_to = object
+            .attached_to
+            .filter(|t| self.current(*t).is_ok())
+            .map(|t| self.handle_for(viewer, t))
+            .transpose()?;
+        let attachments = match index {
+            Some(index) => index
+                .attachments
+                .get(&object.id)
+                .into_iter()
+                .flatten()
+                .map(|id| self.handle_for(viewer, *id))
+                .collect::<Result<_, _>>()?,
+            None => self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
+                .map(|o| self.handle_for(viewer, o.id))
+                .collect::<Result<_, _>>()?,
+        };
+        // Same position as the unshared projection: after this viewer's
+        // attachment handles and before its own handle.
+        let ObjectCore {
+            keywords,
+            restrictions,
+            token,
+            mana_ability_used,
+            characteristics,
+        } = match cores {
+            Some(cores) => match cores
+                .borrow_mut()
+                .entry(std::ptr::from_ref(object) as usize)
+            {
+                std::collections::btree_map::Entry::Occupied(core) => core.get().clone(),
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(self.object_core(object, index)?).clone()
+                }
+            },
+            None => self.object_core(object, index)?,
+        };
         Ok(VisibleObject {
             copied_values,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
             entered_this_turn: object.battlefield_entry_turn == Some(self.state.rules.turn.number),
-            attached_to: object
-                .attached_to
-                .filter(|t| self.current(*t).is_ok())
-                .map(|t| self.handle_for(viewer, t))
-                .transpose()?,
-            attachments: match index {
-                Some(index) => index
-                    .attachments
-                    .get(&object.id)
-                    .into_iter()
-                    .flatten()
-                    .map(|id| self.handle_for(viewer, *id))
-                    .collect::<Result<_, _>>()?,
-                None => self
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
-                    .map(|o| self.handle_for(viewer, o.id))
-                    .collect::<Result<_, _>>()?,
+            attached_to,
+            attachments,
+            keywords,
+            restrictions,
+            token,
+            mana_ability_used,
+            plus_one_counters: object.plus_one_counters.clone(),
+            lore_counters: object.lore_counters.clone(),
+            characteristics: Some(characteristics),
+            marked_damage: object.marked_damage.clone(),
+            attack_ready: object.attack_ready,
+            handle: self.handle_for(viewer, object.id)?,
+            // A copy can show the original printed Oracle ID. An instruction-defined
+            // token has only its public handle and visible token template.
+            oracle_id: if self
+                .state
+                .rules
+                .tokens
+                .get(&object.id.card)
+                .is_some_and(|t| !t.is_copy())
+            {
+                String::new()
+            } else {
+                physical.oracle_id.clone()
             },
+            owner: physical.owner,
+            controller: object.controller,
+            zone: object.zone,
+            tapped: object.tapped,
+        })
+    }
+    // Rows of a visible, face-up object that no viewer's handles enter, in the
+    // projection's evaluation order. Rules-only: publication changes player
+    // knowledge between viewers, never an input of these derivations.
+    fn object_core(
+        &self,
+        object: &Object,
+        index: Option<&ProjectionIndex>,
+    ) -> Result<ObjectCore, String> {
+        let static_sources = index.map(|index| index.static_sources.as_slice());
+        Ok(ObjectCore {
             keywords: if object.zone == Zone::Battlefield {
                 let keywords = self.current_keywords_with_sources(object.id, static_sources);
                 if self.target_is_creature(object.id)
@@ -1470,29 +1604,7 @@ impl Game {
                 .mana_abilities
                 .first()
                 .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
-            plus_one_counters: object.plus_one_counters.clone(),
-            lore_counters: object.lore_counters.clone(),
-            characteristics: Some(self.characteristics_with_sources(object.id, static_sources)?),
-            marked_damage: object.marked_damage.clone(),
-            attack_ready: object.attack_ready,
-            handle: self.handle_for(viewer, object.id)?,
-            // A copy can show the original printed Oracle ID. An instruction-defined
-            // token has only its public handle and visible token template.
-            oracle_id: if self
-                .state
-                .rules
-                .tokens
-                .get(&object.id.card)
-                .is_some_and(|t| !t.is_copy())
-            {
-                String::new()
-            } else {
-                physical.oracle_id.clone()
-            },
-            owner: physical.owner,
-            controller: object.controller,
-            zone: object.zone,
-            tapped: object.tapped,
+            characteristics: self.characteristics_with_sources(object.id, static_sources)?,
         })
     }
     pub(super) fn visible_stack(
@@ -2514,17 +2626,18 @@ impl Game {
     fn permitted_view(
         &self,
         viewer: PlayerId,
-        index: &ProjectionIndex,
+        (index, cores): (&ProjectionIndex, &ObjectCores),
+        effects: &[EffectKey],
         visible: &[&Object],
     ) -> Result<PermittedView, String> {
         let mut view = self.blank_view(viewer)?;
-        view.effects = self.visible_effects(viewer)?;
+        view.effects = self.visible_effects_from(viewer, effects)?;
         for player in 0..4 {
             view.players
                 .push(self.project_player(PlayerId(player), Some(index))?);
         }
         for object in visible {
-            let object = self.project_visible_object(viewer, object, Some(index))?;
+            let object = self.project_visible_object(viewer, object, Some(index), Some(cores))?;
             if object.zone == Zone::Exile {
                 view.players[object.owner.0 as usize]
                     .exile
@@ -2542,8 +2655,9 @@ impl Game {
         if self.setup_automatic() {
             return Ok(());
         }
-        self.refresh_effect_handles()?;
+        let effects = self.refresh_effect_handles()?;
         let projection = self.projection_index();
+        let cores = ObjectCores::default();
         let abilities: Vec<_> = self
             .state
             .rules
@@ -2778,7 +2892,7 @@ impl Game {
                 k.decision_key = key;
             }
             self.state.knowledge.visibility[v as usize] = k;
-            let view = self.permitted_view(viewer, &projection, &current)?;
+            let view = self.permitted_view(viewer, (&projection, &cores), &effects, &current)?;
             let history = &mut self.state.knowledge.visibility[v as usize].history;
             if !history
                 .last()

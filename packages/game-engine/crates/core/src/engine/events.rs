@@ -300,6 +300,7 @@ enum BatchAuthority<'a> {
         &'a [regeneration::ShieldMember],
     ),
     CreateRegenerationShield,
+    CreateExilePlayGrant,
     CounterReplacement,
     PlaceCounters,
 }
@@ -1163,6 +1164,7 @@ impl Game {
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
+                        | ResolvedEffectKind::CombatRestriction { target, .. }
                         | ResolvedEffectKind::ModifyPowerToughness { target, .. }
                         | ResolvedEffectKind::SetColor { target, .. } => {
                             objects.insert(*target);
@@ -1875,6 +1877,12 @@ impl Game {
                 return Err("regeneration shield creation cause mismatch".into());
             }
             BatchAuthority::CreateRegenerationShield
+        } else if events
+            .iter()
+            .any(|event| impulse_play::creates_permission(event))
+        {
+            self.authorize_impulse_batch(&cause, &group)?;
+            BatchAuthority::CreateExilePlayGrant
         } else if let Some(proof) = &replacement {
             regeneration_members = match &self.state.rules.frame {
                 Frame::GraveyardGroup { tx } if tx.is_publication(&cause, &group) => {
@@ -2595,6 +2603,11 @@ impl Game {
             && !matches!(authority, BatchAuthority::CreateRegenerationShield)
         {
             return Err("regeneration shield requires authenticated creation".into());
+        }
+        if impulse_play::creates_permission(proposed)
+            && !matches!(authority, BatchAuthority::CreateExilePlayGrant)
+        {
+            return Err("exile play permission requires an authenticated library batch".into());
         }
         let entry = authority.entry();
         let actual = match proposed {

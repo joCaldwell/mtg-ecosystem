@@ -49,9 +49,13 @@ pub use hybrid_filter_mana::{hybrid_filter_abilities, hybrid_filter_colors, hybr
 pub use pain_mana::disjoint_pain_mana_family;
 pub mod basic_landwalk;
 mod cast_entry;
+pub mod cast_subtype;
+pub mod combat_window;
+#[cfg(test)]
+mod composition_fixtures;
 mod entry_copy;
 mod saga;
-pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
+pub use saga::{ChapterEffect, FixedChapter, LifeChapter, chapter_lines, life_chapters};
 pub mod fixed_color_protection;
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
@@ -137,6 +141,12 @@ mod counter_spell_controller_mill;
 pub mod creature_planeswalker_return;
 mod draw_discard;
 pub mod equipped_trigger;
+pub mod impulse_play;
+pub mod intrinsic_keyword_blocks;
+pub mod permanent_entry;
+pub use impulse_play::PlayWindow;
+pub mod resolution_mana;
+pub use resolution_mana::ManaResolutionQuantity;
 pub mod predefined_tokens;
 pub use predefined_tokens::PredefinedToken;
 mod fixed_mill;
@@ -389,6 +399,7 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 pub enum Capability {
     ComposedOrdinarySpellV1,
     EquippedCreatureTriggerV1,
+    ResolutionManaV1,
     PredefinedArtifactTokensV1,
     FilteredStaticModifiersV1,
     PlayerGraveyardShuffleV1,
@@ -422,6 +433,9 @@ pub enum Capability {
     CastTriggerV1,
     CastOriginTriggerV1,
     CastColorPredicateV1,
+    CastSubtypePredicateV1,
+    TemporaryCombatRestrictionV1,
+    LibraryPlayWindowV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
     ListedManaChoiceV1,
@@ -1190,6 +1204,17 @@ pub enum Instruction {
         minimum_lands_to_untap: Option<std::num::NonZeroU32>,
         source_block: u32,
     },
+    ExileLibraryForPlay {
+        #[schemars(range(min = 2))]
+        count: u32,
+        window: PlayWindow,
+        source_block: u32,
+    },
+    AddResolutionMana {
+        color: Color,
+        quantity: ManaResolutionQuantity,
+        source_block: u32,
+    },
     CreatePredefinedTokens {
         #[schemars(range(min = 1))]
         count: u32,
@@ -1246,6 +1271,11 @@ pub enum Instruction {
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         duration: Duration,
+        source_block: u32,
+    },
+    GrantCreatureRestriction {
+        target_slot: u32,
+        restriction: CreatureRestriction,
         source_block: u32,
     },
     ModifyPowerToughness {
@@ -1465,7 +1495,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::LookTopMayRevealForMana { source_block, .. }
+            Self::ExileLibraryForPlay { source_block, .. }
+            | Self::LookTopMayRevealForMana { source_block, .. }
             | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
             | Self::Hideaway { source_block, .. }
             | Self::PlayHideawayLinked { source_block, .. }
@@ -1524,7 +1555,8 @@ impl Instruction {
             Self::SearchBasicLands { source_block, .. }
             | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. }
-            | Self::CreatePredefinedTokens { source_block, .. } => *source_block,
+            | Self::CreatePredefinedTokens { source_block, .. }
+            | Self::AddResolutionMana { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::SetTargetColor { source_block, .. }
             | Self::Proliferate { source_block }
@@ -1532,7 +1564,8 @@ impl Instruction {
             Self::GrantKeywords { source_block, .. }
             | Self::GrantSourceKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
-            Self::ModifyPowerToughness { source_block, .. } => *source_block,
+            Self::GrantCreatureRestriction { source_block, .. }
+            | Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
             Self::ExileTargetGraveyard { source_block, .. }
@@ -2300,6 +2333,10 @@ pub enum TypePredicate {
     NotType {
         kind: CardKind,
     },
+    Subtype {
+        #[schemars(regex(pattern = "^[A-Z][A-Za-z -]{0,63}$"))]
+        subtype: String,
+    },
     All {
         #[schemars(length(min = 1, max = 32))]
         terms: Vec<TypePredicate>,
@@ -2323,25 +2360,33 @@ impl TypePredicate {
             Self::SpellColor { color } => c.colors.contains(color),
             Self::Type { kind } => c.has_type(*kind),
             Self::NotType { kind } => !c.has_type(*kind),
+            Self::Subtype { subtype } => c.subtypes.contains(subtype),
             Self::All { terms } => terms.iter().all(|t| t.matches(c)),
             Self::AnyOf { terms } => terms.iter().any(|t| t.matches(c)),
         }
     }
     pub fn validate(&self) -> Result<(), String> {
-        fn visit(p: &TypePredicate, depth: usize, remaining: &mut usize) -> bool {
+        self.validate_type_shape(false)
+    }
+
+    fn validate_type_shape(&self, cast: bool) -> Result<(), String> {
+        fn visit(p: &TypePredicate, depth: usize, remaining: &mut usize, cast: bool) -> bool {
             if depth > 8 || *remaining == 0 {
                 return false;
             }
             *remaining -= 1;
             match p {
                 TypePredicate::SpellColor { .. } => false,
+                TypePredicate::Subtype { subtype } => {
+                    cast && cast_subtype::subtype_spelling(subtype)
+                }
                 TypePredicate::All { terms } | TypePredicate::AnyOf { terms } => {
-                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining))
+                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining, cast))
                 }
                 _ => true,
             }
         }
-        if visit(self, 0, &mut 32) {
+        if visit(self, 0, &mut 32, cast) {
             Ok(())
         } else {
             Err("type predicate structural bound".into())
@@ -3049,6 +3094,12 @@ impl Definition {
                     set.insert(Capability::CastColorPredicateV1);
                     Capability::CastTriggerV1
                 }
+                TriggerCondition::SpellCast { ref spell, .. }
+                    if cast_subtype::restricted(spell) =>
+                {
+                    set.insert(Capability::CastSubtypePredicateV1);
+                    Capability::CastTriggerV1
+                }
                 TriggerCondition::SelfSpellCast | TriggerCondition::SpellCast { .. } => {
                     Capability::CastTriggerV1
                 }
@@ -3261,6 +3312,11 @@ impl Definition {
         scoped_static::validate(self)?;
         equipped_trigger::validate(self)?;
         ability_sequence::validate(self)?;
+        permanent_entry::validate(self)?;
+        cast_subtype::validate(self)?;
+        combat_window::validate(self)?;
+        resolution_mana::validate(self)?;
+        impulse_play::validate(self)?;
         predefined_tokens::validate(self)?;
         attachment_modifiers::validate(self)?;
         let sets_target_color = target_color::validate(self)?;
@@ -3348,7 +3404,11 @@ impl Definition {
             .activated
             .iter()
             .any(|a| has_keyword_grant(&a.program) && !sacrifice_set::definition(self))
-            || self.triggered.iter().any(|a| has_keyword_grant(&a.program))
+            || self.triggered.iter().any(|a| {
+                has_keyword_grant(&a.program)
+                    && !(matches!(a.condition, TriggerCondition::SagaChapter { .. })
+                        && saga_targeted_keyword_program(&a.program))
+            })
             || self.spell.as_ref().is_some_and(|p| {
                 has_keyword_grant(p)
                     && (!matches!(
@@ -3527,6 +3587,7 @@ impl Definition {
             new_ops(&a.program) && !matches!(a.cost, ActivationCost::SacrificePermanent { .. })
         }) || self.triggered.iter().any(|a| {
             new_ops(&a.program)
+                && !matches!(a.condition, TriggerCondition::SagaChapter { .. })
                 && a.condition != TriggerCondition::SelfEntersBattlefield
                 && a.condition != TriggerCondition::SelfDies
                 && !matches!(
@@ -3715,8 +3776,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
-        basic_landwalk::validate_definition(self)?;
-        fixed_color_protection::validate_definition(self)?;
+        intrinsic_keyword_blocks::validate(self)?;
         source_combat_restrictions::validate_definition(self)?;
         source_attack_pump::validate(self)?;
         creature_planeswalker_return::validate(self)?;
@@ -3823,12 +3883,21 @@ impl Definition {
             && !cycling::definition(self)
             && !paid_counted_draw::definition_matches(self)
             && !land_sacrifice_draw
+            && !(c.kind == CardKind::Land
+                && self
+                    .activated
+                    .iter()
+                    .all(|a| combat_window::activation_program(&a.program)))
             && !(c.kind == CardKind::Enchantment
                 && self.activated.iter().all(ability_sequence::activation))
         {
             return Err("activated programs require supported creature characteristics".into());
         }
         for ability in &self.activated {
+            if combat_window::activation_program(&ability.program) {
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if let ActivationCost::SacrificePermanent {
                 count,
                 filter,
@@ -4190,7 +4259,7 @@ impl Definition {
                         return Err("invalid spell color".into());
                     }
                     TypePredicate::SpellColor { .. } => (),
-                    _ => spell.validate()?,
+                    _ => spell.validate_type_shape(true)?,
                 }
             }
             if let Some(f) = &ability.death_filter
@@ -4215,13 +4284,16 @@ impl Definition {
                     "cast-entry condition requires the entering creature's own trigger".into(),
                 );
             }
-            if matches!(ability.condition, TriggerCondition::SagaChapter { .. })
-                || matches!(
-                    p.instructions.as_slice(),
-                    [Instruction::OfferHandCastWithoutManaCost { .. }]
-                )
-            {
-                // The whole definition gate binds this one operation to the source's own combat event.
+            if matches!(ability.condition, TriggerCondition::SagaChapter { .. }) {
+                // Whole-definition validation has matched each chapter to its
+                // original printed clause and source block.
+                validate_instruction_program_with_chapter(p, true)?;
+                continue;
+            }
+            if matches!(
+                p.instructions.as_slice(),
+                [Instruction::OfferHandCastWithoutManaCost { .. }]
+            ) {
                 validate_instruction_program(p)?;
                 continue;
             }
@@ -4265,7 +4337,7 @@ impl Definition {
             {
                 return Err("cascade requires its stack-functioning self-cast trigger".into());
             }
-            if aura {
+            if aura && !permanent_entry::source_matches(self, ability) {
                 if ability.condition != TriggerCondition::SelfAuraToGraveyard
                     || ability.intervening_if.is_some()
                     || ability.functioning_zone != FunctioningZone::Battlefield
@@ -4283,6 +4355,13 @@ impl Definition {
                 }
                 validate_instruction_program(p)?;
                 continue;
+            }
+            if p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::EachPlayerSacrifice { .. }))
+                && !permanent_entry::source_matches(self, ability)
+            {
+                return Err("triggered sacrifice requires its exact entering source and one creature per player".into());
             }
             if p.instructions
                 .iter()
@@ -4363,6 +4442,7 @@ impl Definition {
                             | Instruction::LoseLifeDeathController { .. }
                             | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
+                            | Instruction::EachPlayerSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnOwnGraveyardCardToHand { .. }
                             | Instruction::ExileTargetGraveyard { .. }
@@ -4903,6 +4983,12 @@ pub struct TemporaryTargetedKeywordProgram<'a> {
 pub fn temporary_creature_keyword_program(
     p: &SpellProgram,
 ) -> Option<TemporaryTargetedKeywordProgram<'_>> {
+    temporary_creature_keyword_shape(p, false)
+}
+fn temporary_creature_keyword_shape(
+    p: &SpellProgram,
+    chapter: bool,
+) -> Option<TemporaryTargetedKeywordProgram<'_>> {
     if p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
@@ -4928,7 +5014,7 @@ pub fn temporary_creature_keyword_program(
     else {
         return None;
     };
-    if modifier.is_some() && *source_block != 0 {
+    if modifier.is_some() && *source_block != 0 && !chapter {
         return None;
     }
     let modifier = modifier.as_ref().map(|m| (&m.power, &m.toughness));
@@ -4938,6 +5024,15 @@ pub fn temporary_creature_keyword_program(
         controller_life: None,
         controller_scry: None,
     })
+}
+/// Checked only after a Saga's whole-source validation. The source block
+/// belongs to the original chapter line (CR 714.2b).
+pub fn saga_targeted_keyword_program(p: &SpellProgram) -> bool {
+    matches!(p.targets.as_slice(), [target]
+        if target.domain == TargetDomain::ControlledBattlefieldCreature)
+        && temporary_creature_keyword_shape(p, true).is_some_and(|grant| {
+            grant.keywords == [KeywordAbility::Trample] && grant.modifier.is_some()
+        })
 }
 /// Complete scalar union; narrow wrappers preserve their own target policy.
 pub fn temporary_targeted_keyword_program(
@@ -5123,6 +5218,12 @@ fn temporary_creature_keyword_capability(p: &SpellProgram) -> Capability {
     }
 }
 fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
+    validate_instruction_program_with_chapter(p, false)
+}
+fn validate_instruction_program_with_chapter(
+    p: &SpellProgram,
+    chapter: bool,
+) -> Result<(), String> {
     let scalar_sequence = ordinary_sequence::program(p) || ability_sequence::program(p);
     if p.functioning_zone == FunctioningZone::Any {
         return Err("all-zone functioning is reserved for the self graveyard replacement".into());
@@ -5207,7 +5308,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     {
         return Err("unsupported complete controller scry program".into());
     }
-    if has_keyword_grant(p) && !ordinary_keyword_grant(p) {
+    if has_keyword_grant(p)
+        && !ordinary_keyword_grant(p)
+        && !(chapter && saga_targeted_keyword_program(p))
+    {
         return Err("unsupported temporary keyword grant program".into());
     }
     if has_permanent_owner_hand(p)
@@ -5609,6 +5713,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 None
             }
             Instruction::FetchBasicLand { .. } => None,
+            Instruction::AddResolutionMana { .. } | Instruction::ExileLibraryForPlay { .. } => None,
             Instruction::CreatePredefinedTokens { count, .. } => {
                 if *count == 0 {
                     return Err("token count must be positive".into());
@@ -5658,7 +5763,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     CounterRecipient::Source => None,
                     CounterRecipient::Target { target_slot } => Some((
                         *target_slot,
-                        if composed_spell::program(p) {
+                        if chapter {
+                            TargetDomain::ControlledBattlefieldCreature
+                        } else if composed_spell::program(p) {
                             p.targets[0].domain
                         } else {
                             TargetDomain::BattlefieldCreature
@@ -5670,6 +5777,19 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             Instruction::GrantKeywords { target_slot, .. } => {
                 // The complete family guard above restricts this to its two domains.
                 Some((*target_slot, p.targets[0].domain))
+            }
+            Instruction::GrantCreatureRestriction {
+                target_slot,
+                restriction,
+                ..
+            } => {
+                if !matches!(
+                    restriction,
+                    CreatureRestriction::CantBeBlocked | CreatureRestriction::CantBlock
+                ) {
+                    return Err("unsupported temporary combat restriction".into());
+                }
+                Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
             Instruction::ModifyPowerToughness { target_slot, .. } => {
                 let domain = p
@@ -6379,6 +6499,8 @@ fn add_program_requirements_for_source_pump(
             } => Capability::TargetPlayerDrawV1,
             Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
             Instruction::CreatePredefinedTokens { .. } => Capability::PredefinedArtifactTokensV1,
+            Instruction::AddResolutionMana { .. } => Capability::ResolutionManaV1,
+            Instruction::ExileLibraryForPlay { .. } => Capability::LibraryPlayWindowV1,
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
                 Capability::CastSpellColorCountersV1
             }
@@ -6396,6 +6518,9 @@ fn add_program_requirements_for_source_pump(
                 } else {
                     temporary_creature_keyword_capability(program)
                 }
+            }
+            Instruction::GrantCreatureRestriction { .. } => {
+                Capability::TemporaryCombatRestrictionV1
             }
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
@@ -7394,7 +7519,7 @@ pub fn catalog_schema() -> serde_json::Value {
     });
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"grant_keywords"}}}}}},
-        "then":{"anyOf":[{"$ref":composed_spell::SCHEMA},{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"properties":{
+        "then":{"anyOf":[{"$ref":composed_spell::SCHEMA},{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"},{"$ref":"#/$defs/SagaTargetedGrantProgram"},{"properties":{
             "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"enum":["battlefield_creature","controlled_battlefield_creature"]},"filter":{"type":"null"}}}},
@@ -7456,7 +7581,23 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":family_grant,
         "then":{"properties":{"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]}}},
             "capabilities":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}},
-        "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}}}
+        "else":{
+            "if":{"required":["triggered"],"properties":{"triggered":{"contains":{"$ref":"#/$defs/SagaTargetedGrantChapter"}}}},
+            "then":{"properties":{"capabilities":{"allOf":[
+                {"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}},
+                {"contains":{"const":Capability::TemporaryPowerToughnessV1}},
+                {"contains":{"const":Capability::TrampleV1}},
+                {"contains":{"const":Capability::AttachmentsV1}}
+            ]}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TemporaryCreatureKeywordProgramV1}}}}}
+        }
+    }));
+    // Grant programs with a chapter's nonzero source block cannot enter as spells.
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
+        "properties":{"spell":{"not":{"allOf":[{"$ref":"#/$defs/SagaTargetedGrantProgram"},
+            {"type":"object","required":["instructions"],"properties":{"instructions":{
+                "items":{"required":["source_block"],"properties":{"source_block":{"minimum":1}}}
+            }}}]}}}
     }));
     let any_grant = serde_json::json!({"required":["spell"],"properties":{"spell":{
         "type":"object","required":["instructions"],"properties":{"instructions":{
@@ -7522,7 +7663,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordAbility"}]}},
-        "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
+        "triggered":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SagaTargetedGrantChapter"}]}},
         "spell":{"anyOf":[{"$ref":"#/$defs/CommanderModalKeywordProgram"},{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}]}
     }}));
     // Optional fields deserialize null as None. Only a non-null cost/restriction
@@ -7940,6 +8081,10 @@ pub fn catalog_schema() -> serde_json::Value {
     equipped_trigger::extend_schema(&mut schema);
     ability_sequence::extend_schema(&mut schema);
     predefined_tokens::extend_schema(&mut schema);
+    resolution_mana::extend_schema(&mut schema);
+    cast_subtype::extend_schema(&mut schema);
+    combat_window::extend_schema(&mut schema);
+    impulse_play::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -8155,6 +8300,7 @@ mod tests {
             TargetedPhasingV1,
             ComposedOrdinarySpellV1,
             EquippedCreatureTriggerV1,
+            ResolutionManaV1,
             PredefinedArtifactTokensV1,
             FilteredStaticModifiersV1,
             CountedSelfGenericCostReductionV1,
@@ -8352,6 +8498,9 @@ mod tests {
             CastTriggerV1,
             CastOriginTriggerV1,
             CastColorPredicateV1,
+            CastSubtypePredicateV1,
+            TemporaryCombatRestrictionV1,
+            LibraryPlayWindowV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
             ListedManaChoiceV1,
@@ -8761,6 +8910,10 @@ mod tests {
         definitions.push(scoped_static::witness());
         definitions.push(equipped_trigger::witness());
         definitions.push(predefined_tokens::witness());
+        definitions.push(resolution_mana::witness());
+        definitions.push(cast_subtype::witness());
+        definitions.push(combat_window::witness());
+        definitions.push(impulse_play::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());

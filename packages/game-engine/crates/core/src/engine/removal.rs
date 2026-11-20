@@ -110,7 +110,7 @@ impl Game {
         }
         Ok(())
     }
-    fn matches_permanent_filter(
+    pub(super) fn matches_permanent_filter(
         &self,
         object: ObjectId,
         controller: PlayerId,
