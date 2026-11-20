@@ -930,8 +930,9 @@ fn paid_omnath_first_main_looks_reveals_and_puts_titanic_ultimatum_in_hand() {
         let mut reveals = 0;
         for record in branch.trace.records.iter().skip(start) {
             if let EvidenceRecord::Batch { batch } = &record.record {
+                assert!(!matches!(batch.cause, BatchCause::DrawStep { .. }));
                 for event in &batch.occurrences {
-                    assert!(!matches!(event.actual, EventOutcome::Drawn { .. }));
+                    assert!(!matches!(event.proposed, ProposedEvent::FailedDraw { .. }));
                     if let EventOutcome::LibraryCardRevealed { player, object } = &event.actual {
                         assert_eq!((*player, *object), (owner, looked));
                         reveals += 1;
