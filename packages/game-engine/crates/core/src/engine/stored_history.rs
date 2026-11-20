@@ -222,6 +222,8 @@ impl<'de> Deserialize<'de> for StoredStack {
 #[serde(deny_unknown_fields)]
 pub(super) struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    known_searched_hand: Vec<(PlayerId, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
@@ -322,6 +324,7 @@ impl<'de> Deserialize<'de> for StoredPermittedView {
 impl From<PermittedView> for StoredPermittedView {
     fn from(view: PermittedView) -> Self {
         let PermittedView {
+            known_searched_hand,
             known_library_positions,
             sacrifice_choices,
             setup,
@@ -353,6 +356,7 @@ impl From<PermittedView> for StoredPermittedView {
         }
         Self {
             data: StoredViewData {
+                known_searched_hand,
                 known_library_positions,
                 sacrifice_choices,
                 setup,
@@ -377,6 +381,7 @@ impl From<PermittedView> for StoredPermittedView {
 impl StoredPermittedView {
     pub(super) fn to_public(&self) -> PermittedView {
         let StoredViewData {
+            known_searched_hand,
             known_library_positions,
             sacrifice_choices,
             setup,
@@ -394,6 +399,7 @@ impl StoredPermittedView {
             stack,
         } = &self.data;
         PermittedView {
+            known_searched_hand: known_searched_hand.clone(),
             known_library_positions: known_library_positions.clone(),
             sacrifice_choices: sacrifice_choices.clone(),
             setup: setup.clone(),
@@ -413,6 +419,7 @@ impl StoredPermittedView {
     }
     pub(super) fn matches_public(&self, view: &PermittedView) -> bool {
         let PermittedView {
+            known_searched_hand,
             known_library_positions,
             sacrifice_choices,
             setup,
@@ -430,6 +437,7 @@ impl StoredPermittedView {
             stack,
         } = view;
         let StoredViewData {
+            known_searched_hand: searched,
             known_library_positions: positions,
             sacrifice_choices: sc,
             setup: s,
@@ -446,7 +454,8 @@ impl StoredPermittedView {
             objects: r,
             stack: k,
         } = &self.data;
-        positions == known_library_positions
+        searched == known_searched_hand
+            && positions == known_library_positions
             && sc == sacrifice_choices
             && s == setup
             && e == effects

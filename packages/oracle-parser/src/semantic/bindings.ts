@@ -4,7 +4,7 @@
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import { isDeepStrictEqual } from "node:util";
-import type { Ability, Amount, CascadeExiledCards, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, Color, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -114,6 +114,26 @@ interface Context {
 function echoes(effect: unknown): boolean {
   if (!isRecord(effect)) return false;
   return ["amount", "count"].some(key => isRecord(effect[key]) && JSON.stringify(effect[key]).includes('"amount":"that-much"'));
+}
+function coloredSearchSlots(effect: Effect): Color[] | undefined {
+  if (effect.effect !== "search" || Object.keys(effect).length !== 4 || effect.who.player !== "you"
+    || Object.keys(effect.who).length !== 1 || effect.zones.selection !== "all" || effect.zones.of.length !== 1
+    || Object.keys(effect.zones).length !== 2) return;
+  const [library] = effect.zones.of;
+  const group = effect.for;
+  if (library.zone !== "library" || library.owner !== "your" || Object.keys(library).length !== 2
+    || group.ref !== "card-extraction-group" || group.combine !== "all" || group.allocation !== "distinct-objects"
+    || Object.keys(group).length !== 4 || group.members.length < 2) return;
+  const colors = new Set<Color>();
+  for (const slot of group.members) {
+    const { filter, count } = slot;
+    if (Object.keys(slot).length !== 2 || count.amount !== "fixed" || count.value !== 1 || Object.keys(count).length !== 2
+      || filter.cls !== "card" || Object.keys(filter).length !== 2 || filter.colors?.length !== 1) return;
+    const [color] = filter.colors;
+    if (!["white", "blue", "black", "red", "green"].includes(color) || colors.has(color)) return;
+    colors.add(color);
+  }
+  return [...colors];
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -1228,7 +1248,8 @@ class Analyzer {
     const node = this.result.nodes.find(node => node.id === binding.target);
     const cardinality = node && "cardinality" in node ? node.cardinality
       : referenceCardinality(binding.expression);
-    const established = node?.node === "event-result" ? node.description
+    const established: ObjectFilter | undefined = node?.node === "distinct-library-search" ? { cls: "card" }
+      : node?.node === "event-result" ? node.description
       : node?.node === "selection" && "ref" in node.expression ? description(node.expression)
       : "ref" in binding.expression && binding.expression.ref !== "affected-object" && binding.expression.ref !== "those-counters" ? description(binding.expression) : undefined;
     return { id: binding.target, cardinality, domain: domain(binding.expression), description: established };
@@ -1692,7 +1713,16 @@ class Analyzer {
       return;
     }
     if (effect.optional) this.beforeDecision.set(path, context.objects);
-    this.walk(effect, path, context);
+    const slots = plain && !context.barrier && context.phase === "resolution" ? coloredSearchSlots(effect) : undefined;
+    if (slots && effect.effect === "search") {
+      const selection = child(path, "for");
+      this.walk(effect.who, child(path, "who"), context);
+      this.walk(effect.zones, child(path, "zones"), context);
+      const allocation = this.node({ node: "distinct-library-search", id: this.id(selection, "allocation"), path: selection,
+        scope: context.ability, chooser: context.you, libraryOwner: context.you, slots, allocation: "distinct-objects",
+        perSlot: "zero-or-one", cardinality: "many", rules: ["608.2d", "701.23b"] });
+      this.bound(effect.for, selection, allocation, ["608.2d", "701.23b"]);
+    } else this.walk(effect, path, context);
     // CR 608.2d: "[player] may" is decided while the instruction is applied;
     // declining it produces no results, as any impossible instruction would.
     const decider = effect.optional ? (effect.decidedBy ? this.at(child(path, "decidedBy"))?.id : context.you)
