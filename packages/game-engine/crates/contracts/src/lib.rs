@@ -1,4 +1,6 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+mod mana_combination;
+pub use mana_combination::{validate_mana_combination,MANA_COMBINATION_COLORS};
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod cascade_land_entry;
