@@ -261,6 +261,7 @@ enum FactKey {
 enum BatchAuthority<'a> {
     Ordinary,
     LandEntry(&'a PreparedEntryAuthority),
+    Graveyard(&'a BTreeMap<ObjectId, Zone>),
     CounterReplacement,
     PlaceCounters,
 }
@@ -1461,6 +1462,7 @@ impl Game {
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
         let entry = self.prepare_entry_batch(&cause, &group)?;
+        let replacement = self.prepare_graveyard_batch(&cause, &group)?;
         let mut events = vec![];
         {
             fn members(g: &EventGroup, depth: u32) -> Result<usize, u32> {
@@ -1572,6 +1574,8 @@ impl Game {
             } else {
                 BatchAuthority::PlaceCounters
             }
+        } else if let Some(proof) = &replacement {
+            BatchAuthority::Graveyard(proof)
         } else {
             entry
                 .as_ref()
@@ -1923,6 +1927,13 @@ impl Game {
 
         // Pinned CR 614.1a/6: replace every would-die cause, including
         // costs and SBAs, before any graveyard move or dies observer.
+        if matches!(destination, Zone::Graveyard { .. })
+            && self.has_self_graveyard_replacement(*object)?
+        {
+            return Err(
+                "printed graveyard replacement requires a prepared movement producer".into(),
+            );
+        }
         let replaced = if self.anger_replaces_death(*object, *destination) {
             Zone::Exile
         } else {
@@ -2111,6 +2122,10 @@ impl Game {
         before: Option<&PreEventFacts>,
         authority: BatchAuthority<'_>,
     ) -> Result<EventOutcome, String> {
+        let replacement = match authority {
+            BatchAuthority::Graveyard(proof) => Some(proof),
+            _ => None,
+        };
         let entry = authority.entry();
         let actual = match proposed {
             ProposedEvent::RevealSearchLands { player, objects } => {
@@ -2137,20 +2152,22 @@ impl Game {
             } => self.apply_library_order(*player, amount, looked, order)?,
             ProposedEvent::HandReturn { .. } => self.apply_hand_return(proposed, before)?,
             ProposedEvent::LibrarySelect { .. } => {
-                self.apply_library_selection(proposed, before)?
+                self.apply_library_selection(proposed, before, replacement)?
             }
             ProposedEvent::Mill {
                 player,
                 count,
                 cards,
-            } => self.apply_mill(*player, count, cards, before)?,
+            } => self.apply_mill(*player, count, cards, before, replacement)?,
             ProposedEvent::Surveil {
                 player,
                 amount,
                 looked,
                 top,
                 graveyard,
-            } => self.apply_surveil(*player, amount, looked, top, graveyard, before)?,
+            } => {
+                self.apply_surveil(*player, amount, looked, top, graveyard, before, replacement)?
+            }
             ProposedEvent::Scry {
                 player,
                 amount,
@@ -2159,7 +2176,8 @@ impl Game {
                 bottom,
             } => self.apply_scry(*player, amount, looked, top, bottom)?,
             ProposedEvent::FinishLibraryShuffle { player } => {
-                if !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
+                if (replacement.is_none() || self.replacement_shuffle_offset(*player, 0).is_none())
+                    && !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {
                     return Err("invalid shuffle completion".into());
                 }
@@ -2342,9 +2360,11 @@ impl Game {
                     entry,
                 )?
             }
-            ProposedEvent::ShuffleLibraryWord { player, index } => {
-                self.apply_search_shuffle_word(*player, *index)?
-            }
+            ProposedEvent::ShuffleLibraryWord { player, index } => self.apply_search_shuffle_word(
+                *player,
+                *index,
+                replacement.and_then(|_| self.replacement_shuffle_offset(*player, *index)),
+            )?,
             ProposedEvent::ApplyCounterPlacementEffect { effect } => {
                 if !matches!(authority, BatchAuthority::CounterReplacement) {
                     return Err("counter replacement requires transaction authority".into());

@@ -7,16 +7,23 @@ impl Game {
         player: PlayerId,
         objects: &[ObjectId],
         before: Option<&PreEventFacts>,
+        replacement: Option<&BTreeMap<ObjectId, Zone>>,
     ) -> Result<Vec<MoveOutcome>, String> {
         let mut movements = Vec::with_capacity(objects.len());
         for object in objects {
             if self.current(*object)?.zone != (Zone::Library { owner: player }) {
                 return Err("library movement source invariant".into());
             }
+            let destination = replacement
+                .and_then(|proof| proof.get(object).copied())
+                .unwrap_or(Zone::Graveyard { owner: player });
+            if destination == (Zone::Library { owner: player }) {
+                continue;
+            }
             let actual = self.apply_occurrence_with_prior(
                 &ProposedEvent::Move {
                     object: *object,
-                    destination: Zone::Graveyard { owner: player },
+                    destination,
                 },
                 before,
             )?;
@@ -54,6 +61,18 @@ impl Game {
             }
             _ => return Err("unsupported mill recipient".into()),
         };
+        if self.is_live(player) && count > Quantity::zero() {
+            let cards = self.library_prefix(player, &count)?;
+            return self.complete_library_effect(
+                frame,
+                ProposedEvent::Mill {
+                    player,
+                    count,
+                    cards,
+                },
+                source_block,
+            );
+        }
         let outcome = self.commit_mill(player, count, Self::staple_cause(&frame, source_block))?;
         self.finish_instruction(frame, outcome)
     }
@@ -91,6 +110,7 @@ impl Game {
         count: &Quantity,
         cards: &[ObjectId],
         before: Option<&PreEventFacts>,
+        replacement: Option<&BTreeMap<ObjectId, Zone>>,
     ) -> Result<EventOutcome, String> {
         if !self.is_live(player)
             || count <= &Quantity::zero()
@@ -98,7 +118,7 @@ impl Game {
         {
             return Err("invalid mill prefix".into());
         }
-        let movements = self.move_library_cards_to_graveyard(player, cards, before)?;
+        let movements = self.move_library_cards_to_graveyard(player, cards, before, replacement)?;
         self.remember_mill(player, movements.len())?;
         Ok(EventOutcome::Milled { player, movements })
     }

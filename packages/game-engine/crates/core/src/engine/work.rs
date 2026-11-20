@@ -915,7 +915,10 @@ impl Game {
                         )
                         | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
                         | (Frame::SpendMana { .. }, PlayerResponse::SpendMana { .. })
-                        | (Frame::CommanderReturn { .. }, PlayerResponse::CommanderReturn { .. })
+                        | (
+                            Frame::CommanderReturn { .. } | Frame::GraveyardReplacement { .. },
+                            PlayerResponse::CommanderReturn { .. },
+                        )
                         | (Frame::Attackers, PlayerResponse::Attackers { .. })
                         | (Frame::Blockers { .. }, PlayerResponse::Blockers { .. })
                         | (

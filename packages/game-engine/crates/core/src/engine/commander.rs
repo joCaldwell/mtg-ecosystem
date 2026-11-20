@@ -52,6 +52,7 @@ pub(super) enum CommanderContinuation {
 impl Game {
     pub(super) fn previous_commander_choices(&self) -> Vec<(ObjectId, bool)> {
         match &self.state.rules.frame {
+            Frame::GraveyardReplacement { transaction } => transaction.prior_choices(),
             Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
                 CommanderContinuation::StateBasedBatch { choices, .. }
                 | CommanderContinuation::BoardReturn { choices, .. } => choices.clone(),
