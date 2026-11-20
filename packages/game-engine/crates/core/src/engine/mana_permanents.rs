@@ -433,9 +433,6 @@ impl Game {
         let definition = self.definition(source.card)?;
         let grant = self.has_granted_land_mana(source)?;
         let printed = definition.mana_abilities.len() == 1 || disjoint_pain_mana_family(definition);
-        if !grant && (self.intrinsic_mana_colors(source)?.is_empty() || !printed) {
-            return Err("missing mixed mana provider".into());
-        }
         let mut choices: Vec<_> = self
             .intrinsic_choice_colors(player, source)
             .unwrap_or_default()
@@ -1146,12 +1143,22 @@ impl Game {
                 match self.mixed_mana_choices(*player, *source) {
                     Err(_) => true,
                     Ok(choices) => {
-                        if self.state.rules.pending.as_ref().is_some_and(|input|
-                            matches!(&input.response, Response::ChooseManaAbility { ability } if !choices.contains(ability))
-                        ) {
+                        let selected = self.state.rules.pending.as_ref().and_then(|input| {
+                            match &input.response {
+                                Response::ChooseManaAbility { ability } => Some(*ability),
+                                _ => None,
+                            }
+                        });
+                        if let Some(ability) = selected
+                            && choices.contains(&ability)
+                        {
+                            false
+                        } else {
                             self.state.rules.pending = None;
+                            !self.has_granted_land_mana(*source)?
+                                && (self.intrinsic_mana_colors(*source)?.is_empty()
+                                    || !self.is_permanent_mana(*source))
                         }
-                        false
                     }
                 }
             } else {

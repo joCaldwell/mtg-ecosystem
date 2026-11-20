@@ -2529,6 +2529,13 @@ impl Game {
                 }
             }
         }
+        if self.has_granted_land_mana(object)? {
+            for color in Self::granted_land_mana_colors() {
+                if !colors.contains(&color) {
+                    colors.push(color);
+                }
+            }
+        }
         Ok(colors)
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {

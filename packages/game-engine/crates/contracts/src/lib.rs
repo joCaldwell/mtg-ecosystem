@@ -3645,6 +3645,7 @@ impl Definition {
             !matches!(
                 a.effect,
                 StaticEffect::GrantSpellCascade { .. }
+                    | StaticEffect::GrantControllerLandsAnyColorMana
                     | StaticEffect::ReduceSelfGenericCost { .. }
                     | StaticEffect::CantBeCountered
                     | StaticEffect::GrantOtherControlledPermanentsIndestructible

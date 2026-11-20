@@ -96,6 +96,13 @@ fn granted_land_mana_pays_cast_and_rechecks_departed_grant() {
     let mut game = Game::with_trace(p, TraceMode::Detailed);
     let land = game.object_id(CardId(1)).unwrap();
     let target = game.object_id(CardId(3)).unwrap();
+    let advertised = game
+        .mana_abilities(land)
+        .unwrap()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(advertised, BTreeSet::from(Game::granted_land_mana_colors()));
+
     answer(&mut game, 1, Response::Cast { card: CardId(2) });
     answer(
         &mut game,
@@ -117,6 +124,24 @@ fn granted_land_mana_pays_cast_and_rechecks_departed_grant() {
     assert!(!departed.current(land).unwrap().tapped);
     assert!(!departed.has_granted_land_mana(land).unwrap());
     recover(&departed);
+    // The independent intrinsic ability survives the granting artifact.
+    let mut accepted = game.fork();
+    let offer = request(&mut accepted, 1);
+    accepted
+        .respond(
+            offer.player(),
+            offer.decision_id(),
+            Response::ChooseManaAbility {
+                ability: ManaAbilityIdentity::Intrinsic { color: Color::G },
+            },
+        )
+        .unwrap();
+    accepted.concede(PlayerId(1)).unwrap();
+    assert!(matches!(request(&mut accepted, 1), Request::Mana { .. }));
+    assert!(accepted.current(land).unwrap().tapped);
+    assert_eq!(accepted.mana(caster, Color::G), Some(1.into()));
+    recover(&accepted);
+
     answer(
         &mut game,
         1,
