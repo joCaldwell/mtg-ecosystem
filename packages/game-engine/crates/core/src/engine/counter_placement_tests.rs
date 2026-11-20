@@ -1012,3 +1012,67 @@ fn proliferate_landfall_chooses_nontargeted_incarnations_and_places_simultaneous
         )))));
     check(&g);
 }
+
+#[test]
+fn proliferate_follows_the_modifier_before_state_based_actions() {
+    let mut p = prepared();
+    let result = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/e4912bc3-bee9-4a2f-a13e-3a99018f8a65.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}");
+    };
+    let id = p.config.cards.len() as u32;
+    p.config.cards.push(CardSetup {
+        id: CardId(id),
+        oracle_id: definition.oracle_id.clone(),
+        owner: PlayerId(0),
+        controller: PlayerId(0),
+        zone: Zone::Hand { owner: PlayerId(0) },
+    });
+    let c = Arc::make_mut(&mut p.catalog);
+    c.definitions.push(*definition);
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(c).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    let opponent = object(&g, 8);
+    let target = vec![TargetEntity::Object { object: opponent }];
+    announce(&mut g, 4, target.clone());
+    drive(&mut g, true, &[], 1, true);
+    assert_eq!(g.current(opponent).unwrap().plus_one_counters, 2.into());
+
+    announce(&mut g, id, target);
+    let mut selected = false;
+    for _ in 0..100 {
+        let r = counter_request(&mut g, 1);
+        if let Request::Proliferate { candidate, .. } = r {
+            assert_eq!(candidate, opponent);
+            assert_eq!(
+                g.characteristics(opponent).unwrap().toughness,
+                Some(0.into())
+            );
+            check(&g);
+            answer(
+                &mut g,
+                Response::Proliferate {
+                    object: opponent,
+                    include: true,
+                },
+            );
+            selected = true;
+            break;
+        }
+        answer(&mut g, Response::Pass);
+    }
+    assert!(selected, "missing proliferate choice");
+    drive(&mut g, true, &[], 1, true);
+    assert_eq!(g.current(opponent).unwrap().plus_one_counters, 4.into());
+    assert_eq!(
+        g.characteristics(opponent).unwrap().toughness,
+        Some(2.into())
+    );
+    check(&g);
+}

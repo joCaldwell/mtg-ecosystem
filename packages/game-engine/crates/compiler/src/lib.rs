@@ -1662,8 +1662,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             }]
         )
     });
-    let abilities = if let Some(trigger) = proliferate::lower(&source, &result)? {
-        vec![Ability::BoundTrigger(trigger)]
+    let abilities = if let Some(ability) =
+        proliferate::lower(&source, &result, &shape, &binding, types.kind)?
+    {
+        vec![ability]
     } else if let Some(activation) = target_color::lower(&source, &shape, &result, &binding)? {
         vec![Ability::BoundActivation(activation)]
     } else if has_conditional_fetch {
