@@ -15,29 +15,37 @@ contains source designs, phase logs and acceptance evidence referenced by docs.
 ## Cache selection and lifecycle
 
 After pinned tool selection, `python3 scripts/engine-cache.py path` prints an
-absolute CARGO_TARGET_DIR without writes. Explicit overrides win; otherwise use
-`$XDG_CACHE_HOME/mtg-ecosystem/cargo/<repo>/<rustc>` (`~/.cache` default), where
-repo hashes canonical Git common-dir and rustc hashes `rustc -vV`. Worktrees share
-a repo/toolchain cache; separate clones do not. Cargo owns its profile/flag inputs.
+absolute CARGO_TARGET_DIR without writes. Explicit overrides win; otherwise each
+worktree uses its own ignored `<worktree>/target/engine`, so removing a checkout
+reclaims its cache and branches never thrash one shared cache. `lock` prints that
+target's advisory lock, `~/.local/share/mtg-ecosystem/engine-verification/locks/cargo-<hash>.lock`
+(hash of the canonical target; `MTG_ENGINE_LOCK_DIR` overrides the directory).
+Cargo owns its profile/flag/toolchain inputs inside a target.
 
-`status` reports allocated bytes, free space, selection and budgets. `check` fails
-before native compilation above **16 GiB allocated** or below **4 GiB free**;
-`ENGINE_CACHE_MAX_GIB` / `ENGINE_CACHE_MIN_FREE_GIB` override deliberately. This is
-admission, not a runtime disk quota. Inspect usage after heavy builds. Launcher
-and runner default CARGO_INCREMENTAL=0; explicit opt-in retains its disk tradeoff.
+`status` reports allocated bytes, free space, selection, lock and budgets; `list`
+reports every registered worktree's target size and lock state (`absent`, `idle`,
+`busy`) plus legacy shared caches. `check` fails before native compilation above
+**24 GiB allocated** in the selected target or below **16 GiB free**, leaving room
+for concurrent worktrees that grow after admission; `ENGINE_CACHE_MAX_GIB` /
+`ENGINE_CACHE_MIN_FREE_GIB` override deliberately. This is admission, not a
+runtime disk quota. Incremental dev/test caches are expected; `prune-cargo`
+reclaims them. Retention and Cargo release builds stay non-incremental.
 
 [Native coordination](game-engine-development.md#cargo-coordination-and-cache-integration)
-holds the shared Cargo lock across admission/build. Cache path/status operations
-neither lock nor delete. No automatic eviction/migration occurs. The preserved
+holds the target's lock across admission/build. Cache path/status/list operations
+neither take locks nor delete. No automatic eviction/migration occurs. The former
+shared `$XDG_CACHE_HOME/mtg-ecosystem/cargo/<repo>/<rustc>` cache and global
+`engine-verification/cargo.lock` are no longer selected; `list` reports both, and
+reclaiming that cache requires the same ownership review. The preserved
 `perf-engine-verification-loop/target` exceeds the default budget; coordinated reuse
 requires the explicit 32 GiB override. Choosing another target leaves it intact.
-Absolute worktree paths can still trigger recompilation in a shared cache.
 
 Cargo [local-source freshness](https://doc.rust-lang.org/stable/nightly-rustc/cargo/compiler/fingerprint/index.html)
-uses mtimes; switching worktree baselines has reused stale local crates. Preserve
-contradictory builds, coordinate ownership, refresh only relevant owned source/build
-script timestamps with byte hashes unchanged, then rebuild under the lock. Never
-delete the shared target as a repair. Check actual source identity/schema, not cache warmth.
+uses mtimes; an explicitly shared target across worktree baselines has reused stale
+local crates. Preserve contradictory builds, coordinate ownership, refresh only
+relevant owned source/build script timestamps with byte hashes unchanged, then
+rebuild under the lock. Never delete a shared target as a repair. Check actual
+source identity/schema, not cache warmth.
 
 ## Inventory and bounded cache cleanup
 
@@ -54,11 +62,11 @@ Inventory visits Git-registered worktrees and standard external stores, reports
 symlinks without following them and reads no arbitrary home/secret files. Allocated
 rows deduplicate hard links internally, but summing rows can double count inodes.
 
-`prune-cargo` proposes worktree debug/release and `engine:dev` incremental
-directories above **2 GiB** in aggregate (`--max-bytes 0` proposes all).
+`prune-cargo` proposes debug/release/quick incremental directories under the
+worktree's `target`, `target/engine` and legacy `target/engine-dev` above **2 GiB** in aggregate (`--max-bytes 0` proposes all).
 It never invokes Cargo or removes deps/build/final executables, source or evidence.
 Apply checks registration, tracked-file exclusion, containment, ancestor/internal
-symlinks, shared Cargo lock and same-user Linux `/proc` cwd/exe/open descriptors.
+symlinks, the worktree's Cargo lock and same-user Linux `/proc` cwd/exe/open descriptors.
 Known active references always refuse. Uninspectable processes also refuse unless
 `--allow-uninspectable` acknowledges an independent ownership check. Cooperative
 locking cannot prevent an unrelated writer starting after the scan.
@@ -85,7 +93,7 @@ refuses work; no existing evidence is deleted to make room. Review pinned source
 rules, bundles, binaries, logs and downstream references before moving/retiring a
 specific run or raising budgets. Age alone never authorizes retirement.
 
-The supervisor holds the Cargo lock and owns fixed ignored
+The supervisor holds its worktree's Cargo lock and owns fixed ignored
 `generated/.retention-work` for captures, JSON stdout, Cargo homes and build targets.
 Initial native builds override inherited target paths so shared caches cannot
 escape the scratch bound. Host-only absolute MTG_ENGINE_ARTIFACT_ROOT routes demo
@@ -121,7 +129,7 @@ python3 scripts/engine-worktrees.py --worktree /absolute/task/worktree \
   --apply --inactive --expect-head FULL_SHA_FROM_REPORT
 ```
 
-Dry-run/apply hold the Cargo lock. Requirements: exact registered path, no changed,
+Dry-run/apply hold the retiring worktree's Cargo lock. Requirements: exact registered path, no changed,
 untracked or ignored files, no documented branch/path or active process references,
 and ancestry in the integration base. Remote publication is checked against the
 server's live head, not stale tracking refs. Primary/invoking/protected/locked/

@@ -228,7 +228,7 @@ metadata 4 MiB and descriptor/config 4 KiB. Bundle/registry/presentation roots m
 not overlap. Unknown SPA paths return 404; source route allowlists are authority.
 Reject encoded/dot/backslash/absolute paths and static artifact queries.
 
-A native owner builds exact server and `provision_client` under the Cargo lock,
+A native owner builds exact server and `provision_client` under its target's Cargo lock,
 then exports `schema`, `bootstrap-schema`, `client-config-schema`, `native-info`.
 Client/SDK commands never invoke Cargo; the client README owns SDK verification
 and client build. From root:

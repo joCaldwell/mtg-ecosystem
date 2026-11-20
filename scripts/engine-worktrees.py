@@ -80,8 +80,9 @@ def plan(root, worktree, base, remote='origin', remote_branch='main'):
 
 def retire(root, worktree, base, remote='origin', remote_branch='main',
            apply=False, expected_head=None, inactive=False, allow_uninspectable=False,
-           lock=storage.DEFAULT_LOCK):
-    with storage.cargo_lock(lock):
+           lock=None):
+    # The retiring checkout's own native lock: no check/build in it may be running.
+    with storage.cargo_lock(lock or storage.worktree_lock(worktree)):
         result = plan(root, worktree, base, remote, remote_branch)
         result['mode'] = 'apply' if apply else 'dry-run'
         if apply:

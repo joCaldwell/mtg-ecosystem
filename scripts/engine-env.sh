@@ -23,13 +23,14 @@ if [ "$(node --version 2>/dev/null || true)" != "v$engine_node" ]; then
     exit 1
 fi
 # Source-only tools and doctor remain available when Rust is absent. Native
-# entry points select and validate their target before taking the build lock.
+# entry points select this worktree's own target, then take that target's lock.
 if [ -f "$engine_root/scripts/engine-cache.py" ] && { [ -n "${CARGO_TARGET_DIR:-}" ] || rustc --version >/dev/null 2>&1; }; then
     CARGO_TARGET_DIR=$(python3 "$engine_root/scripts/engine-cache.py" path)
     export CARGO_TARGET_DIR
 fi
-CARGO_INCREMENTAL=${CARGO_INCREMENTAL:-0}
-export CARGO_INCREMENTAL
+# CARGO_INCREMENTAL stays unset unless chosen: Cargo profiles make dev/test/quick
+# incremental and keep release (retained binaries) non-incremental.
+# https://doc.rust-lang.org/cargo/reference/profiles.html#incremental
 if [ "$#" -eq 0 ]; then
     echo 'Usage: sh scripts/engine-env.sh COMMAND [ARG ...]' >&2
     exit 2

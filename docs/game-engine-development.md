@@ -115,24 +115,30 @@ retention, worktrees and executable preservation using tiny fixtures/fake worker
 Run affected harness tests when their inputs change. Python suites need explicit
 filenames (discovery misses hyphens). Node wrapper rejects empty/skipped/TODO-only
 selections; archive selector must track renames. Standard Rust tests use opt-level 2
-with assertions and overflow checks. Use package checks for changed binary targets.
+with assertions, overflow checks and line-table debug info. Use package checks for changed binary targets.
 
 ## Cargo coordination and cache integration
 
-One native owner holds `~/.local/share/mtg-ecosystem/engine-verification/cargo.lock`.
-Native check/smoke/retention runners own it internally, including nested Node
-Cargo calls: never acquire twice. Explicit multi-phase acceptance may also use
-`full-gate.lock`. For repeated edits, the development command reuses incremental
-artifacts in this checkout's `target/engine-dev`. Confirm the test selector ran:
+Each worktree builds in its own `target/engine` and holds that target's advisory
+lock (`python3 scripts/engine-cache.py lock`); worktrees never wait on or
+invalidate each other. Commands sharing a target, including an explicit shared
+`CARGO_TARGET_DIR`, serialize. Native check/smoke/retention/dev runners own the
+lock internally, including nested Node Cargo calls: never acquire it twice.
+Explicit multi-phase acceptance may also use `full-gate.lock`. For repeated
+edits, confirm the test selector ran:
 
 ```sh
 npm run engine:dev -- test -p mtg-core --lib FILTER
 ```
 
-Use `engine:dev` with Cargo `check`, `build` or `test` arguments. It selects
-`quick`, checks cache budgets under the shared lock and honors explicit
-`CARGO_TARGET_DIR` and `CARGO_INCREMENTAL`. Use the standard profile for
-runtime-heavy tests. Keep receipts tied to their producer profile.
+Use `engine:dev` with Cargo `check`, `build` or `test` arguments. It selects the
+incremental `quick` profile in the same target, checks cache budgets under the
+lock and honors explicit `CARGO_TARGET_DIR`. Cargo profiles own incrementality:
+dev/test/quick are incremental and release is not, so the launcher leaves
+`CARGO_INCREMENTAL` unset unless chosen. Rust 1.99 already links x86-64 Linux
+with LLD. Each rustc can peak near 4–5 GiB; with three or more concurrent
+worktrees, set `CARGO_BUILD_JOBS` (e.g. 12) to bound memory. Use the standard
+profile for runtime-heavy tests. Keep receipts tied to their producer profile.
 
 Do source/docs work while busy. Freeze measured source and avoid duplicate builds.
 [Storage policy](game-engine-storage.md#cache-selection-and-lifecycle) owns cache

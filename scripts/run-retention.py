@@ -48,7 +48,7 @@ def stop_group(child):
 
 
 def supervise(command, root, store, *, scratch_limit=32 * GIB, store_limit=128 * GIB,
-              reserve=16 * GIB, interval=2, lock=storage.DEFAULT_LOCK):
+              reserve=16 * GIB, interval=2, lock=None):
     """Only one fixed scratch slot; SIGKILL leftovers block rather than accumulate."""
     root, store = Path(root).absolute(), Path(store).absolute()
     storage.no_symlinks(root)
@@ -56,7 +56,7 @@ def supervise(command, root, store, *, scratch_limit=32 * GIB, store_limit=128 *
     generated = root / 'generated'
     scratch = generated / '.retention-work'
     storage.no_symlinks(scratch)
-    with storage.cargo_lock(lock):
+    with storage.cargo_lock(lock or storage.worktree_lock(root)):
         generated.mkdir(parents=True, exist_ok=True)
         store.mkdir(parents=True, exist_ok=True)
         # A previous SIGKILL/power loss may leave children or useful diagnostics.
