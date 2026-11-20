@@ -131,6 +131,8 @@ mod counter_spell_controller_mill;
 pub mod creature_planeswalker_return;
 mod draw_discard;
 pub mod equipped_trigger;
+pub mod intrinsic_keyword_blocks;
+pub mod permanent_entry;
 pub mod predefined_tokens;
 pub use predefined_tokens::PredefinedToken;
 mod fixed_mill;
@@ -3235,6 +3237,7 @@ impl Definition {
         scoped_static::validate(self)?;
         equipped_trigger::validate(self)?;
         ability_sequence::validate(self)?;
+        permanent_entry::validate(self)?;
         predefined_tokens::validate(self)?;
         attachment_modifiers::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
@@ -3686,8 +3689,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
-        basic_landwalk::validate_definition(self)?;
-        fixed_color_protection::validate_definition(self)?;
+        intrinsic_keyword_blocks::validate(self)?;
         source_combat_restrictions::validate_definition(self)?;
         source_attack_pump::validate(self)?;
         creature_planeswalker_return::validate(self)?;
@@ -4229,7 +4231,7 @@ impl Definition {
             {
                 return Err("cascade requires its stack-functioning self-cast trigger".into());
             }
-            if aura {
+            if aura && !permanent_entry::source_matches(self, ability) {
                 if ability.condition != TriggerCondition::SelfAuraToGraveyard
                     || ability.intervening_if.is_some()
                     || ability.functioning_zone != FunctioningZone::Battlefield
@@ -4247,6 +4249,13 @@ impl Definition {
                 }
                 validate_instruction_program(p)?;
                 continue;
+            }
+            if p.instructions
+                .iter()
+                .any(|i| matches!(i, Instruction::EachPlayerSacrifice { .. }))
+                && !permanent_entry::source_matches(self, ability)
+            {
+                return Err("triggered sacrifice requires its exact entering source and one creature per player".into());
             }
             if p.instructions
                 .iter()
@@ -4327,6 +4336,7 @@ impl Definition {
                             | Instruction::LoseLifeDeathController { .. }
                             | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
+                            | Instruction::EachPlayerSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnOwnGraveyardCardToHand { .. }
                             | Instruction::ExileTargetGraveyard { .. }

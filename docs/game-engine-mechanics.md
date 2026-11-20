@@ -363,6 +363,13 @@ controllers, actors, incarnations and witnesses. Power-filtered entries use
 derived post-event power; intervening conditions recheck at resolution. Source
 status uses current incarnation or departure-refreshed LKI. Cast triggers collect
 after successful payment; declared attacks use the real declaration batch.
+Intrinsic landwalk and fixed-color protection can share a card with separately
+proved entry effects and fixed paid creature activations. Entry triggers on
+artifacts, Equipment and Auras use the entering incarnation. Supported entry
+blocks can draw, change the controller's life, deal targeted damage or destroy
+a target. A one-creature sacrifice for each player collects choices in APNAP
+order and moves the chosen creatures together.
+
 Event-player, source controller, invocation controller and recipient cannot be
 interchanged. Optional “may” is an actual decision; unsupported source
 explanation blocks a browser control. Compiler presence does not expand

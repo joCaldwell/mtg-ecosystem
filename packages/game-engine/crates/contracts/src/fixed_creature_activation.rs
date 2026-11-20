@@ -313,6 +313,12 @@ pub fn has_fixed_creature_activation(d: &Definition) -> bool {
 }
 
 pub(super) fn validate(d: &Definition) -> Result<bool, String> {
+    if intrinsic_keyword_blocks::composition(d) {
+        // This proof reconstructs every activation by ordinal and rejects
+        // any sibling without a matching schema-1 program.
+        intrinsic_keyword_blocks::validate(d)?;
+        return Ok(true);
+    }
     let raw = &d.provenance.source_json;
     let candidate = has_fixed_creature_activation(d);
     if !candidate
@@ -528,13 +534,14 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "then":{"allOf":effect_capabilities,"properties":{"activated":{"items":{"$ref":"#/$defs/FixedCreatureActivation"}},
             "keywords":{"uniqueItems":true},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"intrinsic_zone":{"type":"null"},
             "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0}}},
-            "triggered":{"maxItems":1,"items":{"required":["intervening_if"],"properties":{"intervening_if":{"const":InterveningCondition::SourceCastByController}}}},
             "capabilities":{"allOf":[{"contains":{"const":Capability::ManaActivationCostV1}},{"contains":{"const":Capability::ActivatedAbilityV1}}]}
-        }}
+        },"if":{"properties":{"keywords":intrinsic_keyword_blocks::schema_keyword()},"required":["keywords"]},
+            "else":{"properties":{"triggered":{"maxItems":1,"items":{"required":["intervening_if"],"properties":{"intervening_if":{"const":InterveningCondition::SourceCastByController}}}}}}}
     }));
     let only_pump = json!({"properties":{"activated":{"minItems":1,"items":mana_pump}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
-        "if":{"required":["activated"],"properties":{"activated":{"contains":candidate}}},
+        "if":{"required":["activated"],"properties":{"activated":{"contains":candidate},
+            "keywords":{"not":intrinsic_keyword_blocks::schema_keyword()}}},
         "then":{
             "if":only_pump,
             "then":{"properties":{

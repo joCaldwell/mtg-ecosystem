@@ -14,6 +14,30 @@ pub(super) fn validate_binding(
     if !gated && !has_fixed_creature_activation(d) {
         return Ok(());
     }
+    if !gated
+        && d.keywords
+            .iter()
+            .any(|k| k.basic_landwalk_type().is_some() || k.fixed_protection_color().is_some())
+    {
+        for (index, line) in source["oracle_text"]
+            .as_str()
+            .unwrap_or("")
+            .lines()
+            .enumerate()
+        {
+            let block = source_block(index)?;
+            if let Some(spec) = fixed_creature_activation(line, &d.name, block) {
+                let mut graph = Bindings::new(&d.oracle_id, source);
+                bind_activation(&mut graph, block, &spec);
+                graph.validate_block(
+                    binding,
+                    &format!("/faces/0/abilities/{index}"),
+                    "requires exact fixed activation block",
+                )?;
+            }
+        }
+        return Ok(());
+    }
     let mut graph = Bindings::new(&d.oracle_id, source);
     let mut bound_fixed = false;
     for (index, line) in source["oracle_text"]
