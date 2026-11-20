@@ -1040,6 +1040,11 @@ impl Game {
             | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
+            Instruction::DistributePlusOneCounters { source_block, .. } => {
+                let allocations = self.allocated_counter_targets(&frame)?;
+                let cause = Self::staple_cause(&frame, source_block);
+                self.begin_counter_placements(frame, allocations, cause)
+            }
             op @ (Instruction::CreateCreatureTokens { .. }
             | Instruction::PutPlusOneCounters { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
@@ -1708,14 +1713,14 @@ impl Game {
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
-            || self.bound_target_count(entry) != program.targets.len()
+            || !self.announced_target_count_valid(program, entry)
             || entry.paid.as_ref() != Some(&entry.total_cost)
             // Immediate loss and completion of its activated ability share one
             // atomic rule step. There is no post-loss resolving continuation.
             || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)
             || frame.cursor as usize > program.instructions.len()
             || frame.outcomes.len() != frame.cursor as usize
-            || frame.legal_targets.len() != program.targets.len()
+            || frame.legal_targets.len() != self.bound_target_count(entry)
         {
             return Err("snapshot resolving invocation invariant".into());
         }

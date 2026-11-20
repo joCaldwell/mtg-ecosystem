@@ -6,6 +6,9 @@ use super::equipped_indestructible_tests::{answer, both, equip, object, recover,
 use super::temporary_indestructible_tests::{announce, pass, target, until_player};
 use super::*;
 
+#[path = "divided_plus_one_counters_tests.rs"]
+mod divided_plus_one_counters_tests;
+
 const MIND: &str =
     include_str!("../../../../tests/fixtures/5912546a-acc2-448c-b042-64bdac5ec129.json");
 const MAGIC: &str =

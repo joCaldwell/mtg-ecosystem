@@ -432,6 +432,8 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         occurrences: Vec<TargetSpec>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        counter_division: Option<CounterDivision>,
         candidates: Vec<ObjectHandle>,
     },
     Mana {
@@ -1783,6 +1785,7 @@ impl Game {
                     token,
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
+                    counter_division: None,
                     candidates: vec![],
                 }))
             }
@@ -1867,6 +1870,7 @@ impl Game {
                     token,
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
+                    counter_division: CounterDivision::offered_by(self.program()?),
                     candidates: vec![],
                 }))
             }

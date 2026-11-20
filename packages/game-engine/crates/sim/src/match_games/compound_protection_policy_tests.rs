@@ -173,6 +173,7 @@ fn compound_policy_own_incomplete_announcement_skips_itself_and_fallback_stays_m
         token: mtg_core::DecisionToken("compound".into()),
         player: viewer,
         occurrences: p.targets.clone(),
+        counter_division: None,
         candidates: vec![target.clone()],
     });
     assert_eq!(
@@ -609,6 +610,7 @@ fn compound_policy_parameterized_announcement_finishes_targets_and_planned_payme
             token: mtg_core::DecisionToken("compound-family-target".into()),
             player: o.view.viewer,
             occurrences: p.targets.clone(),
+            counter_division: None,
             candidates: vec![target.clone()],
         });
         assert_eq!(
@@ -692,6 +694,7 @@ fn compound_policy_signed_or_unsafe_announced_program_keeps_legal_target_fallbac
             token: mtg_core::DecisionToken("compound-signed-mandatory-target".into()),
             player: o.view.viewer,
             occurrences: p.targets.clone(),
+            counter_division: None,
             candidates: vec![target.clone()],
         });
         assert_eq!(

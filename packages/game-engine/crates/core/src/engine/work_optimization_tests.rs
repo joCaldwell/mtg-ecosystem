@@ -507,7 +507,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 30,
+                    context_version: 31,
                     observation: *observation.clone().ok_or(QueryRejection::Invariant)?,
                     permitted_history: history.clone(),
                     open_decklists: decks.clone(),
@@ -633,7 +633,7 @@ fn compare_with_profile(game: &Game, query: Query, profile: Option<&mut LegalPro
                         assert_eq!(
                             saved,
                             canonical(&SavedWork {
-                                work_version: 30,
+                                work_version: 31,
                                 build_id: BUILD_ID.into(),
                                 catalog_digest: game.prepared.catalog_digest.clone(),
                                 state_sha256: state_sha256.clone(),
