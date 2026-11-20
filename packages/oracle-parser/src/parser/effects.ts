@@ -1842,11 +1842,19 @@ const parseShuffle: StepParser = transactionalStep((c, ctx) => {
 /** "Shuffle your library, then exile the top card.": the library that the
  * preceding imperative clause just shuffled is the one meant; the "of" phrase
  * is not printed. Only that exact antecedent is accepted. */
-const parseTopOfShuffledLibrary: StepParser = transactionalStep((c) => {
+const parseTopOfShuffledLibrary: StepParser = transactionalStep((c, ctx) => {
   if (c.pos < 5) return null;
   const before = c.tokens.slice(c.pos - 5, c.pos);
   const expected = ["shuffle", "your", "library", ",", "then"];
   if (!before.every((token, i) => (token.kind === "word" && !token.possessive || token.kind === "punct") && token.value === expected[i])) return null;
+  // Creative Technique: "it" names the just-shuffled library. Scanning does
+  // not move any card, including the stopping card (CR 609.3, 701.20b).
+  if (c.pos === expected.length && ctx.lastPlayer?.player === "you" &&
+      c.words("reveal", "cards", "from", "the", "top", "of", "it", "until", "you", "reveal", "a", "nonland", "card")) {
+    if (!c.done() && !c.isPunct(".")) return null;
+    return [{ effect: "scan-library", who: { player: "you" }, operation: "reveal", library: { zone: "library", owner: "your" },
+      until: { count: { amount: "fixed", value: 1 }, matching: { nonTypes: ["land"], cls: "card" } } }];
+  }
   const verb = c.word("exile", "reveal");
   if (!verb || c.word("the") === null || c.word("top") === null) return null;
   const count: Amount = parseAmount(c) ?? { amount: "fixed", value: 1 };
