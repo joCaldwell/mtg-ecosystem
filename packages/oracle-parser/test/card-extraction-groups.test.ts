@@ -109,6 +109,28 @@ describe("distinct card extraction slots", () => {
     assert.equal(new Set(ids).size, 2);
     assert.ok(!JSON.stringify(targeted.abilities).includes("card-extraction-group"));
   });
+  it("binds distinct color slots and both consumers of the selected library cards", () => {
+    const analyze = (slots: string) => {
+      const result = parseOracleText(`Search your library for ${slots}. Reveal those cards, put them into your hand, then shuffle.`,
+        "Chromatic Survey", { includeSourceProvenance: true });
+      assert.ok(result.ok);
+      return analyzeCardBindings({ identity: "colored-search", source: { name: "Chromatic Survey", layout: "normal" },
+        faces: [{ sourceFaceIndex: 0, result }] });
+    };
+    const graph = analyze("a red card and a green card");
+    assert.ok(graph.fullyBound);
+    const allocation = graph.nodes.find(node => node.node === "distinct-library-search");
+    assert.ok(allocation?.node === "distinct-library-search");
+    assert.deepEqual(allocation.slots, ["red", "green"]);
+    assert.equal(allocation.chooser, allocation.libraryOwner);
+    assert.equal(allocation.perSlot, "zero-or-one");
+    const consumers = graph.references.filter(ref => ref.path.endsWith("/what"));
+    assert.equal(consumers.length, 2);
+    assert.ok(consumers.every(ref => ref.binding === "bound" && ref.target === allocation.id));
+    for (const malformed of ["a red card and a red card", "a red card and/or a green card", "a red card and a land card"]) {
+      assert.equal(analyze(malformed).fullyBound, false, malformed);
+    }
+  });
   it("diagnoses separate allocation and result bindings rather than claiming complete references", () => {
     const r = parseOracleText("Search your library for an instant card and/or a sorcery card, reveal them.", "Invent", { includeSourceProvenance: true });
     const analysis = analyzeCardBindings({ identity: "extraction", source: { name: "Invent", layout: "normal" }, faces: [{ sourceFaceIndex: 0, result: r }] });
