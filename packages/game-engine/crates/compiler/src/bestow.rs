@@ -291,6 +291,22 @@ mod tests {
             found.colored,
             [Color::W, Color::U, Color::B, Color::R, Color::G]
         );
+        let compiled = compile(
+            include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json"),
+            include_str!("../../../tests/fixtures/ramos/695ee4fe-356d-47fb-9442-d171b618151c.json"),
+        );
+        let CompileResult::Lowered { definition } = compiled else {
+            panic!("{compiled:?}")
+        };
+        assert_eq!(
+            bestow_alternative(&definition),
+            Some((found, &canonical_bestow_program()))
+        );
+        assert_eq!(definition.source_labels.as_ref().unwrap().statics, [0, 2]);
+        assert!(
+            matches!(&definition.static_abilities[1].effect,StaticEffect::ModifyCreatures{scope:CreatureScope::Enchanted,power,toughness,keywords,..}
+            if power == &Quantity::from(4) && toughness == power && keywords == &definition.keywords && keywords.len()==5)
+        );
         let mut forged = binding.clone();
         forged["references"][0]["target"] = forged["nodes"][3]["id"].clone();
         assert!(cast_plan(source, &parse, &forged, identity).is_err());

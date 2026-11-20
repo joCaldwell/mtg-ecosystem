@@ -2,7 +2,7 @@
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod bestow;
-pub use bestow::{BestowCastPlan, BestowForm};
+pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative, canonical_bestow_program};
 mod cascade_land_entry;
 mod granted_land_mana;
 pub mod hand_cast_cascade;
@@ -349,6 +349,7 @@ pub enum Capability {
     CompositeActivationCostV1,
     CastEnchantmentV1,
     AuraControlV1,
+    BestowV1,
     TemporaryPowerToughnessV1,
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
@@ -1427,6 +1428,10 @@ pub enum HandSizeScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
+    Bestow {
+        cost: ManaCost,
+        program: SpellProgram,
+    },
     GrantControllerLandsAnyColorMana,
     GrantControllerLandsAllBasicTypes,
     /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
@@ -2631,6 +2636,9 @@ impl Definition {
             set.extend(intrinsic_keyword_capability(*keyword));
         }
         for a in &self.static_abilities {
+            if let StaticEffect::Bestow { program, .. } = &a.effect {
+                add_program_requirements(&mut set, program);
+            }
             if let StaticEffect::GrantSpellCascade {
                 eligibility,
                 program,
@@ -2648,6 +2656,7 @@ impl Definition {
             }
             let static_capability = match a.effect {
                 StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
+                StaticEffect::Bestow { .. } => Capability::BestowV1,
                 StaticEffect::CascadeLandEntry => Capability::CascadeLandEntryV1,
                 StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
                 StaticEffect::OpponentsCantCastDuringControllerTurn => {
@@ -2741,6 +2750,7 @@ impl Definition {
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
+        bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
         hand_cast_cascade::validate_definition(self)?;
@@ -3760,7 +3770,8 @@ impl Definition {
                         ..
                     }
                 )
-        }) && c.kind != CardKind::Enchantment
+        }) && bestow_alternative(self).is_none()
+            && c.kind != CardKind::Enchantment
             && !equipment
             && !(sacrifice && c.kind == CardKind::Creature)
             && !(wipes && matches!(c.kind, CardKind::Instant | CardKind::Sorcery))
@@ -3768,7 +3779,10 @@ impl Definition {
             return Err("static damage replacement requires a supported enchantment".into());
         }
         if self.static_abilities.iter().any(|a| {
-            if matches!(a.effect, StaticEffect::ReduceSelfGenericCost { .. }) {
+            if matches!(
+                a.effect,
+                StaticEffect::ReduceSelfGenericCost { .. } | StaticEffect::Bestow { .. }
+            ) {
                 a.functioning_zone != FunctioningZone::Stack
             } else if matches!(
                 a.effect,
@@ -3876,7 +3890,12 @@ impl Definition {
                 continue;
             }
             if matches!(a.effect, StaticEffect::ModifyCreatures { .. }) {
-                if !static_creature_modification_valid(c.kind, equipment, aura, &a.effect) {
+                if !static_creature_modification_valid(
+                    c.kind,
+                    equipment,
+                    aura || bestow_alternative(self).is_some(),
+                    &a.effect,
+                ) {
                     return Err("invalid static creature modification".into());
                 }
             } else if equipment || aura {
@@ -7078,6 +7097,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "capabilities":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerLandBasicTypesV1}}}}}
     }));
+    bestow::extend_schema(&mut schema);
     colored_library_search::extend_schema(&mut schema);
     schema
 }
@@ -7297,6 +7317,7 @@ mod tests {
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
+            BestowV1,
             TemporaryPowerToughnessV1,
             CombatDamagePreventionV1,
             DamageBudgetPreventionV1,
@@ -7769,6 +7790,7 @@ mod tests {
         definitions.push(controller_library::witness());
         definitions.push(cascade_land_entry::witness());
         definitions.push(hand_cast_cascade::witness());
+        definitions.push(bestow::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
