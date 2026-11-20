@@ -71,6 +71,19 @@ fn power_filtered_removal_rechecks_current_power_after_paid_pump() {
     assert!(
         matches!(request(&mut g, 1), Request::Targets { candidates, .. } if candidates == [bear])
     );
+    let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::Targets {
+        occurrences,
+        candidates,
+        ..
+    }))) = g.player_decision_for(PlayerId(0), Budget::unlimited())
+    else {
+        panic!("expected public creature-removal target request");
+    };
+    assert_eq!(candidates, [g.handle_for(PlayerId(0), bear).unwrap()]);
+    assert_eq!(
+        occurrences[0].filter.as_ref().unwrap().power,
+        Some(CreaturePowerFilter::AtMost { value: 3.into() })
+    );
     answer(
         &mut g,
         1,
