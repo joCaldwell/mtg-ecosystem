@@ -300,6 +300,7 @@ describe("copying a spell with characteristic exceptions", () => {
       abilities(`${prefix}, except the copy isn't legendary.`, "Instant"),
     );
     rejects(`${prefix}, except it isn't legendary if the spell is blue.`, "Instant");
+    rejects("Copy target activated ability, except it isn't legendary if the spell is legendary.", "Instant");
     rejects(`${prefix}, except it isn't legendary if the spell is legendary and gains flying.`, "Instant");
   });
 

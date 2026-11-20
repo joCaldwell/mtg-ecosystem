@@ -143,10 +143,10 @@ export function parseBecomeCopyExceptions(c: Cursor, abilities: Abilities): Copy
  * the same characteristic exceptions as a copy effect's "it", worded about "the
  * copy". An ability the copy gains is not accepted, and the clause must end
  * the sentence. */
-export function parseStackCopyExceptions(c: Cursor): CopyCharacteristicChange[] | null {
+export function parseStackCopyExceptions(c: Cursor, hasSpellTarget: boolean): CopyCharacteristicChange[] | null {
   return c.attempt(c => {
     if (!c.punct(',') || c.word('except') === null) return null;
-    const guardedRemoval = c.attempt(c => {
+    const guardedRemoval = hasSpellTarget && c.attempt(c => {
       if (!c.words('it', "isn't", 'legendary', 'if', 'the', 'spell', 'is', 'legendary')) return null;
       return c.done() || c.isPunct('.') ? true : null;
     });

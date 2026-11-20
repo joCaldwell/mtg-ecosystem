@@ -128,7 +128,9 @@ export function parseStackCopy(c: Cursor, previousActor?: PlayerRef, proof?: Sta
     }
     if (count.amount === "fixed" && (!Number.isInteger(count.value) || count.value < 0)) return null;
     // ", except the copy isn't legendary": the exceptions end the instruction.
-    const copyExceptions = c.attempt(parseStackCopyExceptions);
+    const hasSpellTarget = what.ref === "target" && what.filter.cls === "spell"
+      && !what.filter.allOf && !what.filter.anyOf;
+    const copyExceptions = c.attempt(c => parseStackCopyExceptions(c, hasSpellTarget));
     const copied: CopyEffect = { effect: "copy-stack-object", what, who: by.who, count,
       ...(copyExceptions ? { copyExceptions } : {}),
       ...(by.optional ? { optional: true } : {}), ...(by.decidedBy ? { decidedBy: by.decidedBy } : {}) };
