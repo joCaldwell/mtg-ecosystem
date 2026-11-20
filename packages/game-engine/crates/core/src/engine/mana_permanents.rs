@@ -249,6 +249,11 @@ impl Game {
                         .saturating_add(stored_history::payload_charge(&transaction.applications));
                     activation
                 }
+                // This new root owns the entire suspended resolution and any
+                // nested activation wrappers and receipts. Count their bytes once.
+                Frame::CounterUnless { .. } => {
+                    return stored_history::payload_charge(&self.state.rules.frame);
+                }
                 Frame::Mana { cast }
                 | Frame::SpendMana { cast }
                 | Frame::SacrificeCost { cast }
@@ -448,6 +453,19 @@ impl Game {
         }
     }
 
+    pub(super) fn begin_payment_mana(
+        &mut self,
+        input: &AcceptedInput,
+        source: ObjectId,
+        resume: Frame,
+    ) -> Result<(), String> {
+        if self.is_permanent_mana(source) {
+            self.begin_permanent_mana(input, source, resume)
+        } else {
+            self.begin_intrinsic_mana(input, source, resume)
+        }
+    }
+
     pub(super) fn begin_permanent_mana(
         &mut self,
         input: &AcceptedInput,
@@ -575,23 +593,13 @@ impl Game {
             .ok_or("missing mana ability input")?;
         match input.response {
             Response::ActivateMana { object } if a.stage == ManaStage::Payment => {
-                if self.is_permanent_mana(object) {
-                    self.begin_permanent_mana(
-                        &input,
-                        object,
-                        Frame::ManaAbility {
-                            activation: Box::new(a),
-                        },
-                    )?;
-                } else {
-                    self.begin_intrinsic_mana(
-                        &input,
-                        object,
-                        Frame::ManaAbility {
-                            activation: Box::new(a),
-                        },
-                    )?;
-                }
+                self.begin_payment_mana(
+                    &input,
+                    object,
+                    Frame::ManaAbility {
+                        activation: Box::new(a),
+                    },
+                )?;
             }
             Response::FinishMana { undo_mana } if a.stage == ManaStage::Payment => {
                 let cost = a
@@ -808,6 +816,9 @@ impl Game {
         match &mut resume {
             Frame::ManaAbility { activation } => activation.receipts.extend(receipts),
             Frame::Mana { cast } => cast.mana_activations.extend(receipts),
+            Frame::CounterUnless { payment, .. } if payment.stage == CounterPaymentStage::Mana => {
+                payment.receipts.extend(receipts)
+            }
             Frame::Priority => {
                 if retained {
                     self.state.rules.passes.clear();
@@ -817,11 +828,11 @@ impl Game {
         }
         self.state.rules.frame = resume;
         if matches!(self.state.rules.frame, Frame::Priority) {
-            self.stabilize()?;
+            return self.stabilize();
         }
-        Ok(())
+        self.revalidate_counter_payment_departure()
     }
-    fn undo_mana_receipts(
+    pub(super) fn undo_mana_receipts(
         &mut self,
         player: PlayerId,
         receipts: &[ManaActivationUndo],
@@ -1036,7 +1047,7 @@ impl Game {
             self.state.rules.pending = None;
             return self.resolve_mana_ability(activation, None);
         }
-        Ok(())
+        self.revalidate_counter_payment_departure()
     }
     pub(super) fn validate_nested_mana_frame(&self, frame: &Frame) -> Result<(), String> {
         let mut f = frame;

@@ -26,6 +26,7 @@ mod controller_surveil_tests;
 mod counter_spell_controller_mill;
 #[cfg(test)]
 mod counter_spell_controller_mill_tests;
+mod counter_unless_generic;
 pub mod coverage;
 mod creature_entry_return;
 mod diagnostics;
@@ -174,6 +175,9 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    // Constructed only after validating the complete raw sentence and payer graph.
+    #[serde(skip)]
+    CounterUnlessGeneric { generic: Quantity },
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1407,7 +1411,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities: Vec<Ability> = read_abilities(&canonical_abilities)?;
+    let abilities = match counter_unless_generic::lower(&shape, &result, &binding)? {
+        Some(ability) => vec![ability],
+        None => read_abilities(&canonical_abilities)?,
+    };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let flash_end_step_draw = unlimited_hand_size::is_flash_end_step_draw_candidate(&abilities);
@@ -1420,7 +1427,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         | Ability::Static { ability_word, .. }
         | Ability::Spell { ability_word, .. }
         | Ability::Activated { ability_word, .. }
-        | Ability::Triggered { ability_word, .. }) = ability;
+        | Ability::Triggered { ability_word, .. }) = ability
+        else {
+            continue;
+        };
         if ability_word.as_ref().is_some_and(|s| s.trim().is_empty()) {
             return Err(unsupported("abilities.abilityWord", "empty annotation"));
         }
@@ -2058,6 +2068,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     }
                     labels.statics.push(source_block(block)?);
                     definition.static_abilities.push(a);
+                    continue;
+                }
+                if let Ability::CounterUnlessGeneric { generic } = ability {
+                    let target_slot = bind_target(
+                        &mut program,
+                        &mut slots,
+                        counter_unless_generic::SELECTION,
+                        TargetDomain::StackSpell,
+                    )?;
+                    program
+                        .instructions
+                        .push(Instruction::CounterSpellUnlessPays {
+                            target_slot,
+                            generic: generic.clone(),
+                            source_block: 0,
+                        });
                     continue;
                 }
                 let Ability::Spell { effects, .. } = ability else {
