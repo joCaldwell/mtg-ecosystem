@@ -148,13 +148,16 @@ pub(super) fn extend_schema(schema: &mut Value) {
         {"required":["provenance"],"properties":{"provenance":{"required":["source_json"],
             "properties":{"source_json":{"pattern":TARGET_EXILE_SEARCH.replace('.', r"\.")}}}}}
     ]});
+    let entry_trigger = json!({"const": optional_entry_search::printed(optional_entry_search::TEXT, 0, CardKind::Creature).unwrap().1});
+    let entry_source = json!({"required":["provenance"],"properties":{"provenance":{"required":["source_json"],
+        "properties":{"source_json":{"pattern":optional_entry_search::TEXT.replace('.', r"\.")}}}}});
     let scalar_source = json!({"required":["provenance"],"properties":{"provenance":{"required":["source_json"],
         "properties":{"source_json":{"pattern":"(Whenever another creature enters,|At the beginning of your upkeep,) you may gain [1-9][0-9]* life[.]"}}}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         json!({
             "properties":{
                 "activated":{"items":{"properties":{"program":free}}},
-                "triggered":{"items":{"if":optional,"then":scalar}},
+                "triggered":{"items":{"if":optional,"then":{"anyOf":[scalar,entry_trigger]}}},
                 "static_abilities":{"items":{"properties":{"effect":{"properties":{
                     "bestow":{"properties":{"program":free}},
                     "grant_spell_cascade":{"properties":{"program":free}}
@@ -168,12 +171,17 @@ pub(super) fn extend_schema(schema: &mut Value) {
             },"required":["spell"]}
         }),
         json!({
-            "if":{"anyOf":[spell,scalar_source,{"required":["triggered"],"properties":{"triggered":{"contains":optional}}}]},
+            "if":{"anyOf":[spell,scalar_source,entry_source,{"required":["triggered"],"properties":{"triggered":{"contains":optional}}}]},
             "then":{"properties":{"capabilities":cap}},
             "else":{"properties":{"capabilities":{"not":cap}}}
         }),
-        json!({"if":scalar_source,"then":{"required":["triggered"],"properties":{"triggered":{"contains":optional}}}})
+        json!({"if":scalar_source,"then":{"required":["triggered"],"properties":{"triggered":{"contains":optional}}}}),
+        json!({"if":entry_source,"then":{"required":["triggered"],"properties":{"triggered":{"contains":entry_trigger}}}})
     ]);
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .extend(optional_entry_search::entry_schema());
 }
 
 #[cfg(test)]

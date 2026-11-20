@@ -146,6 +146,7 @@ pub mod intrinsic_keyword_blocks;
 pub mod mana_tap_observer;
 pub use mana_tap_observer::ManaTapFilter;
 pub mod optional_block;
+pub mod optional_entry_search;
 pub mod optional_trigger;
 pub mod permanent_entry;
 pub mod source_damage_counters;
@@ -4497,6 +4498,7 @@ impl Definition {
                             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::ChooseOptional { .. }
+                            | Instruction::SearchRecipientBasicLand { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::GrantHandCastCascade { .. }

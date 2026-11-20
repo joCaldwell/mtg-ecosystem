@@ -41,6 +41,7 @@ fn body(line: &str, kind: CardKind) -> Option<(TriggerCondition, Value, u32)> {
 
 pub fn candidate(line: &str, kind: CardKind) -> bool {
     body(line, kind).is_some()
+        || (kind == CardKind::Creature && line == optional_entry_search::TEXT)
 }
 
 pub fn printed(
@@ -49,6 +50,9 @@ pub fn printed(
     kind: CardKind,
     source_block: u32,
 ) -> Option<TriggeredAbility> {
+    if let Some((ast, ability)) = optional_entry_search::printed(line, source_block, kind) {
+        return (*raw == ast).then_some(ability);
+    }
     let (condition, trigger, life) = body(line, kind)?;
     let expected = json!({"kind":"triggered","trigger":trigger,
         "effects":[{"steps":[{"effect":"gain-life","who":{"player":"you"},"amount":{"amount":"fixed","value":life},"optional":true}]}]
@@ -91,7 +95,11 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         .count();
     let raw = &d.provenance.source_json;
     const CLUE: &str = "you may gain ";
-    if actual == 0 && !raw.contains(CLUE) && !raw.contains(r"\u") {
+    if actual == 0
+        && !raw.contains(CLUE)
+        && !raw.contains(optional_entry_search::TEXT)
+        && !raw.contains(r"\u")
+    {
         return Ok(());
     }
     let source: Value = strict_read(raw)?;
@@ -114,6 +122,9 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         || source["layout"] != "normal"
     {
         return Err(fail.into());
+    }
+    if text.lines().any(|line| line == optional_entry_search::TEXT) {
+        optional_entry_search::validate_siblings(d, &source, text, &ast)?;
     }
     for (block, line) in expected {
         let source_block = u32::try_from(block).map_err(|_| fail)?;

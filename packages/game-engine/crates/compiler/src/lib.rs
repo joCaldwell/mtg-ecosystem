@@ -111,6 +111,7 @@ mod opponent_mana;
 mod opponent_nonland_destroy;
 mod optional_block;
 mod optional_costs;
+mod optional_entry_search;
 mod optional_trigger;
 mod ordinary_sequence;
 mod other_land_entry;
@@ -1817,6 +1818,16 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                         &binding,
                         &shape,
                         &r.oracle_identity,
+                    )? {
+                        return Ok(a);
+                    }
+                    if let Some(a) = optional_entry_search::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                        types.kind,
                     )? {
                         return Ok(a);
                     }
