@@ -414,13 +414,28 @@ pub(super) fn extend_schema(schema: &mut Value) {
         {"properties":{"targets":{"maxItems":0},"instructions":programs}},
         grant_program, counter_program
     ]});
+    let registration_chapter = json!({
+        "required":["program"],"properties":{"program":{
+            "required":["instructions"],"properties":{"instructions":{"contains":{
+                "required":["op"],"properties":{"op":{"const":"register_controller_creature_entry_this_turn"}}
+            }}}
+        }}
+    });
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":SagaChaptersV1}}}},
             {"required":["triggered"],"properties":{"triggered":{"contains":chapter}}},
             {"properties":{"characteristics":{"properties":{"subtypes":{"contains":{"const":"Saga"}}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""layout"\s*:\s*"saga""#}}}}}]},
-        "then":{"required":["triggered","spell"],"properties":{
-            "capabilities":{"minItems":4,"maxItems":allowed.len(),"allOf":[{"contains":{"const":SagaChaptersV1}},{"contains":{"const":TriggeredAbilityV1}},{"contains":{"const":CastEnchantmentV1}},{"contains":{"const":SacrificeV1}}],"uniqueItems":true,"items":{"enum":allowed}},
+        "then":{"required":["triggered","spell"],"allOf":[{
+            "if":{"properties":{"triggered":{"contains":registration_chapter}}},
+            "then":{"properties":{"capabilities":{"allOf":[
+                {"contains":{"const":SacrificeV1}},{"contains":{"const":DelayedControllerCreatureEntryV1}}
+            ]}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{
+                "enum":[SacrificeV1,DelayedControllerCreatureEntryV1]
+            }}}}}
+        }],"properties":{
+            "capabilities":{"minItems":4,"maxItems":allowed.len(),"allOf":[{"contains":{"const":SagaChaptersV1}},{"contains":{"const":TriggeredAbilityV1}},{"contains":{"const":CastEnchantmentV1}}],"uniqueItems":true,"items":{"enum":allowed}},
             "characteristics":{"properties":{"kind":{"const":"enchantment"},"subtypes":{"const":["Saga"]},"basic":{"const":false},
                 "legendary":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0}}},
             "x_mana_cost":{"const":false},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"keywords":{"maxItems":0},
