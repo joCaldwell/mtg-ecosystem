@@ -139,6 +139,7 @@ const EFFECT_EXTRA: [(&str, &str); 6] = [
 mod allocation;
 pub use allocation::*;
 mod choices;
+mod graveyard_targets;
 #[cfg(test)]
 mod choices_tests;
 pub use choices::*;

@@ -222,8 +222,7 @@ impl Game {
         player: PlayerId,
         domain: TargetDomain,
     ) -> bool {
-        object.zone == (Zone::Graveyard { owner: player })
-            && !self.state.rules.tokens.contains_key(&object.id.card)
+        self.player_graveyard_card(object, player)
             && match domain {
                 TargetDomain::OwnGraveyardCard => true,
                 TargetDomain::OwnGraveyardCreatureCard => self
