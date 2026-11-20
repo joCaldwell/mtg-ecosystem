@@ -3,7 +3,7 @@
 // ambiguous referent. Every unsupported scope remains a reported obligation.
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-import type { Ability, Amount, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -131,10 +131,10 @@ function child(path: string, part: string | number): string {
 function cardCount(amount: Amount | undefined): BindingCardinality {
   return amount?.amount === "fixed" ? amount.value === 1 ? "one" : "many" : "unknown";
 }
-function objectCardinality(ref: ObjectRef): BindingCardinality {
+function objectCardinality(ref: ObjectRef | CascadeExiledCards): BindingCardinality {
   switch (ref.ref) {
     case "self": case "this": case "it": case "enchanted": case "equipped": case "fortified": case "haunted-creature": case "targeted-by": case "trigger-event-object": case "amassed-army": return "one";
-    case "them": case "each": case "all": case "zone-cards": case "rest": case "vote-leaders": case "soulbond-pair": case "pile": return "many";
+    case "them": case "each": case "all": case "zone-cards": case "cascade-exiled-cards": case "rest": case "vote-leaders": case "soulbond-pair": case "pile": return "many";
     case "related": case "copy-result": case "choice-result": return ref.number === "singular" ? "one" : "many";
     case "that": return ref.plural ? "many" : "one";
     case "target": case "filter": case "commander": case "library-cards": case "graveyard-cards": case "from-pool": return cardCount(ref.count);
@@ -148,7 +148,7 @@ function combine(a: Candidate[], b: Candidate[]): Candidate[] {
   for (const candidate of [...a, ...b]) if (!distinct.has(candidate.id)) distinct.set(candidate.id, candidate);
   return [...distinct.values()];
 }
-function description(ref: ObjectRef): ObjectFilter | undefined {
+function description(ref: ObjectRef | CascadeExiledCards): ObjectFilter | undefined {
   if ("filter" in ref) return ref.filter;
   // CR 115.4: "any target" is a creature, player, planeswalker or battle.
   if (ref.ref === "any-target") return { anyOf: [{ types: ["creature"] }, { types: ["planeswalker"] }, { types: ["battle"] }] } as ObjectFilter;
@@ -156,7 +156,7 @@ function description(ref: ObjectRef): ObjectFilter | undefined {
   if ((ref.ref === "equipped" || ref.ref === "enchanted" || ref.ref === "fortified") && "noun" in ref && typeof ref.noun === "string"
     && ["creature", "artifact", "enchantment", "land", "planeswalker", "permanent"].includes(ref.noun))
     return ref.noun === "permanent" ? { cls: "permanent" } : { types: [ref.noun] } as ObjectFilter;
-  if (ref.ref === "library-cards" || ref.ref === "graveyard-cards" || ref.ref === "zone-cards") return { cls: "card" };
+  if (ref.ref === "library-cards" || ref.ref === "graveyard-cards" || ref.ref === "zone-cards" || ref.ref === "cascade-exiled-cards") return { cls: "card" };
   if (ref.ref === "this") {
     if (["card", "spell", "permanent", "ability"].includes(ref.noun)) return { cls: ref.noun as "card" | "spell" | "permanent" | "ability" };
     if (["creature", "artifact", "enchantment", "land", "planeswalker", "battle"].includes(ref.noun)) return { types: [ref.noun] };
@@ -376,6 +376,10 @@ class Analyzer {
       const barrier = "The excluded cast must be the resolving spell's own cast occurrence.";
       this.diagnostic("unsupported-scope", path, barrier, ["202.3e", "601.2i", "608.2i"]);
       this.walkChildren(value, path, { ...context, barrier });
+      return;
+    }
+    if (value.static === "as-cascade") {
+      this.cascade(value as Extract<StaticEffect, { static: "as-cascade" }>, path, context);
       return;
     }
     if (value.static === "skip-time" || value.effect === "skip-time") {
@@ -1217,6 +1221,28 @@ class Analyzer {
       : node?.node === "selection" && "ref" in node.expression ? description(node.expression)
       : "ref" in binding.expression && binding.expression.ref !== "affected-object" && binding.expression.ref !== "those-counters" ? description(binding.expression) : undefined;
     return { id: binding.target, cardinality, domain: domain(binding.expression), description: established };
+  }
+  cascade(effect: Extract<StaticEffect, { static: "as-cascade" }>, path: string, context: Context): void {
+    const choice = child(path, "choice");
+    const controllerPath = child(path, "controller");
+    const from = child(choice, "from");
+    const controller = this.player(effect.controller, controllerPath, context);
+    if (!controller) {
+      this.unresolved(effect.choice.from, from, "unresolved-dependency",
+        "The cascade occurrence requires the controller of the static ability.", ["109.5", "702.85b"]);
+      return;
+    }
+    const occurrence = this.node({ id: this.id(path, "cascade"), path, node: "cascade-occurrence",
+      scope: context.ability, controllerMatches: controller.id, rules: ["608.2c", "702.85b", "702.85c"] });
+    const decider = this.node({ id: this.id(controllerPath, "cascade-controller"), path: controllerPath,
+      node: "derived-player", scope: context.ability, role: "controller", of: occurrence, rules: ["608.2c", "702.85b"] });
+    const pool = this.node({ id: this.id(from, "pool"), path: from, node: "cascade-exiled-pool", occurrence,
+      rules: ["702.85a", "702.85b", "702.85c"] });
+    const cards = this.bound(effect.choice.from, from, pool, ["702.85b"]);
+    this.event(choice, context, "choose-and-put", [cards], { optional: effect.choice.optional, decider });
+    this.engineFeature("cascade-resolution", path,
+      "Offer the choice from this cascade's cards still in exile after exiling, before the cast decision or bottom placement.",
+      ["608.2d", "702.85b"]);
   }
   event(path: string, context: Context, operation: string, inputs: Candidate[],
     extra: { optional?: true; decider?: string; repeated?: "for-each"; conditional?: true } = {}): string {
