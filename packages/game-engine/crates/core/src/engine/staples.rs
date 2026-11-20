@@ -822,18 +822,23 @@ impl Game {
         &mut self,
         player: PlayerId,
         index: u32,
+        replacement_offset: Option<usize>,
     ) -> Result<EventOutcome, String> {
-        if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
+        let offset = if let Some(offset) = replacement_offset {
+            offset
+        } else if matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
         {
+            0
+        } else {
             return Err("shuffle continuation invariant".into());
-        }
+        };
         let library = self
             .state
             .rules
             .libraries
             .get_mut(&player)
             .ok_or("missing search library")?;
-        if index == 0 || index as usize >= library.len() {
+        if index == 0 || index as usize >= library.len().saturating_sub(offset) {
             return Err("shuffle range".into());
         }
         // A tucked commander can bring the physical library to all 100 owned
@@ -852,7 +857,7 @@ impl Game {
         let word = random.word()?;
         let selected = setup::sample_shuffle_word(word, index + 1);
         if let Some(j) = selected {
-            library.swap(index as usize, j as usize);
+            library.swap(offset + index as usize, offset + j as usize);
         }
         Ok(EventOutcome::LibraryShuffledWord {
             player,

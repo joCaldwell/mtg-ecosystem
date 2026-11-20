@@ -750,3 +750,99 @@ fn library_order_kernel_zero_singleton_shuffle_counts_without_random_words() {
         assert!(g.is_live(PlayerId(0)), "mandatory draw has not run yet");
     }
 }
+
+#[test]
+fn printed_replacement_mill_reveals_shuffles_and_resumes_before_draw() {
+    let mut p = prepared();
+    // Locate the randomized physical slot in the existing real opening. Substituting
+    // the two source definitions preserves this shuffle's deck sizes and seed.
+    let mut probe = Game::new(p.clone());
+    let spell = develop(&mut probe, 128);
+    let before = library(&probe, 0);
+    let printed = before[0];
+    let other = before[1];
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    let ramos = include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json");
+    let specifications = [
+        (
+            spell,
+            manifest,
+            include_str!("../../../../tests/fixtures/e8d5f31c-7abf-4fbb-977e-8353a97daf7a.json"),
+        ),
+        (
+            printed.card,
+            ramos,
+            include_str!(
+                "../../../../tests/fixtures/ramos/2d7e00b6-12f0-4b03-82a6-50e3d1b5395e.json"
+            ),
+        ),
+    ];
+    for (card, manifest, raw) in specifications {
+        let mtg_compiler::CompileResult::Lowered { definition } =
+            mtg_compiler::compile(manifest, raw)
+        else {
+            panic!("complete source must lower")
+        };
+        let row = p.config.cards.iter_mut().find(|r| r.id == card).unwrap();
+        let deck = &mut p.match_config.as_mut().unwrap().decks[0];
+        let old = deck
+            .cards
+            .iter_mut()
+            .find(|c| c.oracle_id == row.oracle_id)
+            .unwrap();
+        old.count -= 1;
+        deck.cards.retain(|r| r.count != 0);
+        row.oracle_id = definition.oracle_id.clone();
+        deck.cards.push(DeckEntry {
+            count: 1,
+            oracle_id: row.oracle_id.clone(),
+        });
+        Arc::make_mut(&mut p.catalog).definitions.push(*definition);
+    }
+    Arc::make_mut(&mut p.catalog)
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog.validate().unwrap();
+    p.catalog_digest = digest(&*p.catalog).unwrap();
+    p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
+
+    let mut game = Game::new(p);
+    develop(&mut game, 128);
+    announce(&mut game, 128, spell.0, vec![]);
+    let mut revealed = false;
+    for _ in 0..500 {
+        match game.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => {}
+            Advance::AwaitingDecision(r) => {
+                game.respond(r.player(), r.decision_id(), pass(&r)).unwrap();
+            }
+            unexpected => panic!("mill {unexpected:?}"),
+        }
+        if game.replacement_reveals(printed) {
+            assert!(game.handle_for(PlayerId(1), printed).is_ok());
+            assert!(game.handle_for(PlayerId(1), other).is_err());
+            assert_eq!(
+                game.zone(printed),
+                Some(Zone::Library { owner: PlayerId(0) })
+            );
+            recover(&game);
+            revealed = true;
+        }
+        if matches!(&game.state.rules.frame, Frame::Resolve { frame } if frame.cursor == 1) {
+            assert!(revealed);
+            assert_eq!(
+                game.visible_player(PlayerId(0)).unwrap().library_shuffles,
+                1
+            );
+            assert_eq!(game.object_id(printed.card), Some(printed));
+            assert!(game.handle_for(PlayerId(1), printed).is_err());
+            assert!(matches!(
+                game.zone(game.object_id(other.card).unwrap()),
+                Some(Zone::Graveyard { .. })
+            ));
+            recover(&game);
+            return;
+        }
+    }
+    panic!("mill did not finish within the bound");
+}
