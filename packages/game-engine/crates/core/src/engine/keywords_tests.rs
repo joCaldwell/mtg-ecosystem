@@ -287,6 +287,143 @@ fn flying_reach_defender_and_vigilance_declarations() {
     }
 }
 #[test]
+fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
+    // The exact archived card is covered by compiler integration. Use a
+    // synthetic combat setup with an otherwise vanilla nonbasic Forest.
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Wall of Wood", 1, false),
+            ("Wall of Wood", 2, false),
+            ("Forest", 1, false),
+            ("Forest", 2, true),
+            ("Island", 2, false),
+        ],
+        false,
+    );
+    p.config.cards[4].owner = PlayerId(2);
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let bears = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    bears.keywords.push(KeywordAbility::Forestwalk);
+    bears.capabilities = bears.requirements();
+    let mut land = catalog.definition_by_oracle_id(FOREST).unwrap().clone();
+    land.oracle_id = "synthetic-nonbasic-forest".into();
+    land.name = "Synthetic Nonbasic Forest".into();
+    land.source_labels = None;
+    land.characteristics.basic = false;
+    land.capabilities = land.requirements();
+    p.config.cards[4].oracle_id = land.oracle_id.clone();
+    catalog.definitions.push(land);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p.clone(), |g| {
+        let first_attacker = object(g, 0);
+        let second_attacker = object(g, 1);
+        let first_blocker = object(g, 2);
+        let second_blocker = object(g, 3);
+        assert_eq!(attackers(g), [first_attacker, second_attacker]);
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![
+                    (first_attacker, PlayerId(1)),
+                    (second_attacker, PlayerId(2)),
+                ],
+            },
+        );
+        loop {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                break;
+            }
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        let mut phased = g.fork();
+        phased
+            .phase_out_permanents(phasing::PhaseSelection::Target(object(g, 4)))
+            .unwrap();
+        assert!(phased.can_block(first_blocker, first_attacker));
+
+        let QueryResult::Complete(QueryValue::Observation(obs)) =
+            g.observe(PlayerId(1), Budget::unlimited())
+        else {
+            panic!("blocker observation");
+        };
+        let Some(PlayerRequest::Blockers {
+            legal_attackers, ..
+        }) = obs.decision
+        else {
+            panic!("block hints");
+        };
+        assert_eq!(legal_attackers.len(), 1);
+        assert!(legal_attackers[0].attackers.is_empty());
+        let r = request(g);
+        assert!(
+            g.respond(
+                r.player(),
+                r.decision_id(),
+                Response::Blockers {
+                    blocks: vec![(first_blocker, first_attacker)]
+                },
+            )
+            .is_err()
+        );
+        answer(g, Response::Blockers { blocks: vec![] });
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(second_blocker, second_attacker)],
+            },
+        );
+        reach(g, TurnStep::CombatDamage);
+        assert_eq!(g.state.rules.players[1].life, 38.into());
+        assert_eq!(g.state.rules.players[2].life, 40.into());
+    });
+
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let mtg_compiler::CompileResult::Lowered { definition: grant } = mtg_compiler::compile(
+        mtg_compiler::fixtures::MANIFEST,
+        include_str!("../../../../tests/fixtures/synthetic-controller-land-types.json"),
+    ) else {
+        panic!("land-type grant witness");
+    };
+    p.config.cards.push(CardSetup {
+        id: CardId(p.config.cards.len() as u32),
+        oracle_id: grant.oracle_id.clone(),
+        controller: PlayerId(2),
+        owner: PlayerId(2),
+        zone: Zone::Battlefield,
+    });
+    catalog.definitions.push(*grant);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::with_trace(p, TraceMode::Off);
+    let attacker = object(&g, 0);
+    let blocker = object(&g, 3);
+    assert_eq!(attackers(&mut g), [attacker, object(&g, 1)]);
+    answer(
+        &mut g,
+        Response::Attackers {
+            attacks: vec![(attacker, PlayerId(2))],
+        },
+    );
+    assert!(!g.can_block(blocker, attacker));
+}
+
+#[test]
 fn freshly_cast_haste_attacks_but_other_creature_waits() {
     // CR302.6/702.10b: only haste bypasses continuous control.
     traces(

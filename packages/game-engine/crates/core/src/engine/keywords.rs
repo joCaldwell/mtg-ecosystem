@@ -80,13 +80,60 @@ impl Game {
     }
 
     pub(super) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
+        let keywords = self.current_keywords(attacker);
         self.color_layer(blocker)
             .is_ok_and(|source| !self.protected_from(attacker, &source))
             && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
             && !self.has_restriction(blocker, CreatureRestriction::CantAttackOrBlock)
-            && (!self.has_keyword(attacker, KeywordAbility::Flying)
+            && (!keywords.contains(&KeywordAbility::Flying)
                 || self.has_keyword(blocker, KeywordAbility::Flying)
                 || self.has_keyword(blocker, KeywordAbility::Reach))
+            && !self.landwalk_prevents_block(attacker, &keywords)
+    }
+
+    // CR 509.1b/702.14: each attack has its own defending player. Basic land
+    // types are current subtypes, independently of the Basic supertype.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    fn landwalk_prevents_block(&self, attacker: ObjectId, keywords: &[KeywordAbility]) -> bool {
+        let land_types: Vec<_> = keywords
+            .iter()
+            .filter_map(|keyword| match keyword {
+                KeywordAbility::Plainswalk => Some(BasicLandType::Plains),
+                KeywordAbility::Islandwalk => Some(BasicLandType::Island),
+                KeywordAbility::Swampwalk => Some(BasicLandType::Swamp),
+                KeywordAbility::Mountainwalk => Some(BasicLandType::Mountain),
+                KeywordAbility::Forestwalk => Some(BasicLandType::Forest),
+                _ => None,
+            })
+            .collect();
+        if land_types.is_empty() {
+            return false;
+        }
+        let Some(attack) = self
+            .state
+            .rules
+            .combat
+            .iter()
+            .find(|a| a.attacker == attacker)
+        else {
+            return false;
+        };
+        self.state.rules.objects.values().any(|object| {
+            if object.controller != attack.defender || !object.present_on_battlefield() {
+                return false;
+            }
+            let Ok(mut land) = self.structural_characteristics(object.id) else {
+                return false;
+            };
+            land.has_type(CardKind::Land)
+                && (!self.catalog_has_land_type_grant
+                    || self
+                        .apply_land_subtype_grants(object.id, land.to_mut())
+                        .is_ok())
+                && land_types
+                    .iter()
+                    .any(|land_type| land.subtypes.iter().any(|s| s == land_type.subtype()))
+        })
     }
     /// Called inside the atomic final damage commit, after all validation and
     /// prevention. No SBA or trigger placement can occur between damage/gains.
