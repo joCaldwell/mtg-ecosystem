@@ -1,15 +1,17 @@
 //! Pure gap inspection and finite four-seat headless admission.
-//! CR 903.3 and 903.5: https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+//! CR 702.124 and 903.3–.5: https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::capacities::STACK_LIMIT;
-use super::match_admission::{commander_eligible, deck_color_violations, physical_match_config};
+use super::match_admission::{commander_eligible, deck_color_violations, physical_match_rosters};
 use super::*;
 use crate::profile_data::parse_commander_bans;
 use mtg_contracts::bulk_catalog::{
-    BulkArtifact, BulkStatus, CommanderLegality, ValidatedCatalog, is_oracle_id,
+    BulkArtifact, BulkCardFacts, BulkIndexRow, BulkStatus, CommanderLegality, ValidatedCatalog,
+    is_oracle_id,
 };
 use std::sync::LazyLock;
 
 pub const DYNAMIC_PROFILE: &str = "commander-dynamic-headless-v1";
+const ADMISSION_DOMAIN: &str = "commander-dynamic-pair-admission-v2";
 pub const DYNAMIC_MAX_DECK_ROWS: usize = 100;
 const DECK_SIZE: u64 = 100;
 const PHYSICAL_SOURCES: usize = 400;
@@ -63,7 +65,7 @@ static POLICY_STATE: LazyLock<Result<DynamicPolicy, String>> = LazyLock::new(|| 
         .into_iter()
         .map(|ban| ban.oracle_id)
         .collect();
-    let digest = digest(&(DYNAMIC_PROFILE, POLICY_SHA256, REVIEWED))?;
+    let digest = digest(&(ADMISSION_DOMAIN, POLICY_SHA256, REVIEWED))?;
     Ok(DynamicPolicy { banned_ids, digest })
 });
 fn policy() -> Result<&'static DynamicPolicy, String> {
@@ -122,6 +124,7 @@ pub enum DeckGapCode {
     TooManyRows,
     InvalidDeckSize,
     UnsupportedCommanderConfiguration,
+    InvalidCommanderPair,
     UnsupportedCompanion,
 }
 
@@ -140,7 +143,6 @@ pub enum CardGapCode {
     Banned,
     FinitePoolExclusion,
     UnsupportedCommanderType,
-    DoctorsCompanion,
     SingletonName,
     UnsupportedRepeatQuantity,
     ColorIdentity,
@@ -175,11 +177,36 @@ pub struct CardGaps {
     pub issues: Vec<CardGapIssue>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommanderPairing {
+    Partner,
+    DoctorsCompanion,
+}
+fn pairing(first: &BulkCardFacts, second: &BulkCardFacts) -> Option<CommanderPairing> {
+    if !first.legendary_creature || !second.legendary_creature {
+        return None;
+    }
+    if first.partner && second.partner {
+        return Some(CommanderPairing::Partner);
+    }
+    if (first.doctors_companion && second.time_lord_doctor)
+        || (second.doctors_companion && first.time_lord_doctor)
+    {
+        return Some(CommanderPairing::DoctorsCompanion);
+    }
+    None
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DeckInspection {
     pub total_slots: u64,
     pub compiled_slots: u64,
     pub deck_issues: Vec<DeckGapCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commander_pairing: Option<CommanderPairing>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commander_color_identity: Option<Vec<Color>>,
     pub card_gaps: Vec<CardGaps>,
 }
 impl DeckInspection {
@@ -204,6 +231,8 @@ fn inspect(
         total_slots: 0,
         compiled_slots: 0,
         deck_issues: Vec::new(),
+        commander_pairing: None,
+        commander_color_identity: None,
         card_gaps: Vec::new(),
     };
     if rows.len() > DYNAMIC_MAX_DECK_ROWS {
@@ -234,35 +263,57 @@ fn inspect(
     if report.total_slots != DECK_SIZE {
         report.deck_issues.push(DeckGapCode::InvalidDeckSize);
     }
-    let mut commander_rows = rows.iter().filter(|r| r.role == DeckRole::Commander);
-    let first_commander = commander_rows.next();
-    let multiple_commanders = commander_rows.next().is_some();
-    let commander_row = first_commander.filter(|row| row.quantity == 1 && !multiple_commanders);
-    if commander_row.is_none() {
+    let commanders: Vec<_> = rows
+        .iter()
+        .filter(|r| r.role == DeckRole::Commander)
+        .collect();
+    if !(1..=2).contains(&commanders.len())
+        || commanders
+            .iter()
+            .any(|row| row.quantity != 1 || identities[row.oracle_id.as_str()] != 1)
+    {
         report
             .deck_issues
             .push(DeckGapCode::UnsupportedCommanderConfiguration);
+    } else if let Some(records) = commanders
+        .iter()
+        .map(|row| artifact.lookup(&row.oracle_id))
+        .collect::<Option<Vec<_>>>()
+    {
+        let allowed_pair = if let [first, second] = records.as_slice() {
+            report.commander_pairing = pairing(&first.facts, &second.facts);
+            if report.commander_pairing.is_none()
+                && first.facts.legendary_creature
+                && second.facts.legendary_creature
+            {
+                report.deck_issues.push(DeckGapCode::InvalidCommanderPair);
+            }
+            report.commander_pairing.is_some()
+        } else {
+            true
+        };
+        if allowed_pair
+            && records.iter().all(|row| {
+                row.facts.legendary_creature
+                    && !policy.banned_ids.contains(&row.oracle_id)
+                    && row.facts.commander_legality == CommanderLegality::Legal
+                    && !row.facts.conspiracy
+                    && !row.facts.ante
+            })
+        {
+            report.commander_color_identity = Some(
+                records
+                    .iter()
+                    .flat_map(|row| row.facts.color_identity.iter().copied())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+            );
+        }
     }
     if rows.iter().any(|r| r.role == DeckRole::Companion) {
         report.deck_issues.push(DeckGapCode::UnsupportedCompanion);
     }
-    let commander = commander_row
-        .filter(|r| {
-            identities[r.oracle_id.as_str()] == 1
-                && !policy.banned_ids.contains(&r.oracle_id)
-                && artifact.lookup(&r.oracle_id).is_some_and(|row| {
-                    row.facts.commander_legality == CommanderLegality::Legal
-                        && !row.facts.conspiracy
-                        && !row.facts.ante
-                })
-        })
-        .and_then(|r| catalog.definition_by_oracle_id(&r.oracle_id))
-        .filter(|definition| {
-            commander_eligible(
-                &definition.characteristics,
-                CommanderEligibility::LegendaryCreature,
-            )
-        });
 
     for ((id, role), (quantity, includes_zero)) in groups {
         let mut issues = Vec::new();
@@ -278,11 +329,7 @@ fn inspect(
         if !is_oracle_id(id) {
             issues.push(CardGapIssue::new(CardGapCode::InvalidOracleId));
         } else if let Some(row) = artifact.lookup(id) {
-            inspect_index_row(
-                row,
-                role == DeckRole::Commander && multiple_commanders,
-                &mut issues,
-            );
+            inspect_index_row(row, role, &mut issues);
         } else {
             issues.push(CardGapIssue::new(CardGapCode::ArchiveMissing));
         }
@@ -290,7 +337,14 @@ fn inspect(
             if role != DeckRole::Companion {
                 report.compiled_slots += quantity;
             }
-            inspect_definition(definition, commander, role, quantity, &names, &mut issues);
+            inspect_definition(
+                definition,
+                report.commander_color_identity.as_deref(),
+                role,
+                quantity,
+                &names,
+                &mut issues,
+            );
         }
         if !issues.is_empty() {
             issues.sort_unstable();
@@ -307,11 +361,7 @@ fn inspect(
     report
 }
 
-fn inspect_index_row(
-    row: &mtg_contracts::bulk_catalog::BulkIndexRow,
-    paired_commander: bool,
-    issues: &mut Vec<CardGapIssue>,
-) {
+fn inspect_index_row(row: &BulkIndexRow, role: DeckRole, issues: &mut Vec<CardGapIssue>) {
     let code = match row.status {
         BulkStatus::LoweredValidated => None,
         BulkStatus::Unsupported => Some(CardGapCode::CompilerUnsupported),
@@ -345,14 +395,14 @@ fn inspect_index_row(
     if row.facts.ante || row.facts.conspiracy {
         issues.push(CardGapIssue::new(CardGapCode::FinitePoolExclusion));
     }
-    if paired_commander && row.facts.doctors_companion {
-        issues.push(CardGapIssue::new(CardGapCode::DoctorsCompanion));
+    if role == DeckRole::Commander && !row.facts.legendary_creature {
+        issues.push(CardGapIssue::new(CardGapCode::UnsupportedCommanderType));
     }
 }
 
 fn inspect_definition(
     d: &Definition,
-    commander: Option<&Definition>,
+    commander_colors: Option<&[Color]>,
     role: DeckRole,
     quantity: u64,
     names: &BTreeMap<&str, BTreeSet<&str>>,
@@ -371,9 +421,8 @@ fn inspect_definition(
             issues.push(CardGapIssue::new(CardGapCode::SingletonName));
         }
     }
-    if let Some(commander) = commander {
-        let (identity, land) =
-            deck_color_violations(&d.characteristics, &commander.characteristics);
+    if let Some(colors) = commander_colors {
+        let (identity, land) = deck_color_violations(&d.characteristics, colors);
         if identity {
             issues.push(CardGapIssue::new(CardGapCode::ColorIdentity));
         }
@@ -426,11 +475,18 @@ pub struct DynamicAdmissionIdentity {
 pub struct DynamicPod {
     pub prepared: Prepared,
     pub identity: DynamicAdmissionIdentity,
+    normalized: DynamicMatchConfig,
+}
+impl DynamicPod {
+    pub fn normalized_config(&self) -> &DynamicMatchConfig {
+        &self.normalized
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub enum DynamicAdmissionError {
     InvalidStartingPlayer,
+    InvalidSeatRotation,
     DeckGaps { decks: Vec<DeckInspection> },
     PodCapacity,
     Unavailable { detail: String },
@@ -453,83 +509,170 @@ pub fn admit_dynamic_pod(
     if config.starting_player.0 >= 4 {
         return Err(DynamicAdmissionError::InvalidStartingPlayer);
     }
-    let policy = policy().map_err(unavailable)?;
-    let inspections = config
-        .decks
-        .each_ref()
-        .map(|rows| inspect(artifact, rows, policy));
-    if inspections.iter().any(|r| !r.admissible()) {
-        return Err(DynamicAdmissionError::DeckGaps {
-            decks: Vec::from(inspections),
-        });
-    }
-    let decks = config.decks.each_ref().map(|rows| {
+    DynamicPodTemplate::admit(artifact, &config.decks)?.prepare(
+        config.starting_player,
+        config.seed,
+        0,
+    )
+}
+
+struct NormalizedDeck {
+    commanders: Vec<String>,
+    cards: Vec<DeckEntry>,
+}
+impl NormalizedDeck {
+    fn new(rows: &[DynamicDeckEntry]) -> Self {
+        let mut commanders = Vec::with_capacity(2);
         let mut cards = Vec::with_capacity(rows.len());
-        let mut commander = String::new();
         for row in rows {
             if row.role == DeckRole::Commander {
-                commander.clone_from(&row.oracle_id);
+                commanders.push(row.oracle_id.clone());
             }
             cards.push(DeckEntry {
                 oracle_id: row.oracle_id.clone(),
                 count: row.quantity,
             });
         }
+        commanders.sort_unstable();
         cards.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-        Decklist { commander, cards }
-    });
+        Self { commanders, cards }
+    }
 
-    let catalog = artifact.catalog().catalog();
-    let mut selected = BTreeMap::<&str, &Definition>::new();
-    let mut native_triggers = 0usize;
-    for row in decks.iter().flat_map(|deck| &deck.cards) {
-        let definition = catalog
-            .definition_by_oracle_id(&row.oracle_id)
-            .ok_or_else(|| unavailable("validated deck definition vanished".into()))?;
-        selected.insert(&row.oracle_id, definition);
-        native_triggers = (row.count as usize)
-            .checked_mul(definition.triggered.len())
-            .and_then(|count| native_triggers.checked_add(count))
-            .ok_or(DynamicAdmissionError::PodCapacity)?;
+    fn dynamic_rows(&self) -> Vec<DynamicDeckEntry> {
+        self.cards
+            .iter()
+            .map(|row| DynamicDeckEntry {
+                oracle_id: row.oracle_id.clone(),
+                quantity: row.count,
+                role: if self.commanders.contains(&row.oracle_id) {
+                    DeckRole::Commander
+                } else {
+                    DeckRole::Main
+                },
+            })
+            .collect()
     }
-    let projection = Catalog {
-        schema_version: catalog.schema_version,
-        rules_edition: catalog.rules_edition.clone(),
-        rules_sha256: catalog.rules_sha256.clone(),
-        definitions: selected.into_values().cloned().collect(),
-    };
-    if !capacity_supported(&projection, native_triggers) {
-        return Err(DynamicAdmissionError::PodCapacity);
+}
+
+/// Validated immutable rosters and their shared executable projection. Rotation
+/// only changes seat assignment, so it cannot change the vetted capability
+/// set, physical multiplicities or trigger capacity proof.
+pub struct DynamicPodTemplate {
+    decks: [NormalizedDeck; 4],
+    projection: ValidatedCatalog,
+    bulk_manifest_sha256: String,
+    policy_digest: String,
+}
+
+impl DynamicPodTemplate {
+    pub fn admit(
+        artifact: &BulkArtifact,
+        decks: &[Vec<DynamicDeckEntry>; 4],
+    ) -> Result<Self, DynamicAdmissionError> {
+        let policy = policy().map_err(unavailable)?;
+        let inspections = decks.each_ref().map(|rows| inspect(artifact, rows, policy));
+        if inspections.iter().any(|r| !r.admissible()) {
+            return Err(DynamicAdmissionError::DeckGaps {
+                decks: Vec::from(inspections),
+            });
+        }
+        let decks = decks.each_ref().map(|rows| NormalizedDeck::new(rows));
+        let catalog = artifact.catalog().catalog();
+        let mut selected = BTreeMap::<&str, &Definition>::new();
+        let mut native_triggers = 0usize;
+        for row in decks.iter().flat_map(|deck| &deck.cards) {
+            let definition = catalog
+                .definition_by_oracle_id(&row.oracle_id)
+                .ok_or_else(|| unavailable("validated deck definition vanished".into()))?;
+            selected.insert(&row.oracle_id, definition);
+            native_triggers = (row.count as usize)
+                .checked_mul(definition.triggered.len())
+                .and_then(|count| native_triggers.checked_add(count))
+                .ok_or(DynamicAdmissionError::PodCapacity)?;
+        }
+        let projection = Catalog {
+            schema_version: catalog.schema_version,
+            rules_edition: catalog.rules_edition.clone(),
+            rules_sha256: catalog.rules_sha256.clone(),
+            definitions: selected.into_values().cloned().collect(),
+        };
+        if !capacity_supported(&projection, native_triggers) {
+            return Err(DynamicAdmissionError::PodCapacity);
+        }
+        Ok(Self {
+            decks,
+            projection: ValidatedCatalog::new(projection).map_err(unavailable)?,
+            bulk_manifest_sha256: artifact.manifest_sha256().into(),
+            policy_digest: policy.digest.clone(),
+        })
     }
-    let projection = ValidatedCatalog::new(projection).map_err(unavailable)?;
-    let normalized = MatchConfig {
-        profile: DYNAMIC_PROFILE.into(),
-        decks,
-        starting_player: config.starting_player,
-        seed: config.seed,
-    };
-    let admission_digest = digest(&(
-        DYNAMIC_PROFILE,
-        artifact.manifest_sha256(),
-        &policy.digest,
-        projection.digest(),
-        &normalized,
-    ))
-    .map_err(unavailable)?;
-    let identity = DynamicAdmissionIdentity {
-        bulk_manifest_sha256: artifact.manifest_sha256().into(),
-        policy_digest: policy.digest.clone(),
-        catalog_digest: projection.digest().into(),
-        admission_digest,
-    };
-    let prepared = Prepared {
-        config: physical_match_config(DYNAMIC_PROFILE, &normalized.decks),
-        match_config: Some(normalized),
-        catalog: projection.shared_catalog(),
-        catalog_digest: identity.catalog_digest.clone(),
-        profile_digest: identity.admission_digest.clone(),
-    };
-    Ok(DynamicPod { prepared, identity })
+
+    pub fn catalog(&self) -> &ValidatedCatalog {
+        &self.projection
+    }
+    pub fn policy_digest(&self) -> &str {
+        &self.policy_digest
+    }
+    pub fn prepare(
+        &self,
+        starting_player: PlayerId,
+        seed: [u8; 32],
+        rotation: usize,
+    ) -> Result<DynamicPod, DynamicAdmissionError> {
+        if starting_player.0 >= 4 {
+            return Err(DynamicAdmissionError::InvalidStartingPlayer);
+        }
+        if rotation >= 4 {
+            return Err(DynamicAdmissionError::InvalidSeatRotation);
+        }
+        let mut decks = self.decks.each_ref();
+        decks.rotate_right(rotation);
+        let normalized = DynamicMatchConfig {
+            decks: decks.map(NormalizedDeck::dynamic_rows),
+            starting_player,
+            seed,
+        };
+        let admission_digest = digest(&(
+            ADMISSION_DOMAIN,
+            &self.bulk_manifest_sha256,
+            &self.policy_digest,
+            self.projection.digest(),
+            &normalized,
+        ))
+        .map_err(unavailable)?;
+        let identity = DynamicAdmissionIdentity {
+            bulk_manifest_sha256: self.bulk_manifest_sha256.clone(),
+            policy_digest: self.policy_digest.clone(),
+            catalog_digest: self.projection.digest().into(),
+            admission_digest,
+        };
+        // Match initialization uses the private legacy carrier for seed and
+        // starting seat. The role-tagged config above is the replay authority.
+        let match_config = MatchConfig {
+            profile: DYNAMIC_PROFILE.into(),
+            decks: decks.map(|deck| Decklist {
+                commander: deck.commanders[0].clone(),
+                cards: deck.cards.clone(),
+            }),
+            starting_player,
+            seed,
+        };
+        let prepared = Prepared {
+            config: physical_match_rosters(
+                DYNAMIC_PROFILE,
+                decks.map(|deck| (deck.commanders.as_slice(), deck.cards.as_slice())),
+            ),
+            match_config: Some(match_config),
+            catalog: self.projection.shared_catalog(),
+            catalog_digest: identity.catalog_digest.clone(),
+            profile_digest: identity.admission_digest.clone(),
+        };
+        Ok(DynamicPod {
+            prepared,
+            identity,
+            normalized,
+        })
+    }
 }
 
 fn capacity_supported(catalog: &Catalog, native_triggers: usize) -> bool {
@@ -544,6 +687,201 @@ fn capacity_supported(catalog: &Catalog, native_triggers: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn facts(types: &str, oracle_text: &str, keywords: &[&str]) -> BulkCardFacts {
+        BulkCardFacts::from_source(&serde_json::json!({
+            "name": "Fixture", "layout": "normal", "type_line": types, "oracle_text": oracle_text,
+            "keywords": keywords, "color_identity": ["W"], "legalities": {"commander":"legal"},
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn dynamic_pairing_requires_the_exact_pregame_keyword_and_doctor_types() {
+        let creature = "Legendary Creature — Human";
+        let partner = facts(
+            creature,
+            "Flying\nPartner (You can have two commanders if both have partner.)",
+            &["Partner"],
+        );
+        let second = facts(creature, "Partner", &["Partner"]);
+        assert_eq!(pairing(&partner, &second), Some(CommanderPairing::Partner));
+        for text in [
+            "Partner with Fixture",
+            "Partner—Friends forever",
+            "Choose a Background",
+            "Create a token with partner.",
+        ] {
+            let variant = facts(creature, text, &["Partner"]);
+            assert_eq!(pairing(&partner, &variant), None);
+        }
+        let companion = facts(
+            creature,
+            "Doctor's companion (You can have two commanders if the other is the Doctor.)",
+            &["Doctor's companion"],
+        );
+        let doctor = facts("Legendary Creature — Time Lord Doctor", "Flying", &[]);
+        assert_eq!(
+            pairing(&companion, &doctor),
+            Some(CommanderPairing::DoctorsCompanion)
+        );
+        assert_eq!(pairing(&doctor, &companion), pairing(&companion, &doctor));
+        assert_eq!(pairing(&companion, &companion), None);
+        let extra = facts("Legendary Creature — Time Lord Doctor Elf", "", &[]);
+        let changeling = facts(
+            "Legendary Creature — Time Lord Doctor",
+            "Changeling",
+            &["Changeling"],
+        );
+        let nonlegendary = facts("Creature — Time Lord Doctor", "", &[]);
+        for invalid in [extra, changeling, nonlegendary, partner] {
+            assert_eq!(pairing(&companion, &invalid), None);
+        }
+    }
+
+    // Exact executable Foundations definitions isolate the physical rules.
+    // Pairing legality is covered separately by authenticated archive facts.
+    fn mixed_roster() -> DynamicPodTemplate {
+        let profile = match_profile("commander-foundations-v1").unwrap();
+        let config = MatchConfig::for_profile(&profile.name, [19; 32], PlayerId(0)).unwrap();
+        let mut rows = DynamicMatchConfig::from_match_config(&config).decks;
+        let primary = config.decks[0].commander.as_str();
+        let second = profile
+            .commanders
+            .iter()
+            .find(|id| id.as_str() != primary)
+            .unwrap();
+        let basic = rows[0].iter_mut().find(|row| row.quantity > 1).unwrap();
+        basic.quantity -= 1;
+        rows[0].push(DynamicDeckEntry {
+            oracle_id: second.clone(),
+            quantity: 1,
+            role: DeckRole::Commander,
+        });
+        let decks = rows.each_ref().map(|r| NormalizedDeck::new(r));
+        let mut projection = profile.catalog().clone();
+        projection.definitions.retain(|d| {
+            rows.iter()
+                .flatten()
+                .any(|row| row.oracle_id == d.oracle_id)
+        });
+        DynamicPodTemplate {
+            decks,
+            projection: ValidatedCatalog::new(projection).unwrap(),
+            bulk_manifest_sha256: "test-bulk".into(),
+            policy_digest: policy().unwrap().digest.clone(),
+        }
+    }
+
+    #[test]
+    fn dynamic_pair_runtime_preserves_split_ledger_union_and_mixed_opening_replay() {
+        let template = mixed_roster();
+        let pod = template.prepare(PlayerId(0), [19; 32], 0).unwrap();
+        let same = template.prepare(PlayerId(0), [19; 32], 0).unwrap();
+        assert_eq!(pod.identity, same.identity);
+        assert!(Arc::ptr_eq(&pod.prepared.catalog, &same.prepared.catalog));
+        assert!(pod.prepared.match_config().is_none());
+        assert_eq!(
+            pod.normalized_config().decks[0]
+                .iter()
+                .filter(|row| row.role == DeckRole::Commander)
+                .count(),
+            2
+        );
+        assert_eq!(
+            pod.prepared.config.commanders,
+            [0, 1, 100, 200, 300].map(CardId)
+        );
+        assert!(template.prepare(PlayerId(0), [19; 32], 4).is_err());
+        let rotated = template.prepare(PlayerId(1), [19; 32], 1).unwrap();
+        assert_eq!(
+            rotated.prepared.config.commanders,
+            [0, 100, 101, 200, 300].map(CardId)
+        );
+        assert_ne!(
+            rotated.identity.admission_digest,
+            pod.identity.admission_digest
+        );
+
+        let prepared = pod.prepared;
+        let mut game = Game::with_trace(prepared.clone(), TraceMode::Off);
+        assert_eq!(game.opening_library_sizes, [98, 99, 99, 99]);
+        assert_eq!(
+            game.mana_colors(PlayerId(0), &ManaProduction::CommanderColor)
+                .unwrap(),
+            vec![Color::W, Color::B, Color::G]
+        );
+        let QueryResult::Complete(QueryValue::Observation(observed)) =
+            game.observe(PlayerId(1), Budget::unlimited())
+        else {
+            panic!("initial observation");
+        };
+        let rows: Vec<_> = observed
+            .view
+            .commanders
+            .iter()
+            .filter(|c| c.history.owner == PlayerId(0))
+            .collect();
+        assert_eq!(rows.len(), 2);
+        assert_ne!(rows[0].designation, rows[1].designation);
+        let mut ledger = game.commander_ledger().clone();
+        let caster = PlayerId(0);
+        let defender = PlayerId(1);
+        ledger
+            .record_cast(CardId(0), caster, Zone::Command { owner: caster })
+            .unwrap();
+        assert_eq!(ledger.tax(CardId(0), caster).unwrap(), Quantity::from(2));
+        assert_eq!(ledger.tax(CardId(1), caster).unwrap(), Quantity::zero());
+        ledger
+            .record_damage(CardId(0), defender, true, &Quantity::from(11))
+            .unwrap();
+        ledger
+            .record_damage(CardId(1), defender, true, &Quantity::from(10))
+            .unwrap();
+        assert!(ledger.combat_loss_candidates().is_empty());
+        ledger
+            .record_damage(CardId(0), defender, true, &Quantity::from(10))
+            .unwrap();
+        assert_eq!(ledger.combat_loss_candidates(), vec![defender]);
+
+        assert!(matches!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+        let resumed = Game::restore(prepared.clone(), &game.snapshot().unwrap()).unwrap();
+        assert_eq!(
+            resumed.state_digest().unwrap(),
+            game.state_digest().unwrap()
+        );
+        for _ in 0..64 {
+            let Advance::AwaitingDecision(request) = game.advance(Budget::new(20_000)) else {
+                panic!("bounded opening should reach a decision");
+            };
+            if matches!(request, Request::Priority { player, .. } if player == caster)
+                && game.turn().step == TurnStep::PrecombatMain
+            {
+                let journal = game.replay_journal();
+                assert!(journal.decisions.len() > 4);
+                let replay = Game::replay_with_trace(prepared, &journal, TraceMode::Off).unwrap();
+                assert_eq!(replay.state_digest().unwrap(), game.state_digest().unwrap());
+                return;
+            }
+            let response = match &request {
+                Request::Mulligan {
+                    player,
+                    mulligans_taken,
+                    ..
+                } => Response::Mulligan {
+                    take: *player == caster && *mulligans_taken == 0,
+                },
+                Request::Priority { .. } => Response::Pass,
+                other => panic!("unexpected opening decision {other:?}"),
+            };
+            game.respond(request.player(), request.decision_id(), response)
+                .unwrap();
+        }
+        panic!("mixed opening did not finish");
+    }
 
     #[test]
     fn stage1d_dynamic_capacity_and_copy_gates_are_fail_closed() {

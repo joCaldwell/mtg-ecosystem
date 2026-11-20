@@ -25,6 +25,7 @@ fn admitted_match() -> Prepared {
 // This is the old fork ownership oracle, NOT an alternate rules interpreter.
 fn old_deep_owned_fork(game: &Game) -> Game {
     Game {
+        opening_library_sizes: game.opening_library_sizes,
         prepared: Arc::new(Prepared {
             match_config: game.prepared.match_config.clone(),
             catalog: Arc::clone(&game.prepared.catalog),

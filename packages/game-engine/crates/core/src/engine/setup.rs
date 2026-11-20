@@ -41,7 +41,7 @@ pub struct MatchRandom {
     pub word_position: RngPosition,
 }
 // Generic physical-card bound includes a tucked commander. Setup still checks
-// its own 99-card starting library; callers never infer that as a sampler limit.
+// its own starting library; callers never infer that as a sampler limit.
 pub(super) fn sample_shuffle_word(word: u32, upper: u32) -> Option<u32> {
     if !(2..=capacities::OWNED_LIMIT as u32).contains(&upper) {
         return None;
@@ -122,8 +122,16 @@ pub struct MatchState {
 pub(super) fn no_library_shuffles(counts: &[u64; 4]) -> bool {
     counts.iter().all(|n| *n == 0)
 }
+fn first_shuffle_index(sizes: &[u32; 4], players: &[PlayerId]) -> u32 {
+    // Retain the existing empty-queue sentinel until normalization
+    // switches to the next phase. The queue selects the actual bound.
+    players
+        .first()
+        .and_then(|p| sizes.get(p.0 as usize))
+        .map_or(98, |size| size.saturating_sub(1))
+}
 impl MatchState {
-    pub(super) fn new(c: &MatchConfig) -> Self {
+    pub(super) fn new(c: &MatchConfig, initial_library_size: u32) -> Self {
         Self {
             library_shuffles: [0; 4],
             random: MatchRandom {
@@ -143,7 +151,7 @@ impl MatchState {
                     players: (0..4)
                         .map(|i| PlayerId((c.starting_player.0 + i) % 4))
                         .collect(),
-                    index: 98,
+                    index: initial_library_size.saturating_sub(1),
                     redraw: false,
                 },
             }),
@@ -420,11 +428,11 @@ impl Game {
                     index,
                     redraw,
                 } => {
-                    if players.first().is_some_and(|p| !live.contains(p)) {
-                        players.remove(0);
-                        *index = 98;
-                    }
+                    let front_departed = players.first().is_some_and(|p| !live.contains(p));
                     players.retain(|p| live.contains(p));
+                    if front_departed {
+                        *index = first_shuffle_index(&self.opening_library_sizes, players);
+                    }
                     if players.is_empty() {
                         s.phase = SetupPhase::Draw {
                             players: if *redraw {
@@ -490,7 +498,7 @@ impl Game {
                     if players.is_empty() {
                         s.phase = SetupPhase::Shuffle {
                             players: s.takers.clone(),
-                            index: 98,
+                            index: first_shuffle_index(&self.opening_library_sizes, &s.takers),
                             redraw: true,
                         };
                     }
@@ -623,7 +631,9 @@ impl Game {
                     .libraries
                     .get_mut(player)
                     .ok_or("missing shuffle library")?;
-                if library.len() != 99 || *index as usize >= library.len() {
+                if library.len() != self.opening_library_sizes[player.0 as usize] as usize
+                    || *index as usize >= library.len()
+                {
                     return Err("invalid shuffle range".into());
                 }
                 let random = &mut self
@@ -641,7 +651,7 @@ impl Game {
                     library.swap(*index as usize, selected as usize);
                     if *i == 1 {
                         players.remove(0);
-                        *i = 98;
+                        *i = first_shuffle_index(&self.opening_library_sizes, players);
                     } else {
                         *i -= 1;
                     }
@@ -839,7 +849,10 @@ impl Game {
                     }
                     let queues: Vec<&[PlayerId]> = match &setup.phase {
                         SetupPhase::Shuffle { players, index, .. } => {
-                            if *index == 0 || *index > 98 {
+                            if *index == 0
+                                || *index
+                                    > first_shuffle_index(&self.opening_library_sizes, players)
+                            {
                                 return Err("snapshot shuffle index".into());
                             }
                             vec![players]
