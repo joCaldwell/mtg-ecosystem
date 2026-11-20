@@ -31,6 +31,17 @@ fi
 # CARGO_INCREMENTAL stays unset unless chosen: Cargo profiles make dev/test/quick
 # incremental and keep release (retained binaries) non-incremental.
 # https://doc.rust-lang.org/cargo/reference/profiles.html#incremental
+# Worktrees build concurrently, so bound each one's jobserver (rustc processes and
+# LLVM threads): a quarter of the CPUs, at least 4. Measured on 32 threads/30 GiB:
+# jobs 8 keeps a cold contracts/compiler test build near 5.8 GiB instead of 8.1 GiB
+# for ~7% more solo wall time. An explicit CARGO_BUILD_JOBS wins.
+if [ -z "${CARGO_BUILD_JOBS:-}" ]; then
+    engine_cpus=$(nproc 2>/dev/null || echo 4)
+    CARGO_BUILD_JOBS=$((engine_cpus / 4))
+    [ "$CARGO_BUILD_JOBS" -ge 4 ] || CARGO_BUILD_JOBS=4
+    [ "$CARGO_BUILD_JOBS" -le "$engine_cpus" ] || CARGO_BUILD_JOBS=$engine_cpus
+    export CARGO_BUILD_JOBS
+fi
 if [ "$#" -eq 0 ]; then
     echo 'Usage: sh scripts/engine-env.sh COMMAND [ARG ...]' >&2
     exit 2

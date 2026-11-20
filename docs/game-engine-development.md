@@ -136,9 +136,10 @@ incremental `quick` profile in the same target, checks cache budgets under the
 lock and honors explicit `CARGO_TARGET_DIR`. Cargo profiles own incrementality:
 dev/test/quick are incremental and release is not, so the launcher leaves
 `CARGO_INCREMENTAL` unset unless chosen. Rust 1.99 already links x86-64 Linux
-with LLD. Each rustc can peak near 4–5 GiB; with three or more concurrent
-worktrees, set `CARGO_BUILD_JOBS` (e.g. 12) to bound memory. Use the standard
-profile for runtime-heavy tests. Keep receipts tied to their producer profile.
+with LLD. Unset `CARGO_BUILD_JOBS` defaults to a quarter of the CPUs (at least
+4): on 32 threads/30 GiB a cold contracts/compiler test build then peaks near
+6 GiB per worktree, so four worktrees fit; a solo cold build may pass 32. Use the
+standard profile for runtime-heavy tests. Keep receipts tied to their producer profile.
 
 Do source/docs work while busy. Freeze measured source and avoid duplicate builds.
 [Storage policy](game-engine-storage.md#cache-selection-and-lifecycle) owns cache
