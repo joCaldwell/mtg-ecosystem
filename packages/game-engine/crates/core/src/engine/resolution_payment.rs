@@ -114,13 +114,14 @@ impl Game {
         else {
             return self.resolve_unpaid(frame, purpose, source_block);
         };
+        let generic = generic.clone();
         self.state.rules.frame = Frame::ResolutionPayment {
             frame,
             payment: ResolutionPayment {
                 purpose,
                 payer,
                 cost: ManaCost {
-                    generic: generic.clone(),
+                    generic,
                     colored: vec![],
                 },
                 stage: ResolutionPaymentStage::Offer,
