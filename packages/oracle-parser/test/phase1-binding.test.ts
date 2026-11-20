@@ -1649,6 +1649,13 @@ describe("local repeated decisions and intrinsic choices", () => {
     assert.ok(!graph.nodes.some(node => node.node === "repeat-hand-placement"));
   });
 
+  it("rejects a repeated process when it contains an additional action", () => {
+    const graph = analyze("When this creature enters, you may put a land card from your hand onto the battlefield tapped. "
+      + "If you do, gain 1 life, draw a card, and repeat this process.", "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "repeat-hand-placement"));
+  });
+
   it("bottoms the actual unchosen portion of a private look", () => {
     const graph = analyze("Look at the top five cards of your library. You may put a land card from among them onto the battlefield tapped. "
       + "Put the rest on the bottom of your library in a random order.", "Sorcery");
@@ -1717,5 +1724,50 @@ describe("spell costs referenced afterward", () => {
     const graph = analyze("Kicker {X}\nAt the beginning of your upkeep, create X 1/1 green Saproling creature tokens.", "Creature");
     assert.equal(graph.referencesBound, false);
     assert.ok(!graph.nodes.some(node => node.node === "entering-kicker-x"));
+  });
+});
+
+describe("entrant and departure identities in alternative triggers", () => {
+  it("binds whichever Equipment actually entered", () => {
+    const graph = analyze("Whenever this Equipment or another Equipment you control enters, you may attach that Equipment "
+      + "to target creature you control.", "Artifact — Equipment");
+    boundCard(graph);
+    const entry = graph.nodes.find(node => node.node === "alternatives" && node.rules.includes("301.5"));
+    assert.ok(entry?.node === "alternatives" && entry.of.length === 2);
+    assert.equal(entry.id, bound(graph, "/steps/0/what"));
+  });
+
+  it("requires the source type to prove the common entrant description", () => {
+    const graph = analyze("Whenever this artifact or another Equipment you control enters, you may attach that Equipment "
+      + "to target creature you control.", "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "alternatives" && node.rules.includes("301.5")));
+  });
+
+  it("excludes a graveyard successor only when the entry-or-leave event produced one", () => {
+    const graph = analyze("When this creature enters or leaves the battlefield, return another target creature card "
+      + "from your graveyard to your hand.", "Creature");
+    boundCard(graph);
+    const view = graph.nodes.find(node => node.node === "trigger-graveyard-view");
+    assert.ok(view && view.alternatives.some(branch => branch.kind === "enters") && view.successorZone === "graveyard");
+    assert.equal(view.id, bound(graph, "/filter/other"));
+    assert.equal(view.comparison, undefined);
+  });
+
+  it("compares against the actual dying permanent's last-known toughness", () => {
+    const graph = analyze("Whenever this creature or another creature you control dies, return up to one other target creature card "
+      + "with lesser toughness from your graveyard to your hand.", "Creature");
+    boundCard(graph);
+    const view = graph.nodes.find(node => node.node === "trigger-graveyard-view");
+    assert.ok(view?.alternatives.every(branch => branch.kind === "dies" && branch.previous !== branch.successor));
+    assert.deepEqual(view?.comparison, { attribute: "toughness", op: "lt" });
+    assert.equal(view?.information, "before-move");
+  });
+
+  it("does not borrow a leave event's LKI for the enter branch", () => {
+    const graph = analyze("When this creature enters or leaves the battlefield, return another target creature card "
+      + "with lesser toughness from your graveyard to your hand.", "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "trigger-graveyard-view"));
   });
 });

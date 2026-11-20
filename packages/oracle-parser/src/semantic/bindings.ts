@@ -360,12 +360,14 @@ interface Context {
   sourceExclusionPath?: string;
   sacrificedCost?: Candidate;
   enteringKickerX?: string;
+  zoneAlternatives?: { kind: "dies" | "leaves" | "enters"; event: string; previous?: string; successor?: string }[];
+  graveyardExclusion?: { filterPath: string; view: string };
   stackCopies?: StackCopyCapture[];
   previousEffect?: string;
   precedingSentence?: { path: string; steps: Effect[] };
   directCardChoice?: { path: string; result: Candidate };
   lookedCardChoice?: { path: string; pool: Candidate; excluding: string };
-  performedDecision?: string;
+  performedRepeat?: { decision: string; path: string };
   groupChoice?: { path: string; group: Candidate; member: Candidate; result: Candidate; eachType: boolean; ownNonlands: boolean };
   explicitExiledCast?: { path: string; result: Candidate };
   boundOperand?: { path: string; candidate: Candidate; rules: string[] };
@@ -1245,6 +1247,9 @@ class Analyzer {
       } else if (!context.barrier && context.comparisonExclusion && path.startsWith(context.comparisonExclusion.path) &&
           /^(?:\/anyOf\/\d+)*$/.test(path.slice(context.comparisonExclusion.path.length))) {
         this.bound({ ref: "affected-object" }, child(path, "other"), context.comparisonExclusion.subject, ["201.2a", "608.2b"]);
+      } else if (!context.barrier && context.graveyardExclusion?.filterPath === path) {
+        this.bound({ ref: "that", filter: { cls: "card" } }, child(path, "other"), context.graveyardExclusion.view,
+          ["400.7e", "601.2c", "603.6c", "608.2b"]);
       } else if (!context.barrier && context.copyModelExclusion?.path === path) {
         this.bound(context.copyModelExclusion.reference, child(path, "other"), context.copyModelExclusion.model.id, ["611.2c", "707.2"]);
       } else if (!context.barrier && context.phase === "payment" && path === context.sourceExclusionPath &&
@@ -2874,7 +2879,7 @@ class Analyzer {
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
-      sacrificedCost: undefined, enteringKickerX: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, lookedCardChoice: undefined, performedDecision: undefined, groupChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
+      sacrificedCost: undefined, enteringKickerX: undefined, zoneAlternatives: undefined, graveyardExclusion: undefined, castActors: undefined, stackPlacement: undefined, singleTargetStackGuard: undefined, stackCopies: undefined, previousEffect: undefined, precedingSentence: undefined, directCardChoice: undefined, lookedCardChoice: undefined, performedRepeat: undefined, groupChoice: undefined, explicitExiledCast: undefined, boundOperand: undefined, exileResults: undefined,
       uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined, uncertainRevealOrigin: undefined,
       copiedCards: undefined, linkedCopies: undefined, uncertainCardCopyOrigin: undefined, announcementMember: undefined, targetPlayerGroup: undefined, definiteEventPlayer: undefined, attackedTriggerPlayer: undefined,
       measuredEvents: undefined, uncertainMeasureOrigin: undefined, triggerX: undefined, lifeGain: undefined, resolutionPaymentX: undefined,
@@ -3348,7 +3353,9 @@ class Analyzer {
         const branches = [sentence.steps, sentence.otherwise?.steps ?? []].map((steps, branchIndex) => {
           const declinedBranch = declines ? branchIndex === 0 : branchIndex === 1;
           const branch: Context = { ...this.branch(context), conditional: true, decisions,
-            performedDecision: linked && !declinedBranch ? linked : undefined,
+            performedRepeat: linked && !declinedBranch && branchIndex === 0 && !sentence.otherwise && !sentence.afterConditional &&
+              sentence.conditionKind === "if" && steps.length === 2 && steps[0].effect === "draw" && steps[1].effect === "repeat-process"
+              ? { decision: linked, path: `${at}/steps/1` } : undefined,
             ...(suspended && branchIndex === 0 ? { previousEffect: suspended.path, explicitExiledCast: suspended } : {}),
             players: combine(context.players, this.targetPlayersUnder(child(at, "condition"), context)),
             ...(linked && !declinedBranch && context.resolutionPaymentX?.path === linked && !context.x
@@ -3501,12 +3508,35 @@ class Analyzer {
     return true;
   }
 
+  private graveyardReturnScope(effect: Effect, path: string, context: Context): Context {
+    const alternatives = context.zoneAlternatives;
+    if (!alternatives?.length || context.barrier || context.phase !== "resolution" || context.decider || context.conditional ||
+        !context.lexicalAbilityPath || path !== `${context.lexicalAbilityPath}/effects/0/steps/0` ||
+        effect.effect !== "return-to-hand" || effect.to !== "your" || effect.optional || effect.decidedBy || effect.forEach ||
+        effect.forEachVote || effect.what.ref !== "target" || !effect.what.selectionId || objectCardinality(effect.what) !== "one" ||
+        effect.what.filter.cls !== "card" || !effect.what.filter.other || !isDeepStrictEqual(effect.what.filter.types, ["creature"]) ||
+        !isDeepStrictEqual(effect.what.filter.zone, { zone: "graveyard", owner: "your" }) ||
+        Object.keys(effect.what.filter).some(key => !["cls", "types", "other", "zone", "implicitComparison"].includes(key)))
+      return context;
+    const comparison = effect.what.filter.implicitComparison;
+    if (comparison && (!isDeepStrictEqual(comparison, { attribute: "toughness", op: "lt" }) ||
+        alternatives.some(branch => !branch.previous || !branch.successor))) return context;
+    const filterPath = `${path}/what/filter`;
+    const rules = ["400.7e", "601.2c", "603.6c", "603.10a", "608.2b", "608.2h"];
+    const view = this.node({ id: this.id(filterPath, "trigger-graveyard-view"), path: filterPath,
+      node: "trigger-graveyard-view", scope: context.ability, alternatives, successorZone: "graveyard",
+      ...(comparison ? { comparison, information: "before-move" as const } : {}), rules });
+    this.engineFeature("event-history", filterPath,
+      "Exclude only the initial graveyard successor of the matched trigger event and use its departed permanent for any last-known comparison.", rules);
+    return { ...context, graveyardExclusion: { filterPath, view } };
+  }
+
   private repeatHandPlacement(effect: Extract<Effect, { effect: "repeat-process" }>, path: string, context: Context,
     precedingEffect?: string): boolean {
     if (context.barrier || context.decider || effect.times || effect.optional || effect.decidedBy || effect.forEach ||
-        effect.forEachVote || !context.performedDecision || !precedingEffect || !context.precedingSentence) return false;
+        effect.forEachVote || context.performedRepeat?.path !== path || !precedingEffect || !context.precedingSentence) return false;
     const { path: previous, steps } = context.precedingSentence;
-    if (steps.length !== 1 || context.performedDecision !== `${previous}/steps/0`) return false;
+    if (steps.length !== 1 || context.performedRepeat.decision !== `${previous}/steps/0`) return false;
     const [entry] = steps;
     const draw = this.result.nodes.find(node => node.id === this.id(precedingEffect, "event"));
     if (entry.effect !== "move-zone" || !entry.optional || entry.decidedBy || entry.who || !entry.tapped ||
@@ -3517,7 +3547,7 @@ class Analyzer {
         !isDeepStrictEqual(draw.inputs, [context.you])) return false;
     const rules = ["118.12", "608.2c", "608.2d", "609.3"];
     this.node({ id: this.id(path, "repeat-hand-placement"), path, node: "repeat-hand-placement", scope: context.ability,
-      place: this.id(context.performedDecision, "event"), draw: draw.id, continueWhen: "placement-performed", rules });
+      place: this.id(context.performedRepeat.decision, "event"), draw: draw.id, continueWhen: "placement-performed", rules });
     this.engineFeature("repeat-hand-placement", path, "Offer the same placement choice anew, drawing and repeating only when it is performed.", rules);
     return true;
   }
@@ -4153,6 +4183,7 @@ class Analyzer {
     const exportedCast = context.explicitExiledCast?.path === precedingEffect ? context.explicitExiledCast : undefined;
     context.explicitExiledCast = undefined;
     if (effect.effect === "choose-object") context.uncertainTargetOrigin = true;
+    const graveyardReturn = this.graveyardReturnScope(effect, path, context);
     if (effect.effect === "reveal") context.uncertainRevealOrigin = true;
     if (this.distinctAction(effect, path, context)) return;
     if (this.relativePlayerAction(effect, path, context)) return;
@@ -4354,7 +4385,7 @@ class Analyzer {
         ? { path: `${path}/permission/what`, candidate: cardChoice.result, rules: ["400.7j", "608.2c", "608.2d"] } : undefined;
       this.walk(effect, path, count || effect.effect === "distribute-counters" || chosenCard || suspension || remainder || sacrificed
         ? { ...context, resolutionCount: count, distributedCount: effect.effect === "distribute-counters",
-            boundOperand: chosenCard ?? suspension ?? remainder ?? sacrificed } : context);
+            boundOperand: chosenCard ?? suspension ?? remainder ?? sacrificed } : graveyardReturn);
     }
     // CR 608.2d: "[player] may" is decided while the instruction is applied;
     // declining it produces no results, as any impossible instruction would.
@@ -4854,6 +4885,27 @@ class Analyzer {
       });
       context.sourceMoved = context.sourceMoved || branches.some(({ branch }) => branch.sourceMoved);
       const [first] = branches;
+      const publicDeparture = trigger.events.every(event => event.trigger === "dies") &&
+        branches.every(({ branch }) => branch.departed?.length === 1 && branch.departed[0].cardinality === "one" &&
+          branch.objects.length === 1 && branch.objects[0].triggerSuccessor);
+      const sourceEntryAndExit = trigger.events.length === 2 &&
+        trigger.events.some(event => event.trigger === "enters") && trigger.events.some(event => event.trigger === "leaves") &&
+        branches.every(({ subject }) => subject?.id === context.source);
+      if (!context.barrier && (publicDeparture || sourceEntryAndExit)) {
+        context.zoneAlternatives = branches.flatMap(({ branch }, index) => {
+          const kind = trigger.events[index].trigger;
+          if (kind !== "dies" && kind !== "leaves" && kind !== "enters") return [];
+          const event = this.id(`${path}/events/${index}`, "event");
+          return [{ kind, event, ...(kind === "dies" ? { previous: branch.departed![0].id, successor: branch.objects[0].id } : {}) }];
+        });
+      }
+      const sourceTypeLine = this.result.nodes.find(node => node.id === context.face);
+      const equipmentEntry = trigger.events.length === 2 && trigger.events.every(event => event.trigger === "enters") &&
+        trigger.events.some(event => event.trigger === "enters" && (event.what.ref === "self" || event.what.ref === "this")) &&
+        trigger.events.some(event => event.trigger === "enters" && event.what.ref === "filter" &&
+          isDeepStrictEqual(event.what.filter.subtypes, ["Equipment"])) &&
+        sourceTypeLine?.node === "face" && /[—-]\s.*\bEquipment\b/.test(sourceTypeLine.typeLine ?? "") &&
+        branches.every(({ branch }) => branch.objects.length === 1 && branch.objects[0].cardinality === "one");
       // An alternative with another participant ("blocks or becomes blocked
       // by a creature") makes "that creature" a different object per event;
       // that needs a discriminated binding, so nothing is established.
@@ -4871,6 +4923,11 @@ class Analyzer {
           successorOf: context.source, triggerSuccessor: true };
         context.sourceSuccessor = successor;
         context.objects = [successor];
+      } else if (!context.barrier && equipmentEntry && !context.sourceMoved) {
+        const rules = ["201.5", "301.5", "603.2c"];
+        const id = this.node({ id: this.id(path, "entering-equipment"), path, node: "alternatives", scope: context.ability,
+          of: branches.map(({ branch }) => branch.objects[0].id), rules });
+        context.objects = [{ id, domain: "object", cardinality: "one", description: { subtypes: ["Equipment"] } }];
       } else if (!context.sourceMoved && branches.length > 1 && others.every(list => list.length === 1 && list[0].cardinality === "one")
         && others.every(list => JSON.stringify(list[0].description) === JSON.stringify(others[0][0].description))) {
         const id = this.node({ id: this.id(path, "alternatives"), path, node: "alternatives", scope: context.ability, of: others.map(list => list[0].id), rules: ["603.2"] });

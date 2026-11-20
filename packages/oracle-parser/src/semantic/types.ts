@@ -198,6 +198,9 @@ export type BindingNode = NodeBase & (
       exclude: "all-player-choices" | "own-choices"; cardinality: "many" }
   | { node: "intervening-condition-pool"; scope: string; filter: ObjectFilter; cardinality: "many";
       timing: "trigger-check-and-resolution" }
+  | { node: "trigger-graveyard-view"; scope: string;
+      alternatives: { kind: "dies" | "leaves" | "enters"; event: string; previous?: string; successor?: string }[];
+      successorZone: "graveyard"; comparison?: NonNullable<ObjectFilter["implicitComparison"]>; information?: "before-move" }
   | { node: "entering-kicker-x"; scope: string; source: string; kicker: string; announced: string }
   | { node: "bounded-payment-amount"; scope: string; payment: string; payer: string; minimum: 0; maximum: string }
   | { node: "destroyed-permanents"; scope: string; event: string; destination: "graveyard";
