@@ -388,6 +388,81 @@ impl BoundModeSubset {
     }
 }
 impl Game {
+    // Fixed heterogeneous modes announce in printed order. The typed target
+    // vectors are the receipt, including a player with zero graveyard cards.
+    pub(super) fn mixed_mode_children<'a>(
+        &'a self,
+        entry: &'a StackInstance,
+    ) -> Result<Option<Vec<&'a SpellProgram>>, String> {
+        let Some(plan) = &entry.mode_subset else {
+            return Ok(None);
+        };
+        let root = self.root_program_for(entry)?;
+        let children = plan
+            .indices
+            .iter()
+            .map(|index| {
+                root.modes
+                    .get(*index as usize)
+                    .map(|m| &m.program)
+                    .ok_or_else(|| "missing selected mode".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(children
+            .iter()
+            .any(|p| {
+                p.targets.iter().any(|t| {
+                    matches!(
+                        t.domain,
+                        TargetDomain::CreatureOrPlaneswalker
+                            | TargetDomain::StackSpell
+                            | TargetDomain::PlayerGraveyardCards { .. }
+                            | TargetDomain::BattlefieldCreature
+                    )
+                })
+            })
+            .then_some(children))
+    }
+
+    pub(super) fn next_mode_target<'a>(
+        &'a self,
+        entry: &'a StackInstance,
+    ) -> Result<Option<&'a SpellProgram>, String> {
+        let Some(children) = self.mixed_mode_children(entry)? else {
+            return Ok(None);
+        };
+        let mut objects = entry.targets.len();
+        let mut stack = entry.stack_targets.len();
+        let mut group = usize::from(!entry.entity_targets.is_empty());
+        for child in children {
+            let used = match child.targets.first().map(|t| t.domain) {
+                None => continue,
+                Some(TargetDomain::BattlefieldCreature | TargetDomain::CreatureOrPlaneswalker) => {
+                    &mut objects
+                }
+                Some(TargetDomain::StackSpell) => &mut stack,
+                Some(TargetDomain::AnyPlayer)
+                    if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() =>
+                {
+                    &mut group
+                }
+                _ => return Err("unsupported selected-mode target group".into()),
+            };
+            if *used == 0 {
+                return Ok(Some(child));
+            }
+            *used -= 1;
+        }
+        Ok(None)
+    }
+
+    pub(super) fn continue_spell_targeting(&mut self, cast: Casting) -> Result<Frame, String> {
+        if self.mixed_mode_children(self.top()?)?.is_some() {
+            self.spell_announcement_frame(cast)
+        } else {
+            self.announcement_mana_frame(cast)
+        }
+    }
     /// Stack targets and permanent targets retain separate typed vectors. A
     /// selected mode operand is numbered in the complete printed occurrence list.
     pub(super) fn selected_storage_index(

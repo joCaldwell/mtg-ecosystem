@@ -548,7 +548,7 @@ impl Game {
         entries: &[StackId],
     ) -> Result<(), String> {
         let top = self.top()?;
-        let program = self.program_for(top)?;
+        let program = self.program()?;
         if top.controller != player
             || entries.len() != program.targets.len()
             || entries.iter().enumerate().any(|(slot, target)| {
@@ -588,7 +588,7 @@ impl Game {
             .ok_or("missing stack target invocation")?;
         top.stack_targets = entries;
         top.announced_stack_targets = announced;
-        self.state.rules.frame = self.announcement_mana_frame(cast)?;
+        self.state.rules.frame = self.continue_spell_targeting(cast)?;
         Ok(())
     }
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs

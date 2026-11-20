@@ -263,7 +263,7 @@ impl Game {
         entities: &[TargetEntity],
     ) -> Result<(), String> {
         let top = self.top()?;
-        let program = self.program_for(top)?;
+        let program = self.program()?;
         if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(program) {
             return self
                 .announced_graveyard_group(top.controller, player, maximum, entities)
@@ -313,7 +313,7 @@ impl Game {
         top.entity_targets = entities;
         top.announced_entity_targets = announced;
         if cast.origin.is_spell() {
-            self.state.rules.frame = self.announcement_mana_frame(cast)?;
+            self.state.rules.frame = self.continue_spell_targeting(cast)?;
         } else {
             self.continue_activation_after_targets(cast, input.decision_id)?;
         }

@@ -2688,7 +2688,16 @@ impl Game {
             .ok_or_else(|| "missing stack frame".into())
     }
     fn program(&self) -> Result<&SpellProgram, String> {
-        self.program_for(self.top()?)
+        let entry = self.top()?;
+        if matches!(
+            self.state.rules.frame,
+            Frame::Targets { .. } | Frame::StackTargets { .. } | Frame::EntityTargets { .. }
+        ) {
+            if let Some(child) = self.next_mode_target(entry)? {
+                return Ok(child);
+            }
+        }
+        self.program_for(entry)
     }
     fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
         if let Some(plan) = &stack.mode_subset {
@@ -3290,8 +3299,14 @@ impl Game {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let top = self.state.rules.stack.last_mut().ok_or("missing stack")?;
-                top.targets = objects;
-                top.announced_targets = announced;
+                top.targets.extend(objects);
+                if top.announced_targets.is_empty() {
+                    top.announced_targets = announced;
+                } else {
+                    for (old, new) in top.announced_targets.iter_mut().zip(announced) {
+                        old.extend(new);
+                    }
+                }
                 let entry = self.top()?;
                 let immediate_cost = match &entry.kind {
                     StackKind::Activated { ability, .. } => {
@@ -3306,7 +3321,7 @@ impl Game {
                     // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.state.rules.frame = self.continue_spell_targeting(cast)?;
                 }
             }
             Frame::Mana { mut cast } => {

@@ -252,41 +252,47 @@ impl Game {
         if definition.x_mana_cost && stack.x.is_none() {
             return Ok(Frame::AnnounceX { cast });
         }
-        Ok(
-            match self.program()?.targets.first().map(|target| target.domain) {
-                None => self.announcement_mana_frame(cast)?,
-                Some(
-                    TargetDomain::StackSpell
-                    | TargetDomain::ControlledCreatureSpell
-                    | TargetDomain::StackActivatedOrTriggeredAbility,
-                ) => Frame::StackTargets { cast },
-                Some(TargetDomain::AnyPlayer)
-                    if mtg_contracts::graveyard_shuffle::offered_by(self.program()?).is_some() =>
-                {
-                    Frame::EntityTargets { cast }
-                }
-                Some(TargetDomain::PlayerGraveyardCards { .. }) => {
-                    return Err("dependent targets need their player".into());
-                }
-                Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
-                Some(TargetDomain::PlayerOrPlaneswalker) => {
-                    return Err("player-or-planeswalker requires an activated mode".into());
-                }
-                Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer) => {
-                    Frame::PlayerTargets { cast }
-                }
-                Some(
-                    TargetDomain::ControlledBattlefieldCreature
-                    | TargetDomain::ControlledBattlefieldPermanent
-                    | TargetDomain::BattlefieldPermanent
-                    | TargetDomain::BattlefieldCreature
-                    | TargetDomain::CreatureOrPlaneswalker
-                    | TargetDomain::BlockingBattlefieldCreature
-                    | TargetDomain::OwnGraveyardCreatureCard
-                    | TargetDomain::OwnGraveyardCard,
-                ) => Frame::Targets { cast },
-            },
-        )
+        let program = if self.mixed_mode_children(stack)?.is_some() {
+            let Some(next) = self.next_mode_target(stack)? else {
+                return self.announcement_mana_frame(cast);
+            };
+            next
+        } else {
+            self.program_for(stack)?
+        };
+        Ok(match program.targets.first().map(|target| target.domain) {
+            None => self.announcement_mana_frame(cast)?,
+            Some(
+                TargetDomain::StackSpell
+                | TargetDomain::ControlledCreatureSpell
+                | TargetDomain::StackActivatedOrTriggeredAbility,
+            ) => Frame::StackTargets { cast },
+            Some(TargetDomain::AnyPlayer)
+                if mtg_contracts::graveyard_shuffle::offered_by(program).is_some() =>
+            {
+                Frame::EntityTargets { cast }
+            }
+            Some(TargetDomain::PlayerGraveyardCards { .. }) => {
+                return Err("dependent targets need their player".into());
+            }
+            Some(TargetDomain::AnyDamageTarget) => Frame::EntityTargets { cast },
+            Some(TargetDomain::PlayerOrPlaneswalker) => {
+                return Err("player-or-planeswalker requires an activated mode".into());
+            }
+            Some(TargetDomain::OpponentPlayer | TargetDomain::AnyPlayer) => {
+                Frame::PlayerTargets { cast }
+            }
+            Some(
+                TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::ControlledBattlefieldPermanent
+                | TargetDomain::BattlefieldPermanent
+                | TargetDomain::BattlefieldCreature
+                | TargetDomain::CreatureOrPlaneswalker
+                | TargetDomain::BlockingBattlefieldCreature
+                | TargetDomain::OwnGraveyardCreatureCard
+                | TargetDomain::OwnGraveyardCard,
+            ) => Frame::Targets { cast },
+        })
     }
     /// CR 101.2/109.5/601.3/611.3a, 800.4j: "your turn" names the
     /// retained turn owner even when there is no active player. The current
