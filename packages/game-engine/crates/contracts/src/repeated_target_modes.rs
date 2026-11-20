@@ -4,6 +4,19 @@ use serde_json::{Value, json};
 
 pub const HEADER: &str = "Choose five. You may choose the same mode more than once.";
 
+/// Archive parser line labels replace the subject of a self-damage clause
+/// with its canonical self-reference; all other printed text stays literal.
+pub fn parser_block(name: &str, text: &str) -> String {
+    let prefix = format!("• {name} deals ");
+    text.lines()
+        .map(|line| match line.strip_prefix(&prefix) {
+            Some(amount) => format!("• ~ deals {amount}"),
+            None => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Option<SpellProgram> {
     let mut lines = text.lines();
     if lines.next() != Some(HEADER) {

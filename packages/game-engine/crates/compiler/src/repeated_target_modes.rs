@@ -30,8 +30,12 @@ pub(super) fn lower(
         timing,
     )
     .ok_or_else(fail)?;
-    if !matches!(result.lines.as_slice(),[line] if line.text==text) {
-        return Err(fail());
+    let block = mtg_contracts::repeated_target_modes::parser_block(&result.name, text);
+    if !matches!(result.lines.as_slice(),[line] if line.text==block) {
+        return Err(unsupported(
+            "repeated modes.labels",
+            "parser block differs from the complete printed source after self-reference normalization",
+        ));
     }
     // The old archive stored seven unsupported-scope references. All three
     // hashes are verified on the original unmodified row before lowering.

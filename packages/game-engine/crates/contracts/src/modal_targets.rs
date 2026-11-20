@@ -294,6 +294,14 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     {
         return Err(fail());
     }
+    let block = if matches!(
+        candidate.as_ref().map(|p| p.resolution),
+        Some(SpellResolution::ChooseRepeatedModes { .. })
+    ) {
+        crate::repeated_target_modes::parser_block(&d.name, text)
+    } else {
+        text.to_owned()
+    };
     if candidate.is_none()
         || d.spell != candidate
         || d.x_mana_cost
@@ -305,8 +313,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || d.source_labels.as_ref().is_some_and(|l| {
             l != &SourceLabels {
                 text: text.into(),
-                blocks: vec![text.into()],
-                spell_modes: text.lines().skip(1).map(str::to_owned).collect(),
+                blocks: vec![block.clone()],
+                spell_modes: block.lines().skip(1).map(str::to_owned).collect(),
                 ..Default::default()
             }
         })
