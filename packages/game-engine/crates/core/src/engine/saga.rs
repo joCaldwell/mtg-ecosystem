@@ -202,7 +202,7 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn reserve_effect_slot(&self) -> Result<(), String> {
+    pub(super) fn reserve_effect_slot(&mut self) -> Result<(), String> {
         let requested =
             self.state.rules.effects.len() + self.state.rules.delayed_chapters.len() + 1;
         let capacity = self.effect_limit();
