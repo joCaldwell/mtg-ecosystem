@@ -13,6 +13,11 @@ import type { Cursor } from "./cursor.ts";
  * description with no zone phrase, CR 110.1) or one named zone. */
 function poolZone(filter: ObjectFilter): string | null {
   if (filter.anyOf || filter.allOf || filter.zoneChangeHistory) return null;
+  // CR 702.62b: a suspended card is necessarily in exile.
+  if (filter.cls === "card" && filter.status?.includes("suspended")) {
+    if (filter.zone && (filter.zone.zone !== "exile" || filter.zone.position)) return null;
+    return "exile";
+  }
   if (!filter.zone) {
     // Cards, spells, and abilities need a stated place; only permanent
     // descriptions default to the battlefield.

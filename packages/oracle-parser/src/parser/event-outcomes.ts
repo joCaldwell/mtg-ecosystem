@@ -212,9 +212,9 @@ export function parseReflexiveOutcome(c: Cursor, g: SubjectGrammar & Pick<Condit
  * each candidate searched (CR 701.23a), not whether they found a card. */
 export function parseSearchedPlayerQualifier(c: Cursor, parseZoneRef: (c: Cursor) => ZoneRef | null): PlayerFilter | null {
   return c.attempt((c): PlayerFilter | null => {
-    if (c.word("who") === null || c.word("searched") === null) return null;
+    if (c.word("who") === null || c.word("searched", "searches") === null) return null;
     const zone = parseZoneRef(c);
-    if (zone?.zone !== "library" || zone.owner !== "their" || zone.position || !c.words("this", "way")) return null;
+    if (zone?.zone !== "library" || zone.owner !== "their" && zone.owner !== "any" || zone.position || !c.words("this", "way")) return null;
     return { searched: { zone, scope: "this-way" } };
   });
 }

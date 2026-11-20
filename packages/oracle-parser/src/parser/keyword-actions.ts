@@ -80,6 +80,11 @@ function parseSimple(c: Cursor, ctx: EffectContext): Effect[] | null {
     const result = c.attempt((c): Effect[] | null => {
       const who = parseActorPhrase(c, ctx, spec.imperative, spec.conjugated, spec.explicitOnly);
       if (!who || !c.words(...spec.rest)) return null;
+      if (spec.effect === "time-travel") {
+        if (c.isWord("a", "an")) return null;
+        const times = parseTimes(c);
+        return [{ effect: "time-travel", who, ...(times ? { times } : {}) }];
+      }
       return [{ effect: spec.effect, who }];
     });
     if (result) return result;

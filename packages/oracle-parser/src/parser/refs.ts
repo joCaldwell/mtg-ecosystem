@@ -127,6 +127,15 @@ function parseAmountTerm(c: Cursor): Amount | null {
       const value = c.number();
       return value === null ? null : { amount: "fixed", value: -value };
     }
+    const product = c.attempt((c): Amount | null => {
+      const token = c.peek();
+      if (token?.kind !== "number" && !(token?.kind === "word" && !token.possessive && wordNumber(token.value) !== undefined)) return null;
+      const factor = parseCount(c);
+      if (factor?.amount !== "fixed" || c.word("times") === null) return null;
+      const of = parseAmountTerm(c);
+      return of && { amount: "product", factors: [factor, of] };
+    });
+    if (product) return product;
     if (c.words("twice")) {
       const of = parseAmountTerm(c);
       if (!of) return null;
@@ -187,6 +196,12 @@ function parseAmountTerm(c: Cursor): Amount | null {
       if (party) return party;
       const symbols = parseManaSymbolCount(c, parseFilter);
       if (symbols) return symbols;
+      const identity = c.attempt((c): Amount | null => {
+        if (!c.words("colors", "in", "your") || c.possessive("commander", "commanders") === null
+          || !c.words("color", "identity")) return null;
+        return { amount: "commander-color-identity-count", whose: { player: "you" } };
+      });
+      if (identity) return identity;
       const doors = parseUnlockedDoorCount(c);
       if (doors) return doors;
       if (c.words("cards", "looked", "at", "while", "scrying", "this", "way")) return { amount: "event-quantity", event: "scry-looked-at", scope: "this-way" };
@@ -1618,7 +1633,20 @@ function parseFilterQualifier(c: Cursor, head: ObjectFilter): ObjectFilter | nul
       const value = property.comparison.value as Extract<Amount, { amount: "attribute-extremum" }>;
       return { properties: [property], allOf: [structuredClone(value.among)] };
     }
-    if (property) return { properties: [property] };
+    if (property) {
+      // CR 202.3: an explicit disjunction of two mana values is a set of
+      // values, not an interval. The remaining qualifier applies to both.
+      const alternative = property.property === "mana-value" && property.comparison.op === "eq" &&
+        property.comparison.value.amount === "fixed" ? c.attempt(c => {
+          if (c.word("or") === null) return null;
+          return c.number();
+        }) : null;
+      if (alternative !== null) return { allOf: [{ anyOf: [
+        { properties: [property] },
+        { properties: [{ property: "mana-value", comparison: { op: "eq", value: { amount: "fixed", value: alternative } } }] },
+      ] }] };
+      return { properties: [property] };
+    }
     // "cards exiled this way that weren't cast" leaves "this way" to the
     // preceding participle; the cast meant is the same one.
     if (c.words("not", "cast", "this", "way") || c.words("that", "weren't", "cast", "this", "way")
@@ -1787,7 +1815,7 @@ export function isPluralPlayerRef(ref: PlayerRef): boolean {
   if (ref.player === "group") return true;
   if ((ref.player === "target-player" || ref.player === "target-opponent") && ref.count) return true;
   return ref.player === "filtered" ? isPluralPlayerRef(ref.base)
-    : ref.player === "each-player" || ref.player === "each-opponent" || ref.player === "those-players";
+    : ref.player === "each-player" || ref.player === "each-opponent" || ref.player === "each-opponent-of" || ref.player === "those-players";
 }
 
 /** Each candidate supplies the hand/life/control subject, and is the actor
@@ -1909,6 +1937,9 @@ function parsePlayerBase(c: Cursor): PlayerRef | null {
     // "each of your opponents" / "one of your opponents": the same players as
     // "each opponent" / "an opponent" (CR 102.2-3).
     if (c.words("each", "of", "your", "opponents")) return { player: "each-opponent" };
+    if (c.attempt(c => c.words("each", "of", "that") && c.possessive("player") !== null
+      && c.word("opponents") !== null ? true : null))
+      return { player: "each-opponent-of", of: { player: "that-player" } };
     if (c.words("one", "of", "your", "opponents")) return { player: "an-opponent" };
     if (c.words("target", "player")) return { player: "target-player", ...randomTarget(c), ...targetSelectionProvenance(target) };
     if (c.words("target", "opponent")) return { player: "target-opponent", ...randomTarget(c), ...targetSelectionProvenance(target) };
@@ -1932,6 +1963,8 @@ function parsePlayerBase(c: Cursor): PlayerRef | null {
     const definite = parseDefiniteMostPlayer(c, { parseFilter });
     if (definite) return definite;
     if (c.words("those", "players")) return { player: "those-players" };
+    if (c.words("the", "player", "who", "has", "the", "initiative"))
+      return { player: "the-initiative-holder" };
     if (c.words("the", "player")) {
       // Definite descriptions such as "the player with the most life" are
       // not this bare contextual reference and must retain their qualifier.
@@ -2624,6 +2657,8 @@ function parseAtomicCondition(c: Cursor): Condition | null {
       return of ? { condition: "count", of, comparison } : null;
     });
     if (counted) return counted;
+    if (c.words("you're", "the", "defending", "player") || c.words("you", "are", "the", "defending", "player"))
+      return { condition: "is-defending-player", who: { player: "you" } };
     if (c.words("you", "do", "so") || c.words("you", "do")) return { condition: "you-do" };
     const notCast = c.attempt((c): Condition | null => {
       if (!c.words("you", "don't", "cast")) return null;

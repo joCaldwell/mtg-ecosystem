@@ -63,7 +63,7 @@ function singleton(ref: ObjectRef): boolean {
   return ref.ref !== "any-target";
 }
 
-function parseCopyModification(c: Cursor, parseAbilities: AbilityParser, parseCharacteristics: CharacteristicParser): CopyModification | null {
+function parseCopyModification(c: Cursor, parseAbilities: AbilityParser, parseCharacteristics: CharacteristicParser, continued = false): CopyModification | null {
   return c.attempt(c => {
     if (c.words("it's", "not", "legendary") || c.words("it", "isn't", "legendary")
       || c.words("they're", "not", "legendary") || c.words("they", "aren't", "legendary")
@@ -79,7 +79,8 @@ function parseCopyModification(c: Cursor, parseAbilities: AbilityParser, parseCh
     });
     if (abilities) return abilities;
     if (!c.words("it's") && !c.words("it", "is") && !c.words("they're") && !c.words("they", "are")
-      && !c.words("the", "token", "is") && !c.words("the", "tokens", "are")) return null;
+      && !c.words("the", "token", "is") && !c.words("the", "tokens", "are")
+      && !(continued && c.word("is", "are") !== null)) return null;
     c.word("a", "an");
     const spec = parseCharacteristics(c);
     if (!spec) return null;
@@ -142,7 +143,7 @@ function parseCopy(c: Cursor, parseAbilities: AbilityParser, parseCharacteristic
       const comma = c.punct(",");
       const and = c.word("and") !== null;
       if (!comma && !and) break;
-      const modification = parseCopyModification(c, parseAbilities, parseCharacteristics);
+      const modification = parseCopyModification(c, parseAbilities, parseCharacteristics, true);
       if (modification) { token.modifications.push(modification); continue; }
       // These subjects/verbs are still describing the copy exception. Never
       // leak an unsupported exception into an ordinary subsequent effect.
@@ -228,11 +229,20 @@ function parseSpecified(c: Cursor, parseAbilities: AbilityParser): SpecifiedToke
     // ability clause (e.g. Jungle Patrol's "with defender named Wood").
     if (!parseName()) return null;
     if (c.word("with") !== null) {
-      const abilities = parseAbilities(c);
-      if (!abilities) return null;
-      for (const ability of abilities) {
-        if (ability.gained === "keyword") spec.keywords.push(ability.keyword);
-        else (spec.abilities ??= []).push(ability);
+      if (c.words("base", "power", "and", "toughness", "each", "equal", "to")) {
+        // CR 111.3, 208.4: the creating effect supplies the token's starting P/T.
+        if (spec.power || spec.toughness || !spec.types.includes("creature")) return null;
+        const value = parseAmount(c);
+        if (!value) return null;
+        spec.power = value;
+        spec.toughness = structuredClone(value);
+      } else {
+        const abilities = parseAbilities(c);
+        if (!abilities) return null;
+        for (const ability of abilities) {
+          if (ability.gained === "keyword") spec.keywords.push(ability.keyword);
+          else (spec.abilities ??= []).push(ability);
+        }
       }
     }
     if (!parseName()) return null;

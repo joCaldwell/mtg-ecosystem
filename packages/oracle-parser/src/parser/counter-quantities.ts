@@ -31,6 +31,11 @@ export function parseCounterUnit(c: Cursor, g: CounterUnitGrammar): Amount | nul
     if (!counter || c.word("counter") === null) return null;
     if (counter !== "any" && counter.type.split(" ").some(word => NOT_A_KIND.has(word) || wordNumber(word) !== undefined)) return null;
     if (c.words("removed", "this", "way")) return { amount: "event-quantity", event: "counter-removal", counter, scope: "this-way" };
+    if (c.word("among") !== null) {
+      // CR 122.1: count every matching counter across the named holders.
+      const on = g.parseObjectRef(c);
+      return on && (on.ref === "each" || on.ref === "all") ? { amount: "counter-count", counter, on, total: true } : null;
+    }
     // One holder only. Counters on several objects or players ("on each
     // opponent", "on other creatures you control") would need an explicit
     // summed or per-holder reading, so they stay rejected.

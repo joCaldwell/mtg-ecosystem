@@ -4,17 +4,26 @@
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { Effect, ObjectRef, ZoneRef } from "../ast.ts";
 import { Cursor } from "./cursor.ts";
-import { parseCount, parseCounterSpec, parseObjectRef } from "./refs.ts";
+import { parseCount, parseCounterSpec, parseObjectRef, parsePlayerRef } from "./refs.ts";
 
 type ExileCounters = NonNullable<Extract<Effect, { effect: "exile" }>["counters"]>;
 
 /** "Exile it with three time counters on it" (the wording of CR 702.62a):
  * the card has the counters as it arrives in exile, in the same action. Only
  * one definite card is supported, so "on it" can mean nothing else. */
-export function parseExileCounters(c: Cursor, what: ObjectRef[]): ExileCounters | null {
+export function parseExileCounters(c: Cursor, what: ObjectRef[], from?: ZoneRef): ExileCounters | null {
   return c.attempt(c => {
-    if (what.length !== 1 || !["self", "this", "it"].includes(what[0].ref) && !(what[0].ref === "that" && !what[0].plural)) return null;
-    if (c.word("with") === null) return null;
+    if (what.length !== 1 || c.word("with") === null) return null;
+    const [object] = what;
+    if (object.ref === "filter" && object.count.amount === "fixed" && object.count.value === 1
+      && object.filter.cls === "card" && !object.upTo && !object.filter.counterConstraints) {
+      const zone = from ?? object.filter.zone;
+      if (zone?.zone !== "hand" || zone.owner !== "your"
+        || !c.words("a", "number", "of", "time", "counters", "on", "it", "equal", "to", "its", "mana", "value")) return null;
+      // CR 122.1, 702.62a: derive the exile counters from the selected card.
+      return [{ counter: { type: "time" }, count: { amount: "attribute", of: { ref: "it" }, attribute: "mana-value" } }];
+    }
+    if (!["self", "this", "it", "trigger-event-object"].includes(object.ref) && !(object.ref === "that" && !object.plural)) return null;
     const count = parseCount(c);
     const counter = count && parseCounterSpec(c);
     if (!count || !counter || c.word("counter", "counters") === null || !c.words("on", "it")) return null;
@@ -65,11 +74,20 @@ export function parseDefiniteCardExileCounters(c: Cursor): { what: ObjectRef[]; 
 export function parseExileUntil(c: Cursor, what: ObjectRef[], from?: ZoneRef): Extract<Effect, { effect: "exile-until" }> | null {
   return c.attempt(c => {
     if (!what.length || c.word("until") === null) return null;
-    const eventObject = parseObjectRef(c);
-    if (!eventObject || !c.words("leaves", "the", "battlefield")) return null;
+    const until = c.attempt(c => {
+      // CR 725.2: the change of designation is an event, not a state test.
+      const who = parsePlayerRef(c);
+      return who?.player === "an-opponent" && c.words("becomes", "the", "monarch")
+        ? { event: "becomes-monarch" as const, who } : null;
+    }) ?? c.attempt(c => {
+      const object = parseObjectRef(c);
+      return object && c.words("leaves", "the", "battlefield")
+        ? { event: "leaves-battlefield" as const, what: object } : null;
+    });
+    if (!until) return null;
     return {
       effect: "exile-until", what, ...(from ? { from } : {}),
-      until: { event: "leaves-battlefield", what: eventObject },
+      until,
       return: { to: "previous-zone", battlefieldController: "owner" },
     };
   });

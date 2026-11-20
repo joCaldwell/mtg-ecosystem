@@ -394,9 +394,14 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
     }
     const plural = pluralSubject(what);
     if (retainedTypes(c, plural)) { addTypes = true; advanced = true; }
+    const losesOthers = c.attempt(c => {
+      if (!c.words('and', plural ? 'lose' : 'loses', 'all', 'other', 'card', 'types', 'and', 'abilities')) return null;
+      return true;
+    });
+    if (losesOthers && (!abilities || !cardTypes.length || addTypes || cardTypes.includes('artifact') && cardTypes.includes('creature'))) return null;
     const duration = parseDuration(c) ?? undefined;
     if (retainedTypes(c, plural)) { addTypes = true; advanced = true; }
-    if (!advanced) return null;
+    if (!advanced || losesOthers && addTypes) return null;
     const types: TypeChange = {};
     const artifactCreature = cardTypes.includes('artifact') && cardTypes.includes('creature');
     if (cardTypes.length) types.cardTypes = { operation: addTypes || artifactCreature ? 'add' : 'set', types: cardTypes };
@@ -413,6 +418,7 @@ export function parseResolvingCharacteristics(c: Cursor, previous: ObjectRef | u
     if (stats) modifiers.push({ modifier: 'base-pt', ...stats,
       ...(stats.power.amount !== 'fixed' || stats.toughness.amount !== 'fixed' ? { valueScope: 'each-affected-object' as const } : {}) });
     if (abilities) modifiers.push({ modifier: 'abilities', abilities });
+    if (losesOthers) modifiers.push({ modifier: 'lose-abilities', removal: { removal: 'all-other', than: 'abilities-granted-by-this-effect' } });
     return { effect: 'modify-characteristics', what, modifiers, snapshot: 'effect-created', ...(duration ? { duration } : {}) };
   });
 }

@@ -54,6 +54,6 @@ describe("targeting as though without hexproof or shroud (CR 609.4, 702.11, 702.
     fails("Creatures your opponents control can be the targets of spells and abilities you control as though they didn't have flying.");
     fails("Creatures your opponents control can be the targets of spells you control as though they didn't have hexproof.");
     // Nowhere to Run: the ward sentence is not represented.
-    fails("Creatures your opponents control can be the targets of spells and abilities as though they didn't have hexproof. Ward abilities of those creatures don't trigger.", "Enchantment");
+    fails("Creatures your opponents control can be the targets of spells and abilities as though they didn't have hexproof. All abilities of those creatures don't trigger.", "Enchantment");
   });
 });

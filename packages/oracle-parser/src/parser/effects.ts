@@ -59,6 +59,7 @@ import { parseLibraryScan } from "./library-scan.ts";
 import { parseLibraryTopMana } from "./library-top-mana.ts";
 import { parseContextualLibraryPlacement, parseLibraryDepth, parseSameLibraryPlacement, parseSplitPairMember } from "./library-placement.ts";
 import { parseCounterChoice } from "./counter-choices.ts";
+import { disjointPools } from "./pooled-counts.ts";
 import { parseRemoveCountedCounters } from "./counter-anaphora.ts";
 import { parsePlacementChoice } from "./placement-choices.ts";
 import { isPluralTargetPlayers, parsePluralTargetPlayers } from "./player-targets.ts";
@@ -109,7 +110,7 @@ import {
   parseDuration, parseEqualTo, parseFilter, parsePooledEachFilter, parseObjectRef, parseObjectSelection, parseCardExtraction, parsePlayerRef, parsePossessiveObject,
   parseZoneRef, isTargetedPlayerRef, isPluralPlayerRef, parsePossessivePlayer,
 } from "./refs.ts";
-import { parseResumedFilterQualifiers } from "./refs.ts";
+import { parseResumedFilterQualifiers, targetSelectionProvenance } from "./refs.ts";
 import { parsePaidCosts } from "./paid-costs.ts";
 
 // Late-bound full-line parser, used for quoted abilities ("gains '{T}: …'").
@@ -129,6 +130,8 @@ export interface EffectContext {
   /** A token-specific immediate-trigger copy proof, never inherited by a
    * newly created/quoted body. The marker is immutable across backtracking. */
   stackCopyInput?: StackCopyInputProof;
+  /** The current body belongs to one proven trigger, never a nested body. */
+  triggerScope?: "cast" | "leaves-self";
   /** Only result-table row parsers set this; fresh nested bodies do not inherit it. */
   allowRollAgain?: boolean;
   /** Actor of an elided imperative verb after "[player] may"; set only while
@@ -170,6 +173,11 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
           continue;
         }
         if (foldCounterDestination(c, lastSentence)) continue;
+        if (foldCopyAbilityGrant(c, lastSentence)) continue;
+        if (foldConditionalFreeCast(c, lastSentence)) continue;
+        if (foldSuspendCastingCost(c, lastSentence)) continue;
+        const cast = ctx.triggerScope === "cast" && sentences.length === 1 ? parseCastMatchingTrigger(c, lastSentence) : null;
+        if (cast) { sentences.push(cast); continue; }
         if (foldUnpreventableSentence(c, lastSentence)) continue;
         if (foldExcessDamageSentence(c, lastSentence)) continue;
         if (foldEntrySentence(c, lastSentence)) continue;
@@ -363,6 +371,84 @@ function markConditionalContinuations(sentences: Sentence[]): void {
     const governed = previous.afterConditional !== undefined || (previous.condition !== undefined && previous.conditionKind === "if");
     if (governed && anaphor.test(JSON.stringify(current.steps))) current.afterConditional = "scope-unresolved";
   }
+}
+
+/** CR 400.7a, 608.3f, 707.10f: the ability grant follows the copy, not
+ * its model. A conditional grant is distinct from a copiable exception. */
+function foldCopyAbilityGrant(c: Cursor, previous: Sentence): boolean {
+  const copy = previous.steps.length === 1 ? previous.steps[0] : undefined;
+  if (previous.condition || previous.otherwise || previous.bindings || copy?.effect !== "copy-stack-object" ||
+      (copy.what.ref !== "trigger-event-object" || copy.what.event !== "cast") || copy.count.amount !== "fixed" || copy.count.value !== 1 ||
+      copy.optional || copy.forEach || copy.copyExceptions || copy.copyGrant) return false;
+  const abilities = c.attempt(c => {
+    if (c.word("if") === null || !c.word("it's") && !c.words("it", "is")
+      || !c.words("a", "permanent", "spell") || !c.punct(",") || !c.words("the", "copy", "gains")) return null;
+    const grants = parseGainedAbilities(c, { allowFreshProtectionChoices: false });
+    if (!grants || !c.punct(".")) return null;
+    return grants;
+  });
+  if (!abilities) return false;
+  copy.copyGrant = { only: "permanent-spell", abilities };
+  return true;
+}
+
+/** The revealed card will be the second spell only as proposed for casting.
+ * Powerbalance ruling: https://magic.wizards.com/en/news/feature/modern-horizons-3-release-notes */
+function parseCastMatchingTrigger(c: Cursor, previous: Sentence): Sentence | null {
+  const reveal = previous.steps.length === 1 ? previous.steps[0] : undefined;
+  if (previous.condition || previous.otherwise || previous.bindings || reveal?.effect !== "reveal"
+    || !reveal.optional || reveal.who.player !== "you" || reveal.what.ref !== "library-cards"
+    || reveal.what.position !== "top" || reveal.what.count.amount !== "fixed" || reveal.what.count.value !== 1) return null;
+  return c.attempt(c => {
+    if (!c.words("if", "you", "do") || !c.punct(",")
+      || !c.words("you", "may", "cast", "that", "card", "without", "paying", "its", "mana", "cost", "if",
+        "the", "two", "spells", "have", "the", "same", "mana", "value")
+      || !c.punct(".") || !c.done()) return null;
+    return { condition: { condition: "you-do" }, conditionKind: "if", steps: [
+      { effect: "play-card", optional: true, instruction: {
+        who: { player: "you" }, action: "cast", what: { ref: "that", filter: { cls: "card" } },
+        alternativeCost: { cost: "without-mana-cost" },
+        condition: { condition: "proposed-spell-matches-trigger-mana-value",
+          triggerSpell: { ref: "trigger-event-object", event: "cast" } },
+      } },
+    ] };
+  });
+}
+
+/** A use of the prior permission may optionally pay no mana cost. The
+ * permission's lifetime and the land-play option remain the same (CR 118.9,
+ * 611.2a). The condition is about the permission-creating spell's cast. */
+function foldConditionalFreeCast(c: Cursor, previous: Sentence): boolean {
+  const grant = previous.steps.length === 1 ? previous.steps[0] : undefined;
+  if (previous.condition || previous.otherwise || previous.bindings || grant?.effect !== "grant-play-permission" ||
+      grant.permission.action !== "play" || grant.permission.who.player !== "you" || grant.permission.alternativeCost
+      || grant.permission.optionalAlternativeCost || grant.permission.usingKeyword) return false;
+  const condition = c.attempt(c => {
+    if (!c.words("if", "this", "spell", "was", "cast", "from", "a", "graveyard") || !c.punct(",")
+        || !c.words("you", "may", "play", "cards", "this", "way", "without", "paying", "their", "mana", "costs")
+        || !c.punct(".")) return null;
+    return { condition: "was-cast", what: { ref: "this", noun: "spell" }, from: { zone: "graveyard", owner: "any" } } as const;
+  });
+  if (!condition) return false;
+  grant.permission.optionalAlternativeCost = { cost: "without-mana-cost", condition, check: "when-granted" };
+  return true;
+}
+
+/** The suspend cost replaces the mana cost during the optional cast itself. */
+function foldSuspendCastingCost(c: Cursor, previous: Sentence): boolean {
+  const cast = previous.steps.length === 1 ? previous.steps[0] : undefined;
+  if (previous.condition || previous.otherwise || previous.bindings || cast?.effect !== "play-card"
+    || !cast.optional || cast.instruction.action !== "cast" || cast.instruction.who.player !== "you"
+    || cast.instruction.alternativeCost || cast.instruction.usingKeyword) return false;
+  const { from, what } = cast.instruction;
+  if (!from || "anyOf" in from || from.zone !== "hand" || from.owner !== "your"
+    || what.ref !== "filter" || what.filter.cls !== "spell" || !what.filter.withAbility?.includes("suspend")
+    || what.count.amount !== "fixed" || what.count.value !== 1) return false;
+  const cost = c.attempt(c => c.words("if", "you", "do") && c.punct(",")
+    && c.words("pay", "its", "suspend", "cost", "rather", "than", "its", "mana", "cost") && c.punct(".") ? true : null);
+  if (!cost) return false;
+  cast.instruction.alternativeCost = { cost: "keyword-cost", keyword: "suspend" };
+  return true;
 }
 
 /** The searched player's shuffle completes this conditional instruction,
@@ -577,6 +663,20 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     if (leadingVote) {
       if (steps.length !== 1 || steps[0].forEach || steps[0].forEachVote) return c.fail("one instruction repeated per vote");
       applyVoteRider(steps, leadingVote);
+    }
+    if (steps.length === 1) {
+      const payment = steps[0];
+      if (payment.effect === "pay-cost" && payment.optional && !payment.times && payment.costs.length === 1
+          && payment.costs[0].cost === "mana" && payment.costs[0].symbols.includes("X")) {
+        const maximum = c.attempt(c => c.punct(",") && c.words("where", "x", "is", "less", "than", "or", "equal", "to")
+          ? parseAmount(c) : null);
+        if (maximum) {
+          if (maximum.amount !== "event-quantity" || maximum.event !== "life-change" || maximum.change !== "gained"
+            || maximum.scope !== "contextual" || maximum.who?.player !== "you" || payment.who.player !== "you")
+            return c.fail("a bound from the amount of life gained");
+          payment.variableConstraints = [{ variable: "x", maximum }];
+        }
+      }
     }
     if (leadingDuration) {
       for (const s of steps) {
@@ -1258,7 +1358,7 @@ const parseGet: StepParser = transactionalStep((c, ctx) => {
   return count && [{ effect: "get-counters", who, counter, count }];
 });
 
-const parseChoose: StepParser = transactionalStep((c, ctx) => {
+const parseChoose: StepParser = transactionalStep((c, ctx, options) => {
   const who = parseActor(c, ctx, "choose", "chooses");
   if (!who) return null;
   const value = parseValueChoice(c, parseFilter);
@@ -1270,6 +1370,8 @@ const parseChoose: StepParser = transactionalStep((c, ctx) => {
     return refs && refs.length > 1 && refs.every(ref => ref.ref === "target") ? refs : null;
   }) : null;
   if (targets) return targets.map((what): Effect => ({ effect: "declare-target", what }));
+  const crossZone = who.player === "you" ? parsePermanentOrSuspendedTarget(c) : null;
+  if (crossZone) return options?.optionalConsumed ? c.fail("mandatory target announcement") : [{ effect: "declare-target", what: crossZone }];
   const what = c.attempt(parsePlayerRef) ?? parseObjectSelection(c);
   if (!what || ("ref" in what && what.ref === "each")) return null;
   const targeted = "ref" in what ? what.ref === "target" || what.ref === "any-target" : isTargetedPlayerRef(what);
@@ -1279,6 +1381,21 @@ const parseChoose: StepParser = transactionalStep((c, ctx) => {
   const asOf = targeted && "player" in what && what.player === "filtered" ? parseAnnouncementTime(c) : null;
   return targeted ? [{ effect: "declare-target", what, ...(asOf ? { asOf } : {}) }] : [{ effect: "choose-object", who, what }];
 });
+
+/** CR 115.3, 702.62b: one target, either a battlefield permanent or an
+ * exiled suspended card, with eligibility scoped to each alternative. */
+function parsePermanentOrSuspendedTarget(c: Cursor): ObjectRef | null {
+  return c.attempt(c => {
+    const start = c.pos;
+    if (!c.words("target", "permanent") || !c.words("you", "control", "or")) return null;
+    const first = new Cursor(c.tokens.slice(start, c.pos - 1));
+    const what = parseObjectRef(first);
+    const second = parseFilter(c);
+    if (what?.ref !== "target" || !first.done() || second?.cls !== "card"
+      || !second.status?.includes("suspended") || !disjointPools(what.filter, second)) return null;
+    return { ...what, filter: { anyOf: [what.filter, second] } };
+  });
+}
 
 const parseDamage: StepParser = transactionalStep((c, ctx) => {
   const distributive = parseDistributiveDamage(c, { parseObjectRef, parseDamageTarget });
@@ -1335,10 +1452,29 @@ const parseDamage: StepParser = transactionalStep((c, ctx) => {
   return effects;
 });
 
+/** CR 115.1, 115.3: one target selection across an opponent and opposing
+ * permanents. A control clause on one listing does not qualify its siblings. */
+function parseOpposingDamageTarget(c: Cursor): DamageTarget | null {
+  return c.attempt(c => {
+    const target = c.peek();
+    if (!c.words("target", "opponent") || !c.punct(",")) return null;
+    const creature = parseFilter(c);
+    if (creature?.types?.length !== 1 || creature.types[0] !== "creature" || creature.control !== "opponent"
+      || !c.punct(",") || c.word("or") === null) return null;
+    const planeswalker = parseFilter(c);
+    if (planeswalker?.types?.length !== 1 || planeswalker.types[0] !== "planeswalker"
+      || planeswalker.control !== "opponent") return null;
+    return { to: "object", ref: { ref: "target", filter: { orOpponent: true, anyOf: [creature, planeswalker] },
+      count: { amount: "fixed", value: 1 }, ...targetSelectionProvenance(target) } };
+  });
+}
+
 function parseDamageTarget(c: Cursor): DamageTarget | null {
   return c.attempt((c): DamageTarget | null => {
     const attacked = parseAttackedRecipient(c);
     if (attacked) return attacked;
+    const opposing = parseOpposingDamageTarget(c);
+    if (opposing) return opposing;
     const recipient = (c: Cursor): PlayerRef | ObjectRef | null =>
       c.attempt(c => {
         const player = parsePlayerRef(c);
@@ -1384,7 +1520,12 @@ const parseExile: StepParser = transactionalStep((c, ctx) => {
   if (!who) return null;
   const actor = who.player === "you" ? {} : { who };
   const definite = parseDefiniteCardExileCounters(c);
-  let refs = definite ? definite.what : parseObjectRefList(c);
+  const original = ctx.stackCopyInput?.casterIsYou && c.attempt((c): ObjectRef | null => {
+    if (!c.words("the", "spell", "you", "cast")) return null;
+    return { ref: "trigger-event-object", event: "cast" };
+  });
+  if (original && c.isWord("from")) return c.fail("the triggering spell currently on the stack");
+  let refs = definite ? definite.what : original ? [original] : parseObjectRefList(c);
   if (!refs) return null;
   const lifted = definite ?? liftCardExileCounters(refs);
   if (lifted) refs = lifted.what;
@@ -1398,7 +1539,7 @@ const parseExile: StepParser = transactionalStep((c, ctx) => {
   // CR 406.4, 701.24a: "in a face-down pile" is face down and kept as one pile.
   const pile = c.words("in", "a", "face-down", "pile");
   const faceDown = pile || c.words("face", "down");
-  const counters = lifted ? lifted.counters : parseExileCounters(c, refs);
+  const counters = lifted ? lifted.counters : parseExileCounters(c, refs, from ?? undefined);
   return refs.map((what): Effect => ({ effect: "exile", what, ...(from ? { from } : {}), ...(counters ? { counters } : {}), ...actor, ...(faceDown ? { faceDown: true as const } : {}), ...(pile ? { pile: true as const } : {}) }));
 });
 
@@ -1438,7 +1579,10 @@ const parseReturn: StepParser = transactionalStep((c, ctx) => {
   if (!refs) return null;
   const from = c.attempt(c => c.word("from") !== null ? parseZoneRef(c) : null);
   if (fronted && c.isWord("to")) return null;
-  if (!fronted && c.word("to") === null) return null;
+  // CR 110.2: "return that card under your control" implies the battlefield.
+  const implicitBattlefield = !fronted && c.isWord("under") && refs.length === 1
+    && refs[0].ref === "that" && !refs[0].plural && refs[0].filter.cls === "card";
+  if (!fronted && !implicitBattlefield && c.word("to") === null) return null;
   const toHand = fronted ?? c.attempt(parseHandDestination);
   // "Their hand" is only a complete destination for cards taken from one
   // player's graveyard, whose owner that player is (CR 400.3, 404.1).
@@ -1451,9 +1595,9 @@ const parseReturn: StepParser = transactionalStep((c, ctx) => {
     if (narrowed) refs[0] = { ...refs[0], filter: narrowed };
   }
   if (toHand) return refs.map((what): Effect => ({ effect: "return-to-hand", what, to: toHand, ...(from ? { from } : {}), ...actor }));
-  if (c.words("the", "battlefield")) {
+  if (implicitBattlefield || c.words("the", "battlefield")) {
     const details = parseBattlefieldEntryDetails(c);
-    if (!details || (details.from && (from || refs.some(hasExplicitSourceZone)))) return null;
+    if (!details || implicitBattlefield && !details.controller || details.from && (from || refs.some(hasExplicitSourceZone))) return null;
     return refs.map((what): Effect => ({ effect: "move-zone", what, to: { zone: "battlefield" },
       ...details, ...(from ? { from } : {}), ...actor }));
   }
@@ -1544,7 +1688,17 @@ const parseSacrifice: StepParser = transactionalStep((c, ctx) => {
   }
   const who = parseActor(c, ctx, "sacrifice", "sacrifices");
   if (!who) return null;
-  const what = parseObjectRef(c);
+  const greatest = who.player === "each-opponent" && c.attempt((c): ObjectRef | null => {
+    // CR 701.21a: each player sacrifices their own permanent. The greatest
+    // power is compared within each player's controlled creatures.
+    if (!c.words("a", "creature", "they", "control", "with", "the", "greatest", "power")) return null;
+    const pool: ObjectFilter = { types: ["creature"], controlledBy: { player: "they" } };
+    return { ref: "filter", count: { amount: "fixed", value: 1 }, filter: { ...pool, properties: [{
+      property: "power", comparison: { op: "eq", value: { amount: "attribute-extremum",
+        attribute: "power", extremum: "maximum", among: { ...pool } } },
+    }] } };
+  });
+  const what = greatest || parseObjectRef(c);
   if (!what) return null;
   const chosenBy = c.attempt((c): PlayerRef | null => {
     if (c.word("of") === null) return null;
@@ -1702,6 +1856,31 @@ const parsePut: StepParser = transactionalStep((c, ctx) => {
   return moves.map(move => ({ ...move, ...actor }));
 });
 
+/** One simultaneous counter action on two disjoint sets. A separately
+ * stated "each" qualifies only its own branch (CR 122.1, 702.62b). */
+function parseDisjointCounterRecipients(c: Cursor): ObjectRef | null {
+  return c.attempt(c => {
+    if (!c.isWord("each")) return null;
+    const start = c.pos;
+    let split = start + 1;
+    while (split < c.tokens.length) {
+      const token = c.tokens[split];
+      if (token.kind === "punct") return null;
+      const after = c.tokens[split + 1];
+      if (token.kind === "word" && !token.possessive && token.value === "and"
+        && after?.kind === "word" && !after.possessive && after.value === "each") break;
+      split++;
+    }
+    if (split === c.tokens.length) return null;
+    const first = new Cursor(c.tokens.slice(start, split));
+    const left = parseObjectRef(first);
+    c.pos = split + 1;
+    const right = parseObjectRef(c);
+    if (left?.ref !== "each" || !first.done() || right?.ref !== "each" || !disjointPools(left.filter, right.filter)) return null;
+    return { ref: "each", filter: { anyOf: [left.filter, right.filter] } };
+  });
+}
+
 function parseCounterGroup(c: Cursor): Extract<Effect, { effect: "put-counters" }>[] | null {
   return c.attempt(c => {
     const dynamic = c.words("a", "number", "of");
@@ -1740,7 +1919,10 @@ function parseCounterGroup(c: Cursor): Extract<Effect, { effect: "put-counters" 
     if (c.word("on") === null) return null;
     const eachOf = c.words("each", "of");
     // "… on the other": the remaining member after "one of those creatures".
-    const recipients = eachOf ? parseObjectRefList(c) : (() => { const ref = parseObjectRef(c) ?? parseTheOther(c); return ref ? [ref] : null; })();
+    const recipients = eachOf ? parseObjectRefList(c) : (() => {
+      const ref = parseDisjointCounterRecipients(c) ?? parseObjectRef(c) ?? parseTheOther(c);
+      return ref ? [ref] : null;
+    })();
     if (!recipients) return null;
     return recipients.flatMap(on => specs.map(spec => ({ effect: "put-counters" as const, on, ...spec })));
   });
@@ -1750,7 +1932,22 @@ type ZoneMove = Extract<Effect, { effect: "move-zone" }>;
 function parsePutGroup(c: Cursor, earlier: ZoneMove[] = [], who: PlayerRef = { player: "you" }): ZoneMove[] | null {
   return c.attempt(c => {
     const pair = parseSplitPairMember(c, earlier) ?? (earlier.length ? null : parseOnePile(c, who));
-    const refs = pair ? [pair] : parseObjectRefList(c, parseCardExtraction);
+    const bounded = !pair && c.attempt(c => {
+      if (!c.isWord("one")) return null;
+      const start = c.pos;
+      if (!c.words("one") || !c.punct(",") || !c.words("two") || !c.punct(",") || !c.words("or", "three")) return null;
+      c.pos = start;
+      const ref = parseDivisionTargets(c);
+      if (ref?.ref !== "target" || ref.filter.cls !== "card") return null;
+      const source = c.tokens[c.pos - 1];
+      if (source?.kind === "word" && source.value === "graveyards" &&
+        ref.filter.zone?.zone === "graveyard" && !ref.filter.zone.owner) {
+        // CR 400.1: a candidate may come from any of the players' graveyards.
+        ref.filter.zone = { zone: "graveyard", owner: "all-players" };
+      }
+      return ref;
+    });
+    const refs = pair ? [pair] : bounded ? [bounded] : parseObjectRefList(c, parseCardExtraction);
     if (!refs) return null;
     const previous = earlier.at(-1)?.to;
     const sameLibrary = previous && parseSameLibraryPlacement(c, previous);
@@ -1765,7 +1962,7 @@ function parsePutGroup(c: Cursor, earlier: ZoneMove[] = [], who: PlayerRef = { p
     if (c.word("onto", "into", "on", "in") === null) return null;
     const stated = parseZoneRef(c);
     const to = stated && (parseLibraryDepth(c, stated) ?? stated);
-    if (!to || (back && !(to.zone === "library" && to.position))) return null;
+    if (!to || bounded && to.zone !== "battlefield" || (back && !(to.zone === "library" && to.position))) return null;
     const details = parseZoneMoveDetails(c, to);
     if (!details || (details.from && (origin || refs.some(hasExplicitSourceZone)))) return null;
     return refs.map(what => ({ effect: "move-zone", what, to, ...details, ...(origin ? { from: origin } : {}) }));
@@ -1879,12 +2076,22 @@ const parseLifeGainLoss: StepParser = transactionalStep((c, ctx) => {
     return c.word("counters") !== null ? [{ effect: "lose-counters", who, counter, count: "all" }] : null;
   });
   if (counters) return counters;
+  const floor = !gained && !isPluralPlayerRef(who) ? c.attempt(c => {
+    if (!c.words("all", "but")) return null;
+    const remaining = parseCount(c);
+    return remaining?.amount === "fixed" && c.word("life") !== null ? remaining : null;
+  }) : null;
+  // CR 107.1b, 119.3: a negative result loses zero life. This cannot gain life.
+  if (floor) return [{ effect: "lose-life", who,
+    amount: { amount: "minus", a: { amount: "life-total", of: who }, b: floor } }];
   const half = c.attempt(parseHalfOwnLife);
   if (half) return [{ effect: gained ? "gain-life" : "lose-life", who, amount: half }];
   let amount = c.attempt(parseAmount);
   if (c.word("life") === null) return null;
   if (!amount) {
-    amount = parseEqualTo(c);
+    amount = gained && who.player === "you" && ctx.triggerScope === "leaves-self"
+      && c.words("equal", "to", "the", "life", "you", "lost", "when", "it", "entered")
+      ? { amount: "life-lost-on-entry", who, what: { ref: "it" } } : parseEqualTo(c);
     if (!amount) return null;
   }
   const effect = gained ? "gain-life" : "lose-life";
@@ -2262,7 +2469,7 @@ const parseRemoveCounters: StepParser = transactionalStep((c) => {
   if (!counter) return null;
   if (c.word("counter", "counters") === null) return null;
   if (c.word("from") === null) return null;
-  const from = parseObjectRef(c);
+  const from = parseDisjointCounterRecipients(c) ?? parseObjectRef(c);
   if (!from) return null;
   return [{ effect: "remove-counters", counter, count, from }];
 });

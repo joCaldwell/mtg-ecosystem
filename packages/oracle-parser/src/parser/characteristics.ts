@@ -178,8 +178,10 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
     }
     if (c.word('with') !== null) {
       const pt = parseStaticBasePt(c);
-      if (pt) stats = pt;
-      else {
+      if (pt) {
+        stats = pt;
+        abilities = c.attempt(c => c.words('and', 'has') ? parseAbilities(c) : null) ?? undefined;
+      } else {
         abilities = parseAbilities(c) ?? undefined;
         if (!abilities) return null;
       }
@@ -208,12 +210,15 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
       c.punct(',');
       if (c.word('and') === null) return null;
       c.word('it', 'they');
-      if (c.word('loses', 'lose') === null || !c.words('all', 'other', 'card', 'types')) return null;
-      return { abilities: c.words('and', 'abilities') };
+      if (c.word('loses', 'lose') === null || !c.words('all', 'other')) return null;
+      return c.attempt(c => c.word('abilities') !== null && c.punct(',') && c.words('card', 'types') && c.punct(',')
+        && c.words('and', 'creature', 'types') ? { abilities: true, creatureTypes: true } : null)
+        ?? (c.words('card', 'types') ? { abilities: c.words('and', 'abilities'), creatureTypes: false } : null);
     });
     if (retainedTypes(c, verb === 'are' || verb === "aren't")) addTypes = true;
     if (othersLost && (!cardTypes.length || addTypes || also || negative || noLonger
-      || cardTypes.includes('artifact') && cardTypes.includes('creature') || othersLost.abilities && !abilities)) return null;
+      || cardTypes.includes('artifact') && cardTypes.includes('creature') && !othersLost.creatureTypes
+      || othersLost.abilities && !abilities || othersLost.creatureTypes && !subtypes.has('creature'))) return null;
     // "Also" is currently represented only for types. It must not silently
     // turn an additional color into a color replacement.
     if (also && colors) return null;
@@ -223,7 +228,7 @@ export function parseCharacteristicModifiers(c: Cursor, _what: ObjectRef, parseA
     // artifact creature" retains its other types, subtypes and supertypes.
     const artifactCreature = cardTypes.includes('artifact') && cardTypes.includes('creature');
     const change: TypeChange = {};
-    if (cardTypes.length) change.cardTypes = { operation: removing ? 'remove' : addTypes || artifactCreature ? 'add' : 'set', types: cardTypes };
+    if (cardTypes.length) change.cardTypes = { operation: removing ? 'remove' : (addTypes || artifactCreature && !othersLost) ? 'add' : 'set', types: cardTypes };
     if (supertypes.length) change.supertypes = { operation: removing ? 'remove' : 'add', types: supertypes };
     if (subtypes.size) change.subtypes = [...subtypes].map(([family, types]) => ({ family,
       operation: removing ? 'remove' : addTypes || artifactCreature && family !== 'creature' ? 'add' : 'set', types }));

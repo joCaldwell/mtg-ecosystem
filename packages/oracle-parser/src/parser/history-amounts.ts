@@ -6,7 +6,8 @@
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { Amount, ObjectFilter, PlayerRef } from "../ast.ts";
 import type { Cursor } from "./cursor.ts";
-import { parseFilter, parsePlayerRef } from "./refs.ts";
+import { parseFilter, parsePlayerRef, parseZoneRef } from "./refs.ts";
+import { parseExcludedOrigin } from "./zone-origins.ts";
 
 type Actor = PlayerRef | "all-players-combined";
 
@@ -37,9 +38,10 @@ export function parseHistoryUnit(c: Cursor): Amount | null {
     // CR 702.29a: cycling discards the card as a cost, so every card cycled
     // is a card discarded and "cycled or discarded" is the discarded set.
     const verb = c.words("cycled", "or", "discarded") ? "discarded" : c.word("drawn", "sacrificed", "discarded", "cast");
+    const notFrom = verb === "cast" ? parseExcludedOrigin(c, parseZoneRef) : null;
     if (!verb || !c.words("this", "turn")) return null;
     const during = "this-turn" as const;
-    if (verb === "cast") return what.cls === "spell" ? { amount: "cast-count", who, what, during } : null;
+    if (verb === "cast") return what.cls === "spell" ? { amount: "cast-count", who, what, during, ...(notFrom ? { notFrom } : {}) } : null;
     if (verb === "drawn") {
       // Only cards are drawn; a narrower description would be a different count.
       return Object.keys(what).length === 1 && what.cls === "card" ? { amount: "player-action-count", who, action: { action: "draw" }, during } : null;

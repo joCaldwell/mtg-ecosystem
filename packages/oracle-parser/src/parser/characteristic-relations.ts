@@ -100,7 +100,7 @@ function parseTest(c: Cursor, g: Grammar, context: "filter" | "condition"): Pars
     if (c.word("same") === null) return null;
     if (c.word("name") !== null) {
       if (c.word("as") === null) return null;
-      const withOperand = operand(c, g);
+      const withOperand = (negative && context === "condition" ? parseAlternativeNameOperands(c, g) : null) ?? operand(c, g);
       if (!withOperand) return null;
       const test: CharacteristicRelation = { relation: "shared-value", characteristic: "name", with: withOperand };
       return { test: negative ? { relation: "not", of: test } : test };
@@ -109,6 +109,28 @@ function parseTest(c: Cursor, g: Grammar, context: "filter" | "condition"): Pars
     if (!property || c.word("as") === null) return null;
     const of = operand(c, g);
     return of?.operand === "object" ? { property, of: of.what, negated: negative } : null;
+  });
+}
+
+/** CR 201.2a, 603.4: one negated existential across both comparison sets.
+ * Treat the alternatives as complete operand phrases, never as a shared
+ * final zone/control qualifier or as two separately negated conditions. */
+function parseAlternativeNameOperands(c: Cursor, g: Grammar): CharacteristicOperand | null {
+  return c.attempt(c => {
+    const end = c.tokens.findIndex((token, i) => i >= c.pos && token.kind === "punct" && token.value === ",");
+    if (end < 0) return null;
+    const phrase = c.tokens.slice(c.pos, end);
+    const separator = phrase.findIndex(token => token.kind === "word" && !token.possessive && token.value === "or");
+    if (separator < 1 || phrase.slice(separator + 1).some(token => token.kind === "word" && !token.possessive && token.value === "or")) return null;
+    const left = new Cursor(phrase.slice(0, separator));
+    const right = new Cursor(phrase.slice(separator + 1));
+    const first = operand(left, g);
+    const second = operand(right, g);
+    if (!first || !second || !left.done() || !right.done()
+      || first.operand !== "matching-set" || first.quantifier !== "any" || !first.filter.control && !first.filter.zone
+      || second.operand !== "matching-set" || second.quantifier !== "any" || !second.filter.zone) return null;
+    c.pos = end;
+    return { operand: "matching-set", filter: { anyOf: [first.filter, second.filter] }, quantifier: "any" };
   });
 }
 
