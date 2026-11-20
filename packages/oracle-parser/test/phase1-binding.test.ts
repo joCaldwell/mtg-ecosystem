@@ -7,9 +7,13 @@ import type { CardBindingAnalysis } from "../src/semantic/types.ts";
 function analyze(oracleText: string, typeLine: string, manaCost?: string): CardBindingAnalysis {
   const name = "Fixture";
   const result = parseOracleText(oracleText, name, { typeLine, includeSourceProvenance: true });
+  return analyzeResult(result, typeLine, manaCost);
+}
+
+function analyzeResult(result: ReturnType<typeof parseOracleText>, typeLine: string, manaCost?: string): CardBindingAnalysis {
   assert.ok(result.ok, JSON.stringify(result.lines));
   return analyzeCardBindings({
-    identity: "fixture", source: { name, type_line: typeLine, mana_cost: manaCost, layout: "normal" },
+    identity: "fixture", source: { name: result.name, type_line: typeLine, mana_cost: manaCost, layout: "normal" },
     faces: [{ sourceFaceIndex: 0, result }],
   });
 }
@@ -1949,5 +1953,88 @@ describe("amounts at stack announcement", () => {
       assert.equal(graph.referencesBound, false);
       assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding" && diagnostic.path.endsWith("/what/count")));
     }
+  });
+});
+
+describe("proposed replacement events and resolution choices", () => {
+  const replacement = "If a card you didn't control would be put into an opponent's graveyard from anywhere, exile it instead.";
+  const permission = "During your turn, you may play cards exiled with this creature. If you cast a spell this way, "
+    + "pay life equal to its mana value rather than pay its mana cost.";
+
+  it("binds the proposed move and the cost of the spell cast from its exact linked pool", () => {
+    const graph = analyze(replacement + "\n" + permission, "Creature");
+    boundCard(graph);
+    const move = graph.nodes.find(node => node.node === "exile-replacement");
+    assert.ok(move?.control?.information === "before-move" && move.from === "anywhere");
+    assert.equal(move.control.differentFrom, bound(graph, "/event/notControlledByBefore"));
+    assert.equal(move.graveyardOwner, bound(graph, "/event/to/owner"));
+    assert.equal(move.object, bound(graph, "/replace/effects/0/steps/0/what"));
+    const cost = graph.nodes.find(node => node.node === "linked-exile-life-cost");
+    assert.ok(cost && cost.landPlay === "normal-rules" && cost.timing === "cost-determination");
+    assert.equal(cost.pool, bound(graph, "/permission/what"));
+    assert.equal(cost.spell, bound(graph, "/alternativeCost/costs/0/amount/of"));
+    assert.notEqual(cost.spell, cost.pool);
+  });
+
+  it("rejects a permission with two potential linked exile producers", () => {
+    const graph = analyze(replacement + "\nWhenever this creature attacks, exile the top card of your library.\n" + permission, "Creature");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "linked-exile-life-cost"));
+  });
+
+  const prevention = "Prevent all damage that would be dealt to a creature by another creature if they share a color.";
+
+  it("tests the proposed source against the proposed recipient and excludes that same recipient", () => {
+    const graph = analyze(prevention, "Enchantment");
+    boundCard(graph);
+    const pair = graph.nodes.find(node => node.node === "damage-prevention-pair");
+    assert.ok(pair && pair.source !== pair.recipient);
+    assert.equal(pair.source, bound(graph, "/condition/what"));
+    assert.equal(pair.recipient, bound(graph, "/by/filter/otherThan"));
+    assert.equal(pair.recipient, bound(graph, "/condition/test/with/what"));
+    const predicate = graph.nodes.find(node => node.id === pair.predicate);
+    assert.ok(predicate?.node === "characteristic-predicate" && predicate.timing === "replacement-match");
+    assert.deepEqual(predicate.operand, { kind: "object", object: pair.recipient, information: "current" });
+  });
+
+  it("does not bind an unmatched prevention role to the source or recipient", () => {
+    const result = parseOracleText(prevention, "Fixture", { typeLine: "Enchantment" });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability?.kind === "static" && ability.effect.static === "prevent-damage");
+    const condition = ability.effect.prevention.condition;
+    assert.ok(condition?.condition === "characteristic-relation");
+    condition.what = { ref: "prevention-event-object", role: "recipient" };
+    const graph = analyzeResult(result, "Enchantment");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "damage-prevention-pair"));
+  });
+
+  const counters = "For each non-Saga permanent, choose a counter on it. "
+    + "You may put an additional counter of that kind on that permanent.";
+
+  it("takes all counter kind choices before applying member-specific optional placements", () => {
+    const graph = analyze(counters, "Sorcery");
+    boundCard(graph);
+    const choice = graph.nodes.find(node => node.node === "existing-counter-kind");
+    assert.ok(choice && choice.placement === "optional-for-each-member");
+    assert.equal(choice.ordering, "choose-all-then-place");
+    assert.equal(choice.member, bound(graph, "/counters/of"));
+    assert.equal(choice.member, bound(graph, "/steps/0/on"));
+  });
+
+  it("does not bind a grouped counter choice from a different object", () => {
+    const result = parseOracleText(counters, "Fixture", { typeLine: "Sorcery" });
+    assert.ok(result.ok, JSON.stringify(result.lines));
+    const [ability] = result.abilities;
+    assert.ok(ability?.kind === "spell");
+    const [loop] = ability.effects[0].steps;
+    assert.ok(loop.effect === "for-each");
+    const [place] = loop.effects[0].steps;
+    assert.ok(place.effect === "put-counters-of" && "of" in place.counters);
+    place.counters.of = { ref: "target", filter: { cls: "permanent" }, count: { amount: "fixed", value: 1 } };
+    const graph = analyzeResult(result, "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "existing-counter-kind"));
   });
 });
