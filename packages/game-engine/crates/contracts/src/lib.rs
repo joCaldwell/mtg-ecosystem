@@ -7631,6 +7631,7 @@ mod tests {
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
+        definitions.push(hand_cast::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
         definitions.push(targeted_discard::witness());

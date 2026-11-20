@@ -33,6 +33,36 @@ pub fn combat_hand_cast_ast() -> Value {
         "from":{"zone":"hand","owner":"your"},"alternativeCost":{"cost":"without-mana-cost"}},"optional":true}]}]}])
 }
 
+fn printed_trigger() -> String {
+    let event = "Whenever this creature deals combat damage to a player";
+    let offer = "you may cast a spell from your hand";
+    format!("{event}, {offer} without paying its mana cost.")
+}
+
+#[cfg(test)]
+pub(super) fn witness() -> Definition {
+    let mut definition = entry_graveyard_exile::witness(CardKind::Creature);
+    definition.name = "Synthetic Passage Herald".into();
+    let lines = vec!["Flying".to_owned(), printed_trigger()];
+    let mut source: Value = strict_read(&definition.provenance.source_json).unwrap();
+    source["name"] = json!(definition.name);
+    source["oracle_text"] = json!(lines.join("\n"));
+    definition.provenance.source_json = source.to_string();
+    definition.provenance.source_sha256 = sha256(definition.provenance.source_json.as_bytes());
+    definition.provenance.abilities_json = combat_hand_cast_ast().to_string();
+    definition.provenance.ast_sha256 =
+        sha256(format!("[{}]", definition.provenance.abilities_json).as_bytes());
+    definition.triggered = vec![combat_hand_cast_trigger()];
+    definition.source_labels = Some(SourceLabels {
+        text: lines.join("\n"),
+        blocks: lines,
+        triggered: vec![1],
+        ..Default::default()
+    });
+    definition.capabilities = definition.requirements();
+    definition
+}
+
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let raw = &d.provenance.source_json;
     let phrase = "cast a spell from your hand";
@@ -49,10 +79,8 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         return Ok(());
     }
     let c = &d.characteristics;
-    let head = "Whenever this creature deals combat damage to a player";
-    let action = "you may cast a spell from your hand";
-    let tail = "without paying its mana cost.";
-    let text = format!("Flying\n{head}, {action} {tail}");
+    let line = printed_trigger();
+    let text = format!("Flying\n{line}");
     let mut cost = String::new();
     if c.mana_cost.generic != Quantity::zero() || c.mana_cost.colored.is_empty() {
         cost.push_str(&format!("{{{}}}", c.mana_cost.generic));
@@ -74,7 +102,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
             && l.spell_modes.is_empty()
             && l.blocks.len() == 2
             && l.blocks[0] == "Flying"
-            && l.blocks[1] == format!("{head}, {action} {tail}")
+            && l.blocks[1] == line
     });
     if !reserved
         || !labels_ok
