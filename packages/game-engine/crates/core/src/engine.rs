@@ -22,6 +22,8 @@ pub use advance_report::*;
 pub use match_admission::*;
 mod commander_policy;
 mod optional_costs;
+mod phasing;
+pub use phasing::{PhaseReturn, PhasingSchedule};
 pub use commander_policy::policy_digest;
 #[cfg(test)]
 mod activated_permanent_return_tests;

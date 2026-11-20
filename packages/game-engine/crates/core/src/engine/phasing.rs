@@ -1,0 +1,198 @@
+//! Private pre-event phasing selection and return timing, CR 502.1, 702.26a,
+//! 702.26d, 702.26g–i, 702.26n. Phasing uses exact battlefield incarnations.
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::*;
+
+/// Rule-owned projection of phased-out incarnations. Each indirect member is
+/// tied to its parent, even when the instruction also selected it directly.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PhasingSchedule {
+    members: BTreeMap<ObjectId, PhaseReturn>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhaseReturn {
+    Direct { controller_at_phase_out: PlayerId },
+    Indirect { attached_to: ObjectId },
+}
+
+impl PhasingSchedule {
+    pub fn return_condition(&self, object: ObjectId) -> Option<PhaseReturn> {
+        self.members.get(&object).copied()
+    }
+
+    /// Construct the simultaneous status transition from one unmodified game
+    /// state. Objects already phased out cannot be selected a second time.
+    /// The caller owns the eventual event and the installation of this projection.
+    pub fn phase_out_controlled(
+        &mut self,
+        game: &Game,
+        controller: PlayerId,
+    ) -> Result<Vec<ObjectId>, String> {
+        if !game.is_live(controller) {
+            return Err("phasing requires a live invocation controller".into());
+        }
+        let mut direct = BTreeSet::new();
+        let mut attachments = BTreeMap::<ObjectId, Vec<ObjectId>>::new();
+        for o in game.state.rules.objects.values() {
+            if o.zone != Zone::Battlefield || self.members.contains_key(&o.id) {
+                continue;
+            }
+            if o.controller == controller {
+                direct.insert(o.id);
+            }
+            if let Some(parent) = o.attached_to {
+                attachments.entry(parent).or_default().push(o.id);
+            }
+        }
+        let mut selected = direct.clone();
+        let mut frontier: Vec<_> = direct.into_iter().collect();
+        while let Some(id) = frontier.pop() {
+            if let Some(children) = attachments.get(&id) {
+                for &child in children {
+                    if selected.insert(child) {
+                        frontier.push(child);
+                    }
+                }
+            }
+        }
+        let mut changes = BTreeMap::new();
+        for &id in &selected {
+            let o = game.current(id)?;
+            let status = match o.attached_to {
+                Some(parent) if selected.contains(&parent) => PhaseReturn::Indirect {
+                    attached_to: parent,
+                },
+                _ => PhaseReturn::Direct {
+                    controller_at_phase_out: o.controller,
+                },
+            };
+            changes.insert(id, status);
+        }
+        for &id in &selected {
+            let mut path = BTreeSet::new();
+            let mut current = id;
+            while let Some(PhaseReturn::Indirect { attached_to }) = changes.get(&current) {
+                if !path.insert(current) {
+                    return Err("cyclic phasing attachment selection".into());
+                }
+                current = *attached_to;
+            }
+        }
+        self.members.extend(changes);
+        Ok(selected.into_iter().collect())
+    }
+
+    /// CR 702.26n: the cyclic interval of seats passed on the transition
+    /// to this untap includes any departed seat whose turn would have begun.
+    /// Extra turns and skipped untaps are outside the existing scheduler.
+    pub fn phase_in_at_untap(
+        &mut self,
+        game: &Game,
+        previous_turn_owner: PlayerId,
+    ) -> Result<Vec<ObjectId>, String> {
+        if previous_turn_owner.0 >= 4 {
+            return Err("invalid previous phasing seat".into());
+        }
+        let active = game
+            .next_live(previous_turn_owner)
+            .ok_or("no live untap owner")?;
+        let mut due = BTreeSet::new();
+        for distance in 1..=4 {
+            let seat = PlayerId((previous_turn_owner.0 + distance) % 4);
+            due.insert(seat);
+            if seat == active {
+                break;
+            }
+        }
+        self.members
+            .retain(|id, _| game.zone(*id) == Some(Zone::Battlefield));
+        let mut attachments = BTreeMap::<ObjectId, Vec<ObjectId>>::new();
+        let mut ready = BTreeSet::new();
+        for (&id, &status) in &self.members {
+            match status {
+                PhaseReturn::Direct {
+                    controller_at_phase_out,
+                } if due.contains(&controller_at_phase_out) => {
+                    ready.insert(id);
+                }
+                PhaseReturn::Indirect { attached_to } => {
+                    attachments.entry(attached_to).or_default().push(id)
+                }
+                _ => {}
+            }
+        }
+        let mut frontier: Vec<_> = ready.iter().copied().collect();
+        while let Some(parent) = frontier.pop() {
+            if let Some(children) = attachments.get(&parent) {
+                for &id in children {
+                    if ready.insert(id) {
+                        frontier.push(id);
+                    }
+                }
+            }
+        }
+        for id in &ready {
+            self.members.remove(id);
+        }
+        Ok(ready.into_iter().collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::equipped_indestructible_tests::{equip, object, prepared};
+
+    #[test]
+    fn controlled_phasing_freezes_attachment_identity_and_return_seat_on_live_table() {
+        let mut p = prepared(
+            &[
+                ("Darksteel Plate", false),
+                ("Grizzly Bears", false),
+                ("Forest", false),
+                ("Forest", false),
+            ],
+            false,
+        );
+        p.config.cards[1].owner = PlayerId(2);
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut game = Game::with_trace(p, TraceMode::Detailed);
+        equip(&mut game, 1, 0, 1);
+        let plate = object(&game, 0);
+        let bear = object(&game, 1);
+        let mut schedule = PhasingSchedule::default();
+        let before = game.state.clone();
+        let ids = schedule.phase_out_controlled(&game, PlayerId(0)).unwrap();
+        assert_eq!(ids, (0..4).map(|i| object(&game, i)).collect::<Vec<_>>());
+        assert_eq!(
+            schedule.return_condition(plate),
+            Some(PhaseReturn::Indirect { attached_to: bear })
+        );
+        assert_eq!(
+            schedule.return_condition(bear),
+            Some(PhaseReturn::Direct {
+                controller_at_phase_out: PlayerId(0)
+            })
+        );
+        assert!(
+            schedule
+                .phase_out_controlled(&game, PlayerId(0))
+                .unwrap()
+                .is_empty()
+        );
+        let successor = ObjectId {
+            card: bear.card,
+            incarnation: bear.incarnation + 1,
+        };
+        assert_eq!(schedule.return_condition(successor), None);
+        assert!(
+            schedule
+                .phase_in_at_untap(&game, PlayerId(0))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(schedule.phase_in_at_untap(&game, PlayerId(3)).unwrap(), ids);
+        assert_eq!(game.state, before);
+    }
+}
