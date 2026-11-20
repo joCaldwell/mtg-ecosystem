@@ -46,6 +46,7 @@ fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
+        Frame::RevealAndCast { progress } => Some(&progress.frame.spell),
         Frame::Cascade { progress }
         | Frame::LandEntry {
             origin: EntryOrigin::Cascade { progress },
@@ -83,6 +84,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
+        Frame::RevealAndCast { progress } => update_entry(&mut progress.frame.spell, fact),
         Frame::Cascade { progress }
         | Frame::LandEntry {
             origin: EntryOrigin::Cascade { progress },

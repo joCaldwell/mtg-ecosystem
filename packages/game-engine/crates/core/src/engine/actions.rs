@@ -971,6 +971,9 @@ impl Game {
         let player = frame.spell.controller;
         match instruction {
             Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
+            Instruction::RevealAndCast { source_block } => {
+                self.begin_library_shuffle(frame, source_block)
+            }
             Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
             Instruction::PutHandOnLibrary {
                 count,

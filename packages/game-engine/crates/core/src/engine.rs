@@ -336,10 +336,12 @@ mod actions;
 mod divided_counters;
 pub use divided_counters::CounterDivision;
 mod cascade;
+mod reveal_and_cast;
+use reveal_and_cast::RevealAndCastProgress;
 #[cfg(test)]
 mod cascade_tests;
 mod casting;
-use cascade::{CascadeProgress, CastCompletion, CastPermission};
+use cascade::{CascadeProgress, CastCompletion, CastOwner, CastPermission};
 #[cfg(test)]
 mod cast_origin_tests;
 #[cfg(test)]
@@ -1031,6 +1033,9 @@ enum Frame {
         scope: ManaSourceScope,
         resume: Box<Frame>,
     },
+    RevealAndCast {
+        progress: Box<RevealAndCastProgress>,
+    },
     Cascade {
         progress: Box<CascadeProgress>,
     },
@@ -1618,6 +1623,14 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    RevealLibraryCard {
+        player: PlayerId,
+        object: ObjectId,
+    },
+    BottomRevealedCards {
+        player: PlayerId,
+        order: Vec<ObjectId>,
+    },
     RevealSearchLands {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -1851,6 +1864,14 @@ pub struct MoveOutcome {
 pub enum EventOutcome {
     CounterPlacementModified {
         application: CounterPlacementApplication,
+    },
+    LibraryCardRevealed {
+        player: PlayerId,
+        object: ObjectId,
+    },
+    RevealedCardsBottomed {
+        player: PlayerId,
+        order: Vec<ObjectId>,
     },
     SearchLandsRevealed {
         player: PlayerId,
@@ -2658,7 +2679,7 @@ impl Game {
         if let Some(req) = self.combat_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
-        if let Some(req) = self.cascade_request()? {
+        if let Some(req) = self.resolution_cast_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.rules.frame {
@@ -2818,6 +2839,9 @@ impl Game {
         }
         if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
             return self.validate_resolution_payment_response(payment, player, response);
+        }
+        if let Frame::RevealAndCast { progress } = &self.state.rules.frame {
+            return self.validate_reveal_offer(progress, player, response);
         }
         if let Frame::Cascade { progress } = &self.state.rules.frame {
             return self.validate_cascade_response(progress, player, response);
@@ -3118,6 +3142,7 @@ impl Game {
         }
         match self.state.rules.frame.clone() {
             Frame::LandEntry { .. } => self.land_entry_step()?,
+            Frame::RevealAndCast { progress } => self.reveal_and_cast_step(progress)?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
             Frame::ResolutionPayment { frame, payment } => {
                 self.resolution_payment_step(frame, payment)?

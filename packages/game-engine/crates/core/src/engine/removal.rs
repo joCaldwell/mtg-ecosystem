@@ -22,6 +22,7 @@ pub(super) struct TargetFacts {
 impl Game {
     fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
         match frame {
+            Frame::RevealAndCast { progress } => Some(&mut progress.frame),
             Frame::Cascade { progress }
             | Frame::LandEntry {
                 origin: EntryOrigin::Cascade { progress },
