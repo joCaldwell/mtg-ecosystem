@@ -420,6 +420,7 @@ pub enum Capability {
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
+    FixedTargetModesV1,
     ModalChoiceV1,
     CommanderModalKeywordGrantV1,
     NonemptyModeSubsetV1,
@@ -5323,6 +5324,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if matches!(program.resolution, SpellResolution::ChooseModes { .. }) {
+            set.insert(Capability::FixedTargetModesV1);
+        }
         if akromas_will_program(program) {
             set.insert(Capability::CommanderModalKeywordGrantV1);
         }
@@ -7009,6 +7013,7 @@ pub fn catalog_schema() -> serde_json::Value {
     optional_costs::schema(&mut schema);
     counted_costs::schema(&mut schema);
     fixed_artifact_sacrifice_schema(&mut schema);
+    modal_targets::schema(&mut schema);
     graveyard_shuffle::schema(&mut schema);
     typed_land_search::schema(&mut schema);
     controller_library::extend_schema(&mut schema);
@@ -7308,6 +7313,7 @@ mod tests {
             StaticDamageReplacementV1,
             SelfDiesV1,
             InterveningIfV1,
+            FixedTargetModesV1,
             ModalChoiceV1,
             CommanderModalKeywordGrantV1,
             NonemptyModeSubsetV1,
@@ -7830,6 +7836,7 @@ mod tests {
         definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
         definitions.push(graveyard_shuffle::witness());
+        definitions.push(modal_targets::witness());
         definitions.push(controlled_creature_spell_copy::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());

@@ -263,3 +263,36 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+pub(super) fn witness() -> Definition {
+    let raw: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/synthetic-fixed-target-modes.json"
+    ))
+    .unwrap();
+    let source = &raw["source"];
+    let ast = &raw["faces"][0]["result"]["abilities"];
+    let text = source["oracle_text"].as_str().unwrap();
+    let mut d = crate::graveyard_shuffle::witness();
+    d.name = source["name"].as_str().unwrap().into();
+    d.oracle_id = raw["oracleIdentity"].as_str().unwrap().into();
+    d.provenance.printing_id = source["id"].as_str().unwrap().into();
+    d.provenance.source_json = source.to_string();
+    d.provenance.abilities_json = ast.to_string();
+    d.provenance.source_sha256 = sha256(d.provenance.source_json.as_bytes());
+    d.provenance.ast_sha256 = sha256(format!("[{}]", d.provenance.abilities_json).as_bytes());
+    d.provenance.binding_sha256 = raw["bindingSha256"].as_str().unwrap().into();
+    d.spell = Some(fixed_player_modes(text, ast, SpellTiming::MainPhase).unwrap());
+    d.capabilities = d.requirements();
+    d
+}
+
+pub(super) fn schema(schema: &mut serde_json::Value) {
+    use serde_json::json;
+    let marker = json!({"type":"object","required":["choose_modes"]});
+    let cap = json!({"contains":{"const":Capability::FixedTargetModesV1}});
+    let free = json!({"$ref":"#/$defs/FixedTargetModesFree"});
+    schema["$defs"]["FixedTargetModesFree"] = json!({"properties":{"resolution":{"not":marker},"modes":{"items":{"properties":{"program":free}}}}});
+    let child = json!({"properties":{"program":{"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"any_player"},"slot":{"const":0},"filter":{"type":"null"}}}},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"enum":["gain_life","lose_life"]},"recipient":{"const":{"target":{"target_slot":0}}},"source_block":{"const":0}}}},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}}]},"then":{"required":["spell","capabilities"],"properties":{"capabilities":{"allOf":[cap,{"contains":{"const":Capability::ModalChoiceV1}},{"contains":{"const":Capability::AnyPlayerTargetV1}}]},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"spell":{"type":"object","properties":{"resolution":marker,"modes":{"minItems":2,"items":child},"targets":{"maxItems":0},"instructions":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}}));
+}
