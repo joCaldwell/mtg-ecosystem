@@ -61,8 +61,10 @@ mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
+mod keyword_removal_wipe;
 mod library_selection;
 mod nonland_exile_life;
+pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wipe_source};
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
@@ -352,6 +354,7 @@ pub enum Capability {
     HandActivationV1,
     DiscardSourceCostV1,
     AnyDamageTargetV1,
+    RemoveIndestructibleV1,
     PlayerOrPlaneswalkerTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
@@ -761,6 +764,9 @@ pub enum Instruction {
         action: SetMove,
         source_block: u32,
     },
+    RemoveOpponentNonlandIndestructible {
+        source_block: u32,
+    },
     DestroySet {
         set: ObjectSet,
         /// CR 701.19c: a prohibition keeps regeneration replacement effects
@@ -1138,6 +1144,7 @@ impl Instruction {
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
+            Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -2969,6 +2976,7 @@ impl Definition {
         own_graveyard_card_return::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
@@ -4468,6 +4476,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     for instruction in &p.instructions {
         let binding = match instruction {
             Instruction::MoveSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -5209,6 +5218,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::RemoveOpponentNonlandIndestructible { .. } => {
+                Capability::RemoveIndestructibleV1
+            }
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -6754,6 +6766,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
@@ -6975,6 +6988,7 @@ mod tests {
             DiscardSourceCostV1,
             AnyDamageTargetV1,
             PlayerOrPlaneswalkerTargetV1,
+            RemoveIndestructibleV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
             LifeGainV1,
@@ -7650,6 +7664,8 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
+        let sweep = definitions.iter().find(|d| d.name == "Planar Cleansing").unwrap().clone();
+        definitions.push(keyword_removal_wipe::witness(sweep));
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)
