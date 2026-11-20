@@ -379,14 +379,20 @@ probes hold the synthetic controls.
 
 ## Trigger families and event witnesses
 
-Single-face noncreature Sagas with chapters I–III can compose fixed token
-creation, +1/+1 counters on a controlled creature, and a combined fixed
-stat/trample grant on a controlled creature. The complete printed chapter,
-AST and ordered controller/target graph determine each program. Chapter
-targets are chosen at trigger placement and checked again at resolution.
-Lore entry and advancement follow CR 714.3a and 714.3c. The Saga is sacrificed
-after its final threshold once all pending or stacked chapters from that
-incarnation have left the stack (CR 714.4).
+Single-face noncreature Sagas can compose up to four consecutive chapters,
+including a printed clause shared by consecutive chapter symbols. Fixed token
+creation, counters and temporary stat and trample grants share the existing
+effect programs. Filtered chapter damage and destruction check opposing control
+at target announcement and resolution. Fixed mana chapters grant mana on
+resolution. An untargeted exile-play chapter uses the existing exact-successor
+permission. A delayed cast chapter registers a controlled-creature counter
+trigger for each spell the registration controller successfully casts that
+turn. It survives the Saga leaving the battlefield, and announces its target
+when placed on the stack (CR 603.3d, 603.7, 608.2b).
+The complete printed text, AST and ordered binding graph determine each
+program. Lore entry and advancement follow CR 714.3a and 714.3c. The Saga is
+sacrificed after the final threshold once every pending or stacked chapter
+from that incarnation has left the stack (CR 714.4).
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze

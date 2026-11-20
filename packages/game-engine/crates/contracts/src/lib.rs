@@ -52,7 +52,10 @@ pub mod combat_window;
 mod composition_fixtures;
 mod entry_copy;
 mod saga;
-pub use saga::{ChapterEffect, FixedChapter, LifeChapter, chapter_lines, life_chapters};
+pub use saga::{
+    ChapterEffect, FixedChapter, LifeChapter, OrdinaryChapter, chapter_lines, life_chapters,
+    saga_damage_target,
+};
 pub mod fixed_color_protection;
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
@@ -492,6 +495,7 @@ pub enum Capability {
     ControlledCreatureDamageReplacementV1,
     SagaChaptersV1,
     DelayedControllerCreatureEntryV1,
+    DelayedControllerSpellCastV1,
     NormalLayoutV1,
     ColorHybridCostV1,
     PhyrexianCostV1,
@@ -949,6 +953,10 @@ pub enum Instruction {
         source_block: u32,
     },
     RegisterControllerCreatureEntryThisTurn {
+        program: Box<SpellProgram>,
+        source_block: u32,
+    },
+    RegisterControllerSpellCastThisTurn {
         program: Box<SpellProgram>,
         source_block: u32,
     },
@@ -1483,6 +1491,7 @@ impl Instruction {
             Self::ExileLibraryForPlay { source_block, .. }
             | Self::LookTopMayRevealForMana { source_block, .. }
             | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
+            | Self::RegisterControllerSpellCastThisTurn { source_block, .. }
             | Self::Hideaway { source_block, .. }
             | Self::PlayHideawayLinked { source_block, .. }
             | Self::GrantHandCastCascade { source_block }
@@ -2134,6 +2143,7 @@ pub enum CascadeThreshold {
 pub enum TriggerCondition {
     ControlledLandEntersBattlefield,
     DelayedControllerCreatureEntry,
+    DelayedControllerSpellCast,
     SagaChapter {
         number: std::num::NonZeroU32,
     },
@@ -2397,6 +2407,7 @@ impl TriggerCondition {
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
             Self::DelayedControllerCreatureEntry => "delayed_controller_creature_entry",
+            Self::DelayedControllerSpellCast => "delayed_controller_spell_cast",
             Self::SagaChapter { .. } => "saga_chapter",
             Self::SelfSpellCast => "self_spell_cast",
             Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
@@ -3057,6 +3068,9 @@ impl Definition {
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::DelayedControllerCreatureEntry => {
                     Capability::DelayedControllerCreatureEntryV1
+                }
+                TriggerCondition::DelayedControllerSpellCast => {
+                    Capability::DelayedControllerSpellCastV1
                 }
                 TriggerCondition::SagaChapter { .. } => Capability::SagaChaptersV1,
                 TriggerCondition::SelfSpellCast
@@ -5689,6 +5703,7 @@ fn validate_instruction_program_with_chapter(
                 None
             }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. }
+            | Instruction::RegisterControllerSpellCastThisTurn { .. }
             | Instruction::Hideaway { .. }
             | Instruction::PlayHideawayLinked { .. }
             | Instruction::GrantHandCastCascade { .. }
@@ -5839,6 +5854,11 @@ fn validate_instruction_program_with_chapter(
                         | TargetDomain::PlayerOrPlaneswalker
                         | TargetDomain::BattlefieldCreature),
                     ) => Some((*target_slot, domain)),
+                    Some(TargetDomain::BattlefieldPermanent)
+                        if chapter && saga_damage_target(&p.targets[*target_slot as usize]) =>
+                    {
+                        Some((*target_slot, TargetDomain::BattlefieldPermanent))
+                    }
                     _ => return Err("unbound fixed damage target".into()),
                 }
             }
@@ -6309,7 +6329,9 @@ fn add_program_requirements_for_source_pump(
         ) {
             set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
-        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. } = instruction {
+        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }
+        | Instruction::RegisterControllerSpellCastThisTurn { program, .. } = instruction
+        {
             add_program_requirements(set, program);
         }
         if matches!(
@@ -6368,6 +6390,9 @@ fn add_program_requirements_for_source_pump(
             }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
                 Capability::DelayedControllerCreatureEntryV1
+            }
+            Instruction::RegisterControllerSpellCastThisTurn { .. } => {
+                Capability::DelayedControllerSpellCastV1
             }
             Instruction::Hideaway { .. } => Capability::HideawayV1,
             Instruction::PlayHideawayLinked { .. } => Capability::LinkedExilePlayV1,
@@ -8267,6 +8292,7 @@ mod tests {
             RandomBottomV1,
             SagaChaptersV1,
             DelayedControllerCreatureEntryV1,
+            DelayedControllerSpellCastV1,
             NormalLayoutV1,
             ColorHybridCostV1,
             PhyrexianCostV1,
@@ -8872,6 +8898,7 @@ mod tests {
         definitions.push(entry_copy::registry_witness());
         definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());
+        definitions.push(saga::spell_cast_witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));

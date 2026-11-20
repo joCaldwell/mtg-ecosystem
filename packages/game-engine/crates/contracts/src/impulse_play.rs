@@ -63,6 +63,21 @@ pub fn printed(text: &str, ast: &Value, kind: CardKind) -> Option<SpellProgram> 
     (*ast == expected).then_some(program)
 }
 
+pub(super) fn chapter(text: &str, source_block: u32) -> Option<(Value, SpellProgram)> {
+    let (ast, mut program) = spec(text, CardKind::Instant)?;
+    let [
+        Instruction::ExileLibraryForPlay {
+            source_block: block,
+            ..
+        },
+    ] = program.instructions.as_mut_slice()
+    else {
+        return None;
+    };
+    *block = source_block;
+    Some((ast[0]["effects"].clone(), program))
+}
+
 fn uses(program: &SpellProgram) -> bool {
     program
         .instructions
@@ -74,7 +89,9 @@ fn uses(program: &SpellProgram) -> bool {
 pub(super) fn validate(definition: &Definition) -> Result<(), String> {
     let error = "library play permission requires a complete exact ordinary spell";
     if definition.activated.iter().any(|a| uses(&a.program))
-        || definition.triggered.iter().any(|a| uses(&a.program))
+        || definition.triggered.iter().any(|a| uses(&a.program) && !matches!(
+            a.condition, TriggerCondition::SagaChapter { .. }
+        ))
         || definition.static_abilities.iter().any(|a| matches!(&a.effect, StaticEffect::Bestow { program, .. } | StaticEffect::GrantSpellCascade { program, .. } if uses(program))) {
         return Err(error.into());
     }
@@ -126,11 +143,12 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["ImpulseFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":op}}, "modes":{"items":{"properties":{"program":free}}}
     }});
+    let chapter = json!({"$ref":"#/$defs/SagaImpulseChapter"});
     let cap = json!({"contains":{"const":Capability::LibraryPlayWindowV1}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{
             "activated":{"items":{"properties":{"program":free}}},
-            "triggered":{"items":{"properties":{"program":free}}},
+            "triggered":{"items":{"anyOf":[{"properties":{"program":free}},chapter]}},
             "static_abilities":{"items":{"properties":{"effect":{"properties":{
                 "bestow":{"properties":{"program":free}},
                 "grant_spell_cascade":{"properties":{"program":free}}
@@ -145,7 +163,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"}
             }}
         }},
-        "else":{"properties":{"capabilities":{"not":cap}}}
+        "else":{
+            "if":{"required":["triggered"],"properties":{"triggered":{"contains":chapter}}},
+            "then":{"properties":{"capabilities":cap}},
+            "else":{"properties":{"capabilities":{"not":cap}}}
+        }
     }));
 }
 

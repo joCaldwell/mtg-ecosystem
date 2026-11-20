@@ -2141,10 +2141,14 @@ impl Game {
                 if !self.is_live(e.origin.controller)
                     || e.origin.mode.is_some()
                     || e.origin.activated_ability.is_some()
-                    || !matches!(definition.spell.as_ref().and_then(|p| p.instructions.get(e.origin.cursor as usize)),
-                        Some(Instruction::ExileLibraryForPlay { count, window: expected_window, source_block })
+                    || !definition.spell.iter().chain(
+                        definition.triggered.iter().filter_map(|a| {
+                            matches!(a.condition, TriggerCondition::SagaChapter { .. }).then_some(&a.program)
+                        })
+                    ).any(|program| matches!(program.instructions.get(e.origin.cursor as usize),
+                         Some(Instruction::ExileLibraryForPlay { count, window: expected_window, source_block })
                             if window == expected_window && *source_block == e.origin.source_block
-                                && self.valid_impulse_effect_objects(e, objects, *count))
+                                && self.valid_impulse_effect_objects(e, objects, *count)))
                 {
                     return Err("invalid historical play permission".into());
                 }

@@ -18,14 +18,23 @@ pub(super) fn lower(
     };
     let mut graph = bindings::Bindings::new(identity, source);
     let root = "/faces/0/abilities/0";
+    graph.ability(root, "spell", "spell-controller");
+    bind_block(&mut graph, root, &ast[0]);
+    graph.validate(
+        binding,
+        "requires the exact same-issuer exile successors and play permission",
+    )?;
+    Ok(Some(program))
+}
+
+pub(super) fn bind_block(graph: &mut bindings::Bindings<'_>, root: &str, ability: &Value) {
     let exile = format!("{root}/effects/0/steps/0");
     let grant = format!("{root}/effects/1/steps/0");
     let what = format!("{exile}/what");
-    graph.ability(root, "spell", "spell-controller");
     let scope = graph.id(root, "ability");
     let you = graph.id(root, "you");
     let player = json!({"player":"you"});
-    let query = &ast[0]["effects"][0]["steps"][0]["what"];
+    let query = &ability["effects"][0]["steps"][0]["what"];
     let selected = graph.node(
         &what,
         "query",
@@ -58,7 +67,7 @@ pub(super) fn lower(
             "availability":"when-performed","rules":["608.2c"]
         }),
     );
-    let permission = &ast[0]["effects"][1]["steps"][0];
+    let permission = &ability["effects"][1]["steps"][0];
     graph.reference_rules(
         &format!("{grant}/permission/what"),
         &permission["permission"]["what"],
@@ -69,11 +78,6 @@ pub(super) fn lower(
     if permission["duration"]["duration"] == "end-of-your-next-turn" {
         graph.reference(&format!("{grant}/duration/whose"), &player, &you, "109.5");
     }
-    graph.validate(
-        binding,
-        "requires the exact same-issuer exile successors and play permission",
-    )?;
-    Ok(Some(program))
 }
 
 #[cfg(test)]

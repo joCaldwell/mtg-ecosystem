@@ -594,12 +594,8 @@ impl Game {
             _ => return Err("expected directed damage instruction".into()),
         };
         let index = slot as usize;
-        let target = match self
-            .program_for(spell)?
-            .targets
-            .get(index)
-            .map(|spec| spec.domain)
-        {
+        let spec = self.program_for(spell)?.targets.get(index);
+        let target = match spec.map(|spec| spec.domain) {
             Some(TargetDomain::AnyDamageTarget) => *self
                 .bound_damage_target(spell, index)
                 .ok_or("missing damage binding")?,
@@ -629,6 +625,22 @@ impl Game {
                     .get(index)
                     .ok_or("missing creature damage binding")?,
             },
+            Some(TargetDomain::BattlefieldPermanent)
+                if matches!(
+                    spell.kind,
+                    StackKind::Triggered {
+                        witness: TriggerEventWitness::LoreAdded { .. },
+                        ..
+                    }
+                ) && spec.is_some_and(mtg_contracts::saga_damage_target) =>
+            {
+                TargetEntity::Object {
+                    object: *spell
+                        .targets
+                        .get(index)
+                        .ok_or("missing chapter damage binding")?,
+                }
+            }
             _ => return Err("unsupported directed damage target domain".into()),
         };
         Ok((slot, amount, block, target))
