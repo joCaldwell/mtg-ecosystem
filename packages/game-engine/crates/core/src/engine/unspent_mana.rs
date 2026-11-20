@@ -137,6 +137,7 @@ mod tests {
             let object = g.object_id(card).unwrap();
             answer(&mut g, 1, Response::ActivateMana { object });
         }
+        request(&mut g, 1);
         let p0 = PlayerId(0);
         assert_eq!(g.mana(p0, Color::U), Some(1.into()));
         assert_eq!(g.mana(p0, Color::G), Some(1.into()));

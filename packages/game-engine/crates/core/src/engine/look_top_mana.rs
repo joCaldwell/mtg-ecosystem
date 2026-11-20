@@ -287,6 +287,13 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         self.validate_look_top_mana_move(&frame, object, revealed)?;
+        let informed = self
+            .state
+            .knowledge
+            .visibility
+            .iter()
+            .map(|view| view.public_tucked_cards.contains(&object))
+            .collect::<Vec<_>>();
         let actual = self.commit(
             ProposedEvent::Move {
                 object,
@@ -298,12 +305,14 @@ impl Game {
             },
             self.look_top_mana_cause(&frame)?,
         )?;
-        if revealed && !to_command {
+        if !to_command {
             let EventOutcome::Moved { movement } = &actual else {
                 return Err("missing looked card hand move".into());
             };
-            for knowledge in &mut self.state.knowledge.visibility {
-                knowledge.revealed_hand.insert(movement.successor);
+            for (knowledge, knew_top) in self.state.knowledge.visibility.iter_mut().zip(informed) {
+                if knew_top {
+                    knowledge.revealed_hand.insert(movement.successor);
+                }
             }
         }
         self.finish_instruction(

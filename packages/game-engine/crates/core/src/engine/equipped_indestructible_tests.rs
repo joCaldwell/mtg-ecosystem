@@ -877,6 +877,25 @@ fn paid_omnath_first_main_looks_reveals_and_puts_titanic_ultimatum_in_hand() {
     assert!(sees_card(&g, owner));
     assert!(!sees_card(&g, PlayerId(1)));
     recover(&g);
+    // Synthetic prior knowledge only. The ordinary privately looked and
+    // publicly revealed branches below retain their accepted-input proof.
+    let mut already_known = g.fork();
+    already_known.state.knowledge.visibility[1]
+        .public_tucked_cards
+        .insert(looked);
+    assert!(sees_card(&already_known, PlayerId(1)));
+    answer(
+        &mut already_known,
+        4096,
+        Response::OptionalEffect { perform: false },
+    );
+    request(&mut already_known, 4096);
+    assert_eq!(
+        already_known.zone(already_known.object_id(top).unwrap()),
+        Some(Zone::Hand { owner })
+    );
+    assert!(sees_card(&already_known, PlayerId(1)));
+    assert!(!sees_card(&already_known, PlayerId(2)));
     let start = g.trace.records.len();
     for reveal in [false, true] {
         let mut branch = g.fork();
