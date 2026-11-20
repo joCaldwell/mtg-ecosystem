@@ -572,13 +572,18 @@ impl Game {
                     let program = self.program_for(&frame.spell)?;
                     let instruction = program.instructions.get(frame.cursor as usize);
                     let (slot, expected_destination, expected_block) = match instruction {
-                        Some(Instruction::ReturnOwnGraveyardCreatureToHand {
-                            target_slot,
-                            source_block,
-                            ..
-                        }) => (*target_slot, Zone::Hand { owner }, *source_block),
                         Some(
-                            Instruction::ReturnEntryTargetCreature {
+                            Instruction::ReturnOwnGraveyardCreatureToHand {
+                                target_slot,
+                                source_block,
+                                ..
+                            }
+                            | Instruction::ReturnOwnGraveyardCardToHand {
+                                target_slot,
+                                source_block,
+                                ..
+                            }
+                            | Instruction::ReturnEntryTargetCreature {
                                 target_slot,
                                 source_block,
                                 ..

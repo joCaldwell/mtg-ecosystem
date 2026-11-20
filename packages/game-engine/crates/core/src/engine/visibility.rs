@@ -1772,6 +1772,7 @@ impl Game {
                             TargetDomain::BattlefieldPermanent
                                 | TargetDomain::BattlefieldCreature
                                 | TargetDomain::OwnGraveyardCreatureCard
+                                | TargetDomain::OwnGraveyardCard
                         )
                     }) =>
             {
