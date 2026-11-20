@@ -545,12 +545,13 @@ impl Game {
             }
         }
         self.revalidate_sacrifice_departure()?;
-        // A departure can invalidate an accepted priority cast or mana
+        // A departure can invalidate a pending mode, priority cast or mana
         // activation before its rule step. Keep the input journal, discard
         // only the stale proposal, and leave valid pending actions intact.
         if matches!(
             self.state.rules.frame,
             Frame::Priority
+                | Frame::Modes { .. }
                 | Frame::ResolutionPayment { .. }
                 | Frame::Mana { .. }
                 | Frame::SacrificeCost { .. }

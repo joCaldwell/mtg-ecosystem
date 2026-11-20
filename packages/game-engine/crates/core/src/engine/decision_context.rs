@@ -252,14 +252,16 @@ impl Game {
             .ok()?
             .source_labels
             .as_ref()?;
-        if entry.kind.is_spell() && matches!(request, PlayerRequest::Modes { .. }) {
-            context.modes = labels
-                .spell_modes
+        if entry.kind.is_spell()
+            && let PlayerRequest::Modes { candidates, .. } = request
+        {
+            context.modes = candidates
                 .iter()
-                .enumerate()
-                .map(|(mode, text)| DecisionMode {
-                    mode: mode as u32,
-                    text: text.clone(),
+                .filter_map(|&mode| {
+                    Some(DecisionMode {
+                        mode,
+                        text: labels.spell_modes.get(mode as usize)?.clone(),
+                    })
                 })
                 .collect();
         }

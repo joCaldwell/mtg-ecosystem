@@ -294,10 +294,20 @@ impl Game {
         }
         let top = self.top()?;
         let root = self.root_program_for(top)?;
+        // CR 601.2b, 700.2a, 903.3: choose both at announcement using the
+        // current controller of a physically designated battlefield commander.
+        let may_choose_both = !top.kind.is_spell()
+            || !akromas_will_program(root)
+            || self.state.rules.commanders.records.keys().any(|card| {
+                self.state.rules.objects.get(card).is_some_and(|object| {
+                    object.zone == Zone::Battlefield && object.controller == top.controller
+                })
+            });
         let candidates = root
             .modes
             .iter()
             .enumerate()
+            .filter(|(i, _)| *i != 2 || may_choose_both)
             .filter(|(_, m)| self.has_target_domain(&m.program, top.controller))
             .map(|(i, _)| i as u32)
             .collect();
