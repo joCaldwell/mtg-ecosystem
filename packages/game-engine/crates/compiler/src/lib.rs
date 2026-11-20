@@ -1283,6 +1283,12 @@ enum SourceStaticEffect {
         what: serde_json::Value,
         modifiers: Vec<serde_json::Value>,
     },
+    Conditional {
+        #[serde(rename = "condition")]
+        _condition: serde_json::Value,
+        #[serde(rename = "effect")]
+        _effect: serde_json::Value,
+    },
     Replacement {
         replacement: SourceReplacement,
     },
@@ -2329,32 +2335,12 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                                     ));
                                 }
                                 labels.activated.push(source_block(block)?);
-                                definition.activated.push(ActivatedAbility {
-                                    functioning_zone: FunctioningZone::Battlefield,
-                                    cost: ActivationCost::Mana {
-                                        cost: c.mana.unwrap(),
-                                    },
-                                    program: SpellProgram {
-                                        optional_additional_costs: vec![],
-                                        additional_sacrifice: None,
-                                        timing: SpellTiming::MainPhase,
-                                        resolution: SpellResolution::Instructions,
-                                        functioning_zone: FunctioningZone::Stack,
-                                        targets: vec![TargetSpec {
-                                            slot: 0,
-                                            selection_id: "equip-creature".into(),
-                                            chooser: Chooser::Controller,
-                                            stage: EvaluationStage::Announcement,
-                                            filter: None,
-                                            domain: TargetDomain::ControlledBattlefieldCreature,
-                                        }],
-                                        instructions: vec![Instruction::AttachEquipment {
-                                            target_slot: 0,
-                                            source_block: block as u32,
-                                        }],
-                                        modes: vec![],
-                                    },
-                                });
+                                definition.activated.push(
+                                    mtg_contracts::attachment_modifiers::equip_ability(
+                                        c.mana.unwrap(),
+                                        source_block(block)?,
+                                    ),
+                                );
                                 continue;
                             }
                             if keyword.keyword == "enchant"

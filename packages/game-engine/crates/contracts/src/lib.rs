@@ -1848,6 +1848,7 @@ pub struct StaticAbility {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CreatureScope {
     Equipped,
+    EquippedLegendary,
     Enchanted,
     Controller,
     /// Dynamic attacking creatures controlled by this battlefield source.
@@ -2591,53 +2592,55 @@ fn static_creature_modification_valid(
         return false;
     };
     let attached = matches!(scope, CreatureScope::Equipped | CreatureScope::Enchanted);
-    !(!attached && (power.is_negative() || toughness.is_negative())
-        || (power == &Quantity::zero()
-            && toughness == &Quantity::zero()
-            && keywords.is_empty()
-            && restrictions.is_empty())
-        || (*scope == CreatureScope::Source
-            && (kind != CardKind::Creature
-                || *power != Quantity::zero()
-                || *toughness != Quantity::zero()
-                || !keywords.is_empty()
-                || (restrictions != &[CreatureRestriction::CantBlock]
-                    && source_combat_restrictions::restriction(effect).is_none())))
-        || (*scope != CreatureScope::Source
-            && restrictions.contains(&CreatureRestriction::CanBlockOnlyFlying))
-        || (*scope == CreatureScope::AttackingController
-            && (!matches!(
-                kind,
-                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
-            ) || *power != Quantity::zero()
-                || *toughness != Quantity::zero()
-                || keywords != &[KeywordAbility::Deathtouch]
-                || !restrictions.is_empty()))
-        || (*scope == CreatureScope::Equipped && !equipment)
-        || (*scope == CreatureScope::Enchanted && !aura)
-        || (*scope == CreatureScope::Controller
-            && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
-        || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
-        || keywords.contains(&KeywordAbility::ProtectionFromEverything)
-        || keywords.iter().any(|k| {
-            k.basic_landwalk_type().is_some() || (!attached && k.fixed_protection_color().is_some())
-        })
-        || keywords.contains(&KeywordAbility::Flash)
-        || (keywords.contains(&KeywordAbility::Indestructible)
-            && (!equipment
-                || *scope != CreatureScope::Equipped
-                || *power != Quantity::zero()
-                || *toughness != Quantity::zero()
-                || keywords != &[KeywordAbility::Indestructible]
-                || !restrictions.is_empty()))
-        || keywords
-            .iter()
-            .enumerate()
-            .any(|(n, k)| keywords[..n].contains(k))
-        || restrictions
-            .iter()
-            .enumerate()
-            .any(|(n, k)| restrictions[..n].contains(k)))
+    attachment_modifiers::scope_valid(effect, equipment)
+        && !(!attached && (power.is_negative() || toughness.is_negative())
+            || (power == &Quantity::zero()
+                && toughness == &Quantity::zero()
+                && keywords.is_empty()
+                && restrictions.is_empty())
+            || (*scope == CreatureScope::Source
+                && (kind != CardKind::Creature
+                    || *power != Quantity::zero()
+                    || *toughness != Quantity::zero()
+                    || !keywords.is_empty()
+                    || (restrictions != &[CreatureRestriction::CantBlock]
+                        && source_combat_restrictions::restriction(effect).is_none())))
+            || (*scope != CreatureScope::Source
+                && restrictions.contains(&CreatureRestriction::CanBlockOnlyFlying))
+            || (*scope == CreatureScope::AttackingController
+                && (!matches!(
+                    kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                ) || *power != Quantity::zero()
+                    || *toughness != Quantity::zero()
+                    || keywords != &[KeywordAbility::Deathtouch]
+                    || !restrictions.is_empty()))
+            || (*scope == CreatureScope::Equipped && !equipment)
+            || (*scope == CreatureScope::Enchanted && !aura)
+            || (*scope == CreatureScope::Controller
+                && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
+            || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
+            || keywords.contains(&KeywordAbility::ProtectionFromEverything)
+            || keywords.iter().any(|k| {
+                k.basic_landwalk_type().is_some()
+                    || (!attached && k.fixed_protection_color().is_some())
+            })
+            || keywords.contains(&KeywordAbility::Flash)
+            || (keywords.contains(&KeywordAbility::Indestructible)
+                && (!equipment
+                    || *scope != CreatureScope::Equipped
+                    || *power != Quantity::zero()
+                    || *toughness != Quantity::zero()
+                    || keywords != &[KeywordAbility::Indestructible]
+                    || !restrictions.is_empty()))
+            || keywords
+                .iter()
+                .enumerate()
+                .any(|(n, k)| keywords[..n].contains(k))
+            || restrictions
+                .iter()
+                .enumerate()
+                .any(|(n, k)| restrictions[..n].contains(k)))
 }
 
 /// Nonserialized target domain of a complete admitted Aura-control definition.
@@ -7848,6 +7851,7 @@ pub fn catalog_schema() -> serde_json::Value {
     mana_life_gain::extend_schema(&mut schema);
     mana_spend::extend_schema(&mut schema);
     paid_restricted_land::extend_schema(&mut schema);
+    attachment_modifiers::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
     same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);

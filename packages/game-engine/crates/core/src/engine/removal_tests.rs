@@ -1890,3 +1890,46 @@ fn legend_rule_uses_controller_choices_owner_graveyards_and_revalidates_departur
         assert_eq!(g.zone(object(g, 3)), Some(Zone::Battlefield));
     });
 }
+
+#[test]
+fn conditional_equipped_legendary_hexproof_follows_the_current_attachment() {
+    let mut catalog = catalog();
+    let result = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/c01aafb8-3da5-4eb1-8731-2a223e747d63.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}");
+    };
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    let mut rows = vec![
+        ("Champion's Helm", 0, false),
+        ("Isamaru, Hound of Konda", 0, false),
+        ("Grizzly Bears", 0, false),
+    ];
+    rows.extend(lands("Forest", 2));
+    traces(prepared_in(catalog, &rows), |g| {
+        reach(g, TurnStep::PrecombatMain);
+        let legendary = object(g, 1);
+        let ordinary = object(g, 2);
+
+        activated(g, 0, target(legendary));
+        resolve(g, vec![]);
+        assert!(g.has_keyword(legendary, KeywordAbility::Hexproof));
+        assert!(!g.targetable_by(legendary, PlayerId(1)));
+        assert!(g.targetable_by(legendary, PlayerId(0)));
+        assert_eq!(g.characteristics(legendary).unwrap().power, Some(4.into()));
+        check(g);
+
+        activated(g, 0, target(ordinary));
+        resolve(g, vec![]);
+        assert!(!g.has_keyword(ordinary, KeywordAbility::Hexproof));
+        assert!(!g.has_keyword(legendary, KeywordAbility::Hexproof));
+        assert!(g.targetable_by(legendary, PlayerId(1)));
+        assert_eq!(g.characteristics(ordinary).unwrap().power, Some(4.into()));
+    });
+}
