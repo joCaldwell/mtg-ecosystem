@@ -111,6 +111,12 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 pub(super) fn schema(schema: &mut Value) {
     let marker =
         json!({"properties":{"effect":{"const":"may_begin_on_battlefield"}},"required":["effect"]});
+    schema["$defs"]["StaticAbility"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"if":marker,
+            "then":{"properties":{"functioning_zone":{"const":"hand"}}},
+            "else":{"properties":{"functioning_zone":{"not":{"const":"hand"}}}}}));
     let cap = Capability::OpeningPlacementV1;
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[{"required":["static_abilities"],"properties":{"static_abilities":{"contains":marker}}},
