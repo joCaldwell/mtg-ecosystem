@@ -19,6 +19,22 @@ export function LocalControls({ control, draft, onChange, onComplete, confirmLab
   const showError = validation.key === key && validation.attempted && error !== null;
   const errorSummary = useRef<HTMLParagraphElement>(null);
   const [invalidSubmission, setInvalidSubmission] = useState(0);
+  const [move, setMove] = useState<{ key: string; draft: LocalDraft; selected: string; message: string; focus: HTMLButtonElement | null } | null>(null);
+  const currentMove = move?.key === key && move.draft === draft ? move : null;
+  useLayoutEffect(() => {
+    const button = currentMove?.focus;
+    // Keyed rows survive a reorder, but moving a DOM node can drop focus.
+    if (button?.isConnected && button.ownerDocument.activeElement === button.ownerDocument.body) {
+      button.focus({ preventScroll: true });
+    }
+  }, [currentMove]);
+  const moveItem = (selected: string, label: string, offset: -1 | 1, button: HTMLButtonElement) => {
+    const next = reorderDraft(draft, selected, offset);
+    if (next === draft) return;
+    setMove({ key, draft: next, selected, message: `${label} moved to position ${next.selected.indexOf(selected) + 1} of ${next.selected.length}.`,
+      focus: button.ownerDocument.activeElement === button ? button : null });
+    onChange(next);
+  };
   // Only an explicit failed submit routes focus; remote identity/option changes
   // reset validation without disturbing the player's active control.
   useLayoutEffect(() => {
@@ -58,11 +74,15 @@ export function LocalControls({ control, draft, onChange, onComplete, confirmLab
         </label>)}</div>}
       {control.kind === 'selection' && <p className={styles.count}>Selected {draft.selected.length} · Required {control.minimum === control.maximum ? control.minimum : `${control.minimum}–${control.maximum}`}</p>}
       {control.kind === 'selection' && control.ordered && <><h3>Chosen order · first to last</h3><ol className={styles.order}>{draft.selected.map((selected, index) => {
-        const option = control.options.find(value => value.id === selected);
-        return <li key={selected}><span>{option?.label ?? 'Unavailable object'}<small>Handle {selected}</small></span>
-          <button type="button" aria-label={`Move ${selected} earlier`} aria-disabled={index === 0} onClick={() => { if (index > 0) onChange(reorderDraft(draft, selected, -1)); }}>Earlier</button>
-          <button type="button" aria-label={`Move ${selected} later`} aria-disabled={index === draft.selected.length - 1} onClick={() => { if (index < draft.selected.length - 1) onChange(reorderDraft(draft, selected, 1)); }}>Later</button></li>;
-      })}</ol></>}
+        const label = control.options.find(value => value.id === selected)?.label ?? 'Unavailable object';
+        const row = `${id}-order-${index}`;
+        return <li key={selected}><span><span id={`${row}-label`}>{label}</span><small>Handle {selected}</small></span>
+          <span id={`${row}-position`} className={styles.srOnly}>position {index + 1} of {draft.selected.length}</span>
+          <button type="button" id={`${row}-earlier`} aria-labelledby={`${row}-earlier ${row}-label ${row}-position`} aria-disabled={index === 0}
+            onClick={event => moveItem(selected, label, -1, event.currentTarget)}>Earlier</button>
+          <button type="button" id={`${row}-later`} aria-labelledby={`${row}-later ${row}-label ${row}-position`} aria-disabled={index === draft.selected.length - 1}
+            onClick={event => moveItem(selected, label, 1, event.currentTarget)}>Later</button></li>;
+      })}</ol><p className={styles.srOnly} role="status">{currentMove && <span key={currentMove.selected}>{currentMove.message}</span>}</p></>}
     </fieldset>
     <p ref={errorSummary} id={`${id}-error`} tabIndex={-1} className={styles.hint}>{showError ? error : quiet ? null : error ? 'Complete your choice, then confirm to review it.' : readyText}</p>
     <button className={styles.complete} type="submit">{confirmLabel}</button>
