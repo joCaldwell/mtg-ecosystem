@@ -93,7 +93,7 @@ impl<'a> Bindings<'a> {
         expression: &Value,
         selection: &str,
     ) -> String {
-        let id = self.target_selection(scope, path, expression, selection, "many");
+        let id = self.target_selection(scope, path, expression, selection, "many", None);
         self.reference(path, expression, &id, "601.2c");
         id
     }
