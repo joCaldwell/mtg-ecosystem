@@ -460,9 +460,7 @@ impl Game {
             } => match (&set, regeneration_forbidden) {
                 (ObjectSet::OpponentNonlandPermanents | ObjectSet::NonlandPermanents, false)
                 | (ObjectSet::NonlandPermanents, true) => {
-                    // CR 701.19c: the prohibition skips regeneration replacement.
-                    // The admitted event kernel has no regeneration replacement,
-                    // so both policies use its same common-prior destroy batch.
+                    // The graveyard wave reads the resolving instruction's regeneration policy.
                     self.move_board_set(frame, set, SetMove::Destroy, source_block)
                 }
                 _ => Err("unsupported set destruction or regeneration policy".into()),

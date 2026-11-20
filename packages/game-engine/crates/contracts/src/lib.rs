@@ -71,6 +71,7 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
+pub mod activated_creature_tap;
 pub mod activated_source_keyword;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 mod controller_counted_draw;
@@ -118,9 +119,11 @@ pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wip
 pub mod linked_hideaway;
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
+pub mod source_regeneration;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
+pub mod source_attack_pump;
 pub mod source_combat_restrictions;
 pub use controller_library::{
     FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
@@ -420,6 +423,7 @@ pub enum Capability {
     AuraControlV1,
     BestowV1,
     TemporaryPowerToughnessV1,
+    SourceRegenerationV1,
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
     StaticDamageReplacementV1,
@@ -443,6 +447,7 @@ pub enum Capability {
     UntapPermanentV1,
     TapPermanentV1,
     ActivatedTapPermanentV1,
+    ActivatedCreatureTapV1,
     TapSourceDestroyV1,
     TapSourceUntapCreatureV1,
     ActivatedSpellCounterV1,
@@ -1025,6 +1030,10 @@ pub enum Instruction {
     EachOpponentSacrifice {
         source_block: u32,
     },
+    /// Create an until-cleanup destroy replacement for the exact invocation source (CR 701.19a).
+    RegenerateSource {
+        source_block: u32,
+    },
     ModifySourcePowerToughness {
         power: Quantity,
         toughness: Quantity,
@@ -1416,7 +1425,8 @@ impl Instruction {
             Self::LoseLifeDeathController { source_block, .. } => *source_block,
             Self::SacrificeDamage { source_block, .. } => *source_block,
             Self::EachOpponentSacrifice { source_block, .. } => *source_block,
-            Self::ModifySourcePowerToughness { source_block, .. } => *source_block,
+            Self::ModifySourcePowerToughness { source_block, .. }
+            | Self::RegenerateSource { source_block } => *source_block,
             Self::DestroyPermanent { source_block, .. } => *source_block,
             Self::ExilePermanent { source_block, .. } => *source_block,
             Self::UntapPermanent { source_block, .. } => *source_block,
@@ -2764,7 +2774,11 @@ impl Definition {
                 set.insert(Capability::TapSourceUntapCreatureV1);
             }
             if has_tap(&ability.program) {
-                set.insert(Capability::ActivatedTapPermanentV1);
+                set.insert(if self.characteristics.kind == CardKind::Creature {
+                    Capability::ActivatedCreatureTapV1
+                } else {
+                    Capability::ActivatedTapPermanentV1
+                });
             }
             if has_counter_stack_object(&ability.program) {
                 set.insert(Capability::ActivatedSpellCounterV1);
@@ -2809,7 +2823,7 @@ impl Definition {
             {
                 set.insert(Capability::SacrificeV1);
             }
-            add_program_requirements_for_activation(
+            add_program_requirements_for_source_pump(
                 &mut set,
                 &ability.program,
                 fixed_creature_activation::mana_self_pump(ability),
@@ -2909,7 +2923,11 @@ impl Definition {
             ) {
                 set.insert(Capability::SourceStatusConditionV1);
             }
-            add_program_requirements(&mut set, &ability.program);
+            add_program_requirements_for_source_pump(
+                &mut set,
+                &ability.program,
+                source_attack_pump::is_attack_pump(ability),
+            );
         }
         for keyword in &self.keywords {
             set.extend(intrinsic_keyword_capability(*keyword));
@@ -3027,6 +3045,8 @@ impl Definition {
     pub fn validate(&self) -> Result<(), String> {
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
+        let source_regeneration = source_regeneration::validate(self)?;
+        let activated_creature_tap = activated_creature_tap::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         typed_land_search::validate_definition(self)?;
@@ -3464,6 +3484,7 @@ impl Definition {
         basic_landwalk::validate_definition(self)?;
         fixed_color_protection::validate_definition(self)?;
         source_combat_restrictions::validate_definition(self)?;
+        source_attack_pump::validate(self)?;
         creature_planeswalker_return::validate(self)?;
         fixed_creature_damage::validate(self, fixed_activations)?;
         controller_creature_pump::validate(self)?;
@@ -3607,6 +3628,10 @@ impl Definition {
             if fixed_activations {
                 continue;
             }
+            if source_regeneration {
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if ability.functioning_zone == FunctioningZone::Hand
                 || matches!(ability.cost, ActivationCost::DiscardSource { .. })
             {
@@ -3692,7 +3717,9 @@ impl Definition {
                 continue;
             }
             if has_tap(&ability.program) {
-                if c.kind != CardKind::Artifact || !activated_permanent_tap_ability(ability) {
+                if !activated_creature_tap
+                    && (c.kind != CardKind::Artifact || !activated_permanent_tap_ability(ability))
+                {
                     return Err("activated tap requires an artifact, fixed mana plus source tap, and one artifact/creature/land target".into());
                 }
                 validate_instruction_program(&ability.program)?;
@@ -3919,6 +3946,11 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if source_attack_pump::is_attack_pump(ability) {
+                // The whole definition gate binds this exact same-object instruction.
+                validate_instruction_program(p)?;
+                continue;
+            }
             if ability.intervening_if == Some(InterveningCondition::SourceCastByController)
                 && (ability.condition != TriggerCondition::SelfEntersBattlefield
                     || c.kind != CardKind::Creature)
@@ -5158,7 +5190,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             }
             Instruction::EachOpponentSacrifice { .. }
             | Instruction::DrainOpponents { .. }
-            | Instruction::ModifySourcePowerToughness { .. } => None,
+            | Instruction::ModifySourcePowerToughness { .. }
+            | Instruction::RegenerateSource { .. } => None,
             Instruction::DestroyPermanent {
                 target_slot,
                 optional,
@@ -5710,13 +5743,13 @@ fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Cap
     })
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
-    add_program_requirements_for_activation(set, program, false);
+    add_program_requirements_for_source_pump(set, program, false);
 }
 
-fn add_program_requirements_for_activation(
+fn add_program_requirements_for_source_pump(
     set: &mut BTreeSet<Capability>,
     program: &SpellProgram,
-    mana_self_pump: bool,
+    temporary_source_pump: bool,
 ) {
     if !program.optional_additional_costs.is_empty() {
         set.insert(Capability::OptionalAdditionalManaCostV1);
@@ -5959,7 +5992,8 @@ fn add_program_requirements_for_activation(
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
-            Instruction::ModifySourcePowerToughness { .. } if mana_self_pump => {
+            Instruction::RegenerateSource { .. } => Capability::SourceRegenerationV1,
+            Instruction::ModifySourcePowerToughness { .. } if temporary_source_pump => {
                 Capability::TemporaryPowerToughnessV1
             }
             Instruction::SacrificeDamage { .. }
@@ -6528,6 +6562,7 @@ pub fn catalog_schema() -> serde_json::Value {
     basic_landwalk::extend_schema(&mut schema);
     fixed_color_protection::extend_schema(&mut schema);
     source_combat_restrictions::extend_schema(&mut schema);
+    source_attack_pump::extend_schema(&mut schema);
     activated_source_keyword::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
@@ -6705,6 +6740,7 @@ pub fn catalog_schema() -> serde_json::Value {
         }}}}}},
         "program":{"$ref":"#/$defs/ActivatedPermanentTapProgram"}
     }});
+    activated_creature_tap::extend_schema(&mut schema, &tap);
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":tap},
         "then":{"anyOf":[{"$ref":"#/$defs/OrdinaryTapProgram"},{"$ref":"#/$defs/ActivatedPermanentTapProgram"}]}
@@ -6719,15 +6755,22 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["ActivatedAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}},
-        "then":{"$ref":"#/$defs/ActivatedPermanentTapAbility"}
+        "then":{"anyOf":[{"$ref":"#/$defs/ActivatedPermanentTapAbility"},{"$ref":"#/$defs/ActivatedCreatureTapAbility"}]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}}}}},
-        "then":{"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"}}},"capabilities":{"allOf":[
-            {"contains":{"const":Capability::ActivatedTapPermanentV1}}, {"contains":{"const":Capability::TapPermanentV1}},
-            {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::CompositeActivationCostV1}},
-            {"contains":{"const":Capability::PermanentRemovalV1}}, {"contains":{"const":Capability::CastArtifactV1}}
-        ]}}}
+        "then":{"oneOf":[
+            {"properties":{"characteristics":{"properties":{"kind":{"const":"artifact"}}},
+                "activated":{"contains":{"$ref":"#/$defs/ActivatedPermanentTapAbility"},"items":{
+                    "if":{"required":["program"],"properties":{"program":{"required":["instructions"],"properties":tap}}},
+                    "then":{"$ref":"#/$defs/ActivatedPermanentTapAbility"}
+                }},"capabilities":{"allOf":[
+                    {"contains":{"const":Capability::ActivatedTapPermanentV1}}, {"contains":{"const":Capability::TapPermanentV1}},
+                    {"contains":{"const":Capability::ActivatedAbilityV1}}, {"contains":{"const":Capability::CompositeActivationCostV1}},
+                    {"contains":{"const":Capability::PermanentRemovalV1}}, {"contains":{"const":Capability::CastArtifactV1}}
+                ]}}},
+            {"$ref":"#/$defs/ActivatedCreatureTapDefinition"}
+        ]}
     }));
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["capabilities"],"properties":{"capabilities":{"contains":{"const":Capability::ActivatedTapPermanentV1}}}},
@@ -7540,6 +7583,7 @@ pub fn catalog_schema() -> serde_json::Value {
     cycling::schema(&mut schema);
     successor_tuck::extend_schema(&mut schema);
     fixed_creature_activation::extend_schema(&mut schema);
+    source_regeneration::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
         "type":"object","required":["spell_cast"],"properties":{"spell_cast":{"properties":{
@@ -7789,6 +7833,7 @@ mod tests {
             UntapPermanentV1,
             TapPermanentV1,
             ActivatedTapPermanentV1,
+            ActivatedCreatureTapV1,
             TapSourceDestroyV1,
             TapSourceUntapCreatureV1,
             ActivatedSpellCounterV1,
@@ -7846,6 +7891,7 @@ mod tests {
             AuraControlV1,
             BestowV1,
             TemporaryPowerToughnessV1,
+            SourceRegenerationV1,
             CombatDamagePreventionV1,
             DamageBudgetPreventionV1,
             StaticDamageReplacementV1,
@@ -8331,6 +8377,7 @@ mod tests {
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
+        definitions.push(source_regeneration::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
         definitions.push(each_player_draw::witness());
@@ -8414,6 +8461,7 @@ mod tests {
         definitions.push(untap_tests::untap());
         definitions.push(tap_tests::tap());
         definitions.push(activated_permanent_tap_tests::activated_tap());
+        definitions.push(activated_creature_tap::witness());
         definitions.push(tap_source_destroy_tests::tap_source_destroy());
         definitions.push(tap_source_untap_tests::tap_source_untap());
         definitions.push(activated_spell_counter_tests::activated_counter());

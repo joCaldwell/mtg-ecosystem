@@ -361,6 +361,103 @@ fn activated_permanent_tap_union_targets_pay_cost_and_reject_ineligible_objects_
     }
 }
 #[test]
+fn paid_creature_source_tap_checks_target_and_pays_before_resolution() {
+    let record =
+        include_str!("../../../../tests/fixtures/00d11662-9d10-4915-b80c-c1ad54b4e71b.json");
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    assert_eq!(
+        sha256(record.trim_end().as_bytes()),
+        "4f16034cdfdd8b8cf0bec6de688533a427eb89b882205497497a08aaf84b56ea"
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } =
+        mtg_compiler::compile(manifest, record)
+    else {
+        panic!("complete Half-Elf Monk source must lower");
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::ActivatedCreatureTapV1)
+    );
+    assert!(
+        !definition
+            .capabilities
+            .contains(&Capability::ActivatedTapPermanentV1)
+    );
+    let mut catalog = tap_catalog();
+    catalog.definitions.push(*definition);
+    let p = prepared_with_catalog(
+        &[
+            ("Half-Elf Monk", 0, false),
+            ("Plains", 0, false),
+            ("Plains", 0, false),
+            ("Grizzly Bears", 2, false),
+            ("Island", 2, false),
+        ],
+        catalog,
+    );
+    let mut game = Game::with_trace(p, TraceMode::Detailed);
+    let source = object(&game, 0);
+    let target = object(&game, 3);
+    let noncreature = object(&game, 4);
+    const WORK: u64 = 4096;
+    answer(
+        &mut game,
+        WORK,
+        Response::ActivateAbility {
+            object: source,
+            ability: 0,
+        },
+    );
+    let targets = request(&mut game, WORK);
+    assert!(matches!(&targets,Request::Targets {candidates,..}
+        if candidates.contains(&target) && !candidates.contains(&noncreature)));
+    reject(
+        &mut game,
+        &targets,
+        PlayerId(0),
+        Response::Targets {
+            objects: vec![noncreature],
+        },
+    );
+    answer(
+        &mut game,
+        WORK,
+        Response::Targets {
+            objects: vec![target],
+        },
+    );
+    for card in [1, 2] {
+        let land = object(&game, card);
+        answer(&mut game, WORK, Response::ActivateMana { object: land });
+    }
+    answer(&mut game, WORK, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut game,
+        WORK,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::W, 2.into())]),
+        },
+    );
+    assert!(matches!(request(&mut game, WORK), Request::Priority { .. }));
+    assert_eq!(
+        game.top().unwrap().paid,
+        Some(ManaCost {
+            generic: 1.into(),
+            colored: vec![Color::W]
+        })
+    );
+    assert!(game.current(source).unwrap().tapped);
+    assert!(!game.current(target).unwrap().tapped);
+    let stack = game.top().unwrap().id;
+    finish_to(&mut game, WORK, 0);
+    completed(&game, stack);
+    assert!(game.current(target).unwrap().tapped);
+    assert_eq!(taps(&game, source), 1);
+    assert_eq!(taps(&game, target), 1);
+}
+
+#[test]
 fn activated_permanent_tap_self_target_cost_taps_once_and_resolution_is_noop() {
     let p = prepared(&[("Icy Manipulator", 0, false), ("Island", 0, false)]);
     let mut baseline = None;

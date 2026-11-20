@@ -285,7 +285,11 @@ enum BatchAuthority<'a> {
     Ordinary,
     SpellToStack(PlayerId),
     LandEntry(&'a PreparedEntryAuthority),
-    Graveyard(&'a BTreeMap<ObjectId, Zone>),
+    Graveyard(
+        &'a BTreeMap<ObjectId, Zone>,
+        &'a [regeneration::ShieldMember],
+    ),
+    CreateRegenerationShield,
     CounterReplacement,
     PlaceCounters,
 }
@@ -937,6 +941,8 @@ impl Game {
                 .filter(|effect| {
                     reversed_shields.contains(&effect.id)
                         || events.iter().any(|event| {
+                            (matches!(effect.kind, ResolvedEffectKind::RegenerationShield) &&
+                                regeneration::destruction_object(event) == Some(effect.origin.source)) ||
                             matches!(event, ProposedEvent::LandPlayed { player }
                                 if effect.additional_land_plays(*player, self.state.rules.turn.number).is_some())
                         })
@@ -1708,6 +1714,7 @@ impl Game {
             self.authorize_hideaway_event(&cause, proposed)?;
         }
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
+        let regeneration_members;
         let authority = if placing
             || events.iter().any(|e| {
                 matches!(
@@ -1727,8 +1734,32 @@ impl Game {
             } else {
                 BatchAuthority::PlaceCounters
             }
+        } else if events
+            .iter()
+            .any(|event| regeneration::creates_shield(event))
+        {
+            let Frame::Resolve { frame } = &self.state.rules.frame else {
+                return Err("regeneration shield requires a resolving activation".into());
+            };
+            let EventGroup::Occurrence {
+                proposed: ProposedEvent::CreateEffect { effect },
+            } = &group
+            else {
+                return Err("regeneration shield requires a single occurrence".into());
+            };
+            self.validate_resolving(frame)?;
+            if cause != Self::staple_cause(frame, effect.origin.source_block) {
+                return Err("regeneration shield creation cause mismatch".into());
+            }
+            BatchAuthority::CreateRegenerationShield
         } else if let Some(proof) = &replacement {
-            BatchAuthority::Graveyard(proof)
+            regeneration_members = match &self.state.rules.frame {
+                Frame::GraveyardGroup { tx } if tx.is_publication(&cause, &group) => {
+                    tx.shields.clone()
+                }
+                _ => vec![],
+            };
+            BatchAuthority::Graveyard(proof, &regeneration_members)
         } else if let (
             BatchCause::Casting { player, source, .. },
             EventGroup::Occurrence {
@@ -2149,7 +2180,7 @@ impl Game {
         let replaced = if matches!(destination, Zone::Graveyard { .. })
             && self.has_self_graveyard_replacement(*object)?
         {
-            let BatchAuthority::Graveyard(proof) = authority else {
+            let BatchAuthority::Graveyard(proof, _) = authority else {
                 return Err(
                     "printed graveyard replacement requires a prepared movement producer".into(),
                 );
@@ -2368,9 +2399,18 @@ impl Game {
         authority: BatchAuthority<'_>,
     ) -> Result<EventOutcome, String> {
         let replacement = match authority {
-            BatchAuthority::Graveyard(proof) => Some(proof),
+            BatchAuthority::Graveyard(proof, _) => Some(proof),
             _ => None,
         };
+        let shields = match authority {
+            BatchAuthority::Graveyard(_, shields) => shields,
+            _ => &[][..],
+        };
+        if regeneration::creates_shield(proposed)
+            && !matches!(authority, BatchAuthority::CreateRegenerationShield)
+        {
+            return Err("regeneration shield requires authenticated creation".into());
+        }
         let entry = authority.entry();
         let actual = match proposed {
             ProposedEvent::RevealLibraryCard { player, object } => {
@@ -2579,6 +2619,9 @@ impl Game {
                 if self.destruction_is_prevented(*object, before)? {
                     return Ok(EventOutcome::DestructionPrevented { object: *object });
                 }
+                if let Some(actual) = self.replace_destruction(*object, shields, before)? {
+                    return Ok(actual);
+                }
                 self.apply_prepared_occurrence(
                     &ProposedEvent::Move {
                         object: *object,
@@ -2598,6 +2641,9 @@ impl Game {
                 // never reaches Move or its death-to-exile replacement.
                 if self.destruction_is_prevented(*object, before)? {
                     return Ok(EventOutcome::DestructionPrevented { object: *object });
+                }
+                if let Some(actual) = self.replace_destruction(*object, shields, before)? {
+                    return Ok(actual);
                 }
                 self.apply_prepared_occurrence(
                     &ProposedEvent::Move {
@@ -3050,6 +3096,11 @@ impl Game {
                     && facts.keywords.contains(&KeywordAbility::Indestructible)
                 {
                     return Err("indestructible creature ignores destruction SBA".into());
+                }
+                if *reason != CreatureLossReason::ZeroToughness
+                    && let Some(actual) = self.replace_destruction(*object, shields, before)?
+                {
+                    return Ok(actual);
                 }
                 let destination = Zone::Graveyard {
                     owner: self.state.rules.cards[&object.card].owner,

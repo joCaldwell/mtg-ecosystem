@@ -8,6 +8,7 @@ pub mod fixtures {
     include!(concat!(env!("OUT_DIR"), "/fixtures.rs"));
 }
 mod activated_artifact_draw;
+mod activated_creature_tap;
 mod activated_source_keyword;
 mod announced_x_draw;
 mod announced_x_effects;
@@ -97,8 +98,10 @@ mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
+mod source_attack_pump;
 mod source_combat_restrictions;
 mod source_dies_nonland_destroy;
+mod source_regeneration;
 mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
@@ -880,6 +883,9 @@ enum Step {
         toughness: SignedAmount,
         duration: SourceDuration,
     },
+    Regenerate {
+        what: serde_json::Value,
+    },
     PreventDamage {
         prevention: SourcePrevention,
         duration: SourceDuration,
@@ -1540,6 +1546,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .or(fixed_color_protection::lower(
             &source, &shape, types.kind, &result, &binding,
         )?);
+    let mut attack_pump =
+        source_attack_pump::lower(&source, &shape, types.kind, &result, &binding)?;
     let self_graveyard_shuffle =
         self_graveyard_shuffle::validate(&source, &shape, &result, &binding)?;
     let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
@@ -2360,7 +2368,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if block == 1
+                        let ability = if let Some(pump) = attack_pump.take() {
+                            pump
+                        } else if block == 1
                             && condition.is_none()
                             && combat_hand_cast::is_offer(effects)
                         {
@@ -2914,6 +2924,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
+    source_regeneration::bind(&definition, &shape, &binding)?;
+    activated_creature_tap::bind(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
@@ -6458,6 +6470,14 @@ fn lower_activation(
             let instruction = match step {
                 Step::CreateReplacement { .. } => {
                     return Err(unsupported("replacement", "unsupported replacement"));
+                }
+                Step::Regenerate { what } => {
+                    let reason = if *what == serde_json::json!({"ref":"this","noun":"creature"}) {
+                        "self-regeneration requires a complete printed fixed-mana activation"
+                    } else {
+                        "regeneration requires this creature as the subject"
+                    };
+                    return Err(unsupported("effects.regenerate", reason));
                 }
                 Step::PreventDamage {
                     prevention,
