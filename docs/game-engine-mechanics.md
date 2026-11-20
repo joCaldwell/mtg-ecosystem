@@ -117,7 +117,9 @@ opponent hand-size reductions draw at their controller's end step. Paid draws
 survive source sacrifice. Counted
 draws precede hand returns or simultaneous discards. Commander replacements
 precede hand-return successors. Own-graveyard card returns target exact cards;
-creature battlefield returns use ordinary entry. Discards clamp to hand size.
+creature battlefield returns use ordinary entry. Self-entry exile resolves the
+chosen player's current graveyard simultaneously before Commander SBAs.
+Discards clamp to hand size.
 Group choices stay private until one simultaneous discard before Commander SBAs.
 Each-player draws finish each seat in turn order, including failed attempts.
 Seeded random discard samples without replacement. Departure never redirects attempts.

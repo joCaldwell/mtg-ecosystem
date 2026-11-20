@@ -138,7 +138,6 @@ impl Game {
         block: u32,
         from_graveyards: bool,
     ) -> Result<(), String> {
-        let mut destroyed_creatures = 0;
         let occurrences = objects
             .into_iter()
             .filter(|o| {
@@ -169,6 +168,16 @@ impl Game {
                 }
             })
             .collect::<Vec<_>>();
+        self.commit_set_moves(frame, occurrences, action, block)
+    }
+    fn commit_set_moves(
+        &mut self,
+        frame: Resolving,
+        occurrences: Vec<ProposedEvent>,
+        action: SetMove,
+        block: u32,
+    ) -> Result<(), String> {
+        let mut destroyed_creatures = 0;
         let mut movements = vec![];
         if !occurrences.is_empty() {
             let batch = self.commit_batch(
@@ -363,6 +372,40 @@ impl Game {
         i: Instruction,
     ) -> Result<(), String> {
         match i {
+            Instruction::ExileTargetGraveyard {
+                target_slot,
+                source_block,
+            } => {
+                // CR 400.7, 603.3d, 608.2b/h: the player was targeted at placement.
+                // Determine the cards from that player's graveyard at resolution.
+                let slot = target_slot as usize;
+                let player = *frame
+                    .spell
+                    .player_targets
+                    .get(slot)
+                    .ok_or("missing graveyard player target")?;
+                if frame.legal_targets.get(slot) != Some(&true) || !self.is_live(player) {
+                    return self.finish_instruction(
+                        frame,
+                        InstructionOutcome::PlayerActionSkipped { player },
+                    );
+                }
+                let occurrences = self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| {
+                        o.zone == (Zone::Graveyard { owner: player })
+                            && !self.state.rules.tokens.contains_key(&o.id.card)
+                    })
+                    .map(|o| ProposedEvent::Move {
+                        object: o.id,
+                        destination: Zone::Exile,
+                    })
+                    .collect();
+                self.commit_set_moves(frame, occurrences, SetMove::Exile, source_block)
+            }
             Instruction::UntapControllerLands { source_block } => {
                 let mut occurrences = Vec::new();
                 for object in self.state.rules.objects.values() {

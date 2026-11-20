@@ -1186,6 +1186,8 @@ mod targeted_discard_tests;
 
 #[path = "creature_entry_return_tests.rs"]
 mod creature_entry_return_tests;
+#[path = "entry_graveyard_exile_tests.rs"]
+mod entry_graveyard_exile_tests;
 
 #[path = "cast_entry_tests.rs"]
 mod cast_entry_tests;
