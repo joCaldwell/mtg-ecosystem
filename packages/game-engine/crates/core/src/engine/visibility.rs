@@ -225,6 +225,11 @@ pub struct AdditionalCostChoice {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerRequest {
+    OpeningPlacement {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
     AdditionalCosts {
         token: DecisionToken,
         player: PlayerId,
@@ -490,6 +495,7 @@ impl PlayerRequest {
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
+            | Self::OpeningPlacement { token, .. }
             | Self::BottomOpening { token, .. }
             | Self::DamageAllocation { token, .. }
             | Self::AdditionalCosts { token, .. }
@@ -529,6 +535,9 @@ pub struct Observation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlayerResponse {
+    OpeningPlacement {
+        object: Option<ObjectHandle>,
+    },
     AdditionalCosts {
         selected: Vec<String>,
     },
@@ -1463,6 +1472,16 @@ impl Game {
                     mulligans_taken,
                     bottom_if_mulligan,
                     can_mulligan,
+                }),
+                Some(Request::OpeningPlacement {
+                    player, candidates, ..
+                }) if player == viewer => Some(PlayerRequest::OpeningPlacement {
+                    token,
+                    player,
+                    candidates: candidates
+                        .into_iter()
+                        .map(|id| self.handle_for(viewer, id))
+                        .collect::<Result<_, _>>()?,
                 }),
                 Some(Request::BottomOpening { player, count, .. }) if player == viewer => {
                     Some(PlayerRequest::BottomOpening {
@@ -2544,6 +2563,12 @@ impl Game {
                     .collect::<Result<_, String>>()?,
             }),
             PlayerResponse::Mulligan { take } => Ok(Response::Mulligan { take: *take }),
+            PlayerResponse::OpeningPlacement { object } => Ok(Response::OpeningPlacement {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
+            }),
             PlayerResponse::BottomOpening { objects } => Ok(Response::BottomOpening {
                 objects: objects
                     .iter()

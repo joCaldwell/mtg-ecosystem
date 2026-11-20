@@ -1117,6 +1117,11 @@ enum SourceStaticEffect {
         controller: serde_json::Value,
         choice: serde_json::Value,
     },
+    OpeningHandAction {
+        what: serde_json::Value,
+        who: serde_json::Value,
+        action: String,
+    },
     CastSpellAbilities {
         scope: serde_json::Value,
         abilities: Vec<serde_json::Value>,
@@ -2641,6 +2646,32 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 "source option labels do not match compiled modes",
             ));
         }
+    }
+    if definition
+        .capabilities
+        .contains(&Capability::OpeningPlacementV1)
+    {
+        let mut graph = bindings::Bindings::new(&definition.oracle_id, &shape);
+        let p = "/faces/0/abilities/0";
+        graph.ability(p, "static", "static-source-controller");
+        let ast = opening_placement_ast(&definition.name, &source.oracle_text)
+            .ok_or_else(|| unsupported("source", "incomplete opening action"))?;
+        graph.reference(
+            &format!("{p}/effect/what"),
+            &ast[0]["effect"]["what"],
+            &graph.id("/source", "object"),
+            "201.5",
+        );
+        graph.reference(
+            &format!("{p}/effect/who"),
+            &serde_json::json!({"player":"you"}),
+            &graph.id(p, "you"),
+            "109.5",
+        );
+        graph.validate(
+            &binding,
+            "opening placement requires owner and exact source",
+        )?;
     }
     controller_land_types::bind(&definition, &shape, &binding)?;
     definition.source_labels = Some(labels);
@@ -4583,6 +4614,16 @@ fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<Static
     }
     if let SourceStaticEffect::PlayerRule { rule } = effect {
         return unlimited_hand_size::lower_rule(rule);
+    }
+    if let SourceStaticEffect::OpeningHandAction { what, who, action } = effect
+        && matches!(
+            what.get("ref").and_then(|s| s.as_str()),
+            Some("self" | "this")
+        )
+        && *who == serde_json::json!({"player":"you"})
+        && action == "begin-on-battlefield"
+    {
+        return Ok(opening_placement_ability());
     }
     if let Some(grant) = controller_land_types::lower(effect) {
         return Ok(grant);

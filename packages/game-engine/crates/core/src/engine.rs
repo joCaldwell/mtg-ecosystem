@@ -635,6 +635,26 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn has_nonland_color_grant(&self) -> bool {
+        self.catalog.definitions.iter().any(|d| {
+            d.capabilities
+                .contains(&Capability::ControllerNonlandColorsV1)
+        })
+    }
+    fn includes_opening_placement(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::OpeningPlacementV1))
+    }
+    fn work_version(&self) -> u32 {
+        if self.includes_opening_placement() {
+            37
+        } else {
+            36
+        }
+    }
+
     // Existing reviewed catalogs keep their exact private snapshot envelope.
     // The headless land-type family can retain new unpaid selection frames.
     fn has_land_type_grant(&self) -> bool {
@@ -1161,6 +1181,9 @@ pub enum ManaAbilityIdentity {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
+    OpeningPlacement {
+        object: Option<ObjectId>,
+    },
     AdditionalCosts {
         selected: Vec<String>,
     },
@@ -1312,6 +1335,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    OpeningPlacement {
+        player: PlayerId,
+        decision_id: u64,
+        candidates: Vec<ObjectId>,
+    },
     AdditionalCosts {
         decision_id: u64,
         player: PlayerId,
@@ -1562,6 +1590,7 @@ impl Request {
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
+            | Self::OpeningPlacement { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
             | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
@@ -1605,6 +1634,7 @@ impl Request {
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
+            | Self::OpeningPlacement { player, .. }
             | Self::BottomOpening { player, .. }
             | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
@@ -2307,6 +2337,7 @@ pub struct SnapshotWriteInfo {
 }
 pub struct Game {
     catalog_has_land_type_grant: bool,
+    catalog_has_nonland_color_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     state: State,
@@ -2463,6 +2494,7 @@ impl Game {
         };
         let mut game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
@@ -2485,6 +2517,7 @@ impl Game {
     pub fn fork(&self) -> Self {
         Self {
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
+            catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
@@ -3527,6 +3560,7 @@ impl Game {
         }
         let game = Self {
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
+            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,

@@ -800,6 +800,7 @@ impl Game {
                                 && top.len().checked_add(bottom.len()) == Some(looked.len())
                         }
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
+                        (Frame::Setup, PlayerResponse::OpeningPlacement { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
                         }

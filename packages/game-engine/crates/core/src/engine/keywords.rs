@@ -37,7 +37,7 @@ impl Game {
             KeywordSource::Historical(object) => object.keywords.contains(&keyword),
         }
     }
-    // CR 105.1/702.16b–h. The admitted color layer is immutable, including
+    // CR 105.1/702.16b–h. Evaluate the source colors at their applicable boundary, including
     // instantiated token colors. C denotes colorless and is not a sixth color.
     pub(super) fn has_color(source: &Characteristics) -> bool {
         source.colors.iter().any(|color| *color != Color::C)
@@ -59,22 +59,22 @@ impl Game {
     pub(super) fn targeting_characteristics<'a>(
         &'a self,
         entry: &'a StackInstance,
-    ) -> Result<&'a Characteristics, String> {
+    ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
         if self.current(entry.source).is_ok() {
-            Ok(&self.definition(entry.source.card)?.characteristics)
+            self.color_layer(entry.source)
         } else {
             entry
                 .source_facts
                 .as_ref()
                 .filter(|facts| facts.object == entry.source)
-                .map(|facts| &facts.characteristics)
+                .map(|facts| std::borrow::Cow::Borrowed(&facts.characteristics))
                 .ok_or_else(|| "missing last-known targeting source".into())
         }
     }
 
     pub(super) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
-        self.definition(blocker.card)
-            .is_ok_and(|source| !self.protected_from(attacker, &source.characteristics))
+        self.color_layer(blocker)
+            .is_ok_and(|source| !self.protected_from(attacker, &source))
             && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
             && !self.has_restriction(blocker, CreatureRestriction::CantAttackOrBlock)
             && (!self.has_keyword(attacker, KeywordAbility::Flying)

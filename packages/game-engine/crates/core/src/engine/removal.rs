@@ -114,8 +114,7 @@ impl Game {
             o.zone == Zone::Battlefield
                 && (!f.opponent || o.controller != controller)
                 && (!f.tapped || o.tapped)
-        }) && self.definition(object.card).is_ok_and(|d| {
-            let c = &d.characteristics;
+        }) && self.color_layer(object).is_ok_and(|c| {
             !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
                 && (f.types.is_empty() || f.types.iter().any(|k| c.has_type(*k)))
                 && !f.non_types.iter().any(|k| c.has_type(*k))

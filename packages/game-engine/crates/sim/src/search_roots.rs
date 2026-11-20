@@ -106,6 +106,7 @@ fn choose(
         .as_ref()
         .ok_or("root generator missing decision")?;
     Ok(match request {
+        PlayerRequest::OpeningPlacement { .. } => PlayerResponse::OpeningPlacement { object: None },
         PlayerRequest::Mulligan {
             player,
             mulligans_taken,

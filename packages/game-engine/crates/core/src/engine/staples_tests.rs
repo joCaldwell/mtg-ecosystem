@@ -1583,3 +1583,147 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
         g.state
     );
 }
+
+#[test]
+fn kept_opening_enchantment_enters_before_turn_without_casting_and_replays() {
+    let mut p = search_prepared("Rampant Growth");
+    let raw = include_str!("../../../../tests/fixtures/synthetic-opening-placement.json");
+    let compiled = mtg_compiler::compile(mtg_compiler::fixtures::MANIFEST, raw);
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("{compiled:?}")
+    };
+    let old = p
+        .catalog
+        .definitions
+        .iter()
+        .find(|d| d.name == "Rampant Growth")
+        .unwrap()
+        .oracle_id
+        .clone();
+    let id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    for row in &mut p.config.cards {
+        if row.oracle_id == old {
+            row.oracle_id = id.clone()
+        }
+    }
+    let config = p.match_config.as_mut().unwrap();
+    for row in &mut config.decks[0].cards {
+        if row.oracle_id == old {
+            row.oracle_id = id.clone();
+        }
+    }
+    config.decks[0]
+        .cards
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
+    let mut g = Game::with_trace(p.clone(), TraceMode::Detailed);
+    let (candidate, decision) = loop {
+        match request(&mut g) {
+            Request::Mulligan {
+                player,
+                decision_id,
+                ..
+            } => g
+                .respond(player, decision_id, Response::Mulligan { take: false })
+                .unwrap(),
+            Request::OpeningPlacement {
+                candidates,
+                player,
+                decision_id,
+            } => {
+                assert_eq!(player, PlayerId(0));
+                assert_eq!(candidates.len(), 1);
+                break (candidates[0], decision_id);
+            }
+            r => panic!("unexpected opening decision {r:?}"),
+        }
+    };
+    assert_eq!(g.zone(candidate), Some(Zone::Hand { owner: PlayerId(0) }));
+    assert!(
+        g.respond(
+            PlayerId(1),
+            decision,
+            Response::OpeningPlacement {
+                object: Some(candidate)
+            }
+        )
+        .is_err()
+    );
+    let mut declined = g.fork();
+    declined
+        .respond(
+            PlayerId(0),
+            decision,
+            Response::OpeningPlacement { object: None },
+        )
+        .unwrap();
+    assert!(matches!(
+        request(&mut declined),
+        Request::OpeningPlacement {
+            player: PlayerId(1),
+            ..
+        }
+    ));
+    assert_eq!(
+        declined.zone(candidate),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    g.respond(
+        PlayerId(0),
+        decision,
+        Response::OpeningPlacement {
+            object: Some(candidate),
+        },
+    )
+    .unwrap();
+    for seat in 0..4 {
+        let Request::OpeningPlacement {
+            player,
+            decision_id,
+            candidates,
+        } = request(&mut g)
+        else {
+            panic!("expected next opening action")
+        };
+        assert_eq!(player, PlayerId(seat));
+        assert!(candidates.is_empty());
+        if seat == 0 {
+            let successor = g.object_id(candidate.card).unwrap();
+            assert_ne!(candidate, successor);
+            assert_eq!(g.zone(successor), Some(Zone::Battlefield));
+            assert!(g.state.rules.stack.is_empty());
+            assert!(g.trace.records.iter().any(|r|matches!(&r.record,EvidenceRecord::Batch{batch} if batch.cause==BatchCause::Setup && batch.occurrences.iter().any(|o|matches!(&o.actual, EventOutcome::Moved{movement} if movement.previous==candidate && movement.successor==successor)))));
+            assert_eq!(
+                Game::restore(p.clone(), &g.snapshot().unwrap())
+                    .unwrap()
+                    .state,
+                g.state
+            );
+        }
+        g.respond(
+            player,
+            decision_id,
+            Response::OpeningPlacement { object: None },
+        )
+        .unwrap();
+    }
+    assert!(matches!(request(&mut g), Request::Priority { .. }));
+    assert_eq!(
+        Game::replay_to(
+            p,
+            &g.replay_journal(),
+            Some(g.rule_boundary()),
+            TraceMode::Detailed
+        )
+        .unwrap()
+        .state,
+        g.state
+    );
+}
