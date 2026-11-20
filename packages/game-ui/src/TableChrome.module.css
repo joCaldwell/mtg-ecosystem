@@ -29,6 +29,9 @@
 .sectionHeading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--game-space-2); margin-block-end: var(--game-space-3); }
 .sectionHeading h2 { margin: 0; font-size: var(--game-text-body); }
 .sectionHeading h2 > span { font: var(--game-text-small) var(--game-mono); color: var(--game-muted); margin-inline-start: var(--game-space-2); }
+@container (max-width: 68.6875rem) {
+  .header { gap: var(--game-space-2) var(--game-space-3); padding-inline: var(--game-space-3); }
+}
 @container (max-width: 44.9375rem) {
   .header { padding: var(--game-space-3); }
   .actions { margin-inline-start: 0; }

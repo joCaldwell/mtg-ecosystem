@@ -97,7 +97,6 @@
   flex-direction: column;
 }
 .activity { min-block-size: 0; min-inline-size: 0; overflow: auto; }
-.rail[data-inspecting] .activity { max-block-size: 48%; }
 .rail > aside { flex: 1 1 0; }
 .decision p, .decision li { font-size: var(--game-text-body); line-height: 1.55; }
 .decision > p { color: var(--game-soft); }
@@ -111,19 +110,18 @@
 .provenance { overflow-wrap: anywhere; }
 
 @container game-table (max-width: 68.6875rem) {
-  .table { block-size: auto; min-block-size: 100%; grid-template-rows: auto auto auto; }
-  .layout { grid-template-columns: minmax(0, 1fr) minmax(15rem, 30%); align-items: start; }
-  .playSurface { grid-template-rows: minmax(15rem, auto) auto; }
-  .board { max-block-size: 55dvh; }
-  .rail[data-inspecting] .activity { max-block-size: none; }
-  .rail > aside { flex: 1 1 auto; }
+  .layout { grid-template-columns: minmax(0, 1fr) minmax(15rem, 30%); }
+  .turnline { gap: var(--game-space-1) var(--game-space-2); }
+  .turnline > span + span { padding-inline-start: var(--game-space-2); }
 }
 @container game-table (max-width: 44.9375rem) {
+  .table { block-size: auto; min-block-size: 100%; grid-template-rows: auto auto auto; }
   .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .layout { grid-template-columns: minmax(0, 1fr); }
   .playSurface { grid-template-rows: minmax(10rem, auto) auto; }
-  .board { max-block-size: none; grid-template-columns: minmax(0, 1fr) minmax(6.375rem, 31%); }
+  .board { grid-template-columns: minmax(0, 1fr) minmax(6.375rem, 31%); }
   .board, .hand { padding-inline: var(--game-space-3); }
+  .rail > aside { flex: 1 1 auto; max-block-size: min(70dvh, 34rem); }
 }
 @container game-table (max-width: 19rem) {
   .board { grid-template-columns: minmax(0, 1fr); }

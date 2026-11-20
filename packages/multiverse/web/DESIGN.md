@@ -397,6 +397,7 @@ content. Home and Play use stored land or commander art. Setup pairs compatibili
 Saved games show deck name, status and update time.
 
 Tables share game-ui chrome, playmat, card frames and zone headings. Compact
-seats show life, zone counts and commander links. The solo rail holds opening
-choices and manual inspection. Live inspection returns focus to its trigger.
+seats show life, zone counts and commander links. Solo hands preview three
+rules lines. Selection reveals full rules in the rail.
+Live inspection returns focus to its trigger.
 Preview/live art follows the [client presentation contract](../../../docs/game-client.md#package-privacy-and-presentation-boundaries).

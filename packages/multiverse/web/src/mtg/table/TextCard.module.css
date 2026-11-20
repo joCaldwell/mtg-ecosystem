@@ -67,6 +67,13 @@
   color: var(--text-soft);
   overflow-wrap: anywhere;
 }
+.rules.previewRules {
+  --oracle-size: var(--game-text-small);
+  --oracle-leading: 1.45;
+  font-size: var(--oracle-size);
+  line-height: var(--oracle-leading);
+  padding-block-start: var(--game-space-2);
+}
 .facts {
   display: flex;
   align-items: center;
@@ -98,7 +105,7 @@
   border-style: dashed;
   border-color: var(--sel-line);
 }
-.full {
+.full, .preview {
   width: var(--text-card-w);
   flex: 0 0 var(--text-card-w);
 }

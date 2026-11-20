@@ -13,3 +13,7 @@ export function CardSurface(props: CardSurfaceProps) {
   const { as: Element = 'div', className, ...element } = props;
   return <Element className={`${surface.surface} ${styles.surface} ${className ?? ''}`} {...element} />;
 }
+
+export function CardRulesPreview({ className, ...props }: ComponentPropsWithoutRef<'span'>) {
+  return <span className={`${styles.rulesPreview} ${className ?? ''}`} {...props} />;
+}

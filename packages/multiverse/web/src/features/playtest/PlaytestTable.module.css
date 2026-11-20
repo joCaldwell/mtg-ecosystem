@@ -82,12 +82,7 @@
   min-height: var(--playtest-hand-min);
   max-height: var(--playtest-hand-max);
 }
-/* An open zone viewer needs room for its five default rows. Short windows
-   lend it hand height, never below the hand's minimum; tall ones are unchanged. */
-.table.viewing > section:last-child {
-  max-height: min(var(--playtest-hand-max), max(var(--playtest-hand-min), calc(100dvh - var(--playtest-viewer-reserve))));
-}
-.emptyBattlefield .battlefield > section { min-height: var(--zone-header-h); }
+.emptyBattlefield .battlefield > section { min-height: var(--zone-header-h); border-block-end-color: transparent; }
 
 /* A card that just arrived in the hand is marked briefly ("coming in"). */
 .table [data-table-cards] > [data-text-card][data-drawn] {

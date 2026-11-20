@@ -20,15 +20,15 @@ export function CardInspector({ card, onClose, diagnostics = false }: { card: Ca
         <button type="button" className={surface.control} onClick={onClose}>Close</button>
       </div>
       <p className={styles.zone}>{card.zoneLabel}</p>
-      <CardPrint source={card.printImage} className={styles.print} />
       <div className={styles.face}>
-        <p className={styles.mana}>{card.printedMana === '' ? 'No printed mana cost' : card.printedMana ?? 'Mana cost unavailable'}</p>
+        {card.printedMana !== '' && <p className={styles.mana}>{card.printedMana ?? 'Mana cost unavailable'}</p>}
         <p className={styles.type}>{card.printedType ?? 'Type unavailable'}</p>
         <p className={styles.oracle}>{card.oracleText === '' ? 'No printed rules text' : card.oracleText ?? 'Source text is not available for this object.'}</p>
       </div>
       <h3>Current characteristics</h3>
       {card.currentFacts.length > 0 ? <FactList className={styles.facts} items={card.currentFacts} />
         : <p className={surface.muted}>No current characteristics supplied.</p>}
+      <CardPrint source={card.printImage} className={styles.print} />
       {diagnostics && <details className={styles.source}><summary>Source & identity</summary><p>{card.sourceIdentity}</p><p>Object: {card.inspectionId}</p><p>Printed text is reference material. Current characteristics come from the permitted observation.</p></details>}
     </> : <div className={styles.empty}><h2>No card selected</h2></div>}
   </aside>;

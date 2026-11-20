@@ -14,13 +14,8 @@
 .mana { font: var(--game-text-small)/1.4 var(--game-mono); color: var(--game-soft); }
 .type { padding-block-end: var(--game-space-2); border-bottom: 1px solid var(--game-line); color: var(--game-muted); font-size: var(--game-text-small); }
 .text {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: clip;
   color: var(--game-soft);
   font-size: var(--game-text-small);
-  white-space: pre-line;
 }
 .print {
   position: absolute;

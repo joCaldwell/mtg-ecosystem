@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { api } from "../../api/client.ts";
 import type {
   DeckState,
@@ -30,12 +30,14 @@ export function InspectionPanel({
   deck,
   objectId,
   pinned,
+  bodyRef,
   onDeckReload,
 }: {
   controller: PlaytestController;
   deck: DeckState;
   objectId: string | null;
   pinned: boolean;
+  bodyRef: RefObject<HTMLDivElement | null>;
   onDeckReload: () => void;
 }) {
   const s = c.view!.session,
@@ -148,7 +150,7 @@ export function InspectionPanel({
   const draftCard = c.ui.draft.oracle_id ? s.cards[c.ui.draft.oracle_id] : null;
   return (
     <div className={styles.panel}>
-      <div className={styles.body}>
+      <div className={styles.body} ref={bodyRef}>
         {card && object ? (
           <CardInspection
             observation={observeObject(c.view!, object.id)}
@@ -399,7 +401,6 @@ export function InspectionPanel({
             aria-label="Playtest observation"
             rows={5}
             value={c.ui.draft.text}
-            placeholder="What did you learn about this hand or early turns?"
             onChange={(e) => {
               setMemoryStatus(null);
               c.editUi({ draft: { ...c.ui.draft, text: e.target.value } });

@@ -79,6 +79,7 @@ export function PlaytestTable({
   );
   const { toast, dismiss } = useToast();
   const table = useRef<HTMLDivElement>(null);
+  const inspectionBody = useRef<HTMLDivElement>(null);
   const latest = useRef(v);
   latest.current = v;
   // The frame a draw produced while its toast still offers Undo.
@@ -158,6 +159,7 @@ export function PlaytestTable({
     c.editUi({ selected: [], pinned: null });
   };
   function select(id: string, multiple: boolean) {
+    if (inspectionBody.current) inspectionBody.current.scrollTop = 0;
     c.editUi({
       selected: selectedAfterClick(c.ui.selected, id, multiple),
       pinned: id,
@@ -226,15 +228,18 @@ export function PlaytestTable({
     if (!playing && (zone !== "hand" || !f.zones.hand.includes(id))) return;
     if (f.objects[id]) move(draggedIds(id, zone), zone, row);
   }
-  function card(id: string, full = false) {
+  function card(id: string, variant: "compact" | "preview" = "compact") {
     const obj = f.objects[id],
       card = s.cards[obj.oracle_id];
+    const zone = objectZone(v, id)!;
     const bottomIndex = f.opening.bottom.indexOf(id);
+    const showBottomAction = !playing && zone === "hand" &&
+      (bottomIndex >= 0 || f.opening.bottom.length < v.computed.bottom_required);
     return (
       <TextCard
         key={id}
         observation={observeObject(v, id)}
-        full={full}
+        variant={variant}
         selected={selected.includes(id)}
         onSelect={(multiple) => select(id, multiple)}
         onPreview={() => setHover(id)}
@@ -245,7 +250,6 @@ export function PlaytestTable({
             ? undefined
             : (dragged, side) => {
                 if (!f.objects[dragged]) return;
-                const zone = objectZone(v, id)!;
                 if (!playing && (zone !== "hand" || !f.zones.hand.includes(dragged)))
                   return;
                 const ids = draggedIds(dragged, zone);
@@ -259,50 +263,30 @@ export function PlaytestTable({
                 );
               }
         }
-        footer={
+        footer={showBottomAction ? (
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => act({
+              type: "bottom",
+              ids: bottomIndex >= 0
+                ? f.opening.bottom.filter((x) => x !== id)
+                : [...f.opening.bottom, id],
+            })}
+          >
+            {bottomIndex >= 0 ? `Bottom ${bottomIndex + 1} · remove` : "Choose to bottom"}
+          </Button>
+        ) : zone === "battlefield" ? (
           <>
-            <span>
-              {obj.tapped && objectZone(v, id) === "battlefield" ? "Tapped" : ""}
-            </span>
-            {!playing &&
-            f.zones.hand.includes(id) &&
-            (bottomIndex >= 0 ||
-              f.opening.bottom.length < v.computed.bottom_required) ? (
-              <Button
-                size="sm"
-                disabled={
-                  busy ||
-                  (bottomIndex < 0 &&
-                    f.opening.bottom.length >= v.computed.bottom_required)
-                }
-                onClick={() =>
-                  act({
-                    type: "bottom",
-                    ids:
-                      bottomIndex >= 0
-                        ? f.opening.bottom.filter((x) => x !== id)
-                        : [...f.opening.bottom, id],
-                  })
-                }
-              >
-                {bottomIndex >= 0
-                  ? `Bottom ${bottomIndex + 1} · remove`
-                  : "Choose to bottom"}
-              </Button>
-            ) : (
-              objectZone(v, id) === "battlefield" && (
-                <TapButton
-                  name={faceOf(card, obj.face).name}
-                  tapped={obj.tapped}
-                  disabled={busy}
-                  onToggle={() =>
-                    act({ type: "tap", ids: [id], tapped: !obj.tapped })
-                  }
-                />
-              )
-            )}
+            {obj.tapped && <span>Tapped</span>}
+            <TapButton
+              name={faceOf(card, obj.face).name}
+              tapped={obj.tapped}
+              disabled={busy}
+              onToggle={() => act({ type: "tap", ids: [id], tapped: !obj.tapped })}
+            />
           </>
-        }
+        ) : undefined}
       />
     );
   }
@@ -417,7 +401,7 @@ export function PlaytestTable({
             : ({ "--inspection-w": `${width}px` } as CSSProperties)
         }
       >
-        <div ref={table} className={`${styles.table} ${c.ui.viewer ? styles.viewing : ""} ${f.zones.battlefield.length === 0 ? styles.emptyBattlefield : ""}`}>
+        <div ref={table} className={`${styles.table} ${f.zones.battlefield.length === 0 ? styles.emptyBattlefield : ""}`}>
           <nav className={styles.zones} aria-label="Table zones">
             {zoneButtons.map((zone) => (
               <button
@@ -503,7 +487,7 @@ export function PlaytestTable({
             onDrop={busy ? undefined : (id) => drop(id, "hand")}
             emptyText="Draw cards to add to your hand"
           >
-            {f.zones.hand.map((id) => card(id, true))}
+            {f.zones.hand.map((id) => card(id, "preview"))}
           </TableZone>
         </div>
         <TableRail
@@ -601,6 +585,7 @@ export function PlaytestTable({
               deck={deck}
               objectId={pinned ?? preview}
               pinned={!!pinned}
+              bodyRef={inspectionBody}
               onDeckReload={onDeckReload}
             />
           </div>
@@ -612,7 +597,7 @@ export function PlaytestTable({
             tabIndex={0}
             onMouseLeave={() => setHover(null)}
           >
-            <TextCard observation={observeObject(v, preview)} full />
+            <TextCard observation={observeObject(v, preview)} variant="full" />
           </div>
         )}
       </div>

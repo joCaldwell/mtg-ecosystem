@@ -1,5 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { CardSurface } from "@multiverse/game-ui";
+import { CardRulesPreview, CardSurface } from "@multiverse/game-ui";
 import type { CardObservation } from "../../domain/table.ts";
 import { faceOf } from "../../domain/table.ts";
 import { ManaCost } from "../ManaCost.tsx";
@@ -7,7 +7,7 @@ import { OracleText } from "../OracleText.tsx";
 import styles from "./TextCard.module.css";
 export interface TextCardProps {
   observation: CardObservation;
-  full?: boolean;
+  variant?: "compact" | "preview" | "full";
   selected?: boolean;
   targeted?: boolean;
   disabled?: boolean;
@@ -23,7 +23,7 @@ export interface TextCardProps {
 /** Display only the observation supplied by the host; hidden cards have no facts. */
 export function TextCard({
   observation,
-  full = false,
+  variant = "compact",
   selected = false,
   targeted = false,
   disabled = false,
@@ -93,7 +93,7 @@ export function TextCard({
   return (
     <CardSurface
       data-text-card=""
-      className={`${styles.card} ${full ? styles.full : styles.compact} ${targeted ? styles.targeted : ""}`}
+      className={`${styles.card} ${styles[variant]} ${targeted ? styles.targeted : ""}`}
       data-selected={selected}
       data-tapped={object?.tapped ?? false}
       data-object-id={object?.id}
@@ -184,9 +184,14 @@ export function TextCard({
         <ManaCost cost={face.mana_cost ?? null} />
         <div className={styles.type}>{face.type_line}</div>
       </header>
-      {full && (
+      {variant === "full" && (
         <div className={styles.rules}>
           <OracleText text={face.oracle_text ?? ""} bare />
+        </div>
+      )}
+      {variant === "preview" && face.oracle_text && (
+        <div className={`${styles.rules} ${styles.previewRules}`}>
+          <CardRulesPreview><OracleText text={face.oracle_text} inline /></CardRulesPreview>
         </div>
       )}
       {(chips.length > 0 || stat) && (

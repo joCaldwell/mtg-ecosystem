@@ -1,5 +1,5 @@
 import { CardPrint } from './CardPrint.tsx';
-import { CardSurface } from './CardSurface.tsx';
+import { CardRulesPreview, CardSurface } from './CardSurface.tsx';
 import { cardName, type CardView } from './table-model.ts';
 import styles from './CardFace.module.css';
 
@@ -16,7 +16,7 @@ export function CardFace({ card, selected, onInspect, compact = false }: {
     {card.printedMana !== '' && <span className={styles.mana}>{card.printedMana ?? 'Mana cost unavailable'}</span>}
     <span className={styles.type}>{card.printedType ?? 'Type unavailable'}</span>
     {!compact && <>
-      <span className={styles.text}>{card.oracleText === '' ? 'No printed rules text' : card.oracleText ?? 'Source text unavailable'}</span>
+      <CardRulesPreview className={styles.text}>{card.oracleText === '' ? 'No printed rules text' : card.oracleText ?? 'Source text unavailable'}</CardRulesPreview>
       <CardPrint source={card.printImage} className={styles.print} />
     </>}
     {card.tapped && <span className={styles.tapped}>Tapped</span>}

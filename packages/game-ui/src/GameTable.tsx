@@ -1,5 +1,5 @@
 import surface from './surface.module.css';
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { CardFace } from './CardFace.tsx';
 import { GameSeat } from './GameSeat.tsx';
 import { TableHeader, TableMat, TablePrompt, TableRail, TableSectionHeading } from './TableChrome.tsx';
@@ -12,19 +12,31 @@ export function GameTable({ table, decisionControls, choiceStatus, toolbar, diag
   const [selected, setSelected] = useState<string | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const decision = useRef<HTMLElement>(null);
+  const focusDecision = useRef(false);
   const card = inspectableCards(table).find(value => value.inspectionId === selected) ?? null;
+  const inspecting = card !== null;
   // A removed object cannot silently reopen and move focus if its handle is
   // present in a later permitted observation.
   if (selected !== null && !card) setSelected(null);
+  useLayoutEffect(() => {
+    if (inspecting || !focusDecision.current) return;
+    focusDecision.current = false;
+    decision.current?.focus();
+  }, [inspecting]);
   function inspect(id: string, button: HTMLButtonElement) { trigger.current = button; setSelected(id); }
   function close() {
     setSelected(null);
     // A live update can remove the originating object while inspection is open.
     // Restore to the exact button when retained, otherwise the decision heading.
     if (trigger.current?.isConnected) trigger.current.focus();
-    else decision.current?.focus();
+    else focusDecision.current = true;
   }
   function jumpToDecision() {
+    if (inspecting) {
+      focusDecision.current = true;
+      setSelected(null);
+      return;
+    }
     decision.current?.scrollIntoView({ block: 'nearest' });
     decision.current?.focus({ preventScroll: true });
   }
@@ -55,8 +67,8 @@ export function GameTable({ table, decisionControls, choiceStatus, toolbar, diag
         </TableMat>
         <section className={styles.hand} aria-labelledby={`${id}-hand-title`}><TableSectionHeading id={`${id}-hand-title`} title="Your hand" count={table.hand.length} />{cards(table.hand, 'Your hand is empty.')}</section>
       </div>
-      <TableRail className={styles.rail} data-inspecting={!!card || undefined}>
-        <div className={styles.activity}>
+      <TableRail className={styles.rail}>
+        <div className={styles.activity} hidden={inspecting}>
           <TablePrompt sectionRef={decision} tabIndex={-1} className={styles.decision} aria-labelledby={`${id}-decision-title`}>
             <h2 id={`${id}-decision-title`}>{table.decision?.title ?? (table.live ? 'Waiting for a decision' : 'No decision')}</h2>
             {table.decision?.description && <p>{table.decision.description}</p>}
@@ -64,7 +76,7 @@ export function GameTable({ table, decisionControls, choiceStatus, toolbar, diag
             {choiceStatus}
             {decisionControls ?? <p className={styles.readOnly}>{table.live ? 'Opening controls unavailable.' : 'Read-only fixture. Choices cannot be submitted.'}</p>}
           </TablePrompt>
-          <section className={styles.stack} aria-labelledby={`${id}-stack-title`}><TableSectionHeading id={`${id}-stack-title`} title="Stack" count={table.stack.length} />{table.stack.length > 0 && cards(table.stack, '', true)}</section>
+          {table.stack.length > 0 && <section className={styles.stack} aria-labelledby={`${id}-stack-title`}><TableSectionHeading id={`${id}-stack-title`} title="Stack" count={table.stack.length} />{cards(table.stack, '', true)}</section>}
           {diagnostics && <details className={styles.provenance}><summary>View source</summary><p>{table.sourceLabel}</p></details>}
         </div>
         {card && <CardInspector card={card} onClose={close} diagnostics={diagnostics} />}
