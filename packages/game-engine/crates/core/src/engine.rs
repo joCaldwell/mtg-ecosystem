@@ -433,6 +433,7 @@ mod turns_tests;
 pub use events::*;
 pub use trace::*;
 mod control;
+mod controlled_land_entry;
 mod multiplayer;
 pub use multiplayer::*;
 mod permitted_history;

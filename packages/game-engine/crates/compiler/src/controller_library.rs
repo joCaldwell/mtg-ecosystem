@@ -283,6 +283,12 @@ pub(super) fn validate_fixed_cast_effects(
         )
     };
     for (block, (ability, line)) in abilities.iter().zip(&result.lines).enumerate() {
+        if matches!(ability, Ability::Triggered { trigger, effects, condition, .. }
+            if land_entry_scry::matches(trigger, effects, condition.as_ref(), block))
+        {
+            // The exact entry trigger is independently authenticated after lowering.
+            continue;
+        }
         let printed = FixedCastEffect::from_line(&line.text, "~");
         let uses_scry = matches!(ability, Ability::Triggered {effects,..}
             if effects.iter().flat_map(|sentence| &sentence.steps).any(|step| matches!(step,Step::Scry {..})));

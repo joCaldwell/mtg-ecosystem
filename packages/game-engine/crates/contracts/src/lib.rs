@@ -92,10 +92,14 @@ mod announced_x_draw;
 mod artifact_modal;
 mod controlled_phasing;
 pub use controlled_phasing::controller_window_instructions;
+mod controlled_land_entry;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
 mod land_entry_gain_life;
+mod land_entry_scry;
+pub use controlled_land_entry::{controlled_land_entry_trigger, controlled_land_query};
+pub use land_entry_scry::land_entry_scry_trigger;
 mod land_sacrifice_draw;
 mod opponent_count_entry;
 mod other_land_entry;
@@ -526,6 +530,8 @@ pub enum Capability {
     CreatureEntryReturnV1,
     EntryGraveyardExileV1,
     LandEntryGainLifeV1,
+    LandEntryScryV1,
+    ControlledLandEntryV1,
     LandSacrificeDrawV1,
     CreatureDiesV1,
     SelfDiesV1,
@@ -2058,6 +2064,7 @@ pub enum CascadeThreshold {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    ControlledLandEntersBattlefield,
     DelayedControllerCreatureEntry,
     SagaChapter {
         number: std::num::NonZeroU32,
@@ -2322,6 +2329,7 @@ impl TriggerCondition {
             Self::SelfBecomesTapped => "self_becomes_tapped",
             Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
             Self::SelfMoved { .. } => "self_moved",
+            Self::ControlledLandEntersBattlefield => "controlled_land_enters_battlefield",
         }
     }
 }
@@ -2919,6 +2927,9 @@ impl Definition {
         if land_sacrifice_draw::present(self) {
             set.insert(Capability::LandSacrificeDrawV1);
         }
+        if land_entry_scry::present(self) {
+            set.insert(Capability::LandEntryScryV1);
+        }
         if land_entry_gain_life::present(self) {
             set.insert(Capability::LandEntryGainLifeV1);
         }
@@ -2985,6 +2996,9 @@ impl Definition {
                 TriggerCondition::DamageDealt { .. } => Capability::SourceDamageTriggerV2,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
+                TriggerCondition::ControlledLandEntersBattlefield => {
+                    Capability::ControlledLandEntryV1
+                }
                 TriggerCondition::SelfBecomesTapped => Capability::SourceTapTriggerV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
@@ -3209,6 +3223,8 @@ impl Definition {
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
         land_entry_gain_life::validate(self)?;
+        land_entry_scry::validate(self)?;
+        controlled_land_entry::validate(self)?;
         other_land_entry::validate(self)?;
         opponent_count_entry::validate(self)?;
         reveal_land_entry::validate(self)?;
@@ -3996,6 +4012,7 @@ impl Definition {
                                 .capabilities
                                 .contains(&Capability::EntryGraveyardExileV1)
                                 || self.capabilities.contains(&Capability::LandEntryGainLifeV1)
+                                || self.capabilities.contains(&Capability::LandEntryScryV1)
                                 || self.capabilities.contains(&Capability::HideawayV1)))
                 }),
             }
@@ -7798,6 +7815,8 @@ pub fn catalog_schema() -> serde_json::Value {
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
     land_entry_gain_life::extend_schema(&mut schema);
+    land_entry_scry::extend_schema(&mut schema);
+    controlled_land_entry::extend_schema(&mut schema);
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
@@ -8075,6 +8094,8 @@ mod tests {
             CreatureEntryReturnV1,
             EntryGraveyardExileV1,
             LandEntryGainLifeV1,
+            LandEntryScryV1,
+            ControlledLandEntryV1,
             LandSacrificeDrawV1,
             CreatureDiesV1,
             CastEnchantmentV1,
@@ -8591,6 +8612,8 @@ mod tests {
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(land_entry_gain_life::witness());
+        definitions.push(land_entry_scry::witness());
+        definitions.push(controlled_land_entry::witness());
         definitions.push(entry_copy::registry_witness());
         definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());

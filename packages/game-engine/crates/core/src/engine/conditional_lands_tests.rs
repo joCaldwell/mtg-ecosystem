@@ -907,3 +907,9 @@ mod same_color_mana_tests;
 
 #[path = "fetched_land_untap_tests.rs"]
 mod fetched_land_untap_tests;
+
+#[path = "land_entry_scry_tests.rs"]
+mod land_entry_scry_tests;
+
+#[path = "controlled_land_entry_tests.rs"]
+mod controlled_land_entry_tests;

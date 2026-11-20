@@ -31,6 +31,7 @@ mod combat_hand_cast;
 mod commander_modal_keyword;
 mod composed_spell;
 mod controlled_creature_spell_copy;
+mod controlled_land_entry;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -77,6 +78,7 @@ mod hand_return_tests;
 mod hybrid_filter_mana;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
+mod land_entry_scry;
 mod land_sacrifice_draw;
 mod library_order;
 #[cfg(test)]
@@ -3083,6 +3085,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
     land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
+    land_entry_scry::validate_binding(&definition, &shape, &binding)?;
+    controlled_land_entry::bind(&definition, &shape, &binding)?;
     other_land_entry::validate_binding(&definition, &shape, &binding)?;
     reveal_land_entry::validate_binding(&definition, &shape, &binding)?;
     checkland_entry::validate_binding(&definition, &shape, &binding)?;
@@ -5899,6 +5903,12 @@ fn lower_trigger(
         entry_graveyard_exile::lower_trigger(trigger, effects, intervening, block)
     {
         return Ok(ability);
+    }
+    if let Some(ability) = controlled_land_entry::lower(trigger, effects, intervening, block)? {
+        return Ok(ability);
+    }
+    if land_entry_scry::matches(trigger, effects, intervening, block) {
+        return Ok(land_entry_scry_trigger());
     }
     if let Some(ability) = land_entry_gain_life::lower(trigger, effects, intervening, block)? {
         return Ok(ability);
