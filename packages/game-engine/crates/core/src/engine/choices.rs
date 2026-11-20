@@ -343,7 +343,7 @@ impl BoundModeSubset {
                             | Instruction::CounterStackObject { target_slot, .. }
                             | Instruction::ReturnToOwnerHand { target_slot, .. }
                             | Instruction::PutPlusOneCounters {
-                                on: CounterRecipient::Target { target_slot },
+                                on: mtg_contracts::CounterRecipient::Target { target_slot },
                                 ..
                             },
                             [target],
