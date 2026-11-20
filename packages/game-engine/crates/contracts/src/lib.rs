@@ -5226,6 +5226,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
                 }
             }
         }
+        if matches!(
+            instruction,
+            Instruction::OfferHandCastWithoutManaCost { .. }
+        ) {
+            set.insert(Capability::ResolutionCastV1);
+        }
         if matches!(instruction, Instruction::Cascade { .. }) {
             set.insert(Capability::ResolutionCastV1);
             set.insert(Capability::RandomBottomV1);
@@ -6826,6 +6832,7 @@ pub fn catalog_schema() -> serde_json::Value {
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
+    hand_cast::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     schema
 }

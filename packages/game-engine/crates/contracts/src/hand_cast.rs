@@ -117,3 +117,43 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     }
     Ok(())
 }
+
+pub(super) fn extend_schema(schema: &mut Value) {
+    let op = json!({"required":["op"],"properties":{"op":{"const":"offer_hand_cast_without_mana_cost"}}});
+    let uses = json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":op}}});
+    let ability = json!({"required":["program"],"properties":{"program":uses}});
+    let cap = json!({"contains":{"const":Capability::CombatHandCastV1}});
+    let trigger = combat_hand_cast_trigger();
+    let program = json!({"required":["instructions"],"properties":{
+        "timing":{"const":trigger.program.timing},"functioning_zone":{"const":trigger.program.functioning_zone},
+        "resolution":{"const":trigger.program.resolution},"targets":{"maxItems":0},"modes":{"maxItems":0},
+        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
+        "instructions":{"const":trigger.program.instructions}}});
+    schema["$defs"]["SpellProgram"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "properties":{"modes":{"items":{"properties":{"program":{"not":uses}}}}},
+            "if":uses, "then":program
+        }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "properties":{"spell":{"not":uses},"activated":{"items":{"not":ability}}},
+        "if":{"anyOf":[{"properties":{"capabilities":cap}},{"required":["triggered"],"properties":{"triggered":{"contains":ability}}},
+            {"properties":{"provenance":{"properties":{"source_json":{"pattern":"combat damage to a player, you may cast a spell from your hand"}}}}}]},
+        "then":{"required":["triggered","spell","keywords"],"properties":{
+            "capabilities":cap,"keywords":{"const":["flying"]},"x_mana_cost":{"const":false},
+            "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0},
+                "legendary":{"const":false},"basic":{"const":false},"snow":{"const":false}}},
+            "activated":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},
+            "spell":{"type":"object","properties":{"timing":{"const":"main_phase"},"resolution":{"const":"permanent"},
+                "functioning_zone":{"const":"stack"},"instructions":{"maxItems":0},"targets":{"maxItems":0},"modes":{"maxItems":0},
+                "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}},
+            "triggered":{"minItems":1,"maxItems":1,"items":{"properties":{
+                "functioning_zone":{"const":trigger.functioning_zone},"condition":{"const":trigger.condition},
+                "intervening_if":{"type":"null"},"death_filter":{"type":"null"},"program":program}}},
+            "source_labels":{"properties":{"triggered":{"const":[1]},"mana":{"maxItems":0},"statics":{"maxItems":0},
+                "activated":{"maxItems":0},"spell_modes":{"maxItems":0}}},
+            "provenance":{"properties":{"source_json":{"pattern":"combat damage to a player, you may cast a spell from your hand"}}}
+        }}
+    }));
+}
