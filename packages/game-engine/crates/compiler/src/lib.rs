@@ -1597,6 +1597,14 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     // still decode and lower, including conditions, costs and player relations.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     for ability in &abilities {
+        if let Ability::Static {
+            effect: effect @ SourceStaticEffect::CombatRule { .. },
+            ..
+        } = ability
+            && source_combat_restrictions::restriction_from_ast(effect).is_none()
+        {
+            return Err(unsupported("abilities.static", "static:combat-rule"));
+        }
         let (Ability::AdditionalCost { ability_word, .. }
         | Ability::Keywords { ability_word, .. }
         | Ability::Static { ability_word, .. }
