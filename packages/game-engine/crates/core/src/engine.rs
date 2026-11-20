@@ -1574,6 +1574,9 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    PhaseOutControlled {
+        controller: PlayerId,
+    },
     RevealSearchLands {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -1798,6 +1801,10 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    PermanentsPhasedOut {
+        controller: PlayerId,
+        members: Vec<(ObjectId, PhaseReturn)>,
+    },
     CounterPlacementModified {
         application: CounterPlacementApplication,
     },
@@ -1997,6 +2004,8 @@ pub enum EventOutcome {
         current: u32,
     },
     TurnTransitioned {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        phased_in: Vec<ObjectId>,
         previous: TurnState,
         current: TurnState,
         previous_owner: PlayerId,

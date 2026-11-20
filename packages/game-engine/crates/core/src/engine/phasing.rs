@@ -141,7 +141,7 @@ impl PhasingSchedule {
 }
 
 impl Game {
-    fn installed_phasing(&self) -> PhasingSchedule {
+    pub(super) fn installed_phasing(&self) -> PhasingSchedule {
         PhasingSchedule {
             members: self
                 .state
@@ -155,13 +155,15 @@ impl Game {
 
     // No source may emit this transition until the remaining consumers and
     // replay boundary accept its status. One rules operation updates the set.
-    #[allow(dead_code)]
-    fn phase_out_controller_permanents(
+    pub(super) fn phase_out_controller_permanents(
         &mut self,
         controller: PlayerId,
     ) -> Result<Vec<ObjectId>, String> {
         let mut schedule = self.installed_phasing();
         let ids = schedule.phase_out_controlled(self, controller)?;
+        for &id in &ids {
+            self.retain_source_lki(id)?;
+        }
         for &id in &ids {
             self.state
                 .rules
@@ -171,19 +173,19 @@ impl Game {
                 .phased_out = schedule.return_condition(id);
             self.remove_from_combat(id);
         }
-        self.reconcile_controllers()?;
         Ok(ids)
     }
 
     pub(super) fn phase_in_for_next_untap(
         &mut self,
         previous_owner: PlayerId,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<ObjectId>, String> {
         let mut schedule = self.installed_phasing();
         if schedule.members.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
-        for id in schedule.phase_in_at_untap(self, previous_owner)? {
+        let ids = schedule.phase_in_at_untap(self, previous_owner)?;
+        for id in &ids {
             self.state
                 .rules
                 .objects
@@ -191,7 +193,8 @@ impl Game {
                 .unwrap()
                 .phased_out = None;
         }
-        self.reconcile_controllers()
+        self.reconcile_controllers()?;
+        Ok(ids)
     }
 }
 
@@ -250,10 +253,27 @@ mod tests {
         );
         assert_eq!(schedule.phase_in_at_untap(&game, PlayerId(3)).unwrap(), ids);
         assert_eq!(game.state, before);
-        assert_eq!(
-            game.phase_out_controller_permanents(PlayerId(0)).unwrap(),
-            ids
+        let batch = game
+            .commit_batch(
+                BatchCause::Fixture,
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::PhaseOutControlled {
+                        controller: PlayerId(0),
+                    },
+                },
+            )
+            .unwrap();
+        assert!(
+            matches!(batch.result(&[]),Some(EventOutcome::PermanentsPhasedOut{controller:PlayerId(0),members}) if members.iter().map(|(id,_)|*id).collect::<Vec<_>>()==ids)
         );
+        for viewer in (0..4).map(PlayerId) {
+            assert!(
+                game.visible_object(viewer, game.current(bear).unwrap())
+                    .unwrap()
+                    .unwrap()
+                    .phased_out
+            );
+        }
         assert_eq!(game.zone(bear), Some(Zone::Battlefield));
         assert!(!game.current(bear).unwrap().present_on_battlefield());
         assert_eq!(game.current(plate).unwrap().attached_to, Some(bear));

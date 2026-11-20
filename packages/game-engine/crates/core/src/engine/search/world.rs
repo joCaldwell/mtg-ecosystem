@@ -229,6 +229,11 @@ impl SampleBuildWork {
         }
         let mut rows = vec![];
         for object in &view.objects {
+            if object.phased_out {
+                return Err(invariant(
+                    "world reconstruction requires private phasing return authority",
+                ));
+            }
             if matches!(object.zone, Zone::Library { .. } | Zone::Stack)
                 || matches!(object.zone,Zone::Hand{owner} if owner!=view.viewer)
             {

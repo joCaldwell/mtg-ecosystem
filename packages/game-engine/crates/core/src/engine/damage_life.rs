@@ -168,6 +168,15 @@ impl Game {
         update_frame(&mut self.state.rules.frame, fact);
     }
     pub(super) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
+        if self
+            .current(entry.source)
+            .is_ok_and(|o| o.phased_out.is_some())
+        {
+            return entry
+                .source_facts
+                .clone()
+                .ok_or("missing phased-out source facts".into());
+        }
         self.object_before(entry.source).or_else(|_| {
             entry
                 .source_facts
@@ -317,7 +326,7 @@ impl Game {
         // there is no mana window when this cost contains no mana.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let source_payable = self.current(entry.source).is_ok_and(|source| {
-            source.zone == Zone::Battlefield
+            source.present_on_battlefield()
                 && source.controller == entry.controller
                 && !source.tapped
                 && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))

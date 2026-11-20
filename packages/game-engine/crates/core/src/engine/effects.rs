@@ -200,7 +200,7 @@ impl Game {
         // Neither color identity nor the mana a permanent can produce is a color.
         let mut colors = BTreeSet::new();
         for permanent in self.state.rules.objects.values().filter(|object| {
-            object.zone == Zone::Battlefield
+            object.present_on_battlefield()
                 && match scope {
                     PermanentColorScope::Controller => object.controller == controller,
                 }
@@ -234,7 +234,7 @@ impl Game {
         // set. Source/controller/zone changes therefore need no cached grants.
         if c.kind == CardKind::Creature
             && let Ok(o) = self.current(object)
-            && o.zone == Zone::Battlefield
+            && o.present_on_battlefield()
         {
             for ability in &self.definition(object.card)?.static_abilities {
                 if let StaticEffect::ModifySourceByDistinctPermanentColors {
@@ -262,7 +262,7 @@ impl Game {
                 .rules
                 .objects
                 .values()
-                .filter(|s| s.zone == Zone::Battlefield && s.controller == o.controller)
+                .filter(|s| s.present_on_battlefield() && s.controller == o.controller)
             {
                 for a in &self.definition(source.id.card)?.static_abilities {
                     if let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect {
@@ -336,7 +336,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
             .flat_map(|o| {
                 self.definition(o.id.card).into_iter().flat_map(move |d| {
                     d.static_abilities
@@ -560,7 +560,7 @@ impl Game {
         effect: &ResolvedEffect,
         object: ObjectId,
     ) -> bool {
-        self.current(object).is_ok_and(|o| o.zone == Zone::Battlefield)
+        self.current(object).is_ok_and(|o| o.present_on_battlefield())
             && (self.is_battlefield_creature(object)
                 || self.origin_programs(&effect.origin).is_ok_and(|programs| {
                     programs.into_iter().any(|program| {
@@ -839,7 +839,7 @@ impl Game {
                     .static_abilities
                     .get(*ability as usize)
                     .ok_or("missing static effect")?;
-                if o.zone != Zone::Battlefield || a.functioning_zone != FunctioningZone::Battlefield
+                if !o.present_on_battlefield() || a.functioning_zone != FunctioningZone::Battlefield
                 {
                     return Err("inactive static damage effect".into());
                 }

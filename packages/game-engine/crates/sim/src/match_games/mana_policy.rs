@@ -166,6 +166,7 @@ mod tests {
         let card = |name: &str, zone: Zone| {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
             mtg_core::VisibleObject {
+                phased_out: false,
                 mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],

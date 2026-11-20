@@ -173,8 +173,6 @@ impl Game {
             return Err("unsupported phase transition boundary".into());
         }
         let (next, owner) = self.next_turn_state()?;
-        let upcoming_untap = next.step == TurnStep::Untap;
-        let previous_owner = self.state.rules.turn_owner;
         let mut children = self
             .live_players()
             .into_iter()
@@ -189,9 +187,6 @@ impl Game {
             BatchCause::TurnProgression,
             EventGroup::Ordered { children },
         )?;
-        if upcoming_untap {
-            self.phase_in_for_next_untap(previous_owner)?;
-        }
         self.state.rules.passes.clear();
         self.state.rules.cleanup_repeat = false;
         self.state.rules.frame = Frame::EnterStep;

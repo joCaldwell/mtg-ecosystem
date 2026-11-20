@@ -334,7 +334,8 @@ mod footprint_tests {
 fn changes_control_inputs(event: &ProposedEvent) -> bool {
     matches!(
         event,
-        ProposedEvent::Move { .. }
+        ProposedEvent::PhaseOutControlled { .. }
+            | ProposedEvent::Move { .. }
             | ProposedEvent::DestroyPermanent { .. }
             | ProposedEvent::DestroyCreature { .. }
             | ProposedEvent::StateBasedGraveyard { .. }
@@ -483,6 +484,10 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
         ProposedEvent::ConsumeDeathtouchWindow { objects } => {
             let mut keys = BTreeSet::from([FactKey::AllDamage]);
             keys.extend(objects.iter().map(|o| FactKey::Object(o.card)));
+            (keys.clone(), keys)
+        }
+        ProposedEvent::PhaseOutControlled { .. } => {
+            let keys = BTreeSet::from([FactKey::Effects, FactKey::Turn]);
             (keys.clone(), keys)
         }
         ProposedEvent::ClearDamage => {
@@ -697,6 +702,7 @@ fn collect<'a>(
                             | ProposedEvent::ReversePermanentMana { .. }
                             | ProposedEvent::CounterStackObject { .. }
                             | ProposedEvent::CreateCreatureTokens { .. }
+                            | ProposedEvent::PhaseOutControlled { .. }
                             | ProposedEvent::ClearDamage
                             | ProposedEvent::ConsumeDeathtouchWindow { .. }
                             | ProposedEvent::TurnTransition { .. }
@@ -1162,6 +1168,13 @@ impl Game {
                 ProposedEvent::ConsumeDeathtouchWindow { objects: checked } => {
                     objects.extend(checked);
                 }
+                ProposedEvent::PhaseOutControlled { controller } => {
+                    players.insert(*controller);
+                    objects.extend(
+                        self.installed_phasing()
+                            .phase_out_controlled(self, *controller)?,
+                    );
+                }
                 ProposedEvent::ClearDamage => {
                     objects.extend(
                         self.state
@@ -1212,6 +1225,10 @@ impl Game {
                     if let ProposedEvent::TurnTransition { next, owner } = event
                         && next.number != self.state.rules.turn.number
                     {
+                        objects.extend(
+                            self.installed_phasing()
+                                .phase_in_at_untap(self, self.state.rules.turn_owner)?,
+                        );
                         objects.extend(
                             self.state
                                 .rules
@@ -2494,6 +2511,24 @@ impl Game {
                     objects: objects.clone(),
                 }
             }
+            ProposedEvent::PhaseOutControlled { controller } => {
+                let ids = self.phase_out_controller_permanents(*controller)?;
+                let members = ids
+                    .into_iter()
+                    .map(|id| {
+                        Ok((
+                            id,
+                            self.current(id)?
+                                .phased_out
+                                .ok_or("missing phased status")?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                EventOutcome::PermanentsPhasedOut {
+                    controller: *controller,
+                    members,
+                }
+            }
             ProposedEvent::ClearDamage => {
                 let mut previous = vec![];
                 for o in self.state.rules.objects.values_mut() {
@@ -2614,7 +2649,13 @@ impl Game {
                         }
                     }
                 }
+                let phased_in = if next.step == TurnStep::Untap {
+                    self.phase_in_for_next_untap(previous_owner)?
+                } else {
+                    vec![]
+                };
                 EventOutcome::TurnTransitioned {
+                    phased_in,
                     previous,
                     current: next.clone(),
                     previous_owner,

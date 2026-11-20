@@ -381,7 +381,7 @@ impl Game {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     fn source_tap_witness(&self, object: ObjectId) -> Result<Option<TriggerEventWitness>, String> {
         let current = self.current(object)?;
-        Ok((current.zone == Zone::Battlefield
+        Ok((current.present_on_battlefield()
             && current.tapped
             && self
                 .definition(object.card)?
@@ -576,7 +576,7 @@ impl Game {
                     && let DamageRecipient::Player { player } = damage.recipient
                     && self
                         .current(damage.source.object)
-                        .is_ok_and(|o| o.zone == Zone::Battlefield)
+                        .is_ok_and(|o| o.present_on_battlefield())
                 {
                     group_transaction = *transaction;
                     damage_groups
@@ -719,7 +719,7 @@ impl Game {
             TriggerEventWitness::DamageDealt { damage, .. }
                 if observers
                     .current(damage.source.object)
-                    .is_ok_and(|o| o.zone == Zone::Battlefield) =>
+                    .is_ok_and(|o| o.present_on_battlefield()) =>
             {
                 Some(Box::new(observers.object_before(damage.source.object)?))
             }
@@ -733,7 +733,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield || matches!(&witness, TriggerEventWitness::SpellCast {cast} if o.zone == Zone::Stack && o.id == cast.spell.object))
+            .filter(|o| o.present_on_battlefield() || matches!(&witness, TriggerEventWitness::SpellCast {cast} if o.zone == Zone::Stack && o.id == cast.spell.object))
             .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
         {
             for (ability, definition) in observers
@@ -946,7 +946,7 @@ impl Game {
                 .rules
                 .objects
                 .values()
-                .filter(|o| o.zone == Zone::Battlefield)
+                .filter(|o| o.present_on_battlefield())
             {
                 let fact = observers.object_before(object.id)?;
                 if fact.controller != cast.caster || !observers.is_live(cast.caster) {

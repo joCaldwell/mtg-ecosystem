@@ -247,7 +247,7 @@ impl Game {
     }
     pub(super) fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
         for source in self.state.rules.objects.values().filter(|o| {
-            o.zone == Zone::Battlefield
+            o.present_on_battlefield()
                 && o.controller == self.state.rules.turn_owner
                 && o.controller != player
         }) {
@@ -350,7 +350,7 @@ impl Game {
                     continue;
                 }
                 let source = match self.current(receipt.object) {
-                    Ok(o) if o.zone == Zone::Battlefield && o.tapped => Some(o.id),
+                    Ok(o) if o.present_on_battlefield() && o.tapped => Some(o.id),
                     Ok(_) => return Err("casting reversal source changed unexpectedly".into()),
                     Err(_) if !self.is_live(self.state.rules.cards[&receipt.object.card].owner) => {
                         None
