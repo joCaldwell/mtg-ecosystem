@@ -1430,8 +1430,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     )?;
     let abilities = if divided_plus_one_counters::validate(&shape, &result, &binding)? {
         vec![Ability::DividedPlusOneCountersModal]
-    } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)?
-    {
+    } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
         vec![ability]
