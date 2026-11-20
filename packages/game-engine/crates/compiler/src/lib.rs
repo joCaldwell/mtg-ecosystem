@@ -15,6 +15,7 @@ mod announced_x_effects_tests;
 mod bindings;
 mod cast_entry;
 mod cast_origin;
+mod cast_payer_draw;
 pub mod catalog;
 mod controller_counted_draw;
 #[cfg(test)]
@@ -61,6 +62,7 @@ mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
 mod power_entry_draw;
+mod power_filtered_removal;
 mod self_reference;
 mod self_spell_protection;
 mod source_dies_nonland_destroy;
@@ -181,6 +183,9 @@ enum Ability {
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
+    // Only the whole-source adapter can introduce this bound trigger.
+    #[serde(skip)]
+    CastPayerDraw { generic: Quantity },
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1421,9 +1426,13 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = match counter_unless_generic::lower(&shape, &result, &binding)? {
-        Some(ability) => vec![ability],
-        None => read_abilities(&canonical_abilities)?,
+    let abilities = if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)?
+    {
+        vec![ability]
+    } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
+        vec![ability]
+    } else {
+        read_abilities(&canonical_abilities)?
     };
     let disjoint_mana =
         pain_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
@@ -1526,6 +1535,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     )?;
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let mut power_removal = power_filtered_removal::lower(&shape, &result, &binding)?;
     let counter_mill = counter_spell_controller_mill::lower(&shape, &result, &binding)?;
     let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let drain = opponent_life_drain::lower(&shape, &result, &binding)?;
@@ -1735,6 +1745,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::CastPayerDraw { generic } => {
+                        labels.triggered.push(source_block(block)?);
+                        definition
+                            .triggered
+                            .push(cast_payer_draw_trigger(generic.clone()));
+                    }
                     Ability::Static { effect, .. } => {
                         labels.statics.push(source_block(block)?);
                         definition
@@ -1822,6 +1838,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                     stage: EvaluationStage::Announcement,
                                     filter: (target != AuraControlTarget::Creature).then(|| {
                                         PermanentFilter {
+                                            power: None,
                                             types: target.kind().into_iter().collect(),
                                             non_types: vec![],
                                             non_colors: vec![],
@@ -2132,6 +2149,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some((target, instruction)) = power_removal.take() {
+                    program.targets.push(target);
+                    program.instructions.push(instruction);
+                    continue;
+                }
                 if let Some(count) = &counter_mill {
                     let target_slot = bind_target(
                         &mut program,
@@ -4242,6 +4264,7 @@ fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Fail
         }
     };
     Ok(PermanentFilter {
+        power: None,
         types,
         non_types,
         non_colors,
@@ -4986,6 +5009,7 @@ fn bind_temporary_permanent_target(
         ));
     }
     let filter = Some(PermanentFilter {
+        power: None,
         types: vec![],
         non_types: vec![],
         non_colors: vec![],

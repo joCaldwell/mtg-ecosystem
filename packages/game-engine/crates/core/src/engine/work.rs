@@ -172,7 +172,7 @@ struct ObservationWork {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
 enum Task {
-    // Sidecar v29 includes the own-graveyard-card target domain in saved requests.
+    // Sidecar v30 includes power filters in saved target requests.
     // Projection/request headers remain explicit work, never hidden work
     // performed even when the caller grants no budget.
     Initialize,
@@ -798,7 +798,7 @@ impl Game {
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
                         (
-                            Frame::CounterUnless { .. },
+                            Frame::ResolutionPayment { .. },
                             PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::ActivateMana { .. }
                             | PlayerResponse::FinishMana { .. }
@@ -1084,7 +1084,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 29,
+                    context_version: 30,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1103,7 +1103,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 29,
+            work_version: 30,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1112,7 +1112,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 29
+        if saved.work_version != 30
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

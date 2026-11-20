@@ -1144,6 +1144,9 @@ mod draw_land_allowance_tests;
 #[path = "power_entry_draw_tests.rs"]
 mod power_entry_draw_tests;
 
+#[path = "power_filtered_removal_tests.rs"]
+mod power_filtered_removal_tests;
+
 #[cfg(test)]
 #[path = "announced_x_draw_tests.rs"]
 mod announced_x_draw_tests;
@@ -1195,3 +1198,6 @@ mod own_graveyard_card_return_tests;
 #[cfg(test)]
 #[path = "counter_unless_generic_tests.rs"]
 mod counter_unless_generic_tests;
+
+#[path = "cast_payer_draw_tests.rs"]
+mod cast_payer_draw_tests;

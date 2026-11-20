@@ -114,6 +114,7 @@ fn complete_regress_and_disperse_preserve_permanent_predicate_owner_destination_
                     stage: EvaluationStage::Announcement,
                     domain: TargetDomain::BattlefieldPermanent,
                     filter: Some(PermanentFilter {
+                        power: None,
                         types: vec![],
                         non_types,
                         non_colors: vec![],

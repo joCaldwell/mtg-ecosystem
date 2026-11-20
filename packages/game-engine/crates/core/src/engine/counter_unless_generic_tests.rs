@@ -164,12 +164,12 @@ fn counter_unless_generic_paid_resolution() {
     assert!(batches(&illegal).iter().all(|b| b.cause != cause));
 
     offer(&mut g);
-    let Frame::CounterUnless { frame, payment } = &g.state.rules.frame else {
+    let Frame::ResolutionPayment { frame, payment } = &g.state.rules.frame else {
         panic!("expected retained counter payment offer");
     };
     let mut forged = payment.clone();
     forged.payer = PlayerId(2);
-    assert!(g.validate_counter_payment(frame, &forged).is_err());
+    assert!(g.validate_resolution_payment(frame, &forged).is_err());
     let mut detached = g.fork();
     detached.concede(CASTER).unwrap();
     assert!(matches!(

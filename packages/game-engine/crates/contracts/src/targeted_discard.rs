@@ -83,7 +83,7 @@ fn enchantment_destroy(p: &SpellProgram) -> bool {
         }]
     ) && matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldPermanent
         && t.filter.as_ref().is_some_and(|f| f.types == [CardKind::Enchantment]
-            && f.non_types.is_empty() && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+            && f.non_types.is_empty() && f.non_colors.is_empty() && !f.opponent && f.power.is_none() && !f.tapped))
 }
 
 fn two_draws(p: &SpellProgram) -> bool {
@@ -444,6 +444,7 @@ fn targeted_discard_admits_exact_standalone_and_modal_programs() {
     let mut destroy = discard.clone();
     destroy.targets[0].domain = TargetDomain::BattlefieldPermanent;
     destroy.targets[0].filter = Some(PermanentFilter {
+        power: None,
         types: vec![CardKind::Enchantment],
         non_types: vec![],
         non_colors: vec![],

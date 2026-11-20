@@ -42,6 +42,7 @@ fn trigger_program(p: &SpellProgram, keyword_blocks: usize) -> bool {
             f.types == [CardKind::Creature]
                 && f.non_types.is_empty()
                 && f.non_colors.is_empty()
+                && f.power.is_none()
                 && !f.tapped
         })
 }
@@ -174,6 +175,7 @@ pub(super) fn witness() -> Definition {
         stage: EvaluationStage::Announcement,
         domain: TargetDomain::BattlefieldPermanent,
         filter: Some(PermanentFilter {
+            power: None,
             types: vec![CardKind::Creature],
             non_types: vec![],
             non_colors: vec![],

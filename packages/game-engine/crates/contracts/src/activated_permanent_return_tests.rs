@@ -14,6 +14,7 @@ pub(super) fn activated_return() -> Definition {
     });
     a.program.targets[0].domain = TargetDomain::BattlefieldPermanent;
     a.program.targets[0].filter = Some(PermanentFilter {
+        power: None,
         types: vec![],
         non_types: vec![],
         non_colors: vec![],

@@ -293,6 +293,17 @@ describe("copying a spell with characteristic exceptions", () => {
       actionLimit: { maximum: 1, period: "turn" } }]);
   });
 
+  it("removes only the copied legendary supertype when the condition is redundant", () => {
+    const prefix = "Copy target artifact spell you control";
+    assert.deepEqual(
+      abilities(`${prefix}, except it isn't legendary if the spell is legendary.`, "Instant"),
+      abilities(`${prefix}, except the copy isn't legendary.`, "Instant"),
+    );
+    rejects(`${prefix}, except it isn't legendary if the spell is blue.`, "Instant");
+    rejects("Copy target activated ability, except it isn't legendary if the spell is legendary.", "Instant");
+    rejects(`${prefix}, except it isn't legendary if the spell is legendary and gains flying.`, "Instant");
+  });
+
   it("adds a type and sets power and toughness on the copy", () => {
     const [ability] = abilities("Whenever you cast a nonlegendary creature spell with flying, you may copy it, except the copy is a 1/1 Spirit in addition to its other types. Do this only once each turn.", "Legendary Creature — Human Wizard");
     const step = (ability as { effects: { steps: unknown[] }[] }).effects[0].steps[0];

@@ -89,6 +89,7 @@ fn complete_burst_source_preserves_provenance_and_unqualified_permanent_target()
                 stage: EvaluationStage::Announcement,
                 domain: TargetDomain::BattlefieldPermanent,
                 filter: Some(PermanentFilter {
+                    power: None,
                     types: vec![],
                     non_types: vec![],
                     non_colors: vec![],

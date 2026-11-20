@@ -15,6 +15,8 @@ pub use fixed_creature_activation::{
     has_fixed_creature_activation,
 };
 mod cast_origin;
+mod cast_payer_draw;
+pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
 mod typed_land_search;
@@ -87,6 +89,7 @@ mod hand_size_adjustments;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod power_entry_draw;
+mod power_filtered_removal;
 mod strict_io;
 pub use strict_io::strict_read_seekable;
 mod unlimited_hand_size;
@@ -264,6 +267,7 @@ pub enum Capability {
     DamageTriggerV1,
     SourceDamageTriggerV2,
     OptionalControllerDrawV1,
+    CastPayerDrawV1,
     EventPlayerDiscardV1,
     EventPlayerSacrificeV1,
     FilteredDamageTriggerV1,
@@ -308,6 +312,7 @@ pub enum Capability {
     CreatureTargetV1,
     BlockingCreatureTargetV1,
     TappedPermanentTargetV1,
+    PowerFilteredRemovalV1,
     UntapPermanentV1,
     TapPermanentV1,
     ActivatedTapPermanentV1,
@@ -471,6 +476,20 @@ pub struct PermanentFilter {
     /// 601.2c, 608.2b). False imposes no tap-status restriction.
     #[serde(default, skip_serializing_if = "is_false")]
     pub tapped: bool,
+    /// Derived creature power at target selection and resolution (CR 601.2c, 608.2b).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "power_filtered_removal::deserialize_power"
+    )]
+    #[schemars(with = "CreaturePowerFilter")]
+    pub power: Option<CreaturePowerFilter>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "comparison", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CreaturePowerFilter {
+    AtLeast { value: Quantity },
+    AtMost { value: Quantity },
 }
 /// Closed non-targeted sets, evaluated as an instruction is performed (CR 608.2h).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -998,6 +1017,13 @@ pub enum Instruction {
         gain: bool,
         source_block: u32,
     },
+    /// CR 118.12a and 603.5: the event caster may pay before the controller may draw.
+    OptionalDrawUnlessCasterPays {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        generic: Quantity,
+        #[schemars(range(max = 0))]
+        source_block: u32,
+    },
     UntapControllerLands {
         source_block: u32,
     },
@@ -1158,7 +1184,8 @@ impl Instruction {
             | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::UntapControllerLands { source_block } => *source_block,
-            Self::OptionalDrawCards { source_block, .. } => *source_block,
+            Self::OptionalDrawCards { source_block, .. }
+            | Self::OptionalDrawUnlessCasterPays { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
             Self::DiscardPlayerSet { source_block, .. }
             | Self::DiscardTargetPlayer { source_block, .. }
@@ -2150,6 +2177,7 @@ pub fn aura_control_domain(definition: &Definition) -> Option<AuraControlDomain>
             ) && f.non_types.is_empty()
                 && f.non_colors.is_empty()
                 && !f.opponent
+                && f.power.is_none()
                 && !f.tapped =>
         {
             match f.types.as_slice() {
@@ -2561,6 +2589,7 @@ impl Definition {
         unlimited_hand_size::validate_definition(self)?;
         hand_size_adjustments::validate_definition(self)?;
         power_entry_draw::validate_definition(self)?;
+        power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         if self
             .static_abilities
@@ -2938,6 +2967,7 @@ impl Definition {
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
         own_graveyard_card_return::validate_definition(self)?;
+        cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3509,6 +3539,7 @@ impl Definition {
                             | Instruction::DrawControllerCards { .. }
                             | Instruction::UntapControllerLands { .. }
                             | Instruction::OptionalDrawCards { .. }
+                            | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
@@ -3818,6 +3849,7 @@ fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
                 && f.non_types.is_empty()
                 && f.non_colors.is_empty()
                 && !f.opponent
+                && f.power.is_none()
                 && !f.tapped
         })
 }
@@ -3845,7 +3877,7 @@ fn untap_program(p: &SpellProgram, types: &[CardKind]) -> bool {
             && t.stage == EvaluationStage::Announcement
             && t.domain == TargetDomain::BattlefieldPermanent
             && t.filter.as_ref().is_some_and(|f| f.types == types && f.non_types.is_empty()
-                && f.non_colors.is_empty() && !f.opponent && !f.tapped))
+                && f.non_colors.is_empty() && !f.opponent && f.power.is_none() && !f.tapped))
 }
 fn ordinary_untap_program(p: &SpellProgram) -> bool {
     untap_program(p, &[])
@@ -3880,6 +3912,7 @@ fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
         && p.targets[0].filter.as_ref().is_some_and(|f| {
             f.types == [CardKind::Creature]
+                && f.power.is_none()
                 && f.tapped
                 && !f.opponent
                 && f.non_types.is_empty()
@@ -3927,6 +3960,7 @@ fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
                 && f.non_types.is_empty()
                 && f.non_colors.is_empty()
                 && !f.opponent
+                && f.power.is_none()
                 && !f.tapped
         })
 }
@@ -4034,6 +4068,7 @@ pub fn temporary_permanent_keyword_program(
                     && f.non_types.is_empty()
                     && f.non_colors.is_empty()
                     && !f.opponent
+                    && f.power.is_none()
                     && !f.tapped
             })
     });
@@ -4044,6 +4079,7 @@ pub fn temporary_permanent_keyword_program(
                     && f.non_types.is_empty()
                     && f.non_colors.is_empty()
                     && !f.opponent
+                    && f.power.is_none()
                     && !f.tapped
             })
     });
@@ -4285,6 +4321,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     || !matches!(f.non_types.as_slice(), [] | [CardKind::Land])
                     || !f.non_colors.is_empty()
                     || f.opponent
+                    || f.power.is_some()
                     || f.tapped
             })
             || !matches!(
@@ -4387,6 +4424,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     || !f.non_types.is_empty()
                     || !f.non_colors.is_empty()
                     || f.opponent
+                    || f.power.is_some()
                     || f.tapped))
                 || f.types
                     .iter()
@@ -4437,6 +4475,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::DrawEachPlayer { .. }
             | Instruction::UntapControllerLands { .. }
             | Instruction::OptionalDrawCards { .. }
+            | Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::DrawDamageAmount { .. } => None,
             Instruction::DamageSet {
                 sets,
@@ -5068,6 +5107,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if target.filter.is_some() {
             set.insert(Capability::PermanentRemovalV1);
         }
+        if target
+            .filter
+            .as_ref()
+            .is_some_and(|filter| filter.power.is_some())
+        {
+            set.insert(Capability::PowerFilteredRemovalV1);
+        }
         if target.filter.as_ref().is_some_and(|filter| filter.tapped) {
             set.insert(Capability::TappedPermanentTargetV1);
         }
@@ -5107,6 +5153,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         }
         if matches!(instruction, Instruction::DealDamageAnnouncedX { .. }) {
             set.insert(Capability::NoncombatDamageV1);
+        }
+        if matches!(
+            instruction,
+            Instruction::OptionalDrawUnlessCasterPays { .. }
+        ) {
+            set.insert(Capability::OptionalControllerDrawV1);
         }
         if instruction.uses_event_player() {
             set.insert(Capability::EventPlayerRecipientV1);
@@ -5262,6 +5314,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
             Instruction::UntapControllerLands { .. } => Capability::UntapControllerLandsV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
+            Instruction::OptionalDrawUnlessCasterPays { .. } => Capability::CastPayerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
             Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
             Instruction::TapPermanent { .. } => Capability::TapPermanentV1,
@@ -6718,12 +6771,14 @@ pub fn catalog_schema() -> serde_json::Value {
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CastColorPredicateV1}}}}}
     }));
     cast_origin::extend_schema(&mut schema);
+    cast_payer_draw::extend_schema(&mut schema);
     activated_artifact_draw::extend_schema(&mut schema);
     unlimited_hand_size::extend_schema(&mut schema);
     hand_size_adjustments::extend_schema(&mut schema);
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     schema
@@ -6879,6 +6934,7 @@ mod tests {
             CreatureTargetV1,
             BlockingCreatureTargetV1,
             TappedPermanentTargetV1,
+            PowerFilteredRemovalV1,
             UntapPermanentV1,
             TapPermanentV1,
             ActivatedTapPermanentV1,
@@ -7013,6 +7069,7 @@ mod tests {
             DamageTriggerV1,
             SourceDamageTriggerV2,
             OptionalControllerDrawV1,
+            CastPayerDrawV1,
             EventPlayerDiscardV1,
             EventPlayerSacrificeV1,
             FilteredDamageTriggerV1,
@@ -7357,6 +7414,8 @@ mod tests {
         definitions.push(each_player_draw::witness());
         definitions.push(announced_x_draw::effects_witness());
         definitions.push(power_entry_draw::witness());
+        definitions.push(power_filtered_removal::witness());
+        definitions.push(cast_payer_draw::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
@@ -8892,6 +8951,7 @@ mod tests {
         for change in [
             (|p: &mut SpellProgram| {
                 p.targets[0].filter = Some(PermanentFilter {
+                    power: None,
                     types: vec![CardKind::Creature],
                     non_types: vec![],
                     non_colors: vec![],

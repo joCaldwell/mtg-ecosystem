@@ -99,6 +99,7 @@ fn modal_witness(d: &Definition) {
             stage: EvaluationStage::Announcement,
             domain: TargetDomain::BattlefieldPermanent,
             filter: Some(PermanentFilter {
+                power: None,
                 types: vec![CardKind::Enchantment],
                 non_types: vec![],
                 non_colors: vec![],

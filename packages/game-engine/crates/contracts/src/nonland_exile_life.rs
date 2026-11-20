@@ -87,6 +87,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
                 || f.non_types != [CardKind::Land]
                 || !f.non_colors.is_empty()
                 || f.opponent
+                || f.power.is_some()
                 || f.tapped
         })
     {
