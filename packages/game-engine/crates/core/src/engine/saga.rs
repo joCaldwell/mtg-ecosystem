@@ -21,13 +21,10 @@ impl LoreChange {
 impl Game {
     pub(super) fn saga_final_chapter(
         &self,
-        card: CardId,
+        object: ObjectId,
     ) -> Result<Option<std::num::NonZeroU32>, String> {
-        if self.state.rules.tokens.contains_key(&card) {
-            return Ok(None);
-        }
         Ok(self
-            .definition(card)?
+            .copiable_definition(object)?
             .triggered
             .iter()
             .filter_map(|t| match t.condition {
@@ -45,7 +42,7 @@ impl Game {
         for object in self.state.rules.objects.values() {
             if object.present_on_battlefield()
                 && object.controller == active
-                && self.saga_final_chapter(object.id.card)?.is_some()
+                && self.saga_final_chapter(object.id)?.is_some()
             {
                 let before = object.lore_counters.clone();
                 let mut after = before.clone();
@@ -73,7 +70,7 @@ impl Game {
         let EffectiveTriggerAbility::Intrinsic { index } = ability else {
             return false;
         };
-        self.definition(source.card).is_ok_and(|d| {
+        self.copiable_definition(source).is_ok_and(|d| {
             d.triggered
                 .get(index as usize)
                 .is_some_and(|t| matches!(t.condition, TriggerCondition::SagaChapter { .. }))
@@ -89,7 +86,7 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let Some(final_chapter) = self.saga_final_chapter(object.id.card)? else {
+            let Some(final_chapter) = self.saga_final_chapter(object.id)? else {
                 continue;
             };
             if object.lore_counters < Quantity::from(i64::from(final_chapter.get())) {
@@ -149,7 +146,7 @@ impl Game {
         chapter: u32,
     ) -> Result<&SpellProgram, String> {
         let ability = self
-            .definition(source.card)?
+            .copiable_definition(source)?
             .triggered
             .get(chapter as usize)
             .ok_or("missing delayed chapter")?;

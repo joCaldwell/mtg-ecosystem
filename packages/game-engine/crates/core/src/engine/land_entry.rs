@@ -12,6 +12,10 @@ pub(super) enum EntryOrigin {
         object: ObjectId,
         receipt: HideawayLink,
     },
+    Copy {
+        frame: Resolving,
+        selection: entry_copy::EntryCopySelection,
+    },
     LandPlay {
         player: PlayerId,
         decision_id: u64,
@@ -27,7 +31,7 @@ impl EntryOrigin {
     pub(super) fn player(&self) -> PlayerId {
         match self {
             Self::LandPlay { player, .. } => *player,
-            Self::Search { frame } => frame.spell.controller,
+            Self::Copy { frame, .. } | Self::Search { frame } => frame.spell.controller,
             Self::Cascade { progress } => progress.frame.spell.controller,
             Self::LinkedPlay { progress, .. } => progress.frame.spell.controller,
         }
@@ -38,13 +42,18 @@ impl EntryOrigin {
 // prepare_entry_batch after complete cause/group equality and pre-debit checks.
 pub(super) struct PreparedEntryAuthority {
     player: PlayerId,
+    donor: Option<ObjectId>,
+    from_land_play: bool,
     put_by_effect: bool,
     force_tapped: bool,
     entries: BTreeMap<ObjectId, Option<bool>>,
 }
 impl PreparedEntryAuthority {
     pub(super) fn land_play(&self, player: PlayerId) -> bool {
-        !self.put_by_effect && self.player == player
+        self.from_land_play && self.player == player
+    }
+    pub(super) fn donor(&self, object: ObjectId) -> Option<ObjectId> {
+        self.donor.filter(|_| self.entries.contains_key(&object))
     }
     pub(super) fn movement(
         &self,
@@ -64,7 +73,7 @@ impl Game {
         &self,
         object: ObjectId,
     ) -> Result<Option<(u32, &Quantity)>, String> {
-        let d = self.definition(object.card)?;
+        let d = self.copiable_definition(object)?;
         let mut found = None;
         for (index, a) in d.static_abilities.iter().enumerate() {
             if let StaticEffect::EntersTappedUnlessPayLife { amount } = &a.effect {
@@ -97,7 +106,8 @@ impl Game {
     fn entry_offers(&self, objects: &[ObjectId]) -> Result<Vec<(ObjectId, u32, Quantity)>, String> {
         let mut offers = vec![];
         for object in objects {
-            if let Some((ability, amount)) = self.optional_entry_cost(*object)? {
+            let model = self.entry_copy_model(*object).unwrap_or(*object);
+            if let Some((ability, amount)) = self.optional_entry_cost(model)? {
                 offers.push((*object, ability, amount.clone()));
             }
         }
@@ -127,6 +137,12 @@ impl Game {
                 validation.state.rules.frame = Frame::Priority;
                 validation.validate_land_play(player, objects[0].card)?;
             }
+            EntryOrigin::Copy { frame, selection } => {
+                self.validate_copy_entry(frame, objects, selection)?;
+                if !choices.is_empty() && self.copy_entry_request()?.is_some() {
+                    return Err("life choice precedes copy or attachment".into());
+                }
+            }
             EntryOrigin::Search { frame } => {
                 self.validate_resolving(frame)?;
                 self.validate_entry_search(frame, objects)?;
@@ -155,7 +171,9 @@ impl Game {
         if (offers.is_empty()
             && !matches!(
                 origin,
-                EntryOrigin::Cascade { .. } | EntryOrigin::LinkedPlay { .. }
+                EntryOrigin::Cascade { .. }
+                    | EntryOrigin::LinkedPlay { .. }
+                    | EntryOrigin::Copy { .. }
             ))
             || choices.len() > offers.len()
         {
@@ -190,7 +208,7 @@ impl Game {
         objects.sort();
         if !matches!(
             origin,
-            EntryOrigin::Cascade { .. } | EntryOrigin::LinkedPlay { .. }
+            EntryOrigin::Cascade { .. } | EntryOrigin::LinkedPlay { .. } | EntryOrigin::Copy { .. }
         ) && self.entry_offers(&objects)?.is_empty()
         {
             return Ok(false);
@@ -208,13 +226,26 @@ impl Game {
             return Ok(None);
         }
         self.validate_entry_plan()?;
+        if self.copy_entry_request()?.is_some() {
+            return Ok(None);
+        }
         let (origin, objects, choices) = self.entry_frame()?;
         Ok(self
             .entry_offers(objects)?
             .get(choices.len())
-            .map(|(object, ability, _)| (origin.player(), *object, *ability)))
+            .map(|(object, ability, _)| {
+                (
+                    origin.player(),
+                    self.entry_copy_model(*object).unwrap_or(*object),
+                    *ability,
+                )
+            }))
     }
     pub(super) fn land_entry_request(&self) -> Result<Option<Request>, String> {
+        if let Some(request) = self.copy_entry_request()? {
+            self.validate_entry_plan()?;
+            return Ok(Some(request));
+        }
         Ok(self
             .land_entry_offer()?
             .map(|(player, _, _)| Request::OptionalEffect {
@@ -229,6 +260,9 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_entry_plan()?;
         let (origin, objects, choices) = self.entry_frame()?;
+        if let Some(request) = self.copy_entry_request()? {
+            return self.validate_copy_entry_response(player, response, &request);
+        }
         let Response::OptionalEffect { perform } = response else {
             return Err("invalid entry response".into());
         };
@@ -251,6 +285,7 @@ impl Game {
                 decision_id: *decision_id,
                 source: *objects.first().ok_or("empty entry")?,
             }),
+            EntryOrigin::Copy { frame, .. } => self.copy_entry_cause(frame, objects[0]),
             EntryOrigin::Search { frame } => {
                 Ok(Self::staple_cause(frame, self.entry_search_block(frame)?))
             }
@@ -280,6 +315,16 @@ impl Game {
                 });
             }
         }
+        if let EntryOrigin::Copy { selection, .. } = origin {
+            if self.copy_entry_request()?.is_some() {
+                return Err("incomplete entry copy decisions".into());
+            }
+            let proposed = self
+                .copy_entry_movement(objects[0], selection)?
+                .ok_or("prevented graveyard entry has no movement")?;
+            children.push(EventGroup::Occurrence { proposed });
+            return Ok(EventGroup::Ordered { children });
+        }
         children.push(EventGroup::Simultaneous {
             occurrences: objects
                 .iter()
@@ -290,6 +335,7 @@ impl Game {
                             destination: Zone::Battlefield,
                         }
                     }
+                    EntryOrigin::Copy { .. } => unreachable!(),
                     EntryOrigin::Cascade { .. } => ProposedEvent::CascadeLandEntry {
                         object: *object,
                         player,
@@ -329,6 +375,11 @@ impl Game {
         // this entry must prove the COMPLETE transaction, including payments.
         let originating = match (origin, cause) {
             (EntryOrigin::LandPlay { .. }, BatchCause::LandPlay { .. }) => true,
+            (
+                EntryOrigin::Copy { frame, .. },
+                BatchCause::SpellCompletion { stack_id, .. }
+                | BatchCause::Instruction { stack_id, .. },
+            ) => *stack_id == frame.stack_id,
             (EntryOrigin::Search { frame }, BatchCause::Instruction { stack_id, .. }) => {
                 *stack_id == frame.spell.id
             }
@@ -356,13 +407,17 @@ impl Game {
             entries.insert(*object, Some(*paid));
         }
         let (put_by_effect, force_tapped) = match origin {
-            EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. } => (false, false),
+            EntryOrigin::LandPlay { .. }
+            | EntryOrigin::LinkedPlay { .. }
+            | EntryOrigin::Copy { .. } => (false, false),
             EntryOrigin::Cascade { .. } => (true, true),
             EntryOrigin::Search { frame } => (true, self.entry_search_force_tapped(frame)?),
         };
         // No Basic+Land scan here. The single simultaneous capture follows ONLY
         // life losses; no battlefield, control or entry can change its prior facts.
         Ok(Some(PreparedEntryAuthority {
+            donor: self.entry_copy_model(objects[0]),
+            from_land_play: matches!(origin, EntryOrigin::LandPlay { .. }),
             player: origin.player(),
             put_by_effect,
             force_tapped,
@@ -371,6 +426,9 @@ impl Game {
     }
     pub(super) fn land_entry_step(&mut self) -> Result<(), String> {
         self.validate_entry_plan()?;
+        if let Some(request) = self.copy_entry_request()? {
+            return self.consume_copy_entry_response(&request);
+        }
         if self.land_entry_offer()?.is_some() {
             let input = self
                 .state
@@ -391,6 +449,17 @@ impl Game {
         let (origin, objects, _) = self.entry_frame()?;
         let origin = origin.clone();
         let first = objects[0];
+        if let EntryOrigin::Copy { frame, selection } = origin {
+            if self.copy_entry_movement(first, &selection)?.is_none() {
+                return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+            }
+            let batch = self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
+            // Movement may have refreshed the frozen invocation's LKI.
+            let (EntryOrigin::Copy { frame, .. }, _, _) = self.entry_frame()? else {
+                return Err("missing committed entry invocation".into());
+            };
+            return self.finish_copy_entry(frame.clone(), &batch);
+        }
         self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
         match origin {
             EntryOrigin::LandPlay { .. } => {
@@ -402,6 +471,7 @@ impl Game {
                 self.state.rules.frame = Frame::PlayHideawayLinked { progress };
                 Ok(())
             }
+            EntryOrigin::Copy { .. } => unreachable!(),
             EntryOrigin::Search { frame } => self.resume_entry_search(frame),
             EntryOrigin::Cascade { progress } => self.resume_cascade_land(progress, Some(first)),
         }
@@ -448,6 +518,12 @@ impl Game {
             };
             return Ok(());
         }
+        if let EntryOrigin::Copy { frame, selection } = &origin {
+            self.revalidate_copy_entry_departure(frame, objects[0], selection)?;
+            if !matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
+                return Ok(());
+            }
+        }
         if !self.is_live(origin.player()) {
             self.state.rules.pending = None;
             return match origin {
@@ -459,6 +535,7 @@ impl Game {
                 EntryOrigin::Cascade { progress } => {
                     self.finish_ability(&progress.frame.spell, false)
                 }
+                EntryOrigin::Copy { .. } => unreachable!(),
                 EntryOrigin::Search { frame } => {
                     self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
                 }
@@ -498,8 +575,10 @@ impl Game {
             EntryOrigin::LandPlay { .. }
             | EntryOrigin::Cascade { .. }
             | EntryOrigin::LinkedPlay { .. } => 0,
-            EntryOrigin::Search { frame } => costs::entry_cost_lock_charge(&frame.spell)
-                .saturating_add(spell_cascade_grants::entry_grant_charge(&frame.spell)),
+            EntryOrigin::Copy { frame, .. } | EntryOrigin::Search { frame } => {
+                costs::entry_cost_lock_charge(&frame.spell)
+                    .saturating_add(spell_cascade_grants::entry_grant_charge(&frame.spell))
+            }
         };
         // Charge ALL retained frame bytes (including the otherwise uncharged
         // Resolving metadata), less ONLY the exact values already charged by the

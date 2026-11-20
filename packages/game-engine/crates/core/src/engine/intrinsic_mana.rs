@@ -7,7 +7,7 @@ impl Game {
         let object = self.current(source)?;
         if !object.present_on_battlefield()
             || !self
-                .definition(source.card)?
+                .copiable_definition(source)?
                 .characteristics
                 .has_type(CardKind::Land)
         {

@@ -74,7 +74,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
             ..
         } => Some(&progress.frame.spell),
         Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
+            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
             ..
         }
         | Frame::Resolve { frame }
@@ -140,7 +140,7 @@ fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
             ..
         } => update_entry(&mut progress.frame.spell, fact),
         Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
+            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
             ..
         }
         | Frame::Resolve { frame }
@@ -192,6 +192,7 @@ impl Game {
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
+            battlefield_entry_turn: o.battlefield_entry_turn,
             keyword_timestamp: o.keyword_timestamp,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,
@@ -381,7 +382,7 @@ impl Game {
             return Err("targeted activation kind".into());
         };
         {
-            match &self.definition(entry.source.card)?.activated[ability as usize].cost {
+            match &self.copiable_definition(entry.source)?.activated[ability as usize].cost {
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());
@@ -414,7 +415,7 @@ impl Game {
                 && (source.attack_ready || self.has_keyword(source.id, KeywordAbility::Haste))
         });
         if !source_payable
-            || self.definition(entry.source.card)?.activated[ability as usize].cost
+            || self.copiable_definition(entry.source)?.activated[ability as usize].cost
                 != ActivationCost::TapSource
         {
             return self.reverse_cast(cast, "activation source no longer payable", true);

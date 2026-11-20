@@ -98,12 +98,16 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copied_values: Option<VisiblePermanentCopy>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exiled_by: Option<ObjectHandle>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phased_out: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub entered_this_turn: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_ability_used: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -130,6 +134,13 @@ pub struct VisibleObject {
     pub controller: PlayerId,
     pub zone: Zone,
     pub tapped: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisiblePermanentCopy {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oracle_id: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -284,6 +295,18 @@ pub enum PlayerRequest {
     PlayHideawayLinked {
         token: DecisionToken,
         player: PlayerId,
+        candidates: Vec<ObjectHandle>,
+    },
+    EntryCopy {
+        token: DecisionToken,
+        player: PlayerId,
+        source: ObjectHandle,
+        candidates: Vec<ObjectHandle>,
+    },
+    EntryAttachment {
+        token: DecisionToken,
+        player: PlayerId,
+        source: ObjectHandle,
         candidates: Vec<ObjectHandle>,
     },
     LibrarySelect {
@@ -540,6 +563,8 @@ impl PlayerRequest {
             | Self::LibraryOrder { token, .. }
             | Self::Hideaway { token, .. }
             | Self::PlayHideawayLinked { token, .. }
+            | Self::EntryCopy { token, .. }
+            | Self::EntryAttachment { token, .. }
             | Self::LibrarySelect { token, .. }
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
@@ -613,6 +638,12 @@ pub enum PlayerResponse {
     },
     PlayHideawayLinked {
         object: Option<ObjectHandle>,
+    },
+    EntryCopy {
+        object: Option<ObjectHandle>,
+    },
+    EntryAttachment {
+        object: ObjectHandle,
     },
     LibrarySelect {
         hand: Vec<ObjectHandle>,
@@ -956,14 +987,7 @@ impl Game {
                     .clone(),
                 current: self.handle_for(viewer, trigger.source).ok(),
             },
-            oracle_id: self
-                .state
-                .rules
-                .cards
-                .get(&trigger.source.card)
-                .ok_or("missing trigger physical source")?
-                .oracle_id
-                .clone(),
+            oracle_id: self.visible_ability_oracle_id(trigger.source)?.into(),
             ability: self.visible_trigger_ability(
                 viewer,
                 trigger.ability,
@@ -1180,6 +1204,18 @@ impl Game {
             .cloned()
             .ok_or_else(|| "object is not visible to this viewer".into())
     }
+    pub(super) fn visible_ability_oracle_id(&self, object: ObjectId) -> Result<&str, String> {
+        let effective = self.copiable_definition(object)?;
+        if !effective.oracle_id.starts_with("token:") {
+            return Ok(&effective.oracle_id);
+        }
+        let original = self.definition(object.card)?;
+        Ok(if original.oracle_id.starts_with("token:") {
+            ""
+        } else {
+            &original.oracle_id
+        })
+    }
     pub(super) fn visible_object(
         &self,
         viewer: PlayerId,
@@ -1196,6 +1232,8 @@ impl Game {
             .ok_or("missing object definition")?;
         if let Some(link) = &object.hideaway {
             return Ok(Some(VisibleObject {
+                copied_values: None,
+                entered_this_turn: false,
                 face_down: true,
                 lore_counters: Quantity::zero(),
                 exiled_by: Some(link.source_handle(viewer).clone()),
@@ -1222,10 +1260,22 @@ impl Game {
                 phased_out: false,
             }));
         }
+        let copied_values = if self.entry_copy_origin(object.id).is_some() {
+            let definition = self.copiable_definition(object.id)?;
+            Some(VisiblePermanentCopy {
+                name: definition.name.clone(),
+                oracle_id: (!definition.oracle_id.starts_with("token:"))
+                    .then(|| definition.oracle_id.clone()),
+            })
+        } else {
+            None
+        };
         Ok(Some(VisibleObject {
+            copied_values,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
+            entered_this_turn: object.battlefield_entry_turn == Some(self.state.rules.turn.number),
             attached_to: object
                 .attached_to
                 .filter(|t| self.current(*t).is_ok())
@@ -1266,7 +1316,7 @@ impl Game {
                     keywords: t.definition.keywords.clone(),
                 }),
             mana_ability_used: self
-                .definition(object.id.card)?
+                .copiable_definition(object.id)?
                 .mana_abilities
                 .first()
                 .and_then(|a| a.restriction.map(|_| self.mana_ability_used(object.id))),
@@ -1343,14 +1393,7 @@ impl Game {
                             .clone(),
                         current: self.handle_for(viewer, instance.source).ok(),
                     },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&instance.source.card)
-                        .ok_or("missing triggered physical source")?
-                        .oracle_id
-                        .clone(),
+                    oracle_id: self.visible_ability_oracle_id(instance.source)?.into(),
                     ability: self.visible_trigger_ability(viewer, *ability, grant.as_ref())?,
                 }),
             ),
@@ -1372,14 +1415,7 @@ impl Game {
                             .clone(),
                         current: self.handle_for(viewer, instance.source).ok(),
                     },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&instance.source.card)
-                        .ok_or("missing ability physical source")?
-                        .oracle_id
-                        .clone(),
+                    oracle_id: self.visible_ability_oracle_id(instance.source)?.into(),
                     ability: *ability,
                 }),
                 None,
@@ -1685,10 +1721,28 @@ impl Game {
                 }),
             );
         }
-        if let Some(Request::OptionalEffect { player, .. }) = self.land_entry_request()? {
-            return Ok(
-                (player == viewer).then_some(PlayerRequest::OptionalEffect { token, player })
-            );
+        if let Some(request) = self.land_entry_request()? {
+            if request.player() != viewer {
+                return Ok(None);
+            }
+            return Ok(Some(match request {
+                Request::EntryCopy { player, source, .. } => PlayerRequest::EntryCopy {
+                    token,
+                    player,
+                    source: self.handle_for(viewer, source)?,
+                    candidates: vec![],
+                },
+                Request::EntryAttachment { player, source, .. } => PlayerRequest::EntryAttachment {
+                    token,
+                    player,
+                    source: self.handle_for(viewer, source)?,
+                    candidates: vec![],
+                },
+                Request::OptionalEffect { player, .. } => {
+                    PlayerRequest::OptionalEffect { token, player }
+                }
+                _ => return Err("unknown battlefield entry decision".into()),
+            }));
         }
         if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
             return Ok(
@@ -2692,6 +2746,15 @@ impl Game {
             }),
             PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
                 players: players.clone(),
+            }),
+            PlayerResponse::EntryCopy { object } => Ok(Response::EntryCopy {
+                object: object
+                    .as_ref()
+                    .map(|h| self.resolve_handle(viewer, h))
+                    .transpose()?,
+            }),
+            PlayerResponse::EntryAttachment { object } => Ok(Response::EntryAttachment {
+                object: self.resolve_handle(viewer, object)?,
             }),
             PlayerResponse::PlayHideawayLinked { object } => Ok(Response::PlayHideawayLinked {
                 object: object

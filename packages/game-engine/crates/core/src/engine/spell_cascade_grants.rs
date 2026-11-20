@@ -107,7 +107,7 @@ impl Game {
         index: u32,
     ) -> Result<&SpellProgram, String> {
         let ability = self
-            .definition(grant_source.card)?
+            .copiable_definition(grant_source)?
             .static_abilities
             .get(index as usize)
             .ok_or("missing static grant definition")?;
@@ -127,7 +127,7 @@ impl Game {
         index: u32,
     ) -> Result<&SpellProgram, String> {
         let trigger = self
-            .definition(grant_source.card)?
+            .copiable_definition(grant_source)?
             .triggered
             .get(index as usize)
             .ok_or("missing hand cast grant definition")?;
@@ -167,7 +167,7 @@ impl Game {
                 }))
             }
             EffectiveTriggerAbility::Intrinsic { index } => self
-                .definition(source.card)?
+                .copiable_definition(source)?
                 .triggered
                 .get(index as usize)
                 .map(Cow::Borrowed)
@@ -267,7 +267,7 @@ impl Game {
             | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
         };
         let descriptor = self
-            .definition(grant_source.card)?
+            .copiable_definition(grant_source)?
             .static_abilities
             .get(static_ability_index as usize)
             .ok_or("missing cascade grant descriptor")?;
@@ -277,7 +277,7 @@ impl Game {
         self.grant_program(grant_source, static_ability_index)?;
         self.validate_grant_source_facts(grant_source, fact, &grant.source_handles)?;
         let mut mana_value = cast.spell.characteristics.printed_mana_value();
-        if self.definition(cast.spell.object.card)?.x_mana_cost {
+        if self.copiable_definition(cast.spell.object)?.x_mana_cost {
             mana_value.add(cast.x.as_ref().ok_or("missing granted spell X")?);
         }
         if fact.controller != controller
@@ -368,7 +368,7 @@ pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
 pub(super) fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match retained_effect_frame(frame) {
         Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
+            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
             ..
         }
         | Frame::Resolve { frame }

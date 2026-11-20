@@ -72,6 +72,7 @@ struct WorkCache {
     damage: Option<Vec<DamageEffectCandidate>>,
     allocation: Option<Option<Vec<DamageAllocationCandidate>>>,
     linked_play: Option<Vec<ObjectId>>,
+    entry_candidates: Option<Vec<ObjectId>>,
 }
 impl WorkCache {
     fn next_object<'a>(&mut self, game: &'a Game) -> Option<&'a Object> {
@@ -123,6 +124,19 @@ impl WorkCache {
             );
         }
         Ok(self.linked_play.as_deref().unwrap_or_default())
+    }
+    fn entry_candidates(
+        &mut self,
+        game: &Game,
+        viewer: PlayerId,
+    ) -> Result<&[ObjectId], QueryRejection> {
+        if self.entry_candidates.is_none() {
+            self.entry_candidates = Some(
+                game.entry_work_candidates(viewer)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
+        Ok(self.entry_candidates.as_deref().unwrap_or_default())
     }
     fn counter_placement(&mut self, game: &Game) -> &[CounterPlacementEffectKey] {
         self.counter_placement
@@ -465,6 +479,20 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
+        if let Some(
+            PlayerRequest::EntryCopy { candidates, .. }
+            | PlayerRequest::EntryAttachment { candidates, .. },
+        ) = &mut b.decision
+            && cursor >= base + effect_count
+            && let Some(&object) = cache
+                .entry_candidates(self, viewer)?
+                .get(cursor - base - effect_count)
+        {
+            candidates.push(
+                self.handle_for(viewer, object)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            );
+        }
         if let Some(PlayerRequest::PlayHideawayLinked { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(object) = cache
@@ -542,6 +570,11 @@ impl Game {
         let extra = effect_count
             + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
                 cache.allocation(self)?.map_or(0, |ids| ids.len())
+            } else if matches!(
+                b.decision,
+                Some(PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. })
+            ) {
+                cache.entry_candidates(self, viewer)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::PlayHideawayLinked { .. })) {
                 cache.linked_play(self, viewer)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::CascadeLandEntry { .. })) {
@@ -608,7 +641,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 48,
+                    observation_version: 49,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -636,6 +669,22 @@ impl Game {
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= ids.len())
+                        .then(|| QueryValue::Decision(request.take())));
+                }
+                if let Some(
+                    PlayerRequest::EntryCopy { candidates, .. }
+                    | PlayerRequest::EntryAttachment { candidates, .. },
+                ) = request
+                {
+                    let objects = cache.entry_candidates(self, *viewer)?;
+                    if let Some(&object) = objects.get(*cursor as usize) {
+                        candidates.push(
+                            self.handle_for(*viewer, object)
+                                .map_err(|_| QueryRejection::Invariant)?,
+                        );
+                    }
+                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
+                    return Ok((*cursor as usize >= objects.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
                 if let Some(PlayerRequest::PlayHideawayLinked { candidates, .. }) = request {
@@ -914,7 +963,12 @@ impl Game {
                             Frame::ManaSourceChoice { scope, .. },
                             PlayerResponse::ManaColor { .. },
                         ) => *scope != ManaSourceScope::Mixed,
-                        (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
+                        (
+                            Frame::LandEntry { .. },
+                            PlayerResponse::OptionalEffect { .. }
+                            | PlayerResponse::EntryCopy { .. }
+                            | PlayerResponse::EntryAttachment { .. },
+                        ) => true,
                         (
                             Frame::HandCast { child: None, .. },
                             PlayerResponse::Cast { .. } | PlayerResponse::Pass,
@@ -1190,7 +1244,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 48,
+                            observation_version: 49,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1226,7 +1280,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 44,
+                    context_version: 45,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1245,7 +1299,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 44,
+            work_version: 45,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1254,7 +1308,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 44
+        if saved.work_version != 45
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
@@ -1298,6 +1352,9 @@ impl Game {
             ) => self
                 .private_library_choice_candidates(viewer)
                 .map_or(0, |ids| ids.len() as u64),
+            Some(PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. }) => {
+                self.entry_work_candidates(viewer)?.len() as u64
+            }
             Some(PlayerRequest::PlayHideawayLinked { .. }) => {
                 self.linked_play_work_candidates(viewer)?.len() as u64
             }
@@ -1326,6 +1383,19 @@ impl Game {
                 }
             }
             _ => 0,
+        })
+    }
+    fn entry_work_candidates(&self, viewer: PlayerId) -> Result<Vec<ObjectId>, String> {
+        Ok(match self.land_entry_request()? {
+            Some(
+                Request::EntryCopy {
+                    player, candidates, ..
+                }
+                | Request::EntryAttachment {
+                    player, candidates, ..
+                },
+            ) if viewer == player => candidates,
+            _ => vec![],
         })
     }
     fn linked_play_work_candidates(&self, viewer: PlayerId) -> Result<Vec<ObjectId>, String> {
@@ -1361,6 +1431,8 @@ impl Game {
                     PlayerRequest::OrderTriggers { .. }
                     | PlayerRequest::CascadeLandEntry { .. }
                     | PlayerRequest::PlayHideawayLinked { .. }
+                    | PlayerRequest::EntryCopy { .. }
+                    | PlayerRequest::EntryAttachment { .. }
                     | PlayerRequest::HandReturn { .. }
                     | PlayerRequest::LibraryOrder { .. }
                     | PlayerRequest::Hideaway { .. }

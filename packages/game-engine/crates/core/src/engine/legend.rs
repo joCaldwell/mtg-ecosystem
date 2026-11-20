@@ -13,7 +13,7 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let definition = self.definition(object.id.card)?;
+            let definition = self.copiable_definition(object.id)?;
             if definition.characteristics.legendary {
                 by_name
                     .entry((object.controller, definition.name.clone()))

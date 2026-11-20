@@ -245,6 +245,8 @@ impl Game {
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
+                battlefield_entry_turn: (zone == Zone::Battlefield)
+                    .then_some(self.state.rules.turn.number),
                 keyword_timestamp: (zone == Zone::Battlefield)
                     .then_some(self.state.rules.next_batch_id),
                 plus_one_counters: Quantity::zero(),
@@ -408,7 +410,7 @@ impl Game {
                 }
                 token.validate()?;
                 self.check_token_capacity(*count)?;
-                let source_definition = self.definition(source.card)?.clone();
+                let source_definition = self.copiable_definition(source)?.clone();
                 let mut objects = vec![];
                 for _ in 0..*count {
                     let card = self.next_token_card()?;
@@ -462,7 +464,7 @@ impl Game {
             {
                 return Err("snapshot token physical identity invariant".into());
             }
-            let source = self.definition(t.source.card)?;
+            let source = self.copiable_definition(t.source)?;
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
                 p.instructions.iter().any(|i| matches!(i, Instruction::CreateCreatureTokens { token, .. } | Instruction::CreateTokensFor {token,..} if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
             }
@@ -477,7 +479,7 @@ impl Game {
                     token_definition(source, *id, spec)
                 }
                 TokenTemplate::SpellCopy { original, stack_id } => {
-                    let original_definition = self.definition(original.card)?;
+                    let original_definition = self.copiable_definition(original)?;
                     if (self.state.rules.tokens.contains_key(&original.card)
                         && original.card >= *id)
                         || stack_id.0 >= self.state.rules.next_stack_id
@@ -525,14 +527,15 @@ impl Game {
         for (id, o) in &self.state.rules.objects {
             if o.lore_counters.is_negative()
                 || (o.lore_counters != Quantity::zero()
-                    && (o.zone != Zone::Battlefield || self.saga_final_chapter(*id)?.is_none()))
+                    && (o.zone != Zone::Battlefield || self.saga_final_chapter(o.id)?.is_none()))
             {
                 return Err("snapshot Saga lore invariant".into());
             }
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
                     && (o.zone != Zone::Battlefield
-                        || self.definition(*id)?.characteristics.kind != CardKind::Creature))
+                        || self.copiable_definition(o.id)?.characteristics.kind
+                            != CardKind::Creature))
             {
                 return Err("snapshot counter invariant".into());
             }
