@@ -1659,6 +1659,25 @@ fn opening_enchantment_witness(raw: &str, grants: bool) {
             r => panic!("unexpected opening decision {r:?}"),
         }
     };
+    if grants {
+        let mut forged = g.fork();
+        forged
+            .state
+            .rules
+            .match_state
+            .as_mut()
+            .unwrap()
+            .setup
+            .as_mut()
+            .unwrap()
+            .phase = SetupPhase::OpeningActions {
+            players: vec![PlayerId(2), PlayerId(0)],
+        };
+        let err = Game::restore(p.clone(), &forged.snapshot().unwrap())
+            .err()
+            .expect("an altered opening queue must be rejected");
+        assert_eq!(err, "invalid opening action phase");
+    }
     assert_eq!(g.zone(candidate), Some(Zone::Hand { owner: PlayerId(0) }));
     assert!(
         g.respond(

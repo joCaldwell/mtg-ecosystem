@@ -855,17 +855,16 @@ impl Game {
                         SetupPhase::Declare { players }
                         | SetupPhase::Return { players }
                         | SetupPhase::Bottom { players } => vec![players],
-                        SetupPhase::OpeningActions { players }
-                            if self.has_opening_placement()
-                                && self
-                                    .live_players()
-                                    .iter()
-                                    .all(|p| setup.players[p.0 as usize].kept) =>
-                        {
+                        SetupPhase::OpeningActions { players } => {
+                            let order = self.setup_order();
+                            if !self.has_opening_placement()
+                                || !setup.takers.is_empty()
+                                || !order.ends_with(players)
+                                || !order.iter().all(|p| setup.players[p.0 as usize].kept)
+                            {
+                                return Err("invalid opening action phase".into());
+                            }
                             vec![players]
-                        }
-                        SetupPhase::OpeningActions { .. } => {
-                            return Err("invalid opening action phase".into());
                         }
                         SetupPhase::Finish => vec![],
                     };
