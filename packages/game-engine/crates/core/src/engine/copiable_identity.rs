@@ -1,0 +1,165 @@
+//! CR 400.7, 614.12 and 707.2/5–7 (2026-09-25):
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::*;
+
+// The donor is the permanent actually chosen; definition_card identifies the
+// immutable catalog or generated token definition at the root of the copy.
+// No counters, choices, attachments, controller, granted abilities or marked
+// damage are part of this identity. The entered object's own CardId continues
+// to govern ownership, Commander designation and token status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EntryCopy {
+    donor: ObjectId,
+    definition_card: CardId,
+    entry_sequence: u64,
+}
+
+impl Game {
+    fn entry_copy(&self, object: ObjectId) -> Option<&EntryCopy> {
+        self.state
+            .rules
+            .entry_copies
+            .get(&object.card)?
+            .get(&object.incarnation)
+    }
+
+    /// Chosen donor incarnation and immutable physical definition root for
+    /// the specified battlefield incarnation, including after its departure.
+    pub(super) fn entry_copy_origin(&self, object: ObjectId) -> Option<(ObjectId, CardId)> {
+        self.entry_copy(object)
+            .map(|row| (row.donor, row.definition_card))
+    }
+
+    fn copiable_definition_card(&self, object: ObjectId) -> CardId {
+        self.entry_copy_origin(object)
+            .map_or(object.card, |(_, root)| root)
+    }
+
+    /// Base characteristics and intrinsic abilities of this exact incarnation,
+    /// including after departure. This lookup alone does not establish presence
+    /// or authorize an action. The observer/stack/event owns its ObjectId.
+    pub(super) fn copiable_definition(
+        &self,
+        object: impl std::borrow::Borrow<ObjectId>,
+    ) -> Result<&Definition, String> {
+        self.definition(self.copiable_definition_card(*object.borrow()))
+    }
+
+    /// Inside the staged entry leaf, before installing its battlefield
+    /// successor. The entry transaction owns effect, turn and choice authority.
+    /// Every later incarnation automatically reads its own physical definition.
+    pub(super) fn record_entry_copy(
+        &mut self,
+        entering: ObjectId,
+        donor: ObjectId,
+    ) -> Result<(), String> {
+        let previous = self
+            .state
+            .rules
+            .objects
+            .get(&entering.card)
+            .ok_or("missing entering object")?;
+        if previous.zone == Zone::Battlefield
+            || previous.id.incarnation.checked_add(1) != Some(entering.incarnation)
+            || donor.card == entering.card
+            || !self.current(donor)?.present_on_battlefield()
+            || self.entry_copy(entering).is_some()
+        {
+            return Err("invalid entry copy incarnations".into());
+        }
+        // Flatten once, including an already-copied permanent or an immutable
+        // token definition (which can itself contain a copy exception).
+        let definition_card = self.copiable_definition_card(donor);
+        self.definition(definition_card)?;
+        let row = EntryCopy {
+            donor,
+            definition_card,
+            // The existing trace-independent sequence orders even ordered
+            // sibling movement leaves in the same batch.
+            entry_sequence: self.state.rules.next_event_sequence,
+        };
+        let charge = stored_history::payload_charge(&(entering, row));
+        let requested = self.history_charge().saturating_add(charge);
+        if requested > capacities::HISTORY_LIMIT {
+            return Err(self.capacity_error(RuleFault::HistoryCapacityExceeded {
+                capacity: capacities::HISTORY_LIMIT,
+                requested,
+            }));
+        }
+        self.state.rules.retained_auxiliary_charge = self
+            .state
+            .rules
+            .retained_auxiliary_charge
+            .saturating_add(charge);
+        self.state
+            .rules
+            .entry_copies
+            .entry(entering.card)
+            .or_default()
+            .insert(entering.incarnation, row);
+        Ok(())
+    }
+
+    fn could_be_battlefield_incarnation(&self, id: ObjectId) -> bool {
+        if let Some(token) = self.state.rules.tokens.get(&id.card) {
+            // A created token starts on the battlefield. A permanent spell copy
+            // starts on the stack and becomes a token on its first move.
+            if id.incarnation != u32::from(token.is_copy()) {
+                return false;
+            }
+        } else if id.incarnation == 0
+            && !self
+                .prepared
+                .config
+                .cards
+                .iter()
+                .any(|setup| setup.id == id.card && setup.zone == Zone::Battlefield)
+        {
+            return false;
+        }
+        self.state.rules.cards.contains_key(&id.card)
+            && self
+                .state
+                .rules
+                .objects
+                .get(&id.card)
+                .is_none_or(|current| {
+                    current.id.incarnation > id.incarnation
+                        || current.id == id && current.zone == Zone::Battlefield
+                })
+    }
+
+    // Replay authenticates the chosen donor, its eligibility and the exact
+    // entry boundary. Check the compact lineage independently without recursive
+    // traversal of snapshot data: every link must precede the row it explains.
+    pub(super) fn validate_entry_copy_identities(&self) -> Result<(), String> {
+        for (card, rows) in &self.state.rules.entry_copies {
+            if rows.is_empty() {
+                return Err("invalid entry copy owner".into());
+            }
+            let mut last_sequence = None;
+            for (&incarnation, row) in rows {
+                if incarnation == 0
+                    || row.donor.card == *card
+                    || row.entry_sequence >= self.state.rules.next_event_sequence
+                    || last_sequence.is_some_and(|last| last >= row.entry_sequence)
+                    || !self.could_be_battlefield_incarnation(ObjectId {
+                        card: *card,
+                        incarnation,
+                    })
+                    || !self.could_be_battlefield_incarnation(row.donor)
+                    || self
+                        .entry_copy(row.donor)
+                        .is_some_and(|prior| prior.entry_sequence >= row.entry_sequence)
+                    || self.copiable_definition_card(row.donor) != row.definition_card
+                {
+                    return Err("invalid entry copy definition lineage".into());
+                }
+                self.definition(row.definition_card)?;
+                last_sequence = Some(row.entry_sequence);
+            }
+        }
+        Ok(())
+    }
+}

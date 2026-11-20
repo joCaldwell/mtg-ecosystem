@@ -13,7 +13,7 @@ impl Game {
         if !current.present_on_battlefield()
             || !self.is_live(current.controller)
             || !self
-                .definition(land.card)?
+                .copiable_definition(land)?
                 .characteristics
                 .has_type(CardKind::Land)
             || !self.prepared.catalog.definitions.iter().any(|definition| {
@@ -29,7 +29,7 @@ impl Game {
                 && source.controller == current.controller
                 && self.is_live(self.state.rules.cards[&source.id.card].owner)
                 && self
-                    .definition(source.id.card)?
+                    .copiable_definition(source.id)?
                     .static_abilities
                     .iter()
                     .any(|ability| {

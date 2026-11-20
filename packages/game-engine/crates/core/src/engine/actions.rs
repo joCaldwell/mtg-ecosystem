@@ -346,7 +346,7 @@ impl Game {
         ability: u32,
     ) -> Result<(), String> {
         let source = self.current(object)?;
-        let definition = self.definition(object.card)?;
+        let definition = self.copiable_definition(object)?;
         let ability = definition
             .activated
             .get(ability as usize)

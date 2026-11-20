@@ -722,7 +722,7 @@ fn collect<'a>(
             if occurrences.len() > 1
                 && occurrences.iter().any(|event| {
                     matches!(event, ProposedEvent::Attach { object, .. }
-                        if game.definition(object.card).is_ok_and(mtg_contracts::aura_control_source))
+                        if game.copiable_definition(object).is_ok_and(mtg_contracts::aura_control_source))
                 })
             {
                 return Err("unsupported simultaneous Aura control attachment dependency".into());
@@ -777,7 +777,7 @@ impl Game {
         if self.state.rules.control_effects.is_empty()
             && !objects.iter().any(|object| {
                 !self.is_live(object.default_controller)
-                    || self.definition(object.id.card).is_ok_and(|definition| {
+                    || self.copiable_definition(object.id).is_ok_and(|definition| {
                         definition.static_abilities.iter().any(|ability| {
                             ability.effect == StaticEffect::ControlEnchantedPermanent
                         })
@@ -1878,7 +1878,7 @@ impl Game {
             } => object,
             _ => return false,
         };
-        self.definition(object.card).is_ok_and(|d| {
+        self.copiable_definition(object).is_ok_and(|d| {
             d.static_abilities.iter().any(|a| {
                 matches!(
                     a.effect,
@@ -1919,7 +1919,7 @@ impl Game {
         controller: PlayerId,
         before: Option<&PreEventFacts>,
     ) -> Result<bool, String> {
-        for a in &self.definition(object.card)?.static_abilities {
+        for a in &self.copiable_definition(object)?.static_abilities {
             match &a.effect {
                 StaticEffect::EntersTapped => return Ok(true),
                 StaticEffect::EntersTappedUnlessControllerBasicLands { minimum } => {
@@ -2113,7 +2113,7 @@ impl Game {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        let types = &self.definition(object.card)?.characteristics;
+        let types = &self.copiable_definition(object)?.characteristics;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone
@@ -2245,12 +2245,12 @@ impl Game {
                 // attached when entry observers and ETB hooks see it.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 let source = self.current(*object)?;
-                let definition = self.definition(object.card)?;
+                let definition = self.copiable_definition(object)?;
                 if source.zone != Zone::Stack
                     || definition.characteristics.kind != CardKind::Enchantment
                     || definition.characteristics.subtypes != ["Aura"]
                     || !self.is_live(source.controller)
-                    || !self.attachment_target_type_valid(object.card, target.card)?
+                    || !self.attachment_target_type_valid(*object, *target)?
                     || !self
                         .current(*target)
                         .is_ok_and(|o| o.present_on_battlefield())
@@ -2295,7 +2295,7 @@ impl Game {
                             && self.current(*t).is_ok_and(|o| {
                                 o.present_on_battlefield() && self.is_live(o.controller)
                             })
-                            && self.attachment_target_type_valid(object.card, t.card)?
+                            && self.attachment_target_type_valid(*object, *t)?
                             && !self.protected_from(*t, self.color_layer(*object)?.as_ref())
                     }
                     None => true,
@@ -2303,7 +2303,7 @@ impl Game {
                 if !self.current(*object)?.present_on_battlefield()
                     || !self.is_live(self.current(*object)?.controller)
                     || !self
-                        .definition(object.card)?
+                        .copiable_definition(object)?
                         .characteristics
                         .subtypes
                         .iter()

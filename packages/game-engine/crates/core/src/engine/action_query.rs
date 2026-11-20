@@ -348,7 +348,7 @@ impl Game {
                 .resolve_handle(work.viewer, &handle)
                 .map_err(|_| ActionUnavailable::Invariant)?;
             let activated = if priority {
-                self.definition(id.card)
+                self.copiable_definition(id)
                     .map_err(|_| ActionUnavailable::Invariant)?
                     .activated
                     .len()
