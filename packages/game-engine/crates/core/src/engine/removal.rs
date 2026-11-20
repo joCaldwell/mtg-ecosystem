@@ -37,6 +37,7 @@ impl Game {
             | Frame::ResolutionChoice { frame, .. }
             | Frame::ForcedSacrifice { frame, .. }
             | Frame::OptionalDamage { frame } => Some(frame),
+            Frame::GraveyardGroup { tx } => tx.finish.frame_mut(),
             Frame::GraveyardReplacement { transaction } => Some(&mut transaction.frame),
             Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
@@ -479,6 +480,16 @@ impl Game {
             }
             _ => return Err("not removal instruction".into()),
         };
+        if matches!(&event, ProposedEvent::DestroyPermanent { .. }) {
+            return self.complete_graveyard_group(
+                Self::removal_cause(&frame, block),
+                EventGroup::Occurrence { proposed: event },
+                GroupFinish::Instruction {
+                    frame,
+                    result: GroupResult::ActualEffect,
+                },
+            );
+        }
         let actual = self.commit(event, Self::removal_cause(&frame, block))?;
         self.finish_instruction(
             frame,
@@ -546,10 +557,16 @@ impl Game {
             }
             Some(Instruction::DestroyPermanent { optional: true, .. }) => {
                 if self.object_target_legal(&frame.spell, target) {
-                    Some(self.commit(
-                        ProposedEvent::DestroyPermanent { object: target },
+                    return self.complete_graveyard_group(
                         Self::removal_cause(&frame, block),
-                    )?)
+                        EventGroup::Occurrence {
+                            proposed: ProposedEvent::DestroyPermanent { object: target },
+                        },
+                        GroupFinish::Instruction {
+                            frame,
+                            result: GroupResult::ActualEffect,
+                        },
+                    );
                 } else {
                     None
                 }

@@ -322,6 +322,10 @@ impl Game {
         let mut f = frame;
         loop {
             f = match f {
+                Frame::GraveyardGroup { tx } => match &tx.finish {
+                    GroupFinish::Payment { resume } => resume,
+                    _ => break,
+                },
                 Frame::ManaAbility { activation } => &activation.resume,
                 Frame::ManaSourceChoice { resume, .. } => resume,
                 Frame::DamageEffects { transaction }

@@ -247,6 +247,11 @@ pub enum PlayerRequest {
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
     },
+    GraveyardReplacementOrder {
+        token: DecisionToken,
+        player: PlayerId,
+        object: ObjectHandle,
+    },
     HandCast {
         token: DecisionToken,
         player: PlayerId,
@@ -559,6 +564,7 @@ impl PlayerRequest {
             | Self::ForcedSacrifice { token, .. }
             | Self::ResolveDiscard { token, .. }
             | Self::SpendMana { token, .. }
+            | Self::GraveyardReplacementOrder { token, .. }
             | Self::CommanderReturn { token, .. }
             | Self::Attackers { token, .. }
             | Self::Blockers { token, .. }
@@ -1500,6 +1506,19 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if let Some(Request::GraveyardReplacementOrder { player, object, .. }) =
+            self.group_replacement_request()
+        {
+            return if player == viewer {
+                Ok(Some(PlayerRequest::GraveyardReplacementOrder {
+                    token,
+                    player,
+                    object: self.handle_for(viewer, object)?,
+                }))
+            } else {
+                Ok(None)
+            };
+        }
         if let Some(Request::CommanderReturn {
             object,
             player,
@@ -2336,7 +2355,10 @@ impl Game {
                 || !self.state.rules.pending_concessions.is_empty()
             {
                 None
-            } else if matches!(self.state.rules.frame, Frame::GraveyardReplacement { .. }) {
+            } else if matches!(
+                self.state.rules.frame,
+                Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
+            ) {
                 self.replacement_request()
                     .filter(|r| r.player() == viewer)
                     .map(|_| (self.state.rules.revision, 4))

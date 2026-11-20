@@ -1972,8 +1972,9 @@ impl Game {
         intended_controller: Option<PlayerId>,
         force_tapped: bool,
         before: Option<&PreEventFacts>,
-        entry: Option<&PreparedEntryAuthority>,
+        authority: BatchAuthority<'_>,
     ) -> Result<EventOutcome, String> {
+        let entry = authority.entry();
         // Consume immutable pre-debit authority BEFORE every movement write;
         // forced tapping must not short-circuit this check. Non-BF movement
         // never participates in entry-choice preparation.
@@ -1994,14 +1995,16 @@ impl Game {
 
         // Pinned CR 614.1a/6: replace every would-die cause, including
         // costs and SBAs, before any graveyard move or dies observer.
-        if matches!(destination, Zone::Graveyard { .. })
+        let replaced = if matches!(destination, Zone::Graveyard { .. })
             && self.has_self_graveyard_replacement(*object)?
         {
-            return Err(
-                "printed graveyard replacement requires a prepared movement producer".into(),
-            );
-        }
-        let replaced = if self.anger_replaces_death(*object, *destination) {
+            let BatchAuthority::Graveyard(proof) = authority else {
+                return Err(
+                    "printed graveyard replacement requires a prepared movement producer".into(),
+                );
+            };
+            *proof.get(object).ok_or("missing replacement member")?
+        } else if self.anger_replaces_death(*object, *destination) {
             Zone::Exile
         } else {
             *destination
@@ -2261,7 +2264,11 @@ impl Game {
                 bottom,
             } => self.apply_scry(*player, amount, looked, top, bottom)?,
             ProposedEvent::FinishLibraryShuffle { player } => {
-                if (replacement.is_none() || self.replacement_shuffle_offset(*player, 0).is_none())
+                let group_shuffle =
+                    replacement.is_some() && self.publish_group_permutation(*player)?;
+                if !group_shuffle
+                    && (replacement.is_none()
+                        || self.replacement_shuffle_offset(*player, 0).is_none())
                     && !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {
                     return Err("invalid shuffle completion".into());
@@ -2395,12 +2402,16 @@ impl Game {
                 if self.destruction_is_prevented(*object, before)? {
                     return Ok(EventOutcome::DestructionPrevented { object: *object });
                 }
-                self.apply_occurrence(&ProposedEvent::Move {
-                    object: *object,
-                    destination: Zone::Graveyard {
-                        owner: self.state.rules.cards[&object.card].owner,
+                self.apply_prepared_occurrence(
+                    &ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Graveyard {
+                            owner: self.state.rules.cards[&object.card].owner,
+                        },
                     },
-                })?
+                    before,
+                    authority,
+                )?
             }
             ProposedEvent::DestroyCreature { object } => {
                 if !self.is_battlefield_creature(*object) {
@@ -2411,23 +2422,26 @@ impl Game {
                 if self.destruction_is_prevented(*object, before)? {
                     return Ok(EventOutcome::DestructionPrevented { object: *object });
                 }
-                self.apply_occurrence(&ProposedEvent::Move {
-                    object: *object,
-                    destination: Zone::Graveyard {
-                        owner: self.state.rules.cards[&object.card].owner,
+                self.apply_prepared_occurrence(
+                    &ProposedEvent::Move {
+                        object: *object,
+                        destination: Zone::Graveyard {
+                            owner: self.state.rules.cards[&object.card].owner,
+                        },
                     },
-                })?
+                    before,
+                    authority,
+                )?
             }
             ProposedEvent::CascadeLandEntry { object, player } => {
-                let proof =
-                    entry.ok_or("cascade land entry requires prepared transaction authority")?;
+                entry.ok_or("cascade land entry requires prepared transaction authority")?;
                 self.apply_move(
                     *object,
                     Zone::Battlefield,
                     Some(*player),
                     true,
                     before,
-                    Some(proof),
+                    authority,
                 )?
             }
             ProposedEvent::SearchLandEntry { object, player } => {
@@ -2441,7 +2455,7 @@ impl Game {
                     Some(*player),
                     force_tapped,
                     before,
-                    entry,
+                    authority,
                 )?
             }
             ProposedEvent::ShuffleLibraryWord { player, index } => self.apply_search_shuffle_word(
@@ -2559,11 +2573,14 @@ impl Game {
                         .and_then(|proof| proof.get(&source))
                         .copied()
                         .unwrap_or(Zone::Graveyard { owner });
-                    let EventOutcome::Moved { movement } =
-                        self.apply_occurrence(&ProposedEvent::Move {
+                    let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                        &ProposedEvent::Move {
                             object: source,
                             destination,
-                        })?
+                        },
+                        before,
+                        authority,
+                    )?
                     else {
                         return Err("missing countered spell movement".into());
                     };
@@ -2606,11 +2623,14 @@ impl Game {
                     .get(&object.card)
                     .ok_or("missing sacrificed card")?
                     .owner;
-                let EventOutcome::Moved { movement } =
-                    self.apply_occurrence(&ProposedEvent::Move {
+                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                    &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard { owner },
-                    })?
+                    },
+                    before,
+                    authority,
+                )?
                 else {
                     return Err("missing sacrifice movement".into());
                 };
@@ -2625,11 +2645,14 @@ impl Game {
                 {
                     return Err("invalid discard event".into());
                 }
-                let EventOutcome::Moved { movement } =
-                    self.apply_occurrence(&ProposedEvent::Move {
+                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                    &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard { owner: *player },
-                    })?
+                    },
+                    before,
+                    authority,
+                )?
                 else {
                     return Err("missing discard movement".into());
                 };
@@ -2658,11 +2681,14 @@ impl Game {
                     .get(&owner)
                     .and_then(|cards| cards.first())
                     .copied();
-                let EventOutcome::Moved { movement } =
-                    self.apply_occurrence(&ProposedEvent::Move {
+                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                    &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Library { owner },
-                    })?
+                    },
+                    before,
+                    authority,
+                )?
                 else {
                     return Err("top-library movement invariant".into());
                 };
@@ -2826,36 +2852,51 @@ impl Game {
             }
             ProposedEvent::StateBasedGraveyard { object, reason } => {
                 let o = self.current(*object)?;
-                let toughness = self
-                    .characteristics(*object)?
+                let facts = match before {
+                    Some(prior) => prior
+                        .objects
+                        .iter()
+                        .find(|f| f.object == *object)
+                        .ok_or("missing common-prior SBA object")?
+                        .clone(),
+                    None => self.object_before(*object)?,
+                };
+                let toughness = facts
+                    .characteristics
                     .toughness
+                    .as_ref()
                     .ok_or("missing SBA toughness")?;
-                if !self.is_battlefield_creature(*object)
+                if !o.present_on_battlefield()
+                    || facts.zone != Zone::Battlefield
+                    || !facts.characteristics.has_type(CardKind::Creature)
                     || match reason {
-                        CreatureLossReason::ZeroToughness => toughness > Quantity::zero(),
+                        CreatureLossReason::ZeroToughness => toughness > &Quantity::zero(),
                         CreatureLossReason::Deathtouch => {
-                            toughness <= Quantity::zero() || !o.deathtouch_damage
+                            toughness <= &Quantity::zero() || !facts.deathtouch_damage
                         }
                         CreatureLossReason::LethalDamage => {
-                            toughness <= Quantity::zero() || o.marked_damage < toughness
+                            toughness <= &Quantity::zero() || &facts.marked_damage < toughness
                         }
                     }
                 {
                     return Err("invalid creature SBA".into());
                 }
                 if *reason != CreatureLossReason::ZeroToughness
-                    && self.has_keyword(*object, KeywordAbility::Indestructible)
+                    && facts.keywords.contains(&KeywordAbility::Indestructible)
                 {
                     return Err("indestructible creature ignores destruction SBA".into());
                 }
                 let destination = Zone::Graveyard {
                     owner: self.state.rules.cards[&object.card].owner,
                 };
-                let EventOutcome::Moved { movement } =
-                    self.apply_occurrence(&ProposedEvent::Move {
+                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                    &ProposedEvent::Move {
                         object: *object,
                         destination,
-                    })?
+                    },
+                    before,
+                    authority,
+                )?
                 else {
                     return Err("SBA movement".into());
                 };
@@ -3108,7 +3149,7 @@ impl Game {
                     BatchAuthority::SpellToStack(player) => Some(player),
                     _ => None,
                 };
-                self.apply_move(*object, *destination, caster, false, before, entry)?
+                self.apply_move(*object, *destination, caster, false, before, authority)?
             }
         };
         self.update_library_position_memory(proposed, &actual);

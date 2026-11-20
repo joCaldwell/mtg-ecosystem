@@ -172,6 +172,9 @@ impl Strategy<'_> {
             PlayerRequest::Hideaway { .. } | PlayerRequest::PlayHideawayLinked { .. } => {
                 return Err("hideaway choices outside this policy admission".into());
             }
+            PlayerRequest::GraveyardReplacementOrder { .. } => {
+                return Err("replacement order outside this policy admission".into());
+            }
             PlayerRequest::ChooseOpponent { .. } => {
                 return Err("demonstrate choice outside this policy admission".into());
             }

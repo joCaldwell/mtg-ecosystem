@@ -98,33 +98,19 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn pay_sacrifice_cost(
-        &mut self,
+    pub(super) fn sacrifice_payment_group(
+        &self,
         stack: &StackInstance,
         selected: &[ObjectId],
-    ) -> Result<(), String> {
+    ) -> Result<Option<EventGroup>, String> {
+        let leaf = |object| ProposedEvent::Sacrifice {
+            object,
+            player: stack.controller,
+        };
         if selected.len() > 1 {
-            let occurrences = selected
-                .iter()
-                .map(|&object| ProposedEvent::Sacrifice {
-                    object,
-                    player: stack.controller,
-                })
-                .collect();
-            self.commit_batch(
-                BatchCause::Payment {
-                    stack_id: stack.id,
-                    player: stack.controller,
-                },
-                EventGroup::Simultaneous { occurrences },
-            )?;
-            self.state
-                .rules
-                .stack
-                .last_mut()
-                .ok_or("missing sacrifice invocation")?
-                .sacrificed_set = selected.to_vec();
-            return Ok(());
+            return Ok(Some(EventGroup::Simultaneous {
+                occurrences: selected.iter().copied().map(leaf).collect(),
+            }));
         }
         let self_cost = match stack.kind {
             StackKind::Activated { ability, .. } => {
@@ -133,28 +119,46 @@ impl Game {
             }
             _ => false,
         };
-        let selected = selected
+        Ok(selected
             .first()
             .copied()
-            .or(self_cost.then_some(stack.source));
-        if let Some(object) = selected {
-            let fact = self.object_before(object)?;
-            self.commit(
-                ProposedEvent::Sacrifice {
-                    object,
-                    player: stack.controller,
-                },
-                BatchCause::Payment {
-                    stack_id: stack.id,
-                    player: stack.controller,
-                },
-            )?;
-            self.state
-                .rules
-                .stack
-                .last_mut()
-                .ok_or("missing sacrifice invocation")?
-                .sacrificed = Some(fact);
+            .or(self_cost.then_some(stack.source))
+            .map(|object| EventGroup::Occurrence {
+                proposed: leaf(object),
+            }))
+    }
+
+    pub(super) fn pay_sacrifice_cost(
+        &mut self,
+        stack: &StackInstance,
+        selected: &[ObjectId],
+    ) -> Result<(), String> {
+        let Some(group) = self.sacrifice_payment_group(stack, selected)? else {
+            return Ok(());
+        };
+        let fact = match &group {
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::Sacrifice { object, .. },
+            } => Some(self.object_before(*object)?),
+            _ => None,
+        };
+        self.commit_batch(
+            BatchCause::Payment {
+                stack_id: stack.id,
+                player: stack.controller,
+            },
+            group,
+        )?;
+        let entry = self
+            .state
+            .rules
+            .stack
+            .last_mut()
+            .ok_or("missing sacrifice invocation")?;
+        if let Some(fact) = fact {
+            entry.sacrificed = Some(fact);
+        } else {
+            entry.sacrificed_set = selected.to_vec();
         }
         Ok(())
     }
@@ -310,15 +314,22 @@ impl Game {
                         })
                         .map(|(player, object)| ProposedEvent::Sacrifice { player, object })
                         .collect::<Vec<_>>();
-                    if !children.is_empty() {
-                        self.commit_batch(
-                            Self::sacrifice_cause(&frame, source_block),
-                            EventGroup::Simultaneous {
-                                occurrences: children,
-                            },
-                        )?;
+                    if children.is_empty() {
+                        return self.finish_instruction(
+                            frame,
+                            InstructionOutcome::Effect { actual: None },
+                        );
                     }
-                    self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+                    self.complete_graveyard_group(
+                        Self::sacrifice_cause(&frame, source_block),
+                        EventGroup::Simultaneous {
+                            occurrences: children,
+                        },
+                        GroupFinish::Instruction {
+                            frame,
+                            result: GroupResult::Effect,
+                        },
+                    )
                 }
             }
             _ => Err("sacrifice frame invariant".into()),
