@@ -520,8 +520,10 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             (reads, BTreeSet::from([FactKey::Object(object.card)]))
         }
         ProposedEvent::Sacrifice { object, player } => {
-            let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Life(*player)]);
-            (keys.clone(), keys)
+            // Sacrifice checks the payer is live but writes only the object.
+            // Distinct permanents of the same payer may move simultaneously.
+            let reads = BTreeSet::from([FactKey::Object(object.card), FactKey::Life(*player)]);
+            (reads, BTreeSet::from([FactKey::Object(object.card)]))
         }
         ProposedEvent::PutOnTopOwnerLibrary { object } => {
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);

@@ -46,9 +46,19 @@ impl<'a> Bindings<'a> {
     }
 
     pub(super) fn reference(&mut self, path: &str, expression: &Value, target: &str, rule: &str) {
+        self.reference_rules(path, expression, target, &[rule]);
+    }
+
+    pub(super) fn reference_rules(
+        &mut self,
+        path: &str,
+        expression: &Value,
+        target: &str,
+        rules: &[&str],
+    ) {
         self.references
             .push(json!({"path":path,"expression":expression,
-            "binding":"bound","target":target,"rules":[rule]}));
+            "binding":"bound","target":target,"rules":rules}));
     }
 
     pub(super) fn target(
@@ -135,6 +145,15 @@ impl<'a> Bindings<'a> {
             "identity":self.identity,"fullyBound":true,"referencesBound":true,"diagnostics":[],"engineFeatures":[],
             "nodes":self.nodes,"references":self.references,"counts":{"obligations":self.references.len(),
             "bound":self.references.len(),"unresolved":0}})
+    }
+
+    pub(super) fn validate_ordered(&self, binding: &Value, message: &str) -> Result<(), Failure> {
+        if binding["nodes"].as_array() != Some(&self.nodes)
+            || binding["references"].as_array() != Some(&self.references)
+        {
+            return Err(unsupported("binding", message));
+        }
+        self.validate(binding, message)
     }
 
     pub(super) fn validate(&self, binding: &Value, message: &str) -> Result<(), Failure> {

@@ -41,6 +41,45 @@ function loadCatalog(name: string) {
   return JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
 }
 
+test("counter_spell_controller_mill exported schema requires a complete instant", () => {
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  const catalog = JSON.parse(read("expected-effects-ir.json"));
+  const d = catalog.definitions.find((card: any) => card.name === "Counterspell");
+  catalog.definitions = [d];
+  d.spell.instructions = [{ op: "counter_spell_and_mill_controller", target_slot: 0, count: "3", source_block: 0 }];
+  d.capabilities.push("counter_spell_controller_mill_v1");
+  assert.ok(validate(catalog), JSON.stringify(validate.errors));
+
+  const rejects = [
+    (v: any) => { v.spell.instructions[0].count = "0"; },
+    (v: any) => { v.spell.instructions[0].count = 3; },
+    (v: any) => { v.spell.instructions[0].target_slot = 1; },
+    (v: any) => { v.spell.instructions[0].source_block = 1; },
+    (v: any) => { v.spell.instructions[0].recipient = "owner"; },
+    (v: any) => { v.spell.instructions.push({ op: "counter_stack_object", target_slot: 0, source_block: 0 }); },
+    (v: any) => { v.spell.targets[0].selection_id = "line:0:2"; },
+    (v: any) => { v.spell.targets[0].domain = "stack_activated_or_triggered_ability"; },
+    (v: any) => { v.spell.targets[0].filter = { types: ["instant"], non_types: [], non_colors: [], opponent: false }; },
+    (v: any) => { v.spell.targets.push({ ...v.spell.targets[0], slot: 1 }); },
+    (v: any) => { v.spell.additional_sacrifice = { types: ["creature"], subtypes: [] }; },
+    (v: any) => { v.spell.optional_additional_costs = [{ identity: "extra", source_block: 0, mana: { generic: "1", colored: [] } }]; },
+    (v: any) => { v.spell.modes = [{ program: { ...v.spell } }]; v.spell.instructions = []; v.spell.targets = []; },
+    (v: any) => { v.characteristics.kind = "sorcery"; v.spell.timing = "main_phase"; },
+    (v: any) => { v.keywords = ["flash"]; },
+    (v: any) => { v.x_mana_cost = true; },
+    (v: any) => { v.capabilities.push("fixed_mill_program_v1"); },
+    (v: any) => { v.spell.instructions = [{ op: "counter_stack_object", target_slot: 0, source_block: 0 }]; },
+    ...d.capabilities.map((cap: string) => (v: any) => { v.capabilities = v.capabilities.filter((c: string) => c !== cap); }),
+  ];
+  for (const [index, mutate] of rejects.entries()) {
+    const bad = structuredClone(catalog);
+    mutate(bad.definitions[0]);
+    assert.equal(validate(bad), false, `counter mill schema mutation ${index}`);
+  }
+});
+
 test("untap schema stays within a complete ordinary spell", () => {
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },

@@ -23,6 +23,9 @@ mod controller_library;
 mod controller_scry_tests;
 #[cfg(test)]
 mod controller_surveil_tests;
+mod counter_spell_controller_mill;
+#[cfg(test)]
+mod counter_spell_controller_mill_tests;
 pub mod coverage;
 mod creature_entry_return;
 mod diagnostics;
@@ -35,6 +38,7 @@ mod each_player_draw;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod graveyard_battlefield_return;
 mod group_discard;
 mod hand_return;
 #[cfg(test)]
@@ -1496,6 +1500,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     }
     cast_origin::bind(&abilities, &binding, &source, &result)?;
     successor_tuck::bind(&abilities, &binding, &source, &result)?;
+    let counter_mill = counter_spell_controller_mill::lower(&shape, &result, &binding)?;
     let each_player_draw = each_player_draw::lower(&shape, &result, &binding)?;
     let drain = opponent_life_drain::lower(&shape, &result, &binding)?;
     let announced_x_effects = announced_x_effects::validate(&result, &shape, &binding, types.kind)?;
@@ -2069,6 +2074,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         "nonspell ability on instant/sorcery",
                     ));
                 };
+                if let Some(count) = &counter_mill {
+                    let target_slot = bind_target(
+                        &mut program,
+                        &mut slots,
+                        counter_spell_controller_mill::TARGET_ID,
+                        TargetDomain::StackSpell,
+                    )?;
+                    program
+                        .instructions
+                        .push(Instruction::CounterSpellAndMillController {
+                            target_slot,
+                            count: count.clone(),
+                            source_block: 0,
+                        });
+                    continue;
+                }
                 if let Some(count) = &each_player_draw {
                     program.instructions.push(Instruction::DrawEachPlayer {
                         count: count.clone(),
@@ -2397,6 +2418,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .map_err(|e| unsupported("definition", e))?;
     self_spell_protection::validate_binding(&definition, &binding)?;
     power_entry_draw::validate_source(&definition, &labels, &original, &shape, &binding)?;
+    graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
@@ -3215,16 +3237,25 @@ fn append_spell_effects(
                         }
                     }
                 }
-                Step::ReturnToHand { what, to, optional } if to == "your" => {
-                    let id = what["selectionId"].as_str().unwrap_or("");
-                    if *what
-                        != serde_json::json!({"ref":"target","filter":{"types":["creature"],"cls":"card","zone":{"zone":"graveyard","owner":"your"}},"count":{"amount":"fixed","value":1},"selectionId":id})
-                    {
-                        return Err(unsupported(
-                            "effects.return",
-                            "unsupported graveyard target",
-                        ));
+                Step::MoveZone {
+                    what,
+                    to,
+                    tapped: None,
+                    order: None,
+                } if *to == serde_json::json!({"zone":"battlefield"}) => {
+                    let id = graveyard_battlefield_return::creature_target(what)?;
+                    Instruction::ReturnOwnGraveyardCreatureToBattlefield {
+                        target_slot: bind_target(
+                            program,
+                            slots,
+                            id,
+                            TargetDomain::OwnGraveyardCreatureCard,
+                        )?,
+                        source_block,
                     }
+                }
+                Step::ReturnToHand { what, to, optional } if to == "your" => {
+                    let id = graveyard_battlefield_return::creature_target(what)?;
                     Instruction::ReturnOwnGraveyardCreatureToHand {
                         target_slot: bind_target(
                             program,
@@ -5553,6 +5584,7 @@ fn lower_activation(
         }
         [SourceCost::Sacrifice { what }] if what["ref"] == "filter" => {
             ActivationCost::SacrificePermanent {
+                count: 1,
                 filter: lower_sacrifice_filter(what)?,
                 mana: None,
             }
@@ -5568,6 +5600,7 @@ fn lower_activation(
             )?
             .mana;
             ActivationCost::SacrificePermanent {
+                count: 1,
                 filter: lower_sacrifice_filter(what)?,
                 mana,
             }

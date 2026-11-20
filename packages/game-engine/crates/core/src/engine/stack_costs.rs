@@ -138,6 +138,10 @@ impl Game {
                 | ActivationCost::DiscardSource { .. }
                 | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
+        let modal = !self.definition(object.card)?.activated[ability as usize]
+            .program
+            .modes
+            .is_empty();
         let targeted = !self.definition(object.card)?.activated[ability as usize]
             .program
             .targets
@@ -149,6 +153,7 @@ impl Game {
             x: None,
             death_controller: None,
             sacrificed: None,
+            sacrificed_set: vec![],
             mode: None,
             effect_source_handles: vec![],
             source_facts: { Some(self.object_before(object)?) },
@@ -170,7 +175,7 @@ impl Game {
             total_cost,
             cast_from,
         });
-        if targeted {
+        if modal || targeted {
             if cost != ActivationCost::TapSource
                 && !matches!(
                     cost,
@@ -184,7 +189,7 @@ impl Game {
             }
             let cast = Casting {
                 completion: CastCompletion::Priority,
-                sacrifice: None,
+                sacrifices: vec![],
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
                 stack_id: id,
@@ -193,24 +198,28 @@ impl Game {
                 mana_activations: vec![],
                 undo_mana: false,
             };
-            self.state.rules.frame = match self.definition(object.card)?.activated[ability as usize]
-                .program
-                .targets[0]
-                .domain
-            {
-                TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                    Frame::StackTargets { cast }
+            self.state.rules.frame = if modal {
+                Frame::Modes { cast }
+            } else {
+                match self.definition(object.card)?.activated[ability as usize]
+                    .program
+                    .targets[0]
+                    .domain
+                {
+                    TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
+                    TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
+                        Frame::StackTargets { cast }
+                    }
+                    TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
+                    _ => Frame::EntityTargets { cast },
                 }
-                TargetDomain::ControlledBattlefieldCreature
-                | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
-                _ => Frame::EntityTargets { cast },
             };
         } else if mana {
             self.state.rules.frame = Frame::Mana {
                 cast: Casting {
                     completion: CastCompletion::Priority,
-                    sacrifice: None,
+                    sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
                     stack_id: id,
@@ -225,7 +234,7 @@ impl Game {
             self.state.rules.frame = Frame::SacrificeCost {
                 cast: Casting {
                     completion: CastCompletion::Priority,
-                    sacrifice: None,
+                    sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: Some(BTreeMap::new()),
                     stack_id: id,
@@ -322,8 +331,10 @@ impl Game {
                 colored: vec![],
             },
         };
+        let program = self.program_for(entry)?;
         let announcing = match self.underlying_mana_frame(&self.state.rules.frame) {
-            Frame::Targets { cast }
+            Frame::Modes { cast }
+            | Frame::Targets { cast }
             | Frame::PlayerTargets { cast }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }
@@ -340,7 +351,7 @@ impl Game {
         };
         if source_handles.len() != 4
             || (!entry.targets.is_empty()
-                && activated.program.targets.first().is_none_or(|t| {
+                && program.targets.first().is_none_or(|t| {
                     !matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
@@ -351,7 +362,7 @@ impl Game {
                 && (!artifact_loss_activation(activated)
                     || !matches!(entry.player_targets.as_slice(), [p] if p.0 < 4)))
             || (!entry.stack_targets.is_empty()
-                && activated.program.targets.first().is_none_or(|t| {
+                && program.targets.first().is_none_or(|t| {
                     !matches!(
                         t.domain,
                         TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility
@@ -379,7 +390,7 @@ impl Game {
                                 | ActivationCost::Composite { .. }
                                 | ActivationCost::SacrificePermanent { .. }
                                 | ActivationCost::SacrificeSource
-                        ) || (!activated.program.targets.is_empty()))
+                        ) || (!program.targets.is_empty()))
                 }
             }
         {
@@ -575,58 +586,62 @@ impl Game {
         frame: Resolving,
         target_slot: u32,
         source_block: u32,
+        mill_count: Option<Quantity>,
     ) -> Result<(), String> {
+        let slot = target_slot as usize;
         let target = *frame
             .spell
             .stack_targets
-            .get(target_slot as usize)
+            .get(slot)
             .ok_or("missing counter target binding")?;
-        let outcome = if !frame
-            .legal_targets
-            .get(target_slot as usize)
-            .copied()
-            .unwrap_or(false)
-        {
-            InstructionOutcome::StackTargetIllegal { target }
-        } else if !self
+        if frame.legal_targets.get(slot) != Some(&true) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::StackTargetIllegal { target });
+        }
+        let Some(entry) = self
             .state
             .rules
             .stack
             .iter()
-            .any(|entry| entry.id == target)
-        {
-            InstructionOutcome::StackObjectNoLongerPresent { target }
-        } else {
-            let domain = self
-                .program_for(&frame.spell)?
-                .targets
-                .get(target_slot as usize)
-                .ok_or("missing counter target domain")?
-                .domain;
-            let actual = self.commit(
-                ProposedEvent::CounterStackObject {
-                    target,
-                    countering: frame.stack_id,
-                    domain,
-                },
-                BatchCause::Instruction {
-                    stack_id: frame.stack_id,
-                    player: frame.spell.controller,
-                    source: frame.spell.source,
-                    cursor: frame.cursor,
-                    source_block,
-                },
-            )?;
-            match actual {
-                EventOutcome::StackObjectCountered { movement, .. } => {
-                    InstructionOutcome::Countered { target, movement }
-                }
-                EventOutcome::CounterPrevented { .. } => {
-                    InstructionOutcome::CounterPrevented { target }
-                }
-                _ => return Err("missing counter outcome".into()),
-            }
+            .find(|entry| entry.id == target)
+        else {
+            return self.finish_instruction(
+                frame,
+                InstructionOutcome::StackObjectNoLongerPresent { target },
+            );
         };
+        // CR 608.2h: the target may leave the stack during the counter event.
+        let controller = entry.controller;
+        let domain = self
+            .program_for(&frame.spell)?
+            .targets
+            .get(slot)
+            .ok_or("missing counter target domain")?
+            .domain;
+        if mill_count.is_some() && domain != TargetDomain::StackSpell {
+            return Err("counter and mill requires a spell target".into());
+        }
+        let cause = Self::staple_cause(&frame, source_block);
+        let actual = self.commit(
+            ProposedEvent::CounterStackObject {
+                target,
+                countering: frame.stack_id,
+                domain,
+            },
+            cause.clone(),
+        )?;
+        let outcome = match actual {
+            EventOutcome::StackObjectCountered { movement, .. } => {
+                InstructionOutcome::Countered { target, movement }
+            }
+            EventOutcome::CounterPrevented { .. } => {
+                InstructionOutcome::CounterPrevented { target }
+            }
+            _ => return Err("missing counter outcome".into()),
+        };
+        if let Some(count) = mill_count {
+            self.commit_mill(controller, count, cause)?;
+        }
         self.finish_instruction(frame, outcome)
     }
 }

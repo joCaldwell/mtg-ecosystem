@@ -436,3 +436,285 @@ fn artifact_sacrifice_departure_revalidates_pending_cost_choice_and_keeps_paid_m
     pool(&g, 1, 0);
     recover(&g);
 }
+
+fn fixed_artifact_setup(with_mana: bool) -> Prepared {
+    let mut setup = prepared(&[
+        ("Grizzly Bears", 0, 0, false),
+        ("Sol Ring", 1, 0, false),
+        ("Alpha Myr", 2, 0, false),
+        ("Commander's Sphere", 2, 0, false),
+        ("Mountain", 0, 0, false),
+    ]);
+    let catalog = Arc::make_mut(&mut setup.catalog);
+    let mut source = catalog
+        .definition_by_oracle_id(&setup.config.cards[0].oracle_id)
+        .unwrap()
+        .clone();
+    source.name = "Foundry Tallykeeper".into();
+    source.oracle_id = "synthetic-foundry-tallykeeper".into();
+    source.source_labels = None;
+    source.activated = vec![ActivatedAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        cost: ActivationCost::SacrificePermanent {
+            count: 2,
+            filter: SacrificeFilter {
+                types: vec![CardKind::Artifact],
+                subtypes: vec![],
+            },
+            mana: with_mana.then(|| ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::R],
+            }),
+        },
+        program: SpellProgram {
+            functioning_zone: FunctioningZone::Stack,
+            timing: SpellTiming::Instant,
+            resolution: SpellResolution::Instructions,
+            additional_sacrifice: None,
+            optional_additional_costs: vec![],
+            targets: vec![],
+            modes: vec![],
+            instructions: vec![Instruction::DrawCards {
+                count: 1.into(),
+                recipient: None,
+                source_block: 0,
+            }],
+        },
+    }];
+    source.capabilities = source.requirements();
+    assert!(
+        source
+            .capabilities
+            .contains(&Capability::FixedArtifactSacrificeCostV1)
+    );
+    // A count can exceed the temporary battlefield and even the original
+    // byte width. Definition validity is independent of current payability.
+    let mut large = source.activated[0].clone();
+    if let ActivationCost::SacrificePermanent { count, .. } = &mut large.cost {
+        *count = u32::MAX;
+    }
+    source.activated.push(large);
+    let mut modal = source.activated[0].clone();
+    let draw = modal.program.clone();
+    let mut damage = draw.clone();
+    damage.targets.push(TargetSpec {
+        slot: 0,
+        selection_id: "synthetic-target".into(),
+        chooser: Chooser::Controller,
+        stage: EvaluationStage::Announcement,
+        domain: TargetDomain::AnyDamageTarget,
+        filter: None,
+    });
+    damage.instructions = vec![Instruction::DealDamage {
+        target_slot: 0,
+        amount: 3.into(),
+        source_block: 0,
+    }];
+    modal.program.instructions.clear();
+    modal.program.modes = vec![SpellMode { program: draw }, SpellMode { program: damage }];
+    source.activated.push(modal);
+    source.capabilities = source.requirements();
+    setup.config.cards[0].oracle_id = source.oracle_id.clone();
+    catalog.definitions.push(source);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    setup.catalog_digest = digest(catalog).unwrap();
+    setup.profile_digest = digest(&setup.config).unwrap();
+    setup
+}
+
+// Original private IR witness. Counted source records stay outside compiler
+// admission until a complete ability (cost, effect and references) can lower.
+#[test]
+fn fixed_artifact_sacrifice_private_payment_and_departure() {
+    let payer = PlayerId(0);
+    for with_mana in [false, true] {
+        let mut g = Game::with_trace(fixed_artifact_setup(with_mana), TraceMode::Detailed);
+        let [origin, first, second, third, land] = [0, 1, 2, 3, 4].map(|id| object(&g, id));
+        let priority = request(&mut g, 1);
+        reject(
+            &mut g,
+            payer,
+            priority.decision_id(),
+            Response::ActivateAbility {
+                object: origin,
+                ability: 1,
+            },
+        );
+
+        answer(
+            &mut g,
+            1,
+            Response::ActivateAbility {
+                object: origin,
+                ability: 0,
+            },
+        );
+        if with_mana {
+            answer(&mut g, 1, Response::ActivateMana { object: land });
+            answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+            answer(
+                &mut g,
+                1,
+                Response::SpendMana {
+                    spending: BTreeMap::from([(Color::R, 1.into())]),
+                },
+            );
+        }
+        let r = request(&mut g, 1);
+        assert!(
+            matches!(&r, Request::SacrificeCost { player,candidates,.. } if *player == payer && candidates == &[first,second])
+        );
+        reject(
+            &mut g,
+            payer,
+            r.decision_id(),
+            Response::SacrificeCost { object: third },
+        );
+        answer(&mut g, 1, Response::SacrificeCost { object: first });
+        let r = request(&mut g, 1);
+        assert!(
+            matches!(&r, Request::SacrificeCost {candidates,..} if candidates == &[second,third])
+        );
+        reject(
+            &mut g,
+            payer,
+            r.decision_id(),
+            Response::SacrificeCost { object: first },
+        );
+        for card in [first, second, third] {
+            assert_eq!(g.zone(card), Some(Zone::Battlefield));
+        }
+        if with_mana {
+            pool(&g, 0, 1);
+        }
+        let QueryResult::Complete(QueryValue::Observation(other)) =
+            g.observe(PlayerId(3), Budget::unlimited())
+        else {
+            panic!("opponent observation")
+        };
+        assert!(other.decision.is_none());
+        recover(&g);
+
+        // Losing a selected borrowed artifact leaves a new, complete pair.
+        let mut restart = g.fork();
+        restart.concede(PlayerId(1)).unwrap();
+        assert!(
+            matches!(request(&mut restart,1),Request::SacrificeCost { candidates,.. } if candidates == [second])
+        );
+        recover(&restart);
+        // Losing both unselected artifacts makes the activation unpayable.
+        let mut short = g.fork();
+        short.concede(PlayerId(2)).unwrap();
+        assert!(matches!(request(&mut short, 1), Request::Priority { .. }));
+        assert!(short.state.rules.stack.is_empty());
+        assert_eq!(short.zone(first), Some(Zone::Battlefield));
+        if with_mana {
+            pool(&short, 0, 1);
+        }
+        recover(&short);
+
+        answer(&mut g, 1, Response::SacrificeCost { object: third });
+        assert!(matches!(request(&mut g, 1), Request::Priority { .. }));
+        let stack = g.top().unwrap();
+        assert_eq!(stack.sacrificed_set, [first, third]);
+        let id = stack.id;
+        let occurrences = [first, third]
+            .map(|object| ProposedEvent::Sacrifice {
+                object,
+                player: payer,
+            })
+            .to_vec();
+        assert_eq!(
+            g.trace()
+                .records
+                .iter()
+                .filter(|r| matches!(&r.record, EvidenceRecord::Batch{batch}
+            if matches!(batch.cause,BatchCause::Payment{stack_id,..} if stack_id==id)
+                && batch.group == EventGroup::Simultaneous{occurrences:occurrences.clone()}))
+                .count(),
+            1
+        );
+        assert_eq!(
+            g.zone(object(&g, 1)),
+            Some(Zone::Graveyard { owner: PlayerId(1) })
+        );
+        assert_eq!(
+            g.zone(object(&g, 3)),
+            Some(Zone::Graveyard { owner: PlayerId(2) })
+        );
+        assert_eq!(g.zone(second), Some(Zone::Battlefield));
+        pool(&g, 0, 0);
+        recover(&g);
+        let previous = g.state.rules.libraries[&payer].len();
+        settle(&mut g, 1);
+        assert_eq!(g.state.rules.libraries[&payer].len() + 1, previous);
+    }
+}
+
+#[test]
+fn fixed_artifact_modal_activation_announces_child_before_root_payment() {
+    let payer = PlayerId(0);
+    let target = PlayerId(3);
+    for (mode, mana) in [(0, false), (1, false), (0, true), (1, true)] {
+        let mut g = Game::with_trace(fixed_artifact_setup(mana), TraceMode::Detailed);
+        let [source, first, third, land] = [0, 1, 3, 4].map(|id| object(&g, id));
+        let library = g.state.rules.libraries[&payer].len();
+        let life = g.state.rules.players[3].life.clone();
+        answer(
+            &mut g,
+            1,
+            Response::ActivateAbility {
+                object: source,
+                ability: 2,
+            },
+        );
+        assert!(matches!(request(&mut g,1),Request::Modes {candidates,..} if candidates==[0,1]));
+        recover(&g);
+        answer(&mut g, 1, Response::Modes { mode });
+        if mode == 1 {
+            assert!(matches!(request(&mut g, 1), Request::EntityTargets { .. }));
+            recover(&g);
+            answer(
+                &mut g,
+                1,
+                Response::EntityTargets {
+                    entities: vec![TargetEntity::Player { player: target }],
+                },
+            );
+        }
+        if mana {
+            assert!(matches!(request(&mut g, 1), Request::Mana { .. }));
+            answer(&mut g, 1, Response::ActivateMana { object: land });
+            answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+            answer(
+                &mut g,
+                1,
+                Response::SpendMana {
+                    spending: BTreeMap::from([(Color::R, 1.into())]),
+                },
+            );
+        }
+        assert!(matches!(request(&mut g, 1), Request::SacrificeCost { .. }));
+        assert_eq!(g.top().unwrap().mode, Some(mode));
+        answer(&mut g, 1, Response::SacrificeCost { object: first });
+        request(&mut g, 1);
+        recover(&g);
+        answer(&mut g, 1, Response::SacrificeCost { object: third });
+        assert!(matches!(request(&mut g, 1), Request::Priority { .. }));
+        assert_eq!(g.top().unwrap().sacrificed_set, [first, third]);
+        settle(&mut g, 1);
+        let mut expected_life = life;
+        if mode == 1 {
+            expected_life.subtract(&3.into());
+        }
+        assert_eq!(g.state.rules.players[3].life, expected_life);
+        assert_eq!(
+            g.state.rules.libraries[&payer].len(),
+            library - usize::from(mode == 0)
+        );
+        recover(&g);
+    }
+}
