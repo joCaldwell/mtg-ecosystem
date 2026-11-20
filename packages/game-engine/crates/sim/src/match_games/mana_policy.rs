@@ -201,6 +201,47 @@ pub(super) fn plan(
     p.fund(cost).then(|| p.plan.into())
 }
 
+/// Plan against the complete fixed price as each printed hybrid pip is
+/// selected. A life payment is available only on its printed symbol.
+pub(super) fn hybrid_plan(
+    catalog: &Catalog,
+    view: &mtg_core::PermittedView,
+    mut cost: ManaCost,
+    symbols: &[mtg_contracts::ColorHybridSymbol],
+) -> Option<(
+    Vec<mtg_contracts::HybridPayment>,
+    std::collections::VecDeque<PlannedMana>,
+)> {
+    use mtg_contracts::HybridPayment;
+    let payer = view.players.iter().find(|p| p.player == view.viewer)?;
+    let mut life = payer.life.clone();
+    let mut choices = Vec::with_capacity(symbols.len());
+    for symbol in symbols {
+        if let Some(color) = symbol
+            .colors
+            .iter()
+            .filter_map(|choice| choice.color())
+            .find(|color| {
+                cost.colored.push(*color);
+                let payable = plan(catalog, view, &cost, None).is_some();
+                cost.colored.pop();
+                payable
+            })
+        {
+            choices.push(HybridPayment::Mana(color));
+            cost.colored.push(color);
+        } else if symbol.colors.contains(&HybridPayment::PayTwoLife)
+            && !payer.life_frozen_until_next_turn
+            && life >= 2.into()
+        {
+            choices.push(HybridPayment::PayTwoLife);
+            life.subtract(&2.into());
+        } else {
+            return None;
+        }
+    }
+    Some((choices, plan(catalog, view, &cost, None)?))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +327,7 @@ mod tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            hybrid_choices: vec![],
         };
         assert_eq!(
             strategy.priority(&observation).unwrap(),

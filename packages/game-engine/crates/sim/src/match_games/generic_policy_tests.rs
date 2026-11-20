@@ -102,6 +102,7 @@ mod reactive_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            hybrid_choices: vec![],
         };
         assert_eq!(
             s.opposing_stack(&v, false, None),
@@ -274,6 +275,7 @@ mod wipe_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            hybrid_choices: vec![],
         };
         assert!(!c.definitions.is_empty());
         assert_eq!(
@@ -315,6 +317,7 @@ mod wipe_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            hybrid_choices: vec![],
         };
         let d = |name: &str| c.definitions.iter().find(|d| d.name == name).unwrap();
         assert_eq!(
@@ -387,6 +390,7 @@ fn names_and_catalog_size_do_not_select_policy_or_wipe_amounts() {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        hybrid_choices: vec![],
     };
     let d = definition(&c, &id).unwrap();
     assert!(s.definition_ready(&v, d));
@@ -412,6 +416,7 @@ fn creature_target_readiness_and_prevention_follow_programs() {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        hybrid_choices: vec![],
     };
     for name in ["Murder", "Disfigure", "Giant Growth", "Pacifism"] {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
@@ -460,6 +465,7 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        hybrid_choices: vec![],
     };
     assert_eq!(
         s.priority(&Observation {
@@ -480,6 +486,7 @@ fn strategy(c: &Catalog) -> Strategy<'_> {
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        hybrid_choices: vec![],
     }
 }
 fn observation(view: PermittedView) -> Observation {

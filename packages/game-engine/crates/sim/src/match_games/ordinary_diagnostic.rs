@@ -446,6 +446,7 @@ fn ordinary_prefix(catalog: &Catalog, count: usize, quantum: u64) -> Result<Run,
         mulligans: [0; 4],
         mana_plan: Default::default(),
         mana_color: None,
+        hybrid_choices: vec![],
     };
     let (mut work, mut advances, mut queries) = (0, 0, 0);
     let clock = Instant::now();

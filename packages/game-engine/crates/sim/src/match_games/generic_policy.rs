@@ -1595,7 +1595,10 @@ impl Strategy<'_> {
             cost.generic.add(&tax);
             cost.generic.add(&tax);
         }
-        self.mana_plan = mana_policy::plan(self.catalog, v, &cost, None)?;
+        let (choices, plan) =
+            mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)?;
+        self.hybrid_choices = choices;
+        self.mana_plan = plan;
         Some(PlayerResponse::Cast {
             card: o.handle.clone(),
         })

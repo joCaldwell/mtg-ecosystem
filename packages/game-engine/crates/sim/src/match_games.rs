@@ -159,6 +159,7 @@ struct Strategy<'a> {
     mulligans: [u8; 4],
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
+    hybrid_choices: Vec<mtg_contracts::HybridPayment>,
 }
 impl Strategy<'_> {
     fn choose(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
@@ -203,9 +204,31 @@ impl Strategy<'_> {
             PlayerRequest::AdditionalCosts { .. } => {
                 PlayerResponse::AdditionalCosts { selected: vec![] }
             }
-            PlayerRequest::HybridCost { symbols, .. } => PlayerResponse::HybridCost {
-                colors: symbols.iter().map(|s| s.colors[0]).collect(),
-            },
+            PlayerRequest::HybridCost { symbols, .. } => {
+                let cached = std::mem::take(&mut self.hybrid_choices);
+                let colors = if cached.len() == symbols.len()
+                    && cached
+                        .iter()
+                        .zip(symbols)
+                        .all(|(choice, symbol)| symbol.colors.contains(choice))
+                {
+                    cached
+                } else {
+                    let (definition, _) = self
+                        .top_program(v)
+                        .ok_or("hybrid announcement missing public spell")?;
+                    let (choices, plan) = mana_policy::hybrid_plan(
+                        self.catalog,
+                        v,
+                        definition.characteristics.mana_cost.clone(),
+                        symbols,
+                    )
+                    .ok_or("no affordable hybrid announcement")?;
+                    self.mana_plan = plan;
+                    choices
+                };
+                PlayerResponse::HybridCost { colors }
+            }
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self
                     .top_program(v)
@@ -729,6 +752,7 @@ pub(super) fn run(
         mulligans,
         mana_plan: Default::default(),
         mana_color: None,
+        hybrid_choices: vec![],
     };
     let selected_checkpoints =
         config.seed == seed_for(&config.profile, 0) && policy == Policy::Develop;
@@ -1553,6 +1577,7 @@ mod admission_and_host_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            hybrid_choices: vec![],
         };
         let id = |name: &str| {
             catalog
