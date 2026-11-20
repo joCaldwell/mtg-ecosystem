@@ -205,7 +205,19 @@ fn paid_restricted_land_selects_a_branch_and_unwinds_nested_payment() {
         ("Forest", 0, false),
         ("Forest", 0, false),
         ("Grizzly Bears", 0, true),
+        ("Sol Ring", 1, false),
+        ("Grizzly Bears", 0, false),
+        ("Samite Healer", 0, true),
     ]);
+    let zealot = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-removal-ir.json"
+    ))
+    .unwrap()
+    .definitions
+    .into_iter()
+    .find(|d| d.name == "Viridian Zealot")
+    .unwrap();
+    p.config.cards[7].oracle_id.clone_from(&zealot.oracle_id);
     let result = mtg_compiler::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/de75e5dd-8a52-406c-b55c-96d686885500.json"),
@@ -217,7 +229,7 @@ fn paid_restricted_land_selects_a_branch_and_unwinds_nested_payment() {
         .oracle_id
         .clone_from(&definition.oracle_id);
     let catalog = Arc::make_mut(&mut p.catalog);
-    catalog.definitions.push(*definition);
+    catalog.definitions.extend([*definition, zealot]);
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -232,10 +244,10 @@ fn paid_restricted_land_selects_a_branch_and_unwinds_nested_payment() {
     let source = object(&game, 0);
     assert!(!game.current(source).unwrap().tapped);
 
-    // First reverse the entire planned activation while the outer spell
-    // remains unpayable. Then choose the same paid branch and cast normally.
-    for reverse in [true, false] {
-        answer(&mut game, Response::Cast { card: CardId(5) });
+    // Reverse an unfunded branch, then a fully funded branch whose output
+    // cannot pay the outer white pip. Finally cast a creature normally.
+    for (card, unfunded) in [(CardId(5), true), (CardId(8), false), (CardId(5), false)] {
+        answer(&mut game, Response::Cast { card });
         mana(&mut game, 0);
         let decision = request(&mut game);
         assert!(
@@ -250,7 +262,7 @@ fn paid_restricted_land_selects_a_branch_and_unwinds_nested_payment() {
             )
             .is_err()
         );
-        if reverse {
+        if unfunded {
             answer(
                 &mut game,
                 Response::ChooseManaAbility {
@@ -281,8 +293,27 @@ fn paid_restricted_land_selects_a_branch_and_unwinds_nested_payment() {
         finish(&mut game, false);
         check(&game);
         spend(&mut game, &[(Color::G, 4)]);
-        finish(&mut game, false);
+        let _ = request(&mut game);
         let spend = ManaSpendRestriction::CreatureSpellOrBattlefieldCreatureAbility;
+        if card == CardId(8) {
+            assert_eq!(
+                game.state.rules.players[0].restricted_mana,
+                [RestrictedMana {
+                    amount: 6.into(),
+                    ..unit(spend, Color::G)
+                }]
+            );
+            check(&game);
+            finish(&mut game, true);
+            let _ = request(&mut game);
+            assert!(game.state.rules.players[0].restricted_mana.is_empty());
+            for id in 0..5 {
+                assert!(!game.current(object(&game, id)).unwrap().tapped);
+            }
+            check(&game);
+            continue;
+        }
+        finish(&mut game, false);
         assert!(
             matches!(request(&mut game), Request::SpendMana { ref restricted_available, .. }
             if *restricted_available == [RestrictedMana { amount: 6.into(), ..unit(spend, Color::G) }])
@@ -308,4 +339,53 @@ fn paid_restricted_land_selects_a_branch_and_unwinds_nested_payment() {
         assert_eq!(game.zone(object(&game, 5)), Some(Zone::Battlefield));
         check(&game);
     }
+
+    let target = object(&game, 6);
+    let creature = object(&game, 7);
+    answer(
+        &mut game,
+        Response::ActivateAbility {
+            object: creature,
+            ability: 0,
+        },
+    );
+    answer(
+        &mut game,
+        Response::Targets {
+            objects: vec![target],
+        },
+    );
+    finish(&mut game, false);
+    let restriction = ManaSpendRestriction::CreatureSpellOrBattlefieldCreatureAbility;
+    assert!(
+        matches!(request(&mut game), Request::SpendMana {ref restricted_available,..}
+        if *restricted_available == [RestrictedMana {amount:4.into(), ..unit(restriction, Color::G)}])
+    );
+    answer(
+        &mut game,
+        Response::SpendManaAllocated {
+            spending: BTreeMap::new(),
+            restricted: vec![RestrictedMana {
+                amount: 2.into(),
+                ..unit(restriction, Color::G)
+            }],
+        },
+    );
+    pass(&mut game, 4);
+    assert!(matches!(
+        game.zone(object(&game, 6)),
+        Some(Zone::Graveyard { .. })
+    ));
+    assert!(matches!(
+        game.zone(object(&game, 7)),
+        Some(Zone::Graveyard { .. })
+    ));
+    assert_eq!(
+        game.state.rules.players[0].restricted_mana,
+        [RestrictedMana {
+            amount: 2.into(),
+            ..unit(restriction, Color::G)
+        }]
+    );
+    check(&game);
 }
