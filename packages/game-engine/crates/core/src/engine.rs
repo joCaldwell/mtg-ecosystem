@@ -1217,6 +1217,9 @@ pub enum Response {
     SearchLandBattlefield {
         object: ObjectId,
     },
+    ChooseOpponent {
+        opponent: PlayerId,
+    },
     OptionalEffect {
         perform: bool,
     },
@@ -1404,6 +1407,11 @@ pub enum Request {
         maximum: u32,
         candidates: Vec<ObjectId>,
     },
+    ChooseOpponent {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<PlayerId>,
+    },
     OptionalEffect {
         decision_id: u64,
         player: PlayerId,
@@ -1564,6 +1572,7 @@ impl Request {
             | Self::SearchLands { decision_id, .. }
             | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
+            | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
@@ -1607,6 +1616,7 @@ impl Request {
             | Self::SearchLands { player, .. }
             | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
+            | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
@@ -2123,6 +2133,10 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    Demonstrated {
+        first: spell_copy::CopyIdentity,
+        opponent: Option<spell_copy::CopyIdentity>,
+    },
     SpellCopied {
         copy: StackId,
     },

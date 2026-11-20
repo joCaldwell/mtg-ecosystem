@@ -315,6 +315,11 @@ pub enum PlayerRequest {
         maximum: u32,
         candidates: Vec<VisibleSearchLand>,
     },
+    ChooseOpponent {
+        token: DecisionToken,
+        player: PlayerId,
+        candidates: Vec<PlayerId>,
+    },
     OptionalEffect {
         token: DecisionToken,
         player: PlayerId,
@@ -487,6 +492,7 @@ impl PlayerRequest {
             | Self::SearchLands { token, .. }
             | Self::CascadeLandEntry { token, .. }
             | Self::SearchLandBattlefield { token, .. }
+            | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
@@ -579,6 +585,9 @@ pub enum PlayerResponse {
     },
     SearchLandBattlefield {
         object: ObjectHandle,
+    },
+    ChooseOpponent {
+        opponent: PlayerId,
     },
     OptionalEffect {
         perform: bool,
@@ -1715,6 +1724,11 @@ impl Game {
                     token,
                     player: viewer,
                 },
+                Request::ChooseOpponent { candidates, .. } => PlayerRequest::ChooseOpponent {
+                    token,
+                    player: viewer,
+                    candidates,
+                },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
                     player: viewer,
@@ -2477,6 +2491,9 @@ impl Game {
             PlayerResponse::OptionalEffect { perform } => {
                 Ok(Response::OptionalEffect { perform: *perform })
             }
+            PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
+                opponent: *opponent,
+            }),
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })
             }
