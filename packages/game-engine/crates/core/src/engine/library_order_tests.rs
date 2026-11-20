@@ -752,6 +752,7 @@ fn library_order_kernel_zero_singleton_shuffle_counts_without_random_words() {
 }
 
 #[test]
+#[ignore = "uses the exact scoped archive"]
 fn printed_replacement_mill_reveals_shuffles_and_resumes_before_draw() {
     let mut p = prepared();
     // Locate the randomized physical slot in the existing real opening. Substituting
@@ -762,26 +763,31 @@ fn printed_replacement_mill_reveals_shuffles_and_resumes_before_draw() {
     let printed = before[0];
     let other = before[1];
     let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
-    let ramos = include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json");
+    let archive = std::fs::read_to_string(
+        std::env::var_os("MTG_SELF_GRAVEYARD_SHUFFLE_ARCHIVE_PROBE")
+            .expect("exact Progenitus archive"),
+    )
+    .unwrap();
+    assert_eq!(
+        mtg_contracts::sha256(archive.as_bytes()),
+        "c5fbc3e89be7b8c69fa6b4e2a74deec2509b214a2484e1200f7ef86cf7f64ab2"
+    );
+    let rows = archive.lines().collect::<Vec<_>>();
+    let [header, record] = rows.as_slice() else {
+        panic!("expected one exact source")
+    };
     let specifications = [
         (
             spell,
             manifest,
             include_str!("../../../../tests/fixtures/e8d5f31c-7abf-4fbb-977e-8353a97daf7a.json"),
         ),
-        (
-            printed.card,
-            ramos,
-            include_str!(
-                "../../../../tests/fixtures/ramos/2d7e00b6-12f0-4b03-82a6-50e3d1b5395e.json"
-            ),
-        ),
+        (printed.card, *header, *record),
     ];
     for (card, manifest, raw) in specifications {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(manifest, raw)
-        else {
-            panic!("complete source must lower")
+        let compiled = mtg_compiler::compile(manifest, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+            panic!("complete source must lower: {compiled:?}");
         };
         let row = p.config.cards.iter_mut().find(|r| r.id == card).unwrap();
         let deck = &mut p.match_config.as_mut().unwrap().decks[0];
