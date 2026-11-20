@@ -2071,7 +2071,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                                 &result,
                                 &shape,
                                 &binding,
-                                &r.oracle_identity,
+                                &definition.oracle_id,
                                 kind,
                             )? {
                                 Some(ability) => ability,
