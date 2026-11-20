@@ -668,6 +668,13 @@ fn paid_hybrid_controller_grants_begin_only_after_resolution() {
         true,
     );
 }
+#[test]
+fn paid_phyrexian_symbol_debits_life_on_cast() {
+    hybrid_payment_witness(
+        include_str!("../../../../tests/fixtures/synthetic-ashen-lattice.json"),
+        false,
+    );
+}
 fn hybrid_payment_witness(raw: &str, grants: bool) {
     let mut p = prepared(
         &[
@@ -707,6 +714,16 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
         panic!("missing hybrid announcement")
     };
     assert_eq!(symbols.len(), 2);
+    let phyrexian = symbols[1].colors.contains(&HybridPayment::PayTwoLife);
+    let choices = vec![
+        HybridPayment::Mana(Color::G),
+        if phyrexian {
+            HybridPayment::PayTwoLife
+        } else {
+            HybridPayment::Mana(Color::W)
+        },
+    ];
+    let mut expected_life = g.state.rules.players[player.0 as usize].life.clone();
     let source = g.top().unwrap().source;
     for (actor, colors) in [
         (PlayerId(1), vec![Color::G, Color::W]),
@@ -714,8 +731,14 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
         (player, vec![Color::U, Color::G]),
     ] {
         assert!(
-            g.respond(actor, decision_id, Response::HybridCost { colors })
-                .is_err()
+            g.respond(
+                actor,
+                decision_id,
+                Response::HybridCost {
+                    colors: colors.into_iter().map(HybridPayment::Mana).collect()
+                }
+            )
+            .is_err()
         );
     }
     recover(&g);
@@ -723,17 +746,25 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
         player,
         decision_id,
         Response::HybridCost {
-            colors: vec![Color::G, Color::W],
+            colors: choices.clone(),
         },
     )
     .unwrap();
     let Request::Mana { cost, .. } = request(&mut g, 1) else {
         panic!("missing locked payment")
     };
-    assert_eq!(cost.colored, [Color::G, Color::W]);
-    assert_eq!(g.top().unwrap().hybrid_colors, [Color::G, Color::W]);
+    assert_eq!(
+        cost.colored,
+        choices.iter().filter_map(|c| c.color()).collect::<Vec<_>>()
+    );
+    assert_eq!(g.top().unwrap().hybrid_colors, choices);
+    assert_eq!(g.state.rules.players[player.0 as usize].life, expected_life);
     recover(&g);
     pay_and_resolve(&mut g, 1, vec![]);
+    if phyrexian {
+        expected_life.subtract(&2.into());
+    }
+    assert_eq!(g.state.rules.players[player.0 as usize].life, expected_life);
     let permanent = object(&g, 0);
     assert_ne!(permanent, source);
     if grants {

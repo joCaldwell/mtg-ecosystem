@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, Color, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
+import type { Amount, CascadeExiledCards, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -75,6 +75,9 @@ export type BindingNode = NodeBase & (
   /** "If you do" / "If you don't": the optional instruction at path `decision`
    * of the preceding sentence (CR 608.2c-d). */
   | { node: "decision-link"; scope: string; condition: "you-do" | "you-dont"; decision: string }
+  /** Count eligible symbols of the looked-at object before offering its reveal. */
+  | { node: "colored-mana-symbol-count"; scope: string; card: string; guardedEvent: string;
+      comparison: Extract<Effect, { effect: "look-top-may-reveal-for-mana" }>["revealIf"] }
   /** "If it was kicked": the kicker ability printed on the same object the
    * condition refers to (CR 702.33e, 607.2). */
   | { node: "linked-ability"; scope: string; condition: "kicked"; ability: string }
@@ -96,7 +99,7 @@ export type BindingNode = NodeBase & (
       reveal: { actor: string; object: string }; shuffleInto: { actor: string; object: string; library: { zone: "library"; owner: string } } }
   | { node: "event-result"; event: string; result: "objects" | "quantity" | "player"; cardinality: BindingCardinality;
       description?: ObjectFilter;
-      /** The stopping match belongs to this scan's processed pool, if found. */
+      /** The result belongs to an earlier result's pool, if produced. */
       subsetOf?: string;
       /** Result sets can be empty when an instruction is impossible or replaced. */
       availability: "if-produced"; identity: "same-objects" | "zone-successors" | "new-objects" | "measured-quantity" }
@@ -147,7 +150,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play";
+  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

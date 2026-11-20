@@ -1,12 +1,13 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 mod mana_combination;
-pub use mana_combination::{validate_mana_combination,MANA_COMBINATION_COLORS};
+pub use mana_combination::{MANA_COMBINATION_COLORS, validate_mana_combination};
 pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod cascade_land_entry;
 mod granted_land_mana;
-mod unspent_mana;
 pub mod hand_cast_cascade;
+pub mod library_top_mana;
+mod unspent_mana;
 pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
@@ -19,7 +20,7 @@ pub use colored_library_search::{
     ColoredLibrarySearch, ColoredSearchAssignment, colored_library_program, colored_library_source,
 };
 mod color_hybrid_cost;
-pub use color_hybrid_cost::{ColorHybridSymbol, color_hybrid_cost};
+pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
 mod conditional_lands;
 mod cycling;
 pub use cycling::hand_discard_draw_activation;
@@ -266,6 +267,17 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 impl Characteristics {
+    /// Each colored hybrid or Phyrexian symbol counts once (CR 107.4e–f).
+    pub fn colored_mana_symbol_count(&self) -> Quantity {
+        let fixed = self
+            .mana_cost
+            .colored
+            .iter()
+            .filter(|color| **color != Color::C)
+            .count();
+        Quantity::from(fixed as i64 + self.hybrid_mana.len() as i64)
+    }
+
     pub fn printed_mana_value(&self) -> Quantity {
         let mut value = self.mana_cost.generic.clone();
         value.add(&Quantity::from(
@@ -316,6 +328,7 @@ pub enum Capability {
     ResolutionCastV1,
     CombatHandCastV1,
     CascadeV1,
+    LookTopMayRevealForManaV1,
     RevealAndCastV1,
     DemonstrateV1,
     StaticSpellCascadeGrantV1,
@@ -377,6 +390,7 @@ pub enum Capability {
     ControlledCreatureDamageReplacementV1,
     NormalLayoutV1,
     ColorHybridCostV1,
+    PhyrexianCostV1,
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -798,6 +812,11 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    LookTopMayRevealForMana {
+        minimum_symbols: Quantity,
+        mana: Quantity,
+        source_block: u32,
+    },
     GrantHandCastCascade {
         source_block: u32,
     },
@@ -1270,7 +1289,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::GrantHandCastCascade { source_block }
+            Self::LookTopMayRevealForMana { source_block, .. }
+            | Self::GrantHandCastCascade { source_block }
             | Self::OfferHandCastWithoutManaCost { source_block }
             | Self::Cascade { source_block, .. }
             | Self::RevealAndCast { source_block }
@@ -2050,6 +2070,7 @@ impl TypePredicate {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BeginningStep {
+    PrecombatMain,
     Upkeep,
     Draw,
     End,
@@ -2442,6 +2463,14 @@ impl Definition {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1]);
         if !self.characteristics.hybrid_mana.is_empty() {
             set.insert(Capability::ColorHybridCostV1);
+            if self
+                .characteristics
+                .hybrid_mana
+                .iter()
+                .any(|s| s.colors.contains(&HybridPayment::PayTwoLife))
+            {
+                set.insert(Capability::PhyrexianCostV1);
+            }
         }
         if self.characteristics.snow {
             set.insert(Capability::SnowSupertypeV1);
@@ -2755,6 +2784,25 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.provenance.source_sha256 == library_top_mana::SOURCE
+            || self
+                .capabilities
+                .contains(&Capability::LookTopMayRevealForManaV1)
+            || self.triggered.iter().any(|a| {
+                matches!(
+                    a.condition,
+                    TriggerCondition::StepBegan {
+                        step: BeginningStep::PrecombatMain,
+                        ..
+                    }
+                )
+            })
+        {
+            let expected = library_top_mana::frozen_definition()?;
+            return (*self == expected)
+                .then_some(())
+                .ok_or_else(|| "invalid library-top mana composition".into());
+        }
         let fixed_activations = fixed_creature_activation::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
@@ -4944,6 +4992,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             | Instruction::OfferHandCastWithoutManaCost { .. }
             | Instruction::Cascade { .. }
             | Instruction::Demonstrate { .. }
+            | Instruction::LookTopMayRevealForMana { .. }
             | Instruction::RevealAndCast { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
@@ -5531,6 +5580,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::GrantHandCastCascade { .. } => Capability::HandCastCascadeGrantV1,
             Instruction::OfferHandCastWithoutManaCost { .. } => Capability::CombatHandCastV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
+            Instruction::LookTopMayRevealForMana { .. } => Capability::LookTopMayRevealForManaV1,
             Instruction::RevealAndCast { .. } => Capability::RevealAndCastV1,
             Instruction::Demonstrate { .. } => Capability::DemonstrateV1,
             Instruction::GrantKeywordsSet {
@@ -7169,6 +7219,7 @@ pub fn catalog_schema() -> serde_json::Value {
     color_hybrid_cost::extend_schema(&mut schema);
     opening_placement::permit_composition(&mut schema);
     opening_placement::require_composition(&mut schema);
+    library_top_mana::extend_schema(&mut schema);
     schema
 }
 pub fn strict_read<T: de::DeserializeOwned>(json: &str) -> Result<T, String> {
@@ -7314,6 +7365,7 @@ mod tests {
             ResolutionCastV1,
             CombatHandCastV1,
             CascadeV1,
+            LookTopMayRevealForManaV1,
             RevealAndCastV1,
             DemonstrateV1,
             StaticSpellCascadeGrantV1,
@@ -7324,6 +7376,7 @@ mod tests {
             RandomBottomV1,
             NormalLayoutV1,
             ColorHybridCostV1,
+            PhyrexianCostV1,
             BasicLandManaV1,
             LandPlayV1,
             BaseCreatureV1,
@@ -8210,6 +8263,7 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(unspent_mana::witness(source));
+        definitions.push(library_top_mana::frozen_definition().unwrap());
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")

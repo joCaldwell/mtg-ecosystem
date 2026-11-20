@@ -960,7 +960,7 @@ struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cost_lock: Option<costs::CostLock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    hybrid_colors: Vec<Color>,
+    hybrid_colors: Vec<HybridPayment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1253,7 +1253,7 @@ pub enum Response {
         value: Quantity,
     },
     HybridCost {
-        colors: Vec<Color>,
+        colors: Vec<HybridPayment>,
     },
     SacrificeCost {
         object: ObjectId,
@@ -3025,7 +3025,13 @@ impl Game {
                 && entry.alternative_cost.is_none()
                 && entry.hybrid_colors.is_empty()
             {
-                return self.validate_hybrid_colors(entry.source.card, colors);
+                self.validate_hybrid_colors(entry.source.card, colors)?;
+                if !self.state.rules.players[player.0 as usize]
+                    .can_pay_life(&payments::phyrexian_life(colors))
+                {
+                    return Err("announced Phyrexian life payment is unpayable".into());
+                }
+                return Ok(());
             }
             return Err("invalid hybrid mana announcement".into());
         }

@@ -161,7 +161,7 @@ pub struct VisibleStackEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hybrid_colors: Vec<Color>,
+    pub hybrid_colors: Vec<HybridPayment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -594,7 +594,7 @@ pub enum PlayerResponse {
         keep: ObjectHandle,
     },
     HybridCost {
-        colors: Vec<Color>,
+        colors: Vec<HybridPayment>,
     },
     AnnounceX {
         value: Quantity,

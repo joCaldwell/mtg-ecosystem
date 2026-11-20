@@ -56,6 +56,7 @@ import { parseVoteResultCondition, parseVoteRiderChoice, voteReferencesResolved 
 import { parseOnePile, parsePileStep, pileReferencesResolved } from "./piles.ts";
 import { parseSearchZones } from "./search.ts";
 import { parseLibraryScan } from "./library-scan.ts";
+import { parseLibraryTopMana } from "./library-top-mana.ts";
 import { parseContextualLibraryPlacement, parseLibraryDepth, parseSameLibraryPlacement, parseSplitPairMember } from "./library-placement.ts";
 import { parseCounterChoice } from "./counter-choices.ts";
 import { parseRemoveCountedCounters } from "./counter-anaphora.ts";
@@ -150,6 +151,8 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
   const previousSubject = ctx.lastSubject;
   const previousPlayer = ctx.lastPlayer;
   const result = c.attempt((c): Sentence[] | null => {
+    const topMana = parseLibraryTopMana(c);
+    if (topMana) return [{ steps: [topMana] }];
     const sentences: Sentence[] = [];
     while (!c.done()) {
       const lastSentence = sentences.at(-1);
