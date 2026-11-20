@@ -967,14 +967,7 @@ impl Game {
                     .clone(),
                 current: self.handle_for(viewer, trigger.source).ok(),
             },
-            oracle_id: self
-                .state
-                .rules
-                .cards
-                .get(&trigger.source.card)
-                .ok_or("missing trigger physical source")?
-                .oracle_id
-                .clone(),
+            oracle_id: self.visible_ability_oracle_id(trigger.source)?.into(),
             ability: self.visible_trigger_ability(
                 viewer,
                 trigger.ability,
@@ -1187,6 +1180,18 @@ impl Game {
             .cloned()
             .ok_or_else(|| "object is not visible to this viewer".into())
     }
+    pub(super) fn visible_ability_oracle_id(&self, object: ObjectId) -> Result<&str, String> {
+        let effective = self.copiable_definition(object)?;
+        if !effective.oracle_id.starts_with("token:") {
+            return Ok(&effective.oracle_id);
+        }
+        let original = self.definition(object.card)?;
+        Ok(if original.oracle_id.starts_with("token:") {
+            ""
+        } else {
+            &original.oracle_id
+        })
+    }
     pub(super) fn visible_object(
         &self,
         viewer: PlayerId,
@@ -1362,14 +1367,7 @@ impl Game {
                             .clone(),
                         current: self.handle_for(viewer, instance.source).ok(),
                     },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&instance.source.card)
-                        .ok_or("missing triggered physical source")?
-                        .oracle_id
-                        .clone(),
+                    oracle_id: self.visible_ability_oracle_id(instance.source)?.into(),
                     ability: self.visible_trigger_ability(viewer, *ability, grant.as_ref())?,
                 }),
             ),
@@ -1391,14 +1389,7 @@ impl Game {
                             .clone(),
                         current: self.handle_for(viewer, instance.source).ok(),
                     },
-                    oracle_id: self
-                        .state
-                        .rules
-                        .cards
-                        .get(&instance.source.card)
-                        .ok_or("missing ability physical source")?
-                        .oracle_id
-                        .clone(),
+                    oracle_id: self.visible_ability_oracle_id(instance.source)?.into(),
                     ability: *ability,
                 }),
                 None,

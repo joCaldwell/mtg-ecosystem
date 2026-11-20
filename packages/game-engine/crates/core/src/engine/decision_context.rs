@@ -102,7 +102,7 @@ impl Game {
                 .join(" or ");
             return Some(DecisionSource {
                 kind,
-                oracle_id: definition.oracle_id.clone(),
+                oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
                 object: Some(self.handle_for(viewer, object).ok()?),
                 ability: None,
                 text: if self.has_granted_land_mana(object).unwrap_or(false) {
@@ -132,7 +132,7 @@ impl Game {
         };
         Some(DecisionSource {
             kind,
-            oracle_id: definition.oracle_id.clone(),
+            oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
             object: self.handle_for(viewer, object).ok(),
             ability,
             text,
@@ -380,7 +380,7 @@ impl Game {
         Some(DecisionContext {
             source: Some(DecisionSource {
                 kind: DecisionSourceKind::Effect,
-                oracle_id: definition.oracle_id.clone(),
+                oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
                 object: self.handle_for(viewer, object).ok(),
                 ability: None,
                 text: text.clone(),
