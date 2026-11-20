@@ -34,8 +34,8 @@ fn d2cd_archive_programs_and_explicit_whole_card_negatives() {
     for row in provenance["records"].as_array().unwrap() {
         let raw = std::fs::read_to_string(root.join(row["file"].as_str().unwrap())).unwrap();
         let positive = [
-            1408, 5072, 5815, 5904, 9239, 10788, 13375, 21257, 21408, 22914, 23644, 27705, 28258,
-            30695, 34896, 35516, 37667,
+            1408, 5072, 5815, 5904, 9239, 10788, 11449, 13375, 21257, 21408, 22914, 23644, 27705,
+            28258, 30695, 34896, 35516, 37667,
         ]
         .contains(&row["archive_line"].as_u64().unwrap());
         if !positive {

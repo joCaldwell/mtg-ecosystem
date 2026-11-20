@@ -225,7 +225,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(crate) fn extend_schema(schema: &mut Value) {
-    let effect = json!({"required":["modify_creatures"],"properties":{"modify_creatures":{"required":["scope"],"properties":{
+    let effect = json!({"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["scope"],"properties":{
         "scope":{"type":"object","required":["controlled_subtype"]}
     }}}});
     let contains_ability = |predicate| {
