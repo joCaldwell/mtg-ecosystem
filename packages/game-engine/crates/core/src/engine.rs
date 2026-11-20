@@ -340,12 +340,14 @@ mod actions;
 mod divided_counters;
 pub use divided_counters::CounterDivision;
 mod cascade;
+mod reveal_and_cast;
+use reveal_and_cast::RevealAndCastProgress;
 mod hand_cast;
 use hand_cast::HandCastPermission;
 #[cfg(test)]
 mod cascade_tests;
 mod casting;
-use cascade::{CascadeProgress, CastCompletion, CastPermission};
+use cascade::{CascadeProgress, CastCompletion, CastOwner, CastPermission};
 #[cfg(test)]
 mod cast_origin_tests;
 #[cfg(test)]
@@ -1066,6 +1068,9 @@ enum Frame {
         scope: ManaSourceScope,
         resume: Box<Frame>,
     },
+    RevealAndCast {
+        progress: Box<RevealAndCastProgress>,
+    },
     HandCast {
         frame: Box<Resolving>,
         child: Option<StackId>,
@@ -1247,6 +1252,9 @@ pub enum Response {
     },
     SearchLandBattlefield {
         object: ObjectId,
+    },
+    ChooseOpponent {
+        opponent: PlayerId,
     },
     OptionalEffect {
         perform: bool,
@@ -1440,6 +1448,11 @@ pub enum Request {
         maximum: u32,
         candidates: Vec<ObjectId>,
     },
+    ChooseOpponent {
+        decision_id: u64,
+        player: PlayerId,
+        candidates: Vec<PlayerId>,
+    },
     OptionalEffect {
         decision_id: u64,
         player: PlayerId,
@@ -1601,6 +1614,7 @@ impl Request {
             | Self::SearchLands { decision_id, .. }
             | Self::CascadeLandEntry { decision_id, .. }
             | Self::SearchLandBattlefield { decision_id, .. }
+            | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
@@ -1645,6 +1659,7 @@ impl Request {
             | Self::SearchLands { player, .. }
             | Self::CascadeLandEntry { player, .. }
             | Self::SearchLandBattlefield { player, .. }
+            | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
@@ -1677,6 +1692,14 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    RevealLibraryCard {
+        player: PlayerId,
+        object: ObjectId,
+    },
+    BottomRevealedCards {
+        player: PlayerId,
+        order: Vec<ObjectId>,
+    },
     FreezeLifeUntilNextTurn {
         player: PlayerId,
     },
@@ -1927,6 +1950,14 @@ pub enum EventOutcome {
     CounterPlacementModified {
         application: CounterPlacementApplication,
     },
+    LibraryCardRevealed {
+        player: PlayerId,
+        object: ObjectId,
+    },
+    RevealedCardsBottomed {
+        player: PlayerId,
+        order: Vec<ObjectId>,
+    },
     SearchLandsRevealed {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -2163,6 +2194,10 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    Demonstrated {
+        first: spell_copy::CopyIdentity,
+        opponent: Option<spell_copy::CopyIdentity>,
+    },
     SpellCopied {
         copy: StackId,
     },
@@ -2747,7 +2782,7 @@ impl Game {
         if let Some(req) = self.hand_cast_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
-        if let Some(req) = self.cascade_request()? {
+        if let Some(req) = self.resolution_cast_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
         let req = match &self.state.rules.frame {
@@ -2907,6 +2942,9 @@ impl Game {
         }
         if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
             return self.validate_resolution_payment_response(payment, player, response);
+        }
+        if let Frame::RevealAndCast { progress } = &self.state.rules.frame {
+            return self.validate_reveal_offer(progress, player, response);
         }
         if matches!(&self.state.rules.frame, Frame::HandCast { .. }) {
             return self.validate_hand_cast_response(player, response);
@@ -3210,6 +3248,7 @@ impl Game {
         }
         match self.state.rules.frame.clone() {
             Frame::LandEntry { .. } => self.land_entry_step()?,
+            Frame::RevealAndCast { progress } => self.reveal_and_cast_step(progress)?,
             Frame::HandCast { frame, child } => self.hand_cast_step(frame, child)?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
             Frame::ResolutionPayment { frame, payment } => {
@@ -3571,7 +3610,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 66,
+            snapshot_version: 67,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3613,7 +3652,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 66
+        if s.snapshot_version != 67
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

@@ -206,22 +206,6 @@ impl Game {
         if !perform {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        let index = u32::try_from(
-            self.state
-                .rules
-                .libraries
-                .get(&player)
-                .map_or(0, |l| l.len().saturating_sub(1)),
-        )
-        .map_err(|_| "shuffle length resource limit")?;
-        self.state.rules.frame = Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::Shuffle {
-                player,
-                index,
-                source_block,
-            },
-        };
-        Ok(())
+        self.begin_library_shuffle(frame, source_block)
     }
 }

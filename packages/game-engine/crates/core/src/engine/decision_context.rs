@@ -214,6 +214,9 @@ impl Game {
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
+            (Frame::RevealAndCast { progress }, PlayerRequest::OptionalEffect { .. }) => {
+                &progress.frame.spell
+            }
             (Frame::HandCast { frame, .. }, PlayerRequest::HandCast { .. }) => &frame.spell,
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
@@ -280,6 +283,7 @@ impl Game {
                 .collect();
         }
         let block = match &self.state.rules.frame {
+            Frame::RevealAndCast { progress } => Some(progress.source_block),
             Frame::ResolutionPayment { frame, .. }
             | Frame::ResolutionChoice { frame, .. }
             | Frame::OptionalDamage { frame } => {

@@ -579,7 +579,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 43,
+                    observation_version: 44,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -866,6 +866,10 @@ impl Game {
                         (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
                             matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
                         }
+                        (
+                            Frame::RevealAndCast { progress },
+                            PlayerResponse::OptionalEffect { .. },
+                        ) => progress.permission().is_ok(),
                         (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
                             progress.stage == cascade::CascadeStage::Offer
                         }
@@ -896,7 +900,14 @@ impl Game {
                             Frame::TriggerTargets { .. },
                             PlayerResponse::PlayerTargets { players },
                         ) => players.len() == self.program().map_err(invalid)?.targets.len(),
-                        (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
+                        (
+                            Frame::ResolutionChoice {
+                                choice: ResolutionChoice::Demonstrate { first: Some(_), .. },
+                                ..
+                            },
+                            PlayerResponse::ChooseOpponent { .. },
+                        )
+                        | (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
                             Frame::ResolutionChoice { .. },
@@ -1117,7 +1128,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 43,
+                            observation_version: 44,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1153,7 +1164,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 39,
+                    context_version: 40,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1172,7 +1183,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 39,
+            work_version: 40,
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1181,7 +1192,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 39
+        if saved.work_version != 40
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
