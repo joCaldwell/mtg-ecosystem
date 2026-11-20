@@ -50,18 +50,13 @@ impl Game {
         })
     }
 
-    pub(super) fn printed_protection_colors(
+    pub(super) fn effective_protection_colors(
         &self,
         object: ObjectId,
-    ) -> impl Iterator<Item = Color> + '_ {
-        self.copiable_definition(object)
+    ) -> impl Iterator<Item = Color> {
+        self.current_keywords(object)
             .into_iter()
-            .flat_map(|definition| {
-                definition
-                    .keywords
-                    .iter()
-                    .filter_map(|k| k.fixed_protection_color())
-            })
+            .filter_map(KeywordAbility::fixed_protection_color)
     }
 
     pub(super) fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
@@ -71,7 +66,7 @@ impl Game {
             .is_ok_and(|o| o.present_on_battlefield())
             && (self.printed_protection_from_everything(target)
                 || self
-                    .printed_protection_colors(target)
+                    .effective_protection_colors(target)
                     .any(|color| source.colors.contains(&color))
                 || (!self.state.rules.effects.is_empty()
                     && Self::has_color(source)

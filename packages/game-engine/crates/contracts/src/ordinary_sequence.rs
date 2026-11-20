@@ -585,12 +585,13 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
 pub(crate) fn validate(d: &Definition) -> Result<(), String> {
     let nested = |p: &SpellProgram| p.modes.iter().any(|m| program(&m.program));
     if d.spell.as_ref().is_some_and(nested)
-        || d.activated
-            .iter()
-            .any(|a| program(&a.program) || nested(&a.program))
-        || d.triggered
-            .iter()
-            .any(|a| program(&a.program) || nested(&a.program))
+        || d.activated.iter().any(|a| {
+            !ability_sequence::activation(a) && (program(&a.program) || nested(&a.program))
+        })
+        || d.triggered.iter().any(|a| {
+            !ability_sequence::trigger(a, d.characteristics.kind)
+                && (program(&a.program) || nested(&a.program))
+        })
     {
         return Err("ordinary scalar sequences may only be the main spell program".into());
     }

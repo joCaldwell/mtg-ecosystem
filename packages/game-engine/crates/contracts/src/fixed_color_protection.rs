@@ -27,7 +27,7 @@ pub fn color_name(color: Color) -> Option<&'static str> {
         .find_map(|(c, name, _)| (*c == color).then_some(*name))
 }
 
-fn keyword_for_color(name: &str) -> Option<KeywordAbility> {
+pub(super) fn keyword_for_color(name: &str) -> Option<KeywordAbility> {
     COLORS
         .iter()
         .find_map(|(_, color, keyword)| (*color == name).then_some(*keyword))
@@ -174,6 +174,12 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let words = COLORS.map(|(_, _, keyword)| keyword);
     let fixed = json!({"contains":{"enum":words}});
     let cap = json!({"contains":{"const":Capability::FixedColorProtectionV1}});
+    let attached = json!({"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["scope","keywords"],"properties":{
+        "scope":{"enum":["equipped","enchanted"]},"keywords":fixed
+    }}}});
+    let has_grant = json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{
+        "required":["effect"],"properties":{"effect":attached}
+    }}}});
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()
@@ -185,7 +191,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},
                 "capabilities":cap
             }},
-            "else":{"properties":{"capabilities":{"not":cap}}}
+            "else":{"if":has_grant,"then":{"properties":{"capabilities":cap}},"else":{"properties":{"capabilities":{"not":cap}}}}
         }));
     let intrinsic_only = json!({"items":{"not":{"enum":words}}});
     schema["$defs"]["CreatureToken"]["allOf"]
@@ -195,7 +201,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["StaticEffect"]["allOf"]
         .as_array_mut()
         .unwrap()
-        .push(
-            json!({"properties":{"modify_creatures":{"properties":{"keywords":intrinsic_only}}}}),
-        );
+        .push(json!({"properties":{"modify_creatures":{
+            "if":{"properties":{"scope":{"enum":["equipped","enchanted"]}}},
+            "else":{"properties":{"keywords":intrinsic_only}}
+        }}}));
 }

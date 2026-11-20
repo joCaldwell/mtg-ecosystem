@@ -227,8 +227,8 @@ describe("results tables remain conditional parts of the original ability", () =
       assert.equal(parseOracleText(text).ok, false, text);
     assert.deepEqual(table(["1 | Bad Luck! — Draw a card."])?.rows[0].label, "Bad Luck!");
   });
-  it("keeps event/result/table bindings explicitly unresolved", () => {
-    const result = parsed("Roll a d20. Draw cards equal to the result.");
+  it("keeps a result explicitly unresolved when multiple rolls can supply it", () => {
+    const result = parsed("Roll a d20. Roll a d20. Draw cards equal to the result.");
     const graph = analyzeCardBindings({ identity: "fixture", source: { name: "Fixture", type_line: "Sorcery", layout: "normal" }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(graph.fullyBound, false);
     assert.ok(graph.diagnostics.some(diagnostic => diagnostic.message.includes("exact roll occurrence")), JSON.stringify(graph));
