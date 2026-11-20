@@ -96,12 +96,19 @@ pub fn present(d: &Definition) -> bool {
 }
 
 pub(super) fn validate(d: &Definition) -> Result<bool, String> {
-    if !present(d) && !d.provenance.source_json.contains(PAID) {
+    let has_ability = present(d);
+    if !has_ability
+        && !d.provenance.source_json.contains(PAID)
+        && !d.provenance.source_json.contains(r"\u")
+    {
         return Ok(false);
     }
     let bad = "requires complete Forest entry and separate printed free and restricted paid mana";
     let raw: Value = strict_read(&d.provenance.source_json)?;
     let text = raw["oracle_text"].as_str().ok_or(bad)?;
+    if !has_ability && !text.lines().any(|line| line == PAID) {
+        return Ok(false);
+    }
     let ast = source(text).ok_or(bad)?;
     let c = &d.characteristics;
     if c.kind != CardKind::Land

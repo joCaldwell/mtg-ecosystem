@@ -39,12 +39,16 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
     if !present
         && !d.provenance.source_json.contains(CLAUSE)
         && !d.provenance.source_json.contains(PUMP_TAIL)
+        && !d.provenance.source_json.contains(r"\u")
     {
         return Ok(false);
     }
     let bad = "requires exact controlled land entry and mandatory Proliferate";
     let raw: Value = strict_read(&d.provenance.source_json)?;
     let text = raw["oracle_text"].as_str().ok_or(bad)?;
+    if !present && !(text.contains(CLAUSE) || text.contains(PUMP_TAIL)) {
+        return Ok(false);
+    }
     let timing = if d.characteristics.kind == CardKind::Instant {
         SpellTiming::Instant
     } else {

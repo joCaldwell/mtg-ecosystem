@@ -75,12 +75,18 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
     let present = d.activated.iter().any(|a| has(&a.program))
         || d.spell.iter().any(has)
         || d.triggered.iter().any(|a| has(&a.program));
-    if !present && !d.provenance.source_json.contains(SUFFIX) {
+    if !present
+        && !d.provenance.source_json.contains(SUFFIX)
+        && !d.provenance.source_json.contains(r"\u")
+    {
         return Ok(false);
     }
     let bad = "requires the complete single tap ability setting one target color until end of turn";
     let raw: Value = strict_read(&d.provenance.source_json)?;
     let text = raw["oracle_text"].as_str().ok_or(bad)?;
+    if !present && !text.contains(SUFFIX) {
+        return Ok(false);
+    }
     let (ability, ast) = source(text).ok_or(bad)?;
     let c = &d.characteristics;
     let type_line = match c.kind {

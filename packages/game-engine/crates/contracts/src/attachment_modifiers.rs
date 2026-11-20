@@ -250,6 +250,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     if actual == 0
         && !d.provenance.source_json.contains(" creature gets ")
         && !d.provenance.source_json.contains(LEGENDARY_GRANT)
+        && !d.provenance.source_json.contains(r"\u")
         && !d
             .provenance
             .source_json
