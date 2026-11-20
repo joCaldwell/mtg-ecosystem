@@ -891,11 +891,11 @@ impl Strategy<'_> {
                                 .find(|o| &o.handle == object)
                                 .is_some_and(|o| sets.iter().any(|set| self.in_set(v, o, set))),
                         };
-                        if hit {
-                            damage.add(&self.scaled_damage(
-                                v,
-                                &self.wipe_amount(v, amount, &s.x.clone().unwrap_or_default()),
-                            ));
+                        if hit
+                            && let Some(amount) =
+                                self.wipe_amount(v, amount, &s.x.clone().unwrap_or_default())
+                        {
+                            damage.add(&self.scaled_damage(v, &amount));
                         }
                     }
                     _ => {}
