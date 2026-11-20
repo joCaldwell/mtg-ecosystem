@@ -19,6 +19,19 @@ fn self_graveyard_reveal_shuffle_exact_archive() {
         CompileResult::Unsupported { path, .. } if path == "binding"
     ));
 
+    let teferi =
+        include_str!("../../../../tests/fixtures/ramos/0d4ecdb1-ec90-497f-a7a4-1c68092b8757.json");
+    let compiled = compile(HISTORICAL_HEADER, teferi);
+    let CompileResult::Lowered { definition } = compiled else {
+        panic!("player protection must still lower: {compiled:?}");
+    };
+    assert!(definition.keywords.is_empty());
+    assert!(
+        !definition
+            .capabilities
+            .contains(&Capability::SelfGraveyardRevealShuffleV1)
+    );
+
     let Some(path) = std::env::var_os("MTG_SELF_GRAVEYARD_SHUFFLE_ARCHIVE_PROBE") else {
         eprintln!("Self graveyard shuffle private archive probe was not supplied");
         return;
