@@ -314,5 +314,16 @@
       "7dfd41d3e74f43782b0c81fc9bfd3af1a70e410c20584633a6dcd345b1244090",
       "b2989c7daaaab1e88134a595a54ce6db1549d4dab4c1798b0095f8980299bde7"
     ]
+  },
+  {
+    "manifest_file": "archive-manifest-cast-mana-value-sweep.json",
+    "manifest_sha256": "2dfbf2e65c8e56743f0aaf8a432e05286a4b90ef37b1dd5e5e04e5e1a96a0ca4",
+    "file_sha256": "47e7bd830e97010eade2f758d51631f8fb211638945b40799d6e17cd9ff79f84",
+    "parser_revision": "908371015970bad6211327e69406435a16fdf2ab",
+    "parser_source_sha256": "92fd7628aa5b36ae8817d05597305c928f58de60e39f4076f029e7712f6e7995",
+    "corpus_sha256": "6d0f8d3ed07540f1a205cdeebe6aa8438508a0b3607dd594427d87d5513d7d92",
+    "record_sha256": [
+      "2df6ba718258e19da7296786458c8f24f3bf56421272b6e15a63b4baea44a4ab"
+    ]
   }
 ]

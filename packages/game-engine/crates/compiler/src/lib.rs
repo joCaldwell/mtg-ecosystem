@@ -14,6 +14,7 @@ mod announced_x_effects;
 mod announced_x_effects_tests;
 mod bindings;
 mod cast_entry;
+mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 pub mod catalog;
@@ -2327,6 +2328,22 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     optional_costs::append(&mut program, effects, block, &mut slots)?;
                 }
             }
+            // Multiple intrinsic instances on a spell are reviewed only with this
+            // complete sweep. Definition validation also binds source, AST and block indices.
+            if definition.triggered.len() == 2
+                && !matches!(
+                    program.instructions.as_slice(),
+                    [Instruction::DamageSet {
+                        amount: WipeAmount::OtherCastsManaValue,
+                        ..
+                    }]
+                )
+            {
+                return Err(unsupported(
+                    "abilities.keywords",
+                    "unsupported spell keyword combination",
+                ));
+            }
             definition.spell = Some(program);
         }
     }
@@ -2505,6 +2522,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     definition
         .validate()
         .map_err(|e| unsupported("definition", e))?;
+    if definition
+        .capabilities
+        .contains(&Capability::CastManaValueSweepV1)
+    {
+        cast_mana_value_sweep::validate_binding(&definition.oracle_id, &shape, &binding)?;
+    }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
     own_graveyard_card_return::validate_binding(&definition, &shape, &binding)?;
@@ -4023,8 +4046,15 @@ fn lower_wipes_step(
                 if counted {
                     return Err(unsupported("binding", "unused X"));
                 }
-                WipeAmount::Fixed {
-                    value: fixed_positive_value(amount)?,
+                if *amount
+                    == json!({"amount":"cast-mana-value-sum","who":{"player":"you"},
+                    "during":"this-turn","excluding":{"ref":"this","noun":"spell"}})
+                {
+                    WipeAmount::OtherCastsManaValue
+                } else {
+                    WipeAmount::Fixed {
+                        value: fixed_positive_value(amount)?,
+                    }
                 }
             };
             Instruction::DamageSet {
