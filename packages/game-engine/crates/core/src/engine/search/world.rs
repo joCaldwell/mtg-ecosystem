@@ -194,6 +194,7 @@ impl SampleBuildWork {
                 .players
                 .get_mut(row.player.0 as usize)
                 .ok_or_else(|| invariant("public player"))?;
+            p.life_frozen_until_next_turn = row.life_frozen_until_next_turn;
             p.life = row.life.clone();
             p.mana = row.mana.clone();
             p.status = row.status;
@@ -229,6 +230,11 @@ impl SampleBuildWork {
         }
         let mut rows = vec![];
         for object in &view.objects {
+            if object.phased_out {
+                return Err(invariant(
+                    "world reconstruction requires private phasing return authority",
+                ));
+            }
             if matches!(object.zone, Zone::Library { .. } | Zone::Stack)
                 || matches!(object.zone,Zone::Hand{owner} if owner!=view.viewer)
             {
@@ -366,6 +372,7 @@ impl SampleBuildWork {
             self.game.state.rules.objects.insert(
                 id,
                 Object {
+                    phased_out: None,
                     attached_to: None,
                     attachment_timestamp: None,
                     keyword_timestamp: None,

@@ -42,13 +42,11 @@ impl Game {
         life: &Quantity,
     ) -> Result<(), String> {
         let object = self.current(source)?;
-        if object.zone != Zone::Battlefield
+        if !object.present_on_battlefield()
             || object.controller != player
             || !self.is_live(player)
             || object.tapped
-            || life.is_negative()
-            || (*life > Quantity::zero()
-                && self.state.rules.players[player.0 as usize].life < *life)
+            || !self.state.rules.players[player.0 as usize].can_pay_life(life)
         {
             return Err("unpayable source tap, life and sacrifice cost".into());
         }

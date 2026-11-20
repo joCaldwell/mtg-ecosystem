@@ -86,7 +86,7 @@ impl Game {
             if let Some((_, selector)) = ability.effect.counted_generic_reduction() {
                 let mut count = 0u32;
                 for object in self.state.rules.objects.values() {
-                    if object.zone == Zone::Battlefield
+                    if object.present_on_battlefield()
                         && (selector.controller == CountController::Any
                             || object.controller == caster)
                         && self

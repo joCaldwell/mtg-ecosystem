@@ -18,7 +18,7 @@ impl Game {
                     return matches!(o.zone, Zone::Graveyard { .. })
                         && !self.state.rules.tokens.contains_key(&o.id.card);
                 }
-                if o.zone != Zone::Battlefield {
+                if !o.present_on_battlefield() {
                     return false;
                 }
 
@@ -166,7 +166,7 @@ impl Game {
                     if from_graveyards {
                         matches!(o.zone, Zone::Graveyard { .. })
                     } else {
-                        o.zone == Zone::Battlefield
+                        o.present_on_battlefield()
                     }
                 })
             })
@@ -432,7 +432,7 @@ impl Game {
             Instruction::UntapControllerLands { source_block } => {
                 let mut occurrences = Vec::new();
                 for object in self.state.rules.objects.values() {
-                    if object.zone == Zone::Battlefield
+                    if object.present_on_battlefield()
                         && object.tapped
                         && object.controller == frame.spell.controller
                         && self

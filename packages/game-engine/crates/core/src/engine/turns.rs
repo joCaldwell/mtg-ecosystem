@@ -242,7 +242,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield && self.is_live(o.controller))
+            .filter(|o| o.present_on_battlefield() && self.is_live(o.controller))
         {
             let controlled = source.controller == player;
             for ability in &self.definition(source.id.card)?.static_abilities {
@@ -289,7 +289,7 @@ impl Game {
                     .objects
                     .values()
                     .filter(|object| {
-                        object.zone == Zone::Battlefield
+                        object.present_on_battlefield()
                             && object.tapped
                             && Some(object.controller) == self.state.rules.active
                     })

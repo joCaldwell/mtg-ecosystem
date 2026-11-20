@@ -22,7 +22,9 @@ pub use advance_report::*;
 pub use match_admission::*;
 mod commander_policy;
 mod optional_costs;
+mod phasing;
 pub use commander_policy::policy_digest;
+pub use phasing::{PhaseReturn, PhasingSchedule};
 #[cfg(test)]
 mod activated_permanent_return_tests;
 #[cfg(test)]
@@ -875,11 +877,30 @@ impl Prepared {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Player {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    life_frozen_until_next_turn: bool,
     failed_draw: bool,
     life: Quantity,
     mana: BTreeMap<Color, Quantity>,
     status: PlayerStatus,
     last_known: Option<PlayerLastKnown>,
+}
+impl Player {
+    fn can_pay_life(&self, amount: &Quantity) -> bool {
+        *amount == Quantity::zero()
+            || (*amount > Quantity::zero()
+                && !self.life_frozen_until_next_turn
+                && self.life >= *amount)
+    }
+    // CR 119.8, 120.3a: damage still occurs at its full amount. Only the
+    // resulting life change is prohibited.
+    fn lose_life(&mut self, amount: &Quantity) -> (Quantity, Quantity) {
+        let previous = self.life.clone();
+        if !self.life_frozen_until_next_turn {
+            self.life.subtract(amount);
+        }
+        (previous, self.life.clone())
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -890,6 +911,8 @@ struct Card {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Object {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    phased_out: Option<PhaseReturn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attached_to: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -907,6 +930,11 @@ struct Object {
     default_controller: PlayerId,
     zone: Zone,
     tapped: bool,
+}
+impl Object {
+    fn present_on_battlefield(&self) -> bool {
+        self.zone == Zone::Battlefield && self.phased_out.is_none()
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1648,6 +1676,12 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    FreezeLifeUntilNextTurn {
+        player: PlayerId,
+    },
+    PhaseOutControlled {
+        controller: PlayerId,
+    },
     RevealSearchLands {
         player: PlayerId,
         objects: Vec<ObjectId>,
@@ -1876,6 +1910,16 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    LifeFrozenUntilNextTurn {
+        player: PlayerId,
+    },
+    LifeChangeProhibited {
+        player: PlayerId,
+    },
+    PermanentsPhasedOut {
+        controller: PlayerId,
+        members: Vec<(ObjectId, PhaseReturn)>,
+    },
     CounterPlacementModified {
         application: CounterPlacementApplication,
     },
@@ -2075,6 +2119,8 @@ pub enum EventOutcome {
         current: u32,
     },
     TurnTransitioned {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        phased_in: Vec<ObjectId>,
         previous: TurnState,
         current: TurnState,
         previous_owner: PlayerId,
@@ -2375,6 +2421,7 @@ impl Game {
                 (
                     c.id,
                     Object {
+                        phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
                         keyword_timestamp: None,
@@ -2420,6 +2467,7 @@ impl Game {
                 rule_steps: 0,
                 players: (0..4)
                     .map(|p| Player {
+                        life_frozen_until_next_turn: false,
                         failed_draw: false,
                         life: prepared.config.initial_life(PlayerId(p)),
                         mana: BTreeMap::new(),
@@ -2561,6 +2609,9 @@ impl Game {
     /// window's offered sources to decide what can be activated now.
     pub fn mana_abilities(&self, object: ObjectId) -> Result<Vec<Color>, String> {
         let o = self.current(object)?;
+        if !o.present_on_battlefield() {
+            return Ok(vec![]);
+        }
         let mut colors = self.intrinsic_mana_colors(object)?;
         let mixed = !colors.is_empty();
         if o.zone == Zone::Battlefield {
@@ -2605,7 +2656,7 @@ impl Game {
             .ok_or_else(|| "stale or absent object incarnation".into())
     }
     fn is_battlefield_creature(&self, id: ObjectId) -> bool {
-        self.current(id).is_ok_and(|o| o.zone == Zone::Battlefield)
+        self.current(id).is_ok_and(|o| o.present_on_battlefield())
             && self
                 .characteristics(id)
                 .is_ok_and(|c| c.kind == CardKind::Creature)
@@ -3289,6 +3340,18 @@ impl Game {
                             };
                             return Ok(());
                         }
+                        Instruction::ExileResolvingSpell { .. } => {
+                            if !stack.kind.is_spell()
+                                || stack.paid.is_none()
+                                || frame.cursor as usize + 1 != program.instructions.len()
+                            {
+                                return Err(
+                                    "self exile requires the final instruction of a paid spell"
+                                        .into(),
+                                );
+                            }
+                            return self.finish_spell(&stack, true);
+                        }
                         Instruction::Cascade { source_block, .. } => {
                             return self.begin_cascade(frame, *source_block);
                         }
@@ -3391,6 +3454,13 @@ impl Game {
             let destination =
                 if resolved && self.program_for(stack)?.resolution == SpellResolution::Permanent {
                     Zone::Battlefield
+                } else if resolved
+                    && matches!(
+                        self.program_for(stack)?.instructions.last(),
+                        Some(Instruction::ExileResolvingSpell { .. })
+                    )
+                {
+                    Zone::Exile
                 } else {
                     Zone::Graveyard { owner }
                 };
@@ -3565,6 +3635,19 @@ impl Game {
     }
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
+        self.validate_phasing_state()?;
+        if self.state.rules.players.iter().any(|p| {
+            p.life_frozen_until_next_turn
+                && (p.status != PlayerStatus::Live
+                    || !self
+                        .prepared
+                        .catalog
+                        .definitions
+                        .iter()
+                        .any(|d| d.capabilities.contains(&Capability::ControllerLifeFreezeV1)))
+        }) {
+            return Err("life freeze requires a live player and a supporting catalog".into());
+        }
         let s = &self.state;
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.

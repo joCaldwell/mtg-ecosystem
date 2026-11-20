@@ -56,6 +56,8 @@ mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
 mod artifact_modal;
+mod controlled_phasing;
+pub use controlled_phasing::controller_window_instructions;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
@@ -284,6 +286,10 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    ExileResolvingSpellV1,
+    ControllerProtectionUntilNextTurnV1,
+    ControllerLifeFreezeV1,
+    ControlledPermanentPhasingV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
@@ -816,6 +822,18 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    ExileResolvingSpell {
+        source_block: u32,
+    },
+    ProtectControllerUntilNextTurn {
+        source_block: u32,
+    },
+    FreezeControllerLifeUntilNextTurn {
+        source_block: u32,
+    },
+    PhaseOutControllerPermanents {
+        source_block: u32,
+    },
     MoveSet {
         set: ObjectSet,
         action: SetMove,
@@ -1218,7 +1236,11 @@ impl Instruction {
             | Self::Scry { source_block, .. }
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
-            Self::MoveSet { source_block, .. } => *source_block,
+            Self::ExileResolvingSpell { source_block }
+            | Self::ProtectControllerUntilNextTurn { source_block }
+            | Self::FreezeControllerLifeUntilNextTurn { source_block }
+            | Self::PhaseOutControllerPermanents { source_block }
+            | Self::MoveSet { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
@@ -2687,6 +2709,7 @@ impl Definition {
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
         targeted_game_loss::validate_definition(self)?;
+        controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
@@ -4609,7 +4632,11 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
     for instruction in &p.instructions {
         let binding = match instruction {
-            Instruction::MoveSet { .. }
+            Instruction::ExileResolvingSpell { .. }
+            | Instruction::ProtectControllerUntilNextTurn { .. }
+            | Instruction::FreezeControllerLifeUntilNextTurn { .. }
+            | Instruction::PhaseOutControllerPermanents { .. }
+            | Instruction::MoveSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
@@ -5387,6 +5414,16 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::ExileResolvingSpell { .. } => Capability::ExileResolvingSpellV1,
+            Instruction::ProtectControllerUntilNextTurn { .. } => {
+                Capability::ControllerProtectionUntilNextTurnV1
+            }
+            Instruction::FreezeControllerLifeUntilNextTurn { .. } => {
+                Capability::ControllerLifeFreezeV1
+            }
+            Instruction::PhaseOutControllerPermanents { .. } => {
+                Capability::ControlledPermanentPhasingV1
+            }
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
@@ -6943,6 +6980,7 @@ pub fn catalog_schema() -> serde_json::Value {
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
+    controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
@@ -7133,6 +7171,10 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            ExileResolvingSpellV1,
+            ControllerProtectionUntilNextTurnV1,
+            ControllerLifeFreezeV1,
+            ControlledPermanentPhasingV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
@@ -7702,6 +7744,38 @@ mod tests {
         definitions.push(targeted_discard::random_witness());
         definitions.push(group_discard::witness());
         definitions.push(opponent_life_drain::witness());
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controlled-phasing-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controller-life-freeze-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controller-protection-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-self-exile-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
         definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
         definitions.push(library_selection::witness());

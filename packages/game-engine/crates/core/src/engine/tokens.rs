@@ -341,6 +341,7 @@ impl Game {
                     self.state.rules.objects.insert(
                         card,
                         Object {
+                            phased_out: None,
                             attached_to: None,
                             attachment_timestamp: None,
                             keyword_timestamp: Some(self.state.rules.next_batch_id),

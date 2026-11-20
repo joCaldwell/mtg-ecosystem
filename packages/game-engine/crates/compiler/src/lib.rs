@@ -30,6 +30,7 @@ mod controller_library;
 mod controller_scry_tests;
 #[cfg(test)]
 mod controller_surveil_tests;
+mod controller_window;
 mod counter_spell_controller_mill;
 #[cfg(test)]
 mod counter_spell_controller_mill_tests;
@@ -201,6 +202,8 @@ enum Ability {
     DividedPlusOneCountersModal,
     #[serde(skip)]
     CommanderModalKeyword,
+    #[serde(skip)]
+    ControllerWindowBlock,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1461,7 +1464,11 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         noun,
         "/faces/0/abilities",
     )?;
-    let abilities = if commander_modal_keyword::validate(&shape, &result, &binding)? {
+    let controller_window =
+        controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let abilities = if controller_window.is_some() {
+        vec![Ability::ControllerWindowBlock; 2]
+    } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
         vec![Ability::CommanderModalKeyword]
     } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
         vec![Ability::DividedPlusOneCountersModal]
@@ -1745,6 +1752,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if controller_window.is_some() => {
+            definition.spell = controller_window;
+        }
         CardKind::Sorcery | CardKind::Instant if set_exile.is_some() => {
             definition.spell = set_exile;
         }

@@ -71,6 +71,8 @@ pub struct DecisionToken(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisiblePlayer {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub life_frozen_until_next_turn: bool,
     /// Public viewer handles, grouped by physical owner (CR406.1–3).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exile: Vec<ObjectHandle>,
@@ -86,6 +88,8 @@ pub struct VisiblePlayer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleObject {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub phased_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_ability_used: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1044,6 +1048,7 @@ impl Game {
             .map_err(|_| "zone count resource limit".to_string())
         };
         Ok(VisiblePlayer {
+            life_frozen_until_next_turn: p.life_frozen_until_next_turn,
             exile: vec![],
             library_shuffles: self
                 .state
@@ -1089,6 +1094,7 @@ impl Game {
             .get(&object.id.card)
             .ok_or("missing object definition")?;
         Ok(Some(VisibleObject {
+            phased_out: object.phased_out.is_some(),
             attached_to: object
                 .attached_to
                 .filter(|t| self.current(*t).is_ok())
