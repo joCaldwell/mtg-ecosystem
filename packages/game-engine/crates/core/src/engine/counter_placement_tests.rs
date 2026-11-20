@@ -463,9 +463,10 @@ fn counter_placement_synthetic_three_prefix_snapshots_stale_foreign_and_forged_r
         let Frame::CounterPlacement { transaction: tx } = &g.state.rules.frame else {
             panic!()
         };
-        assert_eq!(tx.applications.len(), 1);
-        assert_eq!(tx.original_amount, 3.into());
-        assert_eq!(tx.amount, Quantity::from(if add_first { 4 } else { 6 }));
+        let member = &tx.members[0];
+        assert_eq!(member.applications.len(), 1);
+        assert_eq!(member.original_amount, 3.into());
+        assert_eq!(member.amount, Quantity::from(if add_first { 4 } else { 6 }));
         assert!(g.restore_work(&saved).is_err());
         assert!(matches!(
             g.resume_work(work, Budget::unlimited()),
@@ -475,7 +476,7 @@ fn counter_placement_synthetic_three_prefix_snapshots_stale_foreign_and_forged_r
             g.check_player_response(PlayerId(0), token, response, Budget::unlimited()),
             QueryResult::Rejected(_)
         ));
-        let applied = tx.applications[0].effect.clone();
+        let applied = member.applications[0].effect.clone();
         assert!(
             g.validate_counter_placement_response(PlayerId(0), &applied)
                 .is_err()
@@ -486,17 +487,19 @@ fn counter_placement_synthetic_three_prefix_snapshots_stale_foreign_and_forged_r
             let Frame::CounterPlacement { transaction: tx } = &mut forged.state.rules.frame else {
                 panic!()
             };
+            let member = &mut tx.members[0];
             match n {
                 0 => {
-                    tx.original_amount.add(&1.into());
-                    tx.applications[0].before = tx.original_amount.clone();
-                    tx.applications[0].after =
-                        tx.applications[0].modification.apply(&tx.original_amount);
-                    tx.amount = tx.applications[0].after.clone();
+                    member.original_amount.add(&1.into());
+                    member.applications[0].before = member.original_amount.clone();
+                    member.applications[0].after = member.applications[0]
+                        .modification
+                        .apply(&member.original_amount);
+                    member.amount = member.applications[0].after.clone();
                 }
-                1 => tx.applications.push(tx.applications[0].clone()),
-                2 => tx.applications[0].effect.source.incarnation += 1,
-                3 => tx.object = object(&g, 8),
+                1 => member.applications.push(member.applications[0].clone()),
+                2 => member.applications[0].effect.source.incarnation += 1,
+                3 => member.object = object(&g, 8),
                 _ => tx.frame.cursor += 1,
             }
             assert!(
@@ -515,7 +518,10 @@ fn counter_placement_synthetic_three_prefix_snapshots_stale_foreign_and_forged_r
         let Frame::CounterPlacement { transaction: tx } = &g.state.rules.frame else {
             panic!()
         };
-        assert_eq!(tx.amount, Quantity::from(if add_first { 8 } else { 7 }));
+        assert_eq!(
+            tx.members[0].amount,
+            Quantity::from(if add_first { 8 } else { 7 })
+        );
         assert_eq!(g.current(r).unwrap().plus_one_counters, 4.into());
         drive(&mut g, add_first, &[], 1, true);
         assert_eq!(
@@ -623,7 +629,7 @@ fn counter_placement_synthetic_duplicate_incarnation_and_recipient_departure() {
     let Frame::CounterPlacement { transaction: tx } = &g.state.rules.frame else {
         panic!()
     };
-    assert_eq!(tx.applications[0].effect.source, old);
+    assert_eq!(tx.members[0].applications[0].effect.source, old);
     drive(&mut g, true, &[], 1, false);
     assert_eq!(g.current(r).unwrap().plus_one_counters, 20.into()); // (2+1 old+1 reentered+1 duplicate)*2*2
     let mut g = Game::new(prepared());
@@ -724,9 +730,8 @@ fn counter_placement_real_source_activation_and_unavailable_producer_boundaries(
     drive(&mut g, true, &[], 1, true);
     assert_eq!(g.current(feeder).unwrap().plus_one_counters, 4.into());
     check(&g);
-    // No supported IR creates an entry-with-counters event or an instruction
-    // distributing counters simultaneously. Internal raw events cannot bypass
-    // the transaction, and an unavailable aggregate is rejected atomically.
+    // Without an active placement transaction both raw placements and whole
+    // groups are rejected atomically.
     let before = g.state.clone();
     assert!(
         g.commit(

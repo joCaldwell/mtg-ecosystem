@@ -362,29 +362,6 @@ impl Game {
                     token: token.clone(),
                 })
             }
-            ProposedEvent::ApplyCounterPlacementEffect { effect } => {
-                self.apply_counter_placement_effect(effect)
-            }
-            ProposedEvent::PutPlusOneCounters { object, amount } => {
-                self.validate_counter_placement_commit(*object, amount)?;
-                if !self.is_battlefield_creature(*object) || *amount <= Quantity::zero() {
-                    return Err("invalid counter placement".into());
-                }
-                let o = self
-                    .state
-                    .rules
-                    .objects
-                    .get_mut(&object.card)
-                    .ok_or("missing counter recipient")?;
-                let previous = o.plus_one_counters.clone();
-                o.plus_one_counters.add(amount);
-                Ok(EventOutcome::PlusOneCountersPlaced {
-                    object: *object,
-                    amount: amount.clone(),
-                    previous,
-                    current: o.plus_one_counters.clone(),
-                })
-            }
             ProposedEvent::CeaseToken { object } => {
                 if !self.state.rules.tokens.contains_key(&object.card)
                     || self.current(*object)?.zone == Zone::Battlefield
