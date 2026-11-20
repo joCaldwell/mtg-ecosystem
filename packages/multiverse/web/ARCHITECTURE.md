@@ -207,11 +207,10 @@ The first game mode is one human against three automated opponents. Cookie sign-
 grants no native seat authority. Captured preview stays separate from admission,
 selected library decks and live records.
 
-`@multiverse/game/server` supplies the authenticated `/api/games` extension to the
-existing public backend host. The host retains session resolution, Host/Origin
-checks, rate limits and response error handling. It dispatches the extension
-outside the handler-wide SQL reservation; the coordinator reserves SQL only for
-queries/transactions and rechecks authority after native I/O.
+`@multiverse/game/server` mounts `/api/games`. The backend owns session resolution,
+Host/Origin checks, rate limits and errors. Hosted play paces product and native
+fetches from the shared Actor limit. Record polls honor account cooldown. Native
+I/O runs outside SQL reservations. The coordinator rechecks authority afterward.
 
 Deck-builder's public application port checks the existing human Actor/account and
 deck owner and captures exact Oracle IDs/roles/quantities at the requested revision,
@@ -236,10 +235,9 @@ lazy SDK loading. The lazy `/play/games/:id` obtains an Actor-authorized human
 seat File held only in component memory. Game/attempt keys, abort and cleanup
 fence late grants; unmount/reload discards that File. Preview remains separately
 lazy and router/session/SDK-runtime free. Phone retains its larger-screen fallback.
-Browser qualification remains false and approved identities empty until actual
-product proof; this ownership extraction qualifies no full game and fixes no
-supervision fault. [Client contracts](../../../docs/game-client.md) own journaling,
-Web Locks and delivery scope; [setup](../README.md) owns native configuration.
+Browser launch requires an exact approved native identity and deck admission.
+[Client contracts](../../../docs/game-client.md) own journaling, Web Locks and
+delivery scope. [Setup](../README.md) owns native configuration.
 
 ## Checking a change
 

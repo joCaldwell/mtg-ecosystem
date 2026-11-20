@@ -89,7 +89,15 @@ export interface Inbox {
   unreviewed: number;
 }
 
-export interface Session { backdrop: CardArt | null; mode: "local" | "hosted"; providers: string[]; legal: {operator_name:string;contact_email:string}|null; invites_required:boolean; user: ReturnType<typeof accountInfo> | null }
+export interface Session {
+  backdrop: CardArt | null;
+  mode: "local" | "hosted";
+  providers: string[];
+  legal: {operator_name:string;contact_email:string}|null;
+  invites_required: boolean;
+  user: ReturnType<typeof accountInfo> | null;
+  ui_request_budget?: { count: number; window_ms: number };
+}
 
 export interface Settings {
   has_agent_activity: boolean;
