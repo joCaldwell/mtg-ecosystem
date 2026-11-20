@@ -123,6 +123,7 @@ pub mod source_regeneration;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
 pub mod self_graveyard_shuffle;
 mod self_spell_protection;
+pub mod source_attack_pump;
 pub mod source_combat_restrictions;
 pub use controller_library::{
     FixedCastEffect, cast_scry_ability_ast, controller_scry_program, controller_surveil_program,
@@ -2822,7 +2823,7 @@ impl Definition {
             {
                 set.insert(Capability::SacrificeV1);
             }
-            add_program_requirements_for_activation(
+            add_program_requirements_for_source_pump(
                 &mut set,
                 &ability.program,
                 fixed_creature_activation::mana_self_pump(ability),
@@ -2922,7 +2923,11 @@ impl Definition {
             ) {
                 set.insert(Capability::SourceStatusConditionV1);
             }
-            add_program_requirements(&mut set, &ability.program);
+            add_program_requirements_for_source_pump(
+                &mut set,
+                &ability.program,
+                source_attack_pump::is_attack_pump(ability),
+            );
         }
         for keyword in &self.keywords {
             set.extend(intrinsic_keyword_capability(*keyword));
@@ -3479,6 +3484,7 @@ impl Definition {
         basic_landwalk::validate_definition(self)?;
         fixed_color_protection::validate_definition(self)?;
         source_combat_restrictions::validate_definition(self)?;
+        source_attack_pump::validate(self)?;
         creature_planeswalker_return::validate(self)?;
         fixed_creature_damage::validate(self, fixed_activations)?;
         controller_creature_pump::validate(self)?;
@@ -3940,6 +3946,11 @@ impl Definition {
                 return Err("invalid filtered dies trigger".into());
             }
             let p = &ability.program;
+            if source_attack_pump::is_attack_pump(ability) {
+                // The whole definition gate binds this exact same-object instruction.
+                validate_instruction_program(p)?;
+                continue;
+            }
             if ability.intervening_if == Some(InterveningCondition::SourceCastByController)
                 && (ability.condition != TriggerCondition::SelfEntersBattlefield
                     || c.kind != CardKind::Creature)
@@ -5732,13 +5743,13 @@ fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Cap
     })
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
-    add_program_requirements_for_activation(set, program, false);
+    add_program_requirements_for_source_pump(set, program, false);
 }
 
-fn add_program_requirements_for_activation(
+fn add_program_requirements_for_source_pump(
     set: &mut BTreeSet<Capability>,
     program: &SpellProgram,
-    mana_self_pump: bool,
+    temporary_source_pump: bool,
 ) {
     if !program.optional_additional_costs.is_empty() {
         set.insert(Capability::OptionalAdditionalManaCostV1);
@@ -5982,7 +5993,7 @@ fn add_program_requirements_for_activation(
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
             Instruction::RegenerateSource { .. } => Capability::SourceRegenerationV1,
-            Instruction::ModifySourcePowerToughness { .. } if mana_self_pump => {
+            Instruction::ModifySourcePowerToughness { .. } if temporary_source_pump => {
                 Capability::TemporaryPowerToughnessV1
             }
             Instruction::SacrificeDamage { .. }
@@ -6551,6 +6562,7 @@ pub fn catalog_schema() -> serde_json::Value {
     basic_landwalk::extend_schema(&mut schema);
     fixed_color_protection::extend_schema(&mut schema);
     source_combat_restrictions::extend_schema(&mut schema);
+    source_attack_pump::extend_schema(&mut schema);
     activated_source_keyword::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()

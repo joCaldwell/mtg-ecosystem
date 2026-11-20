@@ -98,6 +98,7 @@ mod self_graveyard_shuffle;
 mod self_reference;
 mod self_spell_protection;
 mod set_exile;
+mod source_attack_pump;
 mod source_combat_restrictions;
 mod source_dies_nonland_destroy;
 mod source_regeneration;
@@ -1545,6 +1546,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .or(fixed_color_protection::lower(
             &source, &shape, types.kind, &result, &binding,
         )?);
+    let mut attack_pump =
+        source_attack_pump::lower(&source, &shape, types.kind, &result, &binding)?;
     let self_graveyard_shuffle =
         self_graveyard_shuffle::validate(&source, &shape, &result, &binding)?;
     let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
@@ -2365,7 +2368,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         ability_word: _,
                     } => {
                         labels.triggered.push(source_block(block)?);
-                        let ability = if block == 1
+                        let ability = if let Some(pump) = attack_pump.take() {
+                            pump
+                        } else if block == 1
                             && condition.is_none()
                             && combat_hand_cast::is_offer(effects)
                         {

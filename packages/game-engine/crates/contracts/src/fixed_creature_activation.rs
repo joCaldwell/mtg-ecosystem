@@ -14,7 +14,7 @@ fn positive(n: &str) -> Option<u32> {
     (value > 0 && value.to_string() == n).then_some(value)
 }
 
-fn signed_stat(text: &str) -> Option<(Quantity, Value)> {
+pub(super) fn signed_stat(text: &str) -> Option<(Quantity, Value)> {
     let (sign, digits) = match text.as_bytes().first()? {
         b'+' => (1, &text[1..]),
         b'-' => (-1, &text[1..]),

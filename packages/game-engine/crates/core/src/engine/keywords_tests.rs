@@ -905,6 +905,88 @@ fn printed_color_protection_orders_derived_color_prevention() {
 }
 
 #[test]
+fn signed_self_attack_pump_resolves_on_the_declared_incarnation() {
+    let mut p = prepared(
+        &[("Grizzly Bears", 0, false), ("Grizzly Bears", 0, false)],
+        false,
+    );
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/source-attack-pump-flowstone-charger.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("exact self-attack pump source: {compiled:?}");
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::AttackTriggerV1)
+    );
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::TemporaryPowerToughnessV1)
+    );
+    assert!(!definition.capabilities.contains(&Capability::SacrificeV1));
+    let mut altered = (*definition).clone();
+    altered.triggered[0].program.instructions[0] = Instruction::ModifySourcePowerToughness {
+        power: 4.into(),
+        toughness: (-3).into(),
+        duration: Duration::UntilEndOfTurn,
+        source_block: 0,
+    };
+    assert!(altered.validate().is_err());
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p, |g| {
+        let source = object(g, 0);
+        let sibling = object(g, 1);
+        let source_stats = |game: &Game| {
+            let facts = game.characteristics(source).unwrap();
+            (facts.power, facts.toughness)
+        };
+        assert_eq!(source_stats(g), (Some(2.into()), Some(5.into())));
+        assert!(attackers(g).contains(&source));
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(source, PlayerId(1))],
+            },
+        );
+        assert!(matches!(request(g), Request::Priority { .. }));
+        let stack = g.top().expect("the source's attack produced one trigger");
+        assert_eq!(stack.source, source);
+        assert!(matches!(
+            stack.kind, StackKind::Triggered { witness: TriggerEventWitness::CreatureAttacked { ref attacker, .. }, .. }
+            if attacker.object == source
+        ));
+        assert!(stack.targets.is_empty() && stack.entity_targets.is_empty());
+        assert_eq!(source_stats(g), (Some(2.into()), Some(5.into())));
+        check(g);
+
+        for _ in 0..4 {
+            answer(g, Response::Pass);
+        }
+        assert!(matches!(request(g), Request::Priority { .. }));
+        assert!(g.state.rules.stack.is_empty());
+        assert_eq!(source_stats(g), (Some(5.into()), Some(2.into())));
+        assert_eq!(g.characteristics(sibling).unwrap().power, Some(2.into()));
+        assert!(matches!(g.state.rules.effects.as_slice(), [effect]
+            if effect.origin.source == source
+                && matches!(effect.kind, ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                    if target == source)));
+    });
+}
+
+#[test]
 fn freshly_cast_haste_attacks_but_other_creature_waits() {
     // CR302.6/702.10b: only haste bypasses continuous control.
     traces(
