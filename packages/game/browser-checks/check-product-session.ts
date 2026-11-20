@@ -101,7 +101,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const recordPauseCounts: Record<string, number> = {};
   const recordStateCounts: Record<string, number> = {};
   let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
-  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeStale: boolean; lastHttp: number; rateHint: boolean };
+  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeComplete: boolean; nativeStale: boolean; lastHttp: number; rateHint: boolean };
   let discovery: Discovery | null = null;
   const queryOwners = new WeakMap<Request, Discovery>();
   const readOrdinals = new WeakMap<Request, number>();
@@ -116,6 +116,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const staleRediscovery = { native: 0, local: 0, started: 0, ready: 0, freshGenerations: 0,
     contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 };
   let discoveryGenerations = 0, staleRecoveredCommands = 0;
+  const queryUnavailableReasons: Record<string, number> = {};
   let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
   type SavedIntent = { response: PlayerResponse; revision: string; token: string; binding: Record<string, string> };
   const submissions = new SubmissionAudit<SavedIntent>();
@@ -294,12 +295,18 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             queries++;
             check(["complete", "incomplete", "stale", "unavailable", "cancelled"].includes(value.outcome.status), "query_outcome_kind");
             add(queryOutcomes, value.outcome.status);
+            if (value.outcome.status === "unavailable") {
+              const kind = value.outcome.reason?.kind;
+              check(["core", "quota", "in_flight", "total_work", "response_limit", "executor"].includes(kind), "query_unavailable_kind");
+              add(queryUnavailableReasons, kind);
+            }
             if (queryOwner && queryOwner === discovery) {
               queryOwner.calls++;
               if (value.outcome.status === "stale") queryOwner.nativeStale = true;
               if (["complete", "incomplete"].includes(value.outcome.status)) {
                 check(value.outcome.page.token === queryOwner.context.token, "discovery_original_token");
                 queryOwner.beginnings.push(...value.outcome.page.beginnings);
+                queryOwner.nativeComplete ||= value.outcome.status === "complete";
               }
             }
           } else if (path.endsWith("/commands")) {
@@ -406,6 +413,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
       beginnings = []; // No prior selection/menu crosses a UI discovery chain.
       const button = page!.getByRole("button", { name: "Discover actions", exact: true });
+      const actions = page!.getByRole("region", { name: "Available actions", exact: true }).locator("ol > li > button");
       const phases = {
         complete: "Discovery complete.",
         limited: "Discovery reached a local limit. Results are not a complete menu.",
@@ -468,9 +476,13 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             check(beginning.label !== "unavailable" && beginning.label.available.text === "Finish adding mana; reverse reversible mana if payment fails", "conditional_reversal_wording");
             conditionalReversal = true;
           }
-          const menu = page!.getByRole("region", { name: "Available actions", exact: true });
-          const action = menu.locator("ol > li > button").nth(index);
-          check(await menu.locator("ol > li > button").count() === values.length, "discovery_current_menu");
+          const action = actions.nth(index);
+          if (await actions.count() !== values.length) {
+            await healthy();
+            check(!await currentContext(original), "discovery_current_menu");
+            lateNoSendInvalidations++;
+            return false;
+          }
           const before = sent.size;
           try {
             // A short actionability deadline avoids waiting on an old disabled
@@ -489,13 +501,16 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         discover: async (original, end) => {
           // The returned command context belongs to this fresh discovery,
           // never to the discarded stale menu.
-          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeStale: false, lastHttp: 0, rateHint: false }; discovery = attempt;
+          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeComplete: false, nativeStale: false, lastHttp: 0, rateHint: false }; discovery = attempt;
           await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
           await button.click(); discoveryGenerations++; let phase = "";
           try {
             await until(async () => {
               if (!attempt.calls) return false;
-              for (const [name, text] of Object.entries(phases)) if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
+              for (const [name, text] of Object.entries(phases)) {
+                if (name === "complete" && (!attempt.nativeComplete || await actions.count() !== attempt.beginnings.length)) continue;
+                if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
+              }
               return false;
             }, "discovery_complete", Math.min(20_000, Math.max(1, end - Date.now())));
           } finally {
@@ -793,7 +808,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       discovery_ui_generations: discoveryGenerations, stale_discovery_counts: staleRediscovery,
       stale_rediscovery_consumed_commands: staleRecoveredCommands,
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
-      ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes, discovery_phase_counts: discoveryPhases,
+      ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes,
+      query_unavailable_reasons: queryUnavailableReasons, discovery_phase_counts: discoveryPhases,
       last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,
       presentation_404: presentationMissing, presentation_artifacts: presentationArtifacts, production_presentation_verified: presentationVerified,
       immutable_assets_revalidated_per_grant: immutableAssetsRevalidated, named_cards_verified: namedCards,
