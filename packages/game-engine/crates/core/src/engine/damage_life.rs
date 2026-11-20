@@ -175,6 +175,7 @@ impl Game {
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
+            battlefield_entry_turn: o.battlefield_entry_turn,
             keyword_timestamp: o.keyword_timestamp,
             keywords: { self.current_keywords(object) },
             deathtouch_damage: o.deathtouch_damage,

@@ -437,6 +437,7 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
             face_down: false,
             exiled_by: None,
             phased_out: false,
+            entered_this_turn: false,
             mana_ability_used: None,
             attached_to: None,
             attachments: vec![],

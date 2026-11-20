@@ -941,6 +941,8 @@ struct Object {
     attachment_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     keyword_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    battlefield_entry_turn: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     plus_one_counters: Quantity,
     marked_damage: Quantity,
@@ -2554,6 +2556,7 @@ impl Game {
                         phased_out: None,
                         attached_to: None,
                         attachment_timestamp: None,
+                        battlefield_entry_turn: None,
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
@@ -3835,6 +3838,13 @@ impl Game {
             return Err("life freeze requires a live player and a supporting catalog".into());
         }
         let s = &self.state;
+        if s.rules.objects.values().any(|object| {
+            object.battlefield_entry_turn.is_some_and(|turn| {
+                object.zone != Zone::Battlefield || turn == 0 || turn > s.rules.turn.number
+            })
+        }) {
+            return Err("invalid battlefield entry turn".into());
+        }
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.
         if s.rules.players.len() != 4

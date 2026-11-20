@@ -153,6 +153,13 @@ fn double_major_paid_copy_resolves_or_is_countered() {
             .is_none()
     );
 
+    assert!(
+        !game
+            .visible_object(CASTER, game.current(copy.source).unwrap())
+            .unwrap()
+            .unwrap()
+            .entered_this_turn
+    );
     // Restore at the actual response window and counter only the copy.
     let mut countered = Game::restore(pod, &game.snapshot().unwrap()).unwrap();
     assert_eq!(game.state, countered.state);
@@ -191,6 +198,14 @@ fn double_major_paid_copy_resolves_or_is_countered() {
     let original_permanent = &game.state.rules.objects[&original.source.card];
     assert_eq!(original_permanent.zone, Zone::Battlefield);
     let mut expected = game.characteristics(original_permanent.id).unwrap();
+    for object in [permanent, original_permanent] {
+        assert!(
+            game.visible_object(PlayerId(1), object)
+                .unwrap()
+                .unwrap()
+                .entered_this_turn
+        );
+    }
     assert!(expected.legendary);
     expected.legendary = false;
     assert_eq!(game.characteristics(permanent.id).unwrap(), expected);

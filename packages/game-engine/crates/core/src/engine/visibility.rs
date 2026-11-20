@@ -101,6 +101,8 @@ pub struct VisibleObject {
     pub exiled_by: Option<ObjectHandle>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phased_out: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub entered_this_turn: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_ability_used: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1201,6 +1203,7 @@ impl Game {
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
+            entered_this_turn: object.battlefield_entry_turn == Some(self.state.rules.turn.number),
             attached_to: object
                 .attached_to
                 .filter(|t| self.current(*t).is_ok())

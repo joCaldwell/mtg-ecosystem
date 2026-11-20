@@ -1326,6 +1326,7 @@ fn choice_defender_probe_requires_other_attack_eligibility_without_changing_root
         face_down: false,
         exiled_by: None,
         phased_out: false,
+        entered_this_turn: false,
         mana_ability_used: None,
         attached_to: None,
         attachments: vec![],

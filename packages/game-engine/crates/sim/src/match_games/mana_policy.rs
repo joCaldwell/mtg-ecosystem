@@ -169,6 +169,7 @@ mod tests {
                 face_down: false,
                 exiled_by: None,
                 phased_out: false,
+                entered_this_turn: false,
                 mana_ability_used: None,
                 attached_to: None,
                 attachments: vec![],
