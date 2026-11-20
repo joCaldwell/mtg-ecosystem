@@ -1220,6 +1220,7 @@ impl Game {
             .cursor
             .checked_add(1)
             .ok_or("instruction cursor resource limit")?;
+        self.refresh_resolving_lki(&mut frame.spell);
         self.state.rules.frame = Frame::Resolve { frame };
         Ok(())
     }
