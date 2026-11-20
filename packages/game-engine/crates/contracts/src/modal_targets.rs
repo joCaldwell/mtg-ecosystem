@@ -320,3 +320,128 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
     let child = json!({"properties":{"program":{"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"any_player"},"slot":{"const":0},"filter":{"type":"null"}}}},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"enum":["gain_life","lose_life"]},"recipient":{"const":{"target":{"target_slot":0}}},"source_block":{"const":0}}}},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}}]},"then":{"required":["spell","capabilities"],"properties":{"capabilities":{"allOf":[cap,{"contains":{"const":Capability::ModalChoiceV1}},{"contains":{"const":Capability::AnyPlayerTargetV1}}]},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"spell":{"type":"object","properties":{"resolution":marker,"modes":{"minItems":2,"items":child},"targets":{"maxItems":0},"instructions":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}}));
 }
+
+/// Compile each printed clause independently. The variable graveyard group
+/// occupies the tail of this bounded target layout so its runtime arity cannot
+/// shift any following instruction operand.
+pub fn mixed_target_modes(
+    text: &str,
+    ast: &serde_json::Value,
+    timing: SpellTiming,
+) -> Option<SpellProgram> {
+    use serde_json::json;
+    let mut lines = text.lines();
+    let exactly = match lines.next()? {
+        "Choose two —" => 2,
+        "Choose three —" => 3,
+        _ => return None,
+    };
+    let mut ids = BTreeSet::new();
+    let mut options = vec![];
+    let mut modes = vec![];
+    let mut variable = false;
+    for (i, line) in lines.enumerate() {
+        if variable {
+            return None;
+        }
+        let text = line.strip_prefix("• ")?;
+        let step = &ast[0]["effects"][0]["steps"][0]["options"][i]["effects"][0]["steps"][0];
+        let child = if let Some(p) =
+            crate::creature_planeswalker_return::program(text, step, timing, 0)
+        {
+            p
+        } else if let Some(shape) =
+            crate::graveyard_shuffle::GraveyardShuffle::from_clause(text, step)
+        {
+            variable = true;
+            shape.program(timing)
+        } else {
+            let (key, domain, filter, op, expected) = match text {
+                "Counter target artifact or enchantment spell." => {
+                    let id = step["what"]["selectionId"].as_str()?;
+                    let f = PermanentFilter {
+                        types: vec![CardKind::Artifact, CardKind::Enchantment],
+                        non_types: vec![],
+                        non_colors: vec![],
+                        opponent: false,
+                        tapped: false,
+                        power: None,
+                    };
+                    (
+                        "what",
+                        TargetDomain::StackSpell,
+                        Some(f),
+                        Instruction::CounterStackObject {
+                            target_slot: 0,
+                            source_block: 0,
+                        },
+                        json!({"effect":"counter","what":{"ref":"target","filter":{"allOf":[{"anyOf":[{"types":["artifact"]},{"types":["enchantment"]}]}],"cls":"spell"},"count":{"amount":"fixed","value":1},"selectionId":id}}),
+                    )
+                }
+                clause => {
+                    let word = clause
+                        .strip_prefix("Put ")?
+                        .strip_suffix(" +1/+1 counters on target creature.")?;
+                    let n = [
+                        "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                    ]
+                    .iter()
+                    .position(|s| *s == word)? as u32
+                        + 2;
+                    let id = step["on"]["selectionId"].as_str()?;
+                    (
+                        "on",
+                        TargetDomain::BattlefieldCreature,
+                        None,
+                        Instruction::PutPlusOneCounters {
+                            on: CounterRecipient::Target { target_slot: 0 },
+                            amount: Quantity::from(i64::from(n)),
+                            source_block: 0,
+                        },
+                        json!({"effect":"put-counters","on":{"ref":"target","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1},"selectionId":id},"counter":{"type":"+1/+1"},"count":{"amount":"fixed","value":n}}),
+                    )
+                }
+            };
+            if step != &expected {
+                return None;
+            }
+            SpellProgram {
+                timing,
+                functioning_zone: FunctioningZone::Stack,
+                resolution: SpellResolution::Instructions,
+                targets: vec![TargetSpec {
+                    slot: 0,
+                    selection_id: step[key]["selectionId"].as_str()?.into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain,
+                    filter,
+                }],
+                instructions: vec![op],
+                modes: vec![],
+                additional_sacrifice: None,
+                optional_additional_costs: vec![],
+            }
+        };
+        if child
+            .targets
+            .iter()
+            .any(|t| t.selection_id.is_empty() || !ids.insert(t.selection_id.clone()))
+        {
+            return None;
+        }
+        options.push(json!({"effects":[{"steps":[step]}]}));
+        modes.push(SpellMode { program: child });
+    }
+    let expected = json!([{"kind":"spell","effects":[{"steps":[{"effect":"modal","count":{"exactly":exactly},"options":options}]}]}]);
+    (modes.len() >= exactly as usize && ast == &expected).then_some(SpellProgram {
+        timing,
+        functioning_zone: FunctioningZone::Stack,
+        resolution: SpellResolution::ChooseModes { exactly },
+        targets: vec![],
+        instructions: vec![],
+        modes,
+        additional_sacrifice: None,
+        optional_additional_costs: vec![],
+    })
+}
