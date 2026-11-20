@@ -60,7 +60,10 @@ pub(super) fn entry_grant_charge(entry: &StackInstance) -> usize {
             grant,
             ..
         } => trigger_grant_charge(*ability, witness, grant.as_ref()),
-        _ => 0,
+        _ => entry
+            .hand_cast_permission
+            .as_deref()
+            .map_or(0, stored_history::payload_charge),
     }
 }
 impl Game {

@@ -237,6 +237,7 @@ Death sweep `93755057`:56/29/0, `generated/ramos/destruction-main94/`.
 Activations `c3ef4bd0`:61/24/0,55/33, `generated/ramos/activated-composition/`.
 Sweeps `44618fda`:64/21/0,58/36/32, IR1, `generated/ramos/sweep-compositions-main111/`.
 Mixed mana `226507a0`:66/19/0,60/38/34, `generated/ramos/mixed-mana-main115/`.
-Search/mana `1bb122a7`:68 original plus two authorized reparses;63/40/36.
-Receipts: `generated/ramos/{colored-search-granted-mana-main118,reparsed-audit}/`.
+Search/mana `1bb122a7`:70 exact, `generated/ramos/colored-search-granted-mana-main118/`.
+Controller window/hand cast `02b35e35`:73 exact, 65/42/38.
+Receipts: `generated/ramos/{combat-cast-protection-main121,reparsed-audit}/`.
 Deck/consumer admission remains open.

@@ -254,7 +254,7 @@ impl Game {
         else {
             return Err("not a counter placement replacement".into());
         };
-        if provider.zone != Zone::Battlefield
+        if !provider.present_on_battlefield()
             || ability.functioning_zone != FunctioningZone::Battlefield
             || provider.controller != recipient.controller
             || !self.is_live(recipient.controller)
@@ -280,7 +280,7 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.zone == Zone::Battlefield)
+            .filter(|o| o.present_on_battlefield())
             .flat_map(|o| {
                 self.definition(o.id.card).into_iter().flat_map(move |d| {
                     d.static_abilities

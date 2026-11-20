@@ -58,11 +58,15 @@ mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
 mod artifact_modal;
+mod controlled_phasing;
+pub use controlled_phasing::controller_window_instructions;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
 mod set_exile;
 pub use set_exile::{SetExileClause, set_exile_modes};
+mod hand_cast;
+pub use hand_cast::{combat_hand_cast_ast, combat_hand_cast_trigger};
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -284,9 +288,14 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+    ExileResolvingSpellV1,
+    ControllerProtectionUntilNextTurnV1,
+    ControllerLifeFreezeV1,
+    ControlledPermanentPhasingV1,
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
+    CombatHandCastV1,
     CascadeV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
@@ -767,6 +776,9 @@ pub enum Instruction {
     GrantHandCastCascade {
         source_block: u32,
     },
+    OfferHandCastWithoutManaCost {
+        source_block: u32,
+    },
     /// CR 702.85a: threshold comes from the originating spell, never paid cost.
     Cascade {
         threshold: CascadeThreshold,
@@ -816,6 +828,18 @@ pub enum Instruction {
     Scry {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         amount: Quantity,
+        source_block: u32,
+    },
+    ExileResolvingSpell {
+        source_block: u32,
+    },
+    ProtectControllerUntilNextTurn {
+        source_block: u32,
+    },
+    FreezeControllerLifeUntilNextTurn {
+        source_block: u32,
+    },
+    PhaseOutControllerPermanents {
         source_block: u32,
     },
     MoveSet {
@@ -1213,6 +1237,7 @@ impl Instruction {
     pub fn source_block(&self) -> u32 {
         match self {
             Self::GrantHandCastCascade { source_block }
+            | Self::OfferHandCastWithoutManaCost { source_block }
             | Self::Cascade { source_block, .. }
             | Self::SearchBasicLandsSplit { source_block, .. }
             | Self::SearchColoredLibrary { source_block, .. }
@@ -1228,7 +1253,11 @@ impl Instruction {
             | Self::Scry { source_block, .. }
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
-            Self::MoveSet { source_block, .. } => *source_block,
+            Self::ExileResolvingSpell { source_block }
+            | Self::ProtectControllerUntilNextTurn { source_block }
+            | Self::FreezeControllerLifeUntilNextTurn { source_block }
+            | Self::PhaseOutControllerPermanents { source_block }
+            | Self::MoveSet { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
@@ -2698,6 +2727,7 @@ impl Definition {
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
         targeted_game_loss::validate_definition(self)?;
+        controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
         library_selection::validate_definition(self)?;
@@ -2709,6 +2739,7 @@ impl Definition {
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
+        hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
         hand_cast_cascade::validate_definition(self)?;
         if self
@@ -3523,6 +3554,14 @@ impl Definition {
                 return Err(
                     "cast-entry condition requires the entering creature's own trigger".into(),
                 );
+            }
+            if matches!(
+                p.instructions.as_slice(),
+                [Instruction::OfferHandCastWithoutManaCost { .. }]
+            ) {
+                // The whole definition gate binds this one operation to the source's own combat event.
+                validate_instruction_program(p)?;
+                continue;
             }
             if ability.condition == TriggerCondition::SelfBecomesTapped {
                 // The complete source and trigger shape was checked above.
@@ -4614,7 +4653,11 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     }
     for instruction in &p.instructions {
         let binding = match instruction {
-            Instruction::MoveSet { .. }
+            Instruction::ExileResolvingSpell { .. }
+            | Instruction::ProtectControllerUntilNextTurn { .. }
+            | Instruction::FreezeControllerLifeUntilNextTurn { .. }
+            | Instruction::PhaseOutControllerPermanents { .. }
+            | Instruction::MoveSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
@@ -4836,6 +4879,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 None
             }
             Instruction::GrantHandCastCascade { .. }
+            | Instruction::OfferHandCastWithoutManaCost { .. }
             | Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
@@ -5360,6 +5404,12 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         }
         if matches!(
             instruction,
+            Instruction::OfferHandCastWithoutManaCost { .. }
+        ) {
+            set.insert(Capability::ResolutionCastV1);
+        }
+        if matches!(
+            instruction,
             Instruction::DamageSet {
                 amount: WipeAmount::OtherCastsManaValue,
                 ..
@@ -5398,10 +5448,21 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             ]);
         }
         set.insert(match instruction {
+            Instruction::ExileResolvingSpell { .. } => Capability::ExileResolvingSpellV1,
+            Instruction::ProtectControllerUntilNextTurn { .. } => {
+                Capability::ControllerProtectionUntilNextTurnV1
+            }
+            Instruction::FreezeControllerLifeUntilNextTurn { .. } => {
+                Capability::ControllerLifeFreezeV1
+            }
+            Instruction::PhaseOutControllerPermanents { .. } => {
+                Capability::ControlledPermanentPhasingV1
+            }
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
             Instruction::GrantHandCastCascade { .. } => Capability::HandCastCascadeGrantV1,
+            Instruction::OfferHandCastWithoutManaCost { .. } => Capability::CombatHandCastV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -5849,7 +5910,15 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         .collect();
     let no: Vec<_> = requirements
         .iter()
-        .map(|cap| serde_json::json!({"not":{"contains":{"const":cap}}}))
+        .map(|cap| {
+            let absent = serde_json::json!({"not":{"contains":{"const":cap}}});
+            if *cap == Capability::ResolutionCastV1 {
+                serde_json::json!({"if":{"contains":{"const":Capability::CombatHandCastV1}},
+                "then":{"contains":{"const":cap}},"else":absent})
+            } else {
+                absent
+            }
+        })
         .collect();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         serde_json::json!({"properties":{"spell":{"anyOf":[{"type":"null"},{"$ref":"#/$defs/CascadeFreeProgram"}]},"activated":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}}}),
@@ -6949,6 +7018,7 @@ pub fn catalog_schema() -> serde_json::Value {
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
+    controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
@@ -6990,6 +7060,7 @@ pub fn catalog_schema() -> serde_json::Value {
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
+    hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     hand_cast_cascade::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
@@ -7140,9 +7211,14 @@ mod tests {
     fn every_capability_has_a_complete_current_witness() {
         use Capability::*;
         let expected = [
+            ExileResolvingSpellV1,
+            ControllerProtectionUntilNextTurnV1,
+            ControllerLifeFreezeV1,
+            ControlledPermanentPhasingV1,
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
+            CombatHandCastV1,
             CascadeV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
@@ -7703,6 +7779,7 @@ mod tests {
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
+        definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));
         definitions.push(targeted_counted_draw::witness());
@@ -7710,6 +7787,38 @@ mod tests {
         definitions.push(targeted_discard::random_witness());
         definitions.push(group_discard::witness());
         definitions.push(opponent_life_drain::witness());
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controlled-phasing-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controller-life-freeze-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-controller-protection-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
+        definitions.push(
+            Catalog::read(include_str!(
+                "../../../tests/fixtures/synthetic-self-exile-ir.json"
+            ))
+            .unwrap()
+            .definitions
+            .remove(0),
+        );
         definitions.push(targeted_game_loss::witness());
         definitions.push(counter_unless_generic::witness());
         definitions.push(controlled_creature_spell_copy::witness());
