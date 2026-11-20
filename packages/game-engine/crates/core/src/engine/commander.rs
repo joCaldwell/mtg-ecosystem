@@ -60,7 +60,8 @@ impl Game {
     pub(super) fn previous_commander_choices(&self) -> Vec<(ObjectId, bool)> {
         match &self.state.rules.frame {
             Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-                CommanderContinuation::StateBasedBatch { choices, .. }
+                CommanderContinuation::GraveyardShuffle { choices, .. }
+                | CommanderContinuation::StateBasedBatch { choices, .. }
                 | CommanderContinuation::BoardReturn { choices, .. } => choices.clone(),
                 _ => vec![],
             },

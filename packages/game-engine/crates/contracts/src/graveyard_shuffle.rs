@@ -151,12 +151,16 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         return Ok(());
     };
     let text = src["oracle_text"].as_str().unwrap_or("");
-    if !d.spell.as_ref().is_some_and(reserves) && !text.starts_with("Target player shuffles up to ")
+    let ast: Value = strict_read(&d.provenance.abilities_json)?;
+    let step = &ast[0]["effects"][0]["steps"][0];
+    if !d.spell.as_ref().is_some_and(reserves)
+        && !text.starts_with("Target player shuffles up to ")
+        && !(step["effect"] == "shuffle-into-library"
+            && step["what"][0]["ref"] == "target"
+            && step["what"][0]["filter"]["zone"]["zone"] == "graveyard")
     {
         return Ok(());
     }
-    let ast: Value = strict_read(&d.provenance.abilities_json)?;
-    let step = &ast[0]["effects"][0]["steps"][0];
     let shape = GraveyardShuffle::from_clause(text, step).ok_or_else(fail)?;
     let timing = match (d.characteristics.kind, src["type_line"].as_str()) {
         (CardKind::Instant, Some("Instant")) => SpellTiming::Instant,

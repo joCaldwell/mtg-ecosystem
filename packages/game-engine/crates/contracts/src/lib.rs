@@ -4594,7 +4594,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         }
     }
     let mut used = BTreeSet::new();
-    if graveyard_shuffle::offered_by(p).is_some() { used.extend([0,1]); }
+    if graveyard_shuffle::offered_by(p).is_some() {
+        used.extend([0, 1]);
+    }
     fn reference(p: &SpellProgram, slot: u32) -> Result<(u32, TargetDomain), String> {
         let t = p.targets.get(slot as usize).ok_or("unbound LKI target")?;
         if !matches!(
