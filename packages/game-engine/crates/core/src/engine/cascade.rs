@@ -169,11 +169,9 @@ impl Game {
             .spell
             .as_ref()
             .ok_or("cascade nonland is not a supported spell")?;
-        Ok(self.has_target_domain(program, permission.caster)
-            && program
-                .additional_sacrifice
-                .as_ref()
-                .is_none_or(|f| !self.sacrifice_candidates(permission.caster, f).is_empty()))
+        Ok(self
+            .spell_proposal_obstacle(program, permission.caster)
+            .is_none())
     }
     pub(super) fn validate_resolution_permission(
         &self,

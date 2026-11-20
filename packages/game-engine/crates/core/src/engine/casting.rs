@@ -43,15 +43,8 @@ impl Game {
         if program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
-        if program
-            .additional_sacrifice
-            .as_ref()
-            .is_some_and(|filter| self.sacrifice_candidates(player, filter).is_empty())
-        {
-            return Err("no payable sacrifice cost".into());
-        }
-        if !self.has_target_domain(program, player) {
-            return Err("no legal target for this proposal".into());
+        if let Some(reason) = self.spell_proposal_obstacle(program, player) {
+            return Err(reason.into());
         }
         Ok(SpellAnnouncement {
             player,
@@ -59,6 +52,27 @@ impl Game {
             cast_from: object.zone,
             completion: CastCompletion::Priority,
         })
+    }
+
+    // Priority and resolution permissions differ on timing and origin. Once
+    // those are established, target and mandatory sacrifice availability are
+    // properties of the same proposed spell.
+    pub(super) fn spell_proposal_obstacle(
+        &self,
+        program: &SpellProgram,
+        player: PlayerId,
+    ) -> Option<&'static str> {
+        if program
+            .additional_sacrifice
+            .as_ref()
+            .is_some_and(|filter| self.sacrifice_candidates(player, filter).is_empty())
+        {
+            return Some("no payable sacrifice cost");
+        }
+        if !self.has_target_domain(program, player) {
+            return Some("no legal target for this proposal");
+        }
+        None
     }
 
     pub(super) fn validate_priority_spell_cast(
