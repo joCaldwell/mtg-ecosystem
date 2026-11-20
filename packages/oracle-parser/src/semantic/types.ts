@@ -58,7 +58,9 @@ export type BindingNode = NodeBase & (
   /** `optional`: performed only if `decider` chooses to (CR 608.2d); a missing
    * decider is unresolved. `repeated`: scaled by a "for each" count. */
   | { node: "event"; scope: string; operation: string; inputs: string[]; availability: "when-performed";
-      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true }
+      optional?: true; decider?: string; repeated?: "for-each"; conditional?: true;
+      /** A resolution choice exists only when this preceding result was produced. */
+      requiresResult?: string }
   /** "If you do" / "If you don't": the optional instruction at path `decision`
    * of the preceding sentence (CR 608.2c-d). */
   | { node: "decision-link"; scope: string; condition: "you-do" | "you-dont"; decision: string }
@@ -77,6 +79,8 @@ export type BindingNode = NodeBase & (
   | { node: "alternatives"; scope: string; of: string[] }
   | { node: "event-result"; event: string; result: "objects" | "quantity" | "player"; cardinality: BindingCardinality;
       description?: ObjectFilter;
+      /** The stopping match belongs to this scan's processed pool, if found. */
+      subsetOf?: string;
       /** Result sets can be empty when an instruction is impossible or replaced. */
       availability: "if-produced"; identity: "same-objects" | "zone-successors" | "new-objects" | "measured-quantity" }
   | { node: "defined-number"; scope: string; definition: Amount }
@@ -119,8 +123,11 @@ export interface BindingDiagnostic {
  *   with the affected set fixed when the effect begins (CR 611.2c, 613).
  * - cascade-resolution: a choice bound to one resolving cascade and its exiled pool (CR 702.85).
  * - cast-keyword-grant: a resolution-created grant applied during later casts (CR 601.2, 611.2, 702.85).
- * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f). */
-export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution" | "cast-keyword-grant" | "permanent-spell-copy";
+ * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f).
+ * - demonstrate: cast-triggered copies for the caster and chosen opponent (CR 702.144a).
+ * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
+export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
+  | "cast-keyword-grant" | "permanent-spell-copy" | "demonstrate" | "reveal-and-cast";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
