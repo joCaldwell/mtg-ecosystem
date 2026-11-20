@@ -368,6 +368,53 @@ fn paid_artifact_draw_taps_source_and_draws_exactly_for_activator() {
 }
 
 #[test]
+fn copied_artifact_pays_composite_cost_and_draws_for_activator() {
+    let cost = activation_cost();
+    let activator = PlayerId(0);
+    let mut prepared = prepared_draw(&cost, false);
+    let physical_card = CardId(prepared.config.cards.len() as u32);
+    prepared.config.cards.push(CardSetup {
+        id: physical_card,
+        oracle_id: FOREST.into(),
+        owner: activator,
+        controller: activator,
+        zone: Zone::Hand { owner: activator },
+    });
+    prepared.profile_digest = digest(&prepared.config).unwrap();
+    let mut game = Game::new(prepared);
+    let donor = object(&game, 0);
+    let previous = game.object_id(physical_card).unwrap();
+    let source = ObjectId {
+        incarnation: previous.incarnation + 1,
+        ..previous
+    };
+    // Set up the copied incarnation directly to exercise activation payment.
+    assert!(game.definition(physical_card).unwrap().activated.is_empty());
+    game.record_entry_copy(source, donor).unwrap();
+    assert_eq!(
+        game.move_object(previous, Zone::Battlefield)
+            .unwrap()
+            .successor,
+        source
+    );
+    let top_card = game.state.rules.libraries[&activator][0];
+    let q = 1;
+
+    produce_mana(&mut game, q);
+    pay_for_activation(&mut game, q, source, &cost);
+    assert_eq!(game.top().unwrap().source, source);
+    assert!(!game.current(donor).unwrap().tapped);
+    assert_eq!(game.mana(activator, Color::U), Some(1.into()));
+    assert_eq!(game.mana(activator, Color::G), Some(0.into()));
+
+    resolve(&mut game, q, |_| {});
+    assert_eq!(
+        game.action_hand(activator),
+        vec![game.object_id(top_card).unwrap()]
+    );
+}
+
+#[test]
 fn paid_artifact_draw_discard_offers_the_full_hand_after_two_draws() {
     let cost = activation_cost();
     let mut game = Game::new(prepared_draw(&cost, true));
