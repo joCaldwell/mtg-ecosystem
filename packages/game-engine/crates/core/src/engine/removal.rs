@@ -82,11 +82,11 @@ impl Game {
             .map(|(slot, spec)| {
                 legal.get(slot) == Some(&true)
                     && if spec.domain == TargetDomain::StackSpell {
-                        self.bound_stack_target(entry, slot).is_some_and(|id| {
+                        self.bound_stack_target(&entry, slot).is_some_and(|id| {
                             self.state.rules.stack.iter().any(|entry| entry.id == *id)
                         })
                     } else {
-                        self.bound_object_target(entry, slot).is_some_and(|id| {
+                        self.bound_object_target(&entry, slot).is_some_and(|id| {
                             self.current(*id)
                                 .is_ok_and(|object| object.present_on_battlefield())
                         })
@@ -197,7 +197,9 @@ impl Game {
             .iter()
             .enumerate()
             .map(|(slot, t)| {
-                if !legal[slot] {
+                if legal.get(slot) != Some(&true)
+                    || (entry.mode_subset.is_some() && t.filter.is_none())
+                {
                     return Ok(None);
                 }
                 let (controller, c) = if t.domain == TargetDomain::StackSpell {
