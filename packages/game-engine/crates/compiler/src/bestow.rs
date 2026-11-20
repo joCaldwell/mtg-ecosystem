@@ -108,6 +108,7 @@ pub(super) fn cast_plan(
     let colors =
         |field: &str| serde_json::from_value(source[field].clone()).map_err(|_| unsupported());
     let printed = Characteristics {
+        hybrid_mana: vec![],
         kind: types.kind,
         additional_types: types.additional_types,
         subtypes: types.subtypes,
