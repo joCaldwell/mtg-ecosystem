@@ -718,3 +718,79 @@ fn fixed_artifact_modal_activation_announces_child_before_root_payment() {
         recover(&g);
     }
 }
+
+#[test]
+fn counted_artifact_compiled_modes_freeze_target_then_pay_root_set() {
+    let header = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    let raw = include_str!("../../../../tests/fixtures/synthetic-counted-artifact-modal.json");
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(header, raw)
+    else {
+        panic!("synthetic artifact")
+    };
+    let mut p = prepared(&[
+        ("Sol Ring", 0, 0, false),
+        ("Sol Ring", 1, 0, false),
+        ("Alpha Myr", 2, 0, false),
+        ("Grizzly Bears", 3, 3, false),
+        ("Mountain", 0, 0, false),
+        ("Mountain", 0, 0, false),
+        ("Mountain", 0, 0, false),
+        ("Mountain", 0, 0, false),
+    ]);
+    let catalog = Arc::make_mut(&mut p.catalog);
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    for mode in [0, 1] {
+        let mut g = Game::with_trace(p.clone(), TraceMode::Detailed);
+        let [dial, ring, myr, bear] = [0, 1, 2, 3].map(|x| object(&g, x));
+        answer(
+            &mut g,
+            1,
+            Response::ActivateAbility {
+                object: dial,
+                ability: 0,
+            },
+        );
+        answer(&mut g, 1, Response::Modes { mode });
+        if mode == 1 {
+            recover(&g);
+            answer(
+                &mut g,
+                1,
+                Response::Targets {
+                    objects: vec![bear],
+                },
+            );
+        }
+        for land in 4..8 {
+            let land = object(&g, land);
+            answer(&mut g, 1, Response::ActivateMana { object: land });
+        }
+        answer(&mut g, 1, Response::FinishMana { undo_mana: false });
+        answer(
+            &mut g,
+            1,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::R, 4.into())]),
+            },
+        );
+        for candidate in [dial, ring, myr] {
+            answer(&mut g, 1, Response::SacrificeCost { object: candidate });
+        }
+        assert!(matches!(request(&mut g, 1), Request::Priority { .. }));
+        recover(&g);
+        settle(&mut g, 1);
+        if mode == 0 {
+            assert_eq!(g.state.rules.players[0].life, 48.into());
+        } else {
+            assert_eq!(g.characteristics(bear).unwrap().power, Some(4.into()));
+        }
+        recover(&g);
+    }
+}

@@ -40,11 +40,13 @@ mod controller_counted_draw;
 pub use controller_counted_draw::controller_counted_draw_program;
 mod announced_x_draw;
 mod counter_unless_generic;
+mod artifact_modal;
 mod each_player_draw;
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
 mod targeted_game_loss;
+pub use artifact_modal::BoundArtifactMode;
 pub use targeted_counted_draw::targeted_counted_draw_program;
 pub use targeted_game_loss::{ArtifactLossSource, artifact_loss_activation};
 mod controller_library;
@@ -1487,6 +1489,32 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
                 && target.filter.is_none()
                 && *amount > Quantity::zero()
         }
+        (
+            [],
+            [
+                Instruction::GainLife {
+                    recipient: LifeRecipient::Controller,
+                    amount,
+                    ..
+                },
+            ],
+        ) => *amount > Quantity::zero(),
+        (
+            [t],
+            [
+                Instruction::ModifyPowerToughness {
+                    target_slot: 0,
+                    duration: Duration::UntilEndOfTurn,
+                    ..
+                },
+            ],
+        ) => {
+            t.slot == 0
+                && t.domain == TargetDomain::BattlefieldCreature
+                && t.stage == EvaluationStage::Announcement
+                && t.chooser == Chooser::Controller
+                && t.filter.is_none()
+        }
         _ => false,
     }
 }
@@ -2516,6 +2544,7 @@ impl Definition {
         announced_x_draw::validate_definition(self)?;
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
+        artifact_modal::validate(self)?;
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
@@ -3004,7 +3033,9 @@ impl Definition {
                     || p.additional_sacrifice.is_some()
                     || !p.optional_additional_costs.is_empty()
                     || if p.modes.is_empty() {
-                        !p.targets.is_empty() || !fixed_artifact_sacrifice_effect(p)
+                        !p.targets.is_empty()
+                            || !matches!(p.instructions.as_slice(), [Instruction::DrawCards { .. }])
+                            || !fixed_artifact_sacrifice_effect(p)
                     } else {
                         u32::try_from(p.modes.len()).is_err()
                             || !p
@@ -5432,7 +5463,14 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
         "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
             "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}}}
     }});
-    let child = json!({"anyOf":[draw,damage],"properties":{
+    let life = json!({"properties":{"targets":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":{
+        "properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},"amount":{"pattern":"^[1-9][0-9]*$"}}}}}});
+    let pump = json!({"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{
+        "slot":{"const":0},"domain":{"const":"battlefield_creature"},"stage":{"const":"announcement"},
+        "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"pattern":"^line:(0|[1-9][0-9]*):1$"}}}},
+        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"modify_power_toughness"},
+        "target_slot":{"const":0},"duration":{"const":"until_end_of_turn"}}}}}});
+    let child = json!({"anyOf":[draw,damage,life,pump],"properties":{
         "modes":{"maxItems":0},"timing":{"const":"instant"},
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}
     }});

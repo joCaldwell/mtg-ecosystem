@@ -3086,16 +3086,17 @@ impl Game {
                 top.targets = objects;
                 top.announced_targets = announced;
                 let entry = self.top()?;
-                let tap_only = match &entry.kind {
+                let immediate_cost = match &entry.kind {
                     StackKind::Activated { ability, .. } => {
-                        self.definition(entry.source.card)?.activated[*ability as usize].cost
-                            == ActivationCost::TapSource
+                        matches!(
+                            self.definition(entry.source.card)?.activated[*ability as usize].cost,
+                            ActivationCost::TapSource | ActivationCost::SacrificePermanent { .. }
+                        )
                     }
                     _ => false,
                 };
-                if tap_only {
-                    // CR602.2b/601.2c,h: target announcement precedes tap
-                    // payment; a tap-only cost grants no mana payment window.
+                if immediate_cost {
+                    // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
                     self.state.rules.frame = self.announcement_mana_frame(cast)?;

@@ -70,6 +70,7 @@ mod static_permanent_indestructible;
 mod successor_tuck;
 use optional_costs::KickedCondition;
 mod artifact_loss;
+mod artifact_modal;
 mod conditional_lands;
 mod cycling;
 #[cfg(test)]
@@ -1499,6 +1500,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     let mut artifact_loss = artifact_loss::lower(&source, &shape, &result, &binding, &abilities)?;
+    let mut counted_artifact_modes =
+        artifact_modal::bind(&result, &shape, &binding, &r.oracle_identity)?;
     let opponent_land_mana =
         opponent_mana::lower(&abilities, &result, &binding, &r.oracle_identity, &source)?;
     let (color_stats, color_mana) =
@@ -1994,6 +1997,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             );
                             let activated = if let Some(loss) = artifact_loss.take() {
                                 loss
+                            } else if let Some(bound) = counted_artifact_modes.remove(&block) {
+                                bound
                             } else if let Some(spec) = fixed {
                                 let raw: serde_json::Value =
                                     decode(original[block].get(), "activated")?;

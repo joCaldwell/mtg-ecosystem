@@ -355,6 +355,9 @@ impl Game {
                 Some(TargetDomain::AnyDamageTarget) => {
                     self.state.rules.frame = Frame::EntityTargets { cast }
                 }
+                Some(TargetDomain::BattlefieldCreature) => {
+                    self.state.rules.frame = Frame::Targets { cast }
+                }
                 None => self.continue_activation_after_targets(cast, input.decision_id)?,
                 Some(_) => return Err("unsupported activated mode target".into()),
             }
