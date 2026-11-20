@@ -462,10 +462,9 @@ fn source_combat_restrictions_use_current_flying_at_declaration() {
             None,
         ),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(manifest, row)
-        else {
-            panic!("complete source combat witness");
+        let compiled = mtg_compiler::compile(manifest, row);
+        let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+            panic!("complete combat witness at card {index}: {compiled:?}");
         };
         if let Some(restriction) = restriction {
             assert_eq!(
