@@ -145,11 +145,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["StaticEffect"]["allOf"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"if":{"type":"object","required":["modify_creatures"],"properties":{
+        .push(
+            json!({"if":{"type":"object","required":["modify_creatures"],"properties":{
             "modify_creatures":{"required":["restrictions"],"properties":{
                 "restrictions":{"contains":{"const":CreatureRestriction::CanBlockOnlyFlying}}
             }}
-        }},"then":{"const":static_ability(CreatureRestriction::CanBlockOnlyFlying).effect}}));
+        }},"then":{"const":static_ability(CreatureRestriction::CanBlockOnlyFlying).effect}}),
+        );
     schema["$defs"]["StaticAbility"]["allOf"]
         .as_array_mut()
         .unwrap()
