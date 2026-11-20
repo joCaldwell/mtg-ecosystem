@@ -2011,6 +2011,7 @@ fn paid_self_regeneration_replaces_destruction_and_offers_anger_order() {
                 "Trestle Troll",
                 "Swamp",
                 "Swamp",
+                "Swamp",
                 "Forest",
                 "Forest",
                 "Forest",

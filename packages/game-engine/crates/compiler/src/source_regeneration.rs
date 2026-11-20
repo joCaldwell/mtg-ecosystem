@@ -2,7 +2,7 @@
 //! the source object of that invocation (CR 109.5, 201.5, 701.19a).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub(super) fn bind(d: &Definition, source: &Value, binding: &Value) -> Result<(), Failure> {
     if !d.capabilities.contains(&Capability::SourceRegenerationV1) {
@@ -38,6 +38,7 @@ pub(super) fn bind(d: &Definition, source: &Value, binding: &Value) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
     const SOURCE: &str =
