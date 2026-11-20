@@ -175,12 +175,13 @@ function description(ref: ObjectRef | CascadeExiledCards): ObjectFilter | undefi
 }
 function domain(expression: ReferenceExpression): Candidate["domain"] {
   if ("player" in expression || "implicit" in expression) return "player";
+  if ("recipient" in expression) return "object"; // Only a proven cast-spell antecedent binds this form.
   if (!("ref" in expression)) return "number";
   return expression.ref === "any-target" || ("filter" in expression && (expression.filter.orPlayer || expression.filter.orOpponent)) ? "object-or-player" : "object";
 }
 function referenceCardinality(expression: ReferenceExpression): BindingCardinality {
   return "ref" in expression ? expression.ref === "affected-object" ? "one" : expression.ref === "those-counters" ? "many" : objectCardinality(expression)
-    : "implicit" in expression || ("player" in expression && isPluralPlayerRef(expression)) ? "many" : "one";
+    : "implicit" in expression || "recipient" in expression || ("player" in expression && isPluralPlayerRef(expression)) ? "many" : "one";
 }
 /** This is an antecedent-description check, not a current-characteristics
  * predicate. A later "that" never chooses a new object by its current type. */
@@ -1638,6 +1639,29 @@ class Analyzer {
     }
   }
   effect(effect: Effect, path: string, context: Context): void {
+    if (effect.effect === "grant-cast-keyword") {
+      const caster = this.player(effect.caster, child(path, "caster"), context);
+      const from = child(path, "from");
+      this.walk(effect.from, from, context);
+      const owner = this.at(child(from, "owner"));
+      const what = child(path, "what");
+      if (!caster || !owner) {
+        this.unresolved(effect.what, what, "unresolved-dependency",
+          "The recipient spells require a bound caster and hand owner.", ["109.5", "400.1", "601.2a"]);
+        return;
+      }
+      const grant = this.node({ id: this.id(path, "grant"), path, node: "cast-keyword-grant",
+        scope: context.ability, created: "resolution", duration: effect.duration.duration, keyword: effect.keyword,
+        rules: ["113.7a", "514.2", "603.3a", "611.2a", "611.2c", "611.2f"] });
+      const spells = this.node({ id: this.id(what, "spells"), path: what, node: "future-cast-spells",
+        grant, caster: caster.id, from: { zone: effect.from.zone, owner: owner.id }, timing: effect.timing,
+        cardinality: "many", rules: ["601.2a", "601.2i", "611.2f"] });
+      this.bound(effect.what, what, spells, ["601.2a", "611.2f", "702.85a"]);
+      this.engineFeature("cast-keyword-grant", path,
+        "Keep one source-independent grant per resolution and expire it during cleanup. Apply each grant to that controller's later completed casts from hand before collecting cast triggers.",
+        ["109.5", "113.7a", "514.2", "601.2i", "603.3a", "611.2a", "611.2f", "702.85a", "702.85c"]);
+      return;
+    }
     if (effect.effect === "modify-characteristics") {
       // "Target land becomes a 3/3 creature": the engine applies the change in
       // the layer system with the affected set fixed as it begins (CR 611.2c,

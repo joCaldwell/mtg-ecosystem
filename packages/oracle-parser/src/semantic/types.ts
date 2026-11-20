@@ -34,6 +34,10 @@ export type BindingNode = NodeBase & (
   /** One resolving cascade whose controller matches the static ability's "you". */
   | { node: "cascade-occurrence"; scope: string; controllerMatches: string }
   | { node: "cascade-exiled-pool"; occurrence: string }
+  /** One grant created per resolution that applies as each later eligible spell is cast. */
+  | { node: "cast-keyword-grant"; scope: string; created: "resolution"; duration: "this-turn"; keyword: "cascade" }
+  | { node: "future-cast-spells"; grant: string; caster: string; from: { zone: "hand"; owner: string };
+      timing: "as-cast"; cardinality: "many" }
   | { node: "runtime-player"; scope: string; role: "static-source-controller" | "activator" | "spell-controller" | "trigger-controller" | "prospective-caster"
       | "special-action-player" | "targeting-player" | "card-owner" | "entering-controller" }
   /** One keyword instance of this ability line, with the kinds of ability it
@@ -114,8 +118,9 @@ export interface BindingDiagnostic {
  * - characteristic-layers: characteristic changes applied in the layer system,
  *   with the affected set fixed when the effect begins (CR 611.2c, 613).
  * - cascade-resolution: a choice bound to one resolving cascade and its exiled pool (CR 702.85).
+ * - cast-keyword-grant: a resolution-created grant applied during later casts (CR 601.2, 611.2, 702.85).
  * - permanent-spell-copy: a stack copy that becomes a token permanent as it resolves (CR 707.10f). */
-export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution" | "permanent-spell-copy";
+export type EngineFeature = "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution" | "cast-keyword-grant" | "permanent-spell-copy";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
