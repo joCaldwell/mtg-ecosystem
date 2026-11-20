@@ -1,4 +1,4 @@
-//! A standalone spell with one announced player target. CR 104.3e, 601.2c, 608.2b.
+//! A paid artifact activation with one announced player target. CR 104.3e, 601.2c, 608.2b.
 use super::*;
 use serde_json::{Value, json};
 
@@ -70,8 +70,8 @@ impl ArtifactLossSource {
     }
 }
 
-fn program(p: &SpellProgram, timing: SpellTiming, block: u32) -> bool {
-    p.timing == timing
+fn program(p: &SpellProgram) -> bool {
+    p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
         && p.modes.is_empty()
@@ -79,14 +79,20 @@ fn program(p: &SpellProgram, timing: SpellTiming, block: u32) -> bool {
         && p.optional_additional_costs.is_empty()
         && matches!(p.targets.as_slice(), [t] if t.slot == 0 && t.domain == TargetDomain::AnyPlayer
             && t.filter.is_none() && t.chooser == Chooser::Controller && t.stage == EvaluationStage::Announcement && !t.selection_id.is_empty())
-        && matches!(p.instructions.as_slice(), [Instruction::LoseGameTargetPlayer {target_slot:0,source_block}] if *source_block == block)
+        && matches!(
+            p.instructions.as_slice(),
+            [Instruction::LoseGameTargetPlayer {
+                target_slot: 0,
+                source_block: 1
+            }]
+        )
 }
 
 pub fn artifact_loss_activation(a: &ActivatedAbility) -> bool {
     a.functioning_zone == FunctioningZone::Battlefield
         && matches!(&a.cost, ActivationCost::Composite {costs} if costs.tap && costs.sacrifice
             && costs.mana.is_some() && costs.remove_source_plus_one_counters.is_none() && validate_permanent_costs(costs).is_ok())
-        && program(&a.program, SpellTiming::Instant, 1)
+        && program(&a.program)
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
@@ -114,9 +120,6 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         && d.mana_abilities.is_empty();
     let ok = ordinary
         && match (bound, c.kind, d.spell.as_ref(), d.activated.as_slice()) {
-            (None, CardKind::Sorcery, Some(p), []) => {
-                d.static_abilities.is_empty() && program(p, SpellTiming::MainPhase, 0)
-            }
             (Some(bound), CardKind::Artifact, Some(p), [a]) => {
                 let ast: Value = strict_read(&d.provenance.abilities_json)?;
                 ast == bound.abilities
@@ -181,26 +184,27 @@ pub(super) fn extend_schema(schema: &mut Value) {
     }});
     let spell = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":free}}});
     let activated = json!({"required":["activated"],"properties":{"activated":{"contains":{"required":["program"],"properties":{"program":{"not":free}}}}}});
-    let loss = |timing, block| {
-        json!({"properties":{
-            "timing":{"const":timing},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},
-            "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"any_player"},"slot":{"const":0},
-                "selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"filter":{"type":"null"}}}},
-            "instructions":{"const":[Instruction::LoseGameTargetPlayer{target_slot:0,source_block:block}]}
-        }})
-    };
-    let caps = |extra: &[Capability]| {
-        let mut caps = vec![
-            Capability::NormalLayoutV1,
-            Capability::AnyPlayerTargetV1,
-            Capability::TargetedGameLossV1,
-        ];
-        caps.extend_from_slice(extra);
-        json!({"minItems":caps.len(),"maxItems":caps.len(),"uniqueItems":true,"items":{"enum":caps}})
-    };
+    let artifact_source = json!({"properties":{"provenance":{"properties":{"source_json":{"pattern":
+        r#""oracle_text"\s*:\s*"This artifact enters tapped\.\\n(?:\{(?:[WUBRG]|0|[1-9][0-9]*)\})+, \{T\}, Sacrifice this artifact: Target player loses the game\.""#
+    }}}}});
+    let loss = json!({"properties":{
+        "timing":{"const":SpellTiming::Instant},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
+        "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},
+        "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"any_player"},"slot":{"const":0},
+            "selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"filter":{"type":"null"}}}},
+        "instructions":{"const":[Instruction::LoseGameTargetPlayer{target_slot:0,source_block:1}]}
+    }});
+    let caps = [
+        Capability::NormalLayoutV1,
+        Capability::AnyPlayerTargetV1,
+        Capability::TargetedGameLossV1,
+        Capability::CastArtifactV1,
+        Capability::ActivatedAbilityV1,
+        Capability::CompositeActivationCostV1,
+        Capability::EntersTappedV1,
+    ];
     let ability = json!({"required":["functioning_zone","program","cost"],"properties":{
-        "functioning_zone":{"const":"battlefield"},"program":loss(SpellTiming::Instant,1),
+        "functioning_zone":{"const":"battlefield"},"program":loss,
         "cost":{"required":["composite"],"properties":{"composite":{"properties":{"costs":{
             "required":["mana"],"properties":{"tap":{"const":true},"sacrifice":{"const":true},"remove_source_plus_one_counters":{"type":"null"},
                 "mana":{"type":"object","properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"},"colored":{"items":{"not":{"const":"C"}}}}}}
@@ -208,41 +212,27 @@ pub(super) fn extend_schema(schema: &mut Value) {
     }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().extend([
         json!({"properties":{"triggered":{"items":{"properties":{"program":free}}}}}),
-        json!({"if":{"anyOf":[spell,activated]},"then":{"properties":{
-            "characteristics":{"properties":{"subtypes":{"maxItems":0},"additional_types":{"maxItems":0},"basic":{"const":false},"snow":{"const":false},"legendary":{"const":false}}},
+        json!({"if":{"anyOf":[spell,activated,artifact_source]},"then":{"required":["spell","activated","static_abilities"],"properties":{
+            "characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"maxItems":0},"additional_types":{"maxItems":0},"basic":{"const":false},"snow":{"const":false},"legendary":{"const":false}}},
             "intrinsic_zone":{"type":"null"},"x_mana_cost":{"const":false},"keywords":{"maxItems":0},
-            "triggered":{"maxItems":0},"mana_abilities":{"maxItems":0}
-        },"oneOf":[
-            {"required":["spell"],"properties":{"capabilities":caps(&[Capability::CastSorceryV1]),
-                "characteristics":{"properties":{"kind":{"const":"sorcery"}}},"spell":loss(SpellTiming::MainPhase,0),
-                "static_abilities":{"maxItems":0},"activated":{"maxItems":0}}},
-            {"required":["spell","activated","static_abilities"],"properties":{
+            "triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},
                 "source_labels":{"properties":{"statics":{"const":[0]},"activated":{"const":[1]},"blocks":{"minItems":2,"maxItems":2}}},
-                "capabilities":caps(&[Capability::CastArtifactV1,Capability::ActivatedAbilityV1,Capability::CompositeActivationCostV1,Capability::EntersTappedV1]),
-                "characteristics":{"properties":{"kind":{"const":"artifact"}}},
+                "capabilities":{"minItems":caps.len(),"maxItems":caps.len(),"uniqueItems":true,"items":{"enum":caps}},
                 "spell":{"type":"object","properties":{"timing":{"const":"main_phase"},"functioning_zone":{"const":"stack"},"resolution":{"const":"permanent"},
                     "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"targets":{"maxItems":0},"instructions":{"maxItems":0},"modes":{"maxItems":0}}},
                 "static_abilities":{"const":[StaticAbility{functioning_zone:FunctioningZone::Battlefield,effect:StaticEffect::EntersTapped}]},
                 "activated":{"minItems":1,"maxItems":1,"items":ability}
-            }}
-        ]},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TargetedGameLossV1}}}}}})
+            }},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::TargetedGameLossV1}}}}}})
     ]);
 }
 
 #[cfg(test)]
+include!("../../../tests/fixtures/synthetic_artifact_loss.rs");
+
+#[cfg(test)]
 pub(super) fn witness() -> Definition {
     let mut d = targeted_counted_draw::witness();
-    d.characteristics.kind = CardKind::Sorcery;
-    d.characteristics.subtypes.clear();
-    d.name = "Synthetic Targeted Loss".into();
-    d.source_labels = None;
-    let p = d.spell.as_mut().unwrap();
-    p.timing = SpellTiming::MainPhase;
-    p.instructions = vec![Instruction::LoseGameTargetPlayer {
-        target_slot: 0,
-        source_block: 0,
-    }];
-    d.capabilities = d.requirements();
+    set_up_synthetic_artifact_loss(&mut d);
     d
 }
 
@@ -250,20 +240,36 @@ pub(super) fn witness() -> Definition {
 fn targeted_game_loss_contract_rejects_added_and_unbound_effects() {
     let d = witness();
     d.validate().unwrap();
-    for variant in 0..3 {
+    for variant in 0..4 {
         let mut malformed = d.clone();
-        let p = malformed.spell.as_mut().unwrap();
+        let p = &mut malformed.activated[0].program;
         match variant {
             0 => p.instructions.push(p.instructions[0].clone()),
             1 => p.targets[0].domain = TargetDomain::OpponentPlayer,
-            _ => {
+            2 => {
                 p.instructions[0] = Instruction::LoseGameTargetPlayer {
                     target_slot: 1,
                     source_block: 0,
                 }
             }
+            _ => malformed.activated.clear(),
         }
         malformed.capabilities = malformed.requirements();
         assert!(malformed.validate().is_err());
     }
+}
+
+#[test]
+fn unrelated_sorcery_cannot_claim_player_loss() {
+    let mut d = targeted_counted_draw::witness();
+    d.characteristics.kind = CardKind::Sorcery;
+    d.characteristics.subtypes.clear();
+    let p = d.spell.as_mut().unwrap();
+    p.timing = SpellTiming::MainPhase;
+    p.instructions = vec![Instruction::LoseGameTargetPlayer {
+        target_slot: 0,
+        source_block: 0,
+    }];
+    d.capabilities = d.requirements();
+    assert!(d.validate().is_err());
 }

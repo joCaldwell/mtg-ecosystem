@@ -1,4 +1,4 @@
-//! CR 104.3e, 104.5, 608.2b, 800.4a. A spell effect causes immediate
+//! CR 104.3e, 104.5, 608.2b, 800.4a. An activated effect causes immediate
 //! loss, independently of the state-based loss conditions.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -6,15 +6,14 @@ use super::*;
 impl Game {
     pub(super) fn targeted_loss_authority(&self) -> Result<(BatchCause, PlayerId), String> {
         let Frame::Resolve { frame } = &self.state.rules.frame else {
-            return Err("targeted loss requires a resolving spell".into());
+            return Err("targeted loss requires a resolving activation".into());
         };
         self.validate_resolving(frame)?;
         let program = self.program_for(&frame.spell)?;
         let [player] = frame.spell.player_targets.as_slice() else {
             return Err("targeted loss requires one announced player".into());
         };
-        let block = match &frame.spell.kind {
-            StackKind::Spell => 0,
+        match &frame.spell.kind {
             StackKind::Activated {
                 ability: 0,
                 source_handles,
@@ -29,17 +28,22 @@ impl Game {
                     return Err("targeted loss requires its paid sacrificed artifact".into());
                 }
                 self.validate_activated_entry(&frame.spell, 0, source_handles)?;
-                1
             }
             _ => return Err("unsupported targeted loss invocation".into()),
         };
         if frame.cursor != 0
             || frame.legal_targets != [true]
-            || !matches!(program.instructions.as_slice(), [Instruction::LoseGameTargetPlayer {target_slot:0,source_block}] if *source_block == block)
+            || !matches!(
+                program.instructions.as_slice(),
+                [Instruction::LoseGameTargetPlayer {
+                    target_slot: 0,
+                    source_block: 1
+                }]
+            )
         {
             return Err("targeted loss instruction does not authorize departure".into());
         }
-        Ok((Self::wipe_cause(frame, block), *player))
+        Ok((Self::wipe_cause(frame, 1), *player))
     }
 
     pub(super) fn resolve_targeted_loss(&mut self, frame: Resolving) -> Result<(), String> {
@@ -49,7 +53,7 @@ impl Game {
             return Err("targeted loss resolving instance changed".into());
         }
         if !self.is_live(player) {
-            return self.finish_spell(&frame.spell, true);
+            return self.finish_ability(&frame.spell, true);
         }
         let batch = self.commit_batch(
             cause,
@@ -63,9 +67,9 @@ impl Game {
         if self.finish_committed_player_losses(&batch)? {
             return Ok(());
         }
-        // A self-targeted caster can leave with the physical spell. The usual
-        // completion path handles the frozen resolving instance in that case.
-        self.finish_spell(&frame.spell, true)
+        // A self-targeted activator can leave with the invocation. Completion
+        // still uses the frozen resolving instance in that case.
+        self.finish_ability(&frame.spell, true)
     }
 }
 
@@ -74,7 +78,9 @@ mod tests {
     use super::*;
     use crate::engine::equipped_indestructible_tests::{answer, recover};
 
-    fn game() -> Game {
+    include!("../../../../tests/fixtures/synthetic_artifact_loss.rs");
+
+    fn prepared_artifact() -> Prepared {
         let mut p = Prepared::admit(
             Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap(),
             ScenarioConfig::land_return(),
@@ -86,26 +92,7 @@ mod tests {
             .iter_mut()
             .find(|d| d.oracle_id == SPELL)
             .unwrap();
-        d.oracle_id = "synthetic-targeted-loss".into();
-        d.name = "Synthetic Targeted Loss".into();
-        d.source_labels = None;
-        d.characteristics.kind = CardKind::Sorcery;
-        d.characteristics.subtypes.clear();
-        let program = d.spell.as_mut().unwrap();
-        program.timing = SpellTiming::MainPhase;
-        program.targets = vec![TargetSpec {
-            slot: 0,
-            selection_id: "synthetic-target".into(),
-            domain: TargetDomain::AnyPlayer,
-            filter: None,
-            chooser: Chooser::Controller,
-            stage: EvaluationStage::Announcement,
-        }];
-        program.instructions = vec![Instruction::LoseGameTargetPlayer {
-            target_slot: 0,
-            source_block: 0,
-        }];
-        d.capabilities = d.requirements();
+        set_up_synthetic_artifact_loss(d);
         p.config.cards[1].oracle_id = d.oracle_id.clone();
         catalog
             .definitions
@@ -113,75 +100,12 @@ mod tests {
         catalog.validate().unwrap();
         p.catalog_digest = digest(catalog).unwrap();
         p.profile_digest = digest(&p.config).unwrap();
-        Game::with_trace(p, TraceMode::Detailed)
+        p
     }
 
     #[test]
     fn paid_artifact_loss_uses_sacrificed_source_and_selected_player() {
-        let mut p = game().prepared.as_ref().clone();
-        let catalog = Arc::make_mut(&mut p.catalog);
-        let d = catalog
-            .definitions
-            .iter_mut()
-            .find(|d| d.oracle_id == p.config.cards[1].oracle_id)
-            .unwrap();
-        let subject = "this artifact";
-        let text = format!(
-            "This artifact enters tapped.\n{{U}}, {{T}}, Sacrifice {subject}: Target player loses the game."
-        );
-        let bound = ArtifactLossSource::parse(&text).unwrap();
-        d.name = "Synthetic Silent Chime".into();
-        d.characteristics.kind = CardKind::Artifact;
-        d.characteristics.colors.clear();
-        d.characteristics.color_identity = vec![Color::U];
-        d.characteristics.mana_cost = ManaCost {
-            generic: 1.into(),
-            colored: vec![],
-        };
-        d.source_labels = Some(SourceLabels {
-            text: text.clone(),
-            blocks: text.lines().map(str::to_owned).collect(),
-            statics: vec![0],
-            activated: vec![1],
-            ..SourceLabels::default()
-        });
-        d.provenance.printing_id = "synthetic-silent-chime".into();
-        d.provenance.source_json = canonical(&serde_json::json!({"id":d.provenance.printing_id,
-            "oracle_id":d.oracle_id,"name":d.name,"layout":"normal","type_line":"Artifact","colors":[],
-            "color_identity":["U"],"mana_cost":"{1}","oracle_text":text})).unwrap();
-        d.provenance.source_sha256 = sha256(d.provenance.source_json.as_bytes());
-        d.provenance.abilities_json = canonical(&bound.abilities).unwrap();
-        d.provenance.ast_sha256 = sha256(format!("[{}]", d.provenance.abilities_json).as_bytes());
-        let spell = d.spell.as_mut().unwrap();
-        let mut program = spell.clone();
-        program.timing = SpellTiming::Instant;
-        program.targets[0].selection_id = bound.selection;
-        program.instructions = vec![Instruction::LoseGameTargetPlayer {
-            target_slot: 0,
-            source_block: 1,
-        }];
-        spell.resolution = SpellResolution::Permanent;
-        spell.targets.clear();
-        spell.instructions.clear();
-        d.static_abilities = vec![StaticAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::EntersTapped,
-        }];
-        d.activated = vec![ActivatedAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            cost: ActivationCost::Composite {
-                costs: PermanentActivationCosts {
-                    tap: true,
-                    mana: Some(bound.mana),
-                    sacrifice: true,
-                    remove_source_plus_one_counters: None,
-                },
-            },
-            program,
-        }];
-        d.capabilities = d.requirements();
-        catalog.validate().unwrap();
-        p.catalog_digest = digest(catalog).unwrap();
+        let mut p = prepared_artifact();
         let mut cast = Game::with_trace(p.clone(), TraceMode::Detailed);
         let land = cast.object_id(CardId(0)).unwrap();
         answer(&mut cast, 1, Response::ActivateMana { object: land });
@@ -242,21 +166,25 @@ mod tests {
     }
 
     #[test]
-    fn targeted_game_loss_binds_paid_spell_departure_and_terminal_result() {
+    fn targeted_game_loss_binds_paid_activation_departure_and_terminal_result() {
         for (target, terminal) in [
             (PlayerId(1), false),
             (PlayerId(0), false),
             (PlayerId(1), true),
             (PlayerId(0), true),
         ] {
-            let mut g = game();
+            let mut setup = prepared_artifact();
+            setup.config.cards[1].zone = Zone::Battlefield;
+            setup.profile_digest = digest(&setup.config).unwrap();
+            let mut g = Game::with_trace(setup, TraceMode::Detailed);
             if terminal {
                 g.concede(PlayerId(2)).unwrap();
                 g.concede(PlayerId(3)).unwrap();
             }
             let source = g.object_id(CardId(0)).unwrap();
             answer(&mut g, 1, Response::ActivateMana { object: source });
-            answer(&mut g, 1, Response::Cast { card: CardId(1) });
+            let object = g.object_id(CardId(1)).unwrap();
+            answer(&mut g, 1, Response::ActivateAbility { object, ability: 0 });
             answer(
                 &mut g,
                 1,

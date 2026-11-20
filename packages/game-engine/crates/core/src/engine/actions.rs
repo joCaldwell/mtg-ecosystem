@@ -1671,7 +1671,7 @@ impl Game {
             || entry.id.0 >= self.state.rules.next_stack_id
             || self.bound_target_count(entry) != program.targets.len()
             || entry.paid.as_ref() != Some(&entry.total_cost)
-            // A standalone immediate loss and its spell completion share one
+            // Immediate loss and completion of its activated ability share one
             // atomic rule step. There is no post-loss resolving continuation.
             || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)
             || frame.cursor as usize > program.instructions.len()

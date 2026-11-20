@@ -907,7 +907,7 @@ pub enum Instruction {
     LoseGameTargetPlayer {
         #[schemars(range(max = 0))]
         target_slot: u32,
-        #[schemars(range(max = 1))]
+        #[schemars(range(min = 1, max = 1))]
         source_block: u32,
     },
     TargetPlayerSacrificeCreature {

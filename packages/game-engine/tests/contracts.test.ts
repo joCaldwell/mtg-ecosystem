@@ -48,6 +48,37 @@ test("untap schema stays within a complete ordinary spell", () => {
   assertUntapSchema(validate, loadCatalog("removal"));
 });
 
+test("artifact loss source requires its activation and capability after stripping", () => {
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  const catalog = JSON.parse(read("expected-wipes-ir.json"));
+  const artifact = catalog.definitions.find((d: any) => d.characteristics.kind === "artifact"
+    && d.characteristics.subtypes.length === 0);
+  catalog.definitions = [artifact];
+  delete artifact.source_labels;
+  artifact.activated = [];
+  artifact.mana_abilities = [];
+  artifact.static_abilities = [{ functioning_zone: "battlefield", effect: "enters_tapped" }];
+  artifact.capabilities = ["normal_layout_v1", "cast_artifact_v1", "enters_tapped_v1"];
+  const source = { id: "synthetic-bell-print", oracle_id: "synthetic-bell", name: "Synthetic Bell",
+    layout: "normal", type_line: "Artifact", mana_cost: "{3}", colors: [], color_identity: ["R"],
+    oracle_text: "This artifact enters tapped." };
+  artifact.name = source.name;
+  artifact.oracle_id = source.oracle_id;
+  artifact.provenance.printing_id = source.id;
+  artifact.provenance.abilities_json = JSON.stringify([{ kind: "static",
+    effect: { static: "enters-tapped", what: { ref: "this", noun: "artifact" } } }]);
+  artifact.provenance.ast_sha256 = sha(`[${artifact.provenance.abilities_json}]`);
+  artifact.provenance.source_json = JSON.stringify(source);
+  artifact.provenance.source_sha256 = sha(artifact.provenance.source_json);
+  assert.equal(validate(catalog), true, JSON.stringify(validate.errors));
+  source.oracle_text += "\n{4}{R}, {T}, Sacrifice this artifact: Target player loses the game.";
+  artifact.provenance.source_json = JSON.stringify(source);
+  artifact.provenance.source_sha256 = sha(artifact.provenance.source_json);
+  assert.equal(validate(catalog), false, "the printed activation requires matching executable IR");
+});
+
 test("Ramos complete source and counter-mana family agree with exported schema", () => {
   const source = path.join(root, "packages/game-engine/tests/fixtures/ramos");
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-ramos-schema-"));
