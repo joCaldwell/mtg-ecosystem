@@ -839,6 +839,7 @@ impl Game {
                             PlayerResponse::ActivateMana { .. }
                             | PlayerResponse::FinishMana { .. }
                             | PlayerResponse::SpendMana { .. }
+                            | PlayerResponse::ManaCombination { .. }
                             | PlayerResponse::ManaColor { .. },
                         ) => true,
                         (

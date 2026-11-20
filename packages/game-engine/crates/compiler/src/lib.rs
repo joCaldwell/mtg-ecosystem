@@ -52,6 +52,7 @@ mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
 mod graveyard_battlefield_return;
+mod greatest_power;
 mod group_discard;
 mod hand_cast_cascade;
 mod hand_return;
@@ -1402,6 +1403,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     let r: Record = decode(record, "record")?;
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
+    }
+    if let Some(definition) = greatest_power::lower(&r, archive)? {
+        return Ok(definition);
     }
     if r.status != "parsed" {
         return Err(unsupported("status", "complete-card parsing is required"));

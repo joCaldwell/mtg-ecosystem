@@ -1262,6 +1262,9 @@ pub enum Response {
     ChooseManaAbility {
         ability: ManaAbilityIdentity,
     },
+    ManaCombination {
+        amounts: [Quantity; 5],
+    },
     ManaColor {
         color: Color,
     },
@@ -1454,6 +1457,12 @@ pub enum Request {
         player: PlayerId,
         choices: Vec<ManaAbilityIdentity>,
     },
+    ManaCombination {
+        decision_id: u64,
+        player: PlayerId,
+        total: Quantity,
+        colors: Vec<Color>,
+    },
     ManaColor {
         decision_id: u64,
         player: PlayerId,
@@ -1644,6 +1653,7 @@ impl Request {
             | Self::HybridCost { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
+            | Self::ManaCombination { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
             | Self::ColoredSearch { decision_id, .. }
             | Self::SearchLands { decision_id, .. }
@@ -1691,6 +1701,7 @@ impl Request {
             | Self::HybridCost { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
+            | Self::ManaCombination { player, .. }
             | Self::ManaColor { player, .. }
             | Self::ColoredSearch { player, .. }
             | Self::SearchLands { player, .. }

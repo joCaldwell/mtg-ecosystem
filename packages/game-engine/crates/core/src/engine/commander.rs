@@ -669,7 +669,8 @@ impl Game {
                                         || frame.draw_progress.is_some())
                             }
                             Some(
-                                Instruction::OptionalDrawCards { source_block: b }
+                                Instruction::OptionalDrawForSoleGreatestEntrant { source_block: b }
+                                | Instruction::OptionalDrawCards { source_block: b }
                                 | Instruction::OptionalDrawUnlessCasterPays {
                                     source_block: b, ..
                                 },

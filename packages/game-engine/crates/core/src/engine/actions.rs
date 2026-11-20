@@ -1373,6 +1373,35 @@ impl Game {
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            Instruction::OptionalDrawForSoleGreatestEntrant { source_block } => {
+                let entrant = self.resolving_entrant(&frame)?;
+                let power = entrant
+                    .characteristics
+                    .power
+                    .as_ref()
+                    .ok_or("entrant without power")?;
+                for o in self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield() && o.id != entrant.object)
+                {
+                    if self.is_battlefield_creature(o.id)
+                        && self
+                            .characteristics(o.id)?
+                            .power
+                            .as_ref()
+                            .is_some_and(|p| p >= power)
+                    {
+                        return self.finish_instruction(
+                            frame,
+                            InstructionOutcome::Effect { actual: None },
+                        );
+                    }
+                }
+                self.offer_player_draw(frame, entrant.controller, source_block)
+            }
             Instruction::OptionalDrawCards { source_block } => {
                 self.offer_controller_draw(frame, source_block)
             }
@@ -1430,12 +1459,42 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
+    pub(super) fn resolving_entrant(&self, frame: &Resolving) -> Result<ObjectBefore, String> {
+        let StackKind::Triggered {
+            witness:
+                TriggerEventWitness::CreatureEnteredWithPower {
+                    entrant,
+                    last_appearance: Some(last),
+                    ..
+                },
+            ..
+        } = &frame.spell.kind
+        else {
+            return Err("missing resolving entrant".into());
+        };
+        if self
+            .current(entrant.object)
+            .is_ok_and(|o| o.present_on_battlefield())
+        {
+            self.object_before(entrant.object)
+        } else {
+            Ok((**last).clone())
+        }
+    }
     pub(super) fn offer_controller_draw(
         &mut self,
         frame: Resolving,
         source_block: u32,
     ) -> Result<(), String> {
         let player = frame.spell.controller;
+        self.offer_player_draw(frame, player, source_block)
+    }
+    fn offer_player_draw(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        source_block: u32,
+    ) -> Result<(), String> {
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
