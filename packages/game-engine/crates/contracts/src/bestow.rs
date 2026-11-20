@@ -156,68 +156,114 @@ pub fn bestow_alternative(d: &Definition) -> Option<(&ManaCost, &SpellProgram)> 
     })
 }
 
-// The admitted three-block family is the frozen fixed-cost, five-keyword form.
-fn keywords() -> Vec<KeywordAbility> {
-    use KeywordAbility::*;
-    vec![Flying, FirstStrike, Vigilance, Trample, Lifelink]
-}
-
-fn cost(generic: i64) -> ManaCost {
-    ManaCost {
-        generic: generic.into(),
-        colored: vec![Color::W, Color::U, Color::B, Color::R, Color::G],
-    }
-}
-
-fn statics() -> Vec<StaticAbility> {
-    vec![
-        StaticAbility {
-            functioning_zone: FunctioningZone::Stack,
-            effect: StaticEffect::Bestow {
-                cost: cost(2),
-                program: canonical_bestow_program(),
-            },
-        },
-        StaticAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            effect: StaticEffect::ModifyCreatures {
-                scope: CreatureScope::Enchanted,
-                power: 4.into(),
-                toughness: 4.into(),
-                keywords: keywords(),
-                restrictions: vec![],
-            },
-        },
-    ]
-}
-
 fn ordinary_spell() -> SpellProgram {
     let mut p = canonical_bestow_program();
     p.targets.clear();
     p
 }
 
-fn characteristics() -> Characteristics {
-    let colors = vec![Color::B, Color::G, Color::R, Color::U, Color::W];
-    Characteristics {
-        kind: CardKind::Creature,
-        additional_types: vec![CardKind::Enchantment],
-        basic: false,
-        legendary: false,
-        snow: false,
-        subtypes: vec!["Manticore".into()],
-        mana_cost: cost(0),
-        colors: colors.clone(),
-        color_identity: colors,
-        power: Some(4.into()),
-        toughness: Some(4.into()),
+const SUPPORTED: [KeywordAbility; 6] = {
+    use KeywordAbility::*;
+    [Flying, FirstStrike, Vigilance, Trample, Lifelink, Reach]
+};
+
+fn mana_symbols(cost: &ManaCost) -> Vec<String> {
+    let mut symbols = Vec::new();
+    if cost.generic != Quantity::zero() || cost.colored.is_empty() {
+        symbols.push(cost.generic.to_string());
     }
+    symbols.extend(cost.colored.iter().map(|color| format!("{color:?}")));
+    symbols
 }
 
-// These digests fence the exact frozen source and parser graph admitted by this family.
-const SOURCE: &str = "0b1a7e4c251b08dc51ea427f0b3cd53c9ed0b4a175e98485a401406f9efd3bcf";
-const AST: &str = "cce87e357c185f36c100806cdc98918932499e12f476ac2b3cbba2a9aa164398";
-const BINDING: &str = "f1b389dbd4e07d437cd4de25ff4e6cb3a41c9465e53a54e36d08919258226d7b";
+fn source_matches(
+    d: &Definition,
+    cost: &ManaCost,
+    power: &Quantity,
+    toughness: &Quantity,
+    grants: &[KeywordAbility],
+) -> Result<bool, String> {
+    use serde_json::{Value, json};
+    let words = |keys: &[KeywordAbility]| -> Result<Vec<String>, String> {
+        if keys.is_empty()
+            || keys
+                .iter()
+                .enumerate()
+                .any(|(i, k)| !SUPPORTED.contains(k) || keys[..i].contains(k))
+        {
+            return Err("unsupported or repeated bestow keyword".into());
+        }
+        serde_json::from_value(json!(keys)).map_err(|e| e.to_string())
+    };
+    let intrinsic = words(&d.keywords)?;
+    let granted = words(grants)?;
+    let positive = |q: &Quantity| {
+        q.to_string()
+            .parse::<u32>()
+            .ok()
+            .filter(|n| *n > 0)
+            .map(|n| json!({"sign":1,"amount":{"amount":"fixed","value":n}}))
+            .ok_or("invalid enchanted modifier")
+    };
+    let ast = json!([
+        {"kind":"keywords","keywords":[{"keyword":"bestow","cost":[{"cost":"mana","symbols":mana_symbols(cost)}]}]},
+        {"kind":"keywords","keywords":intrinsic.iter().map(|k|json!({"keyword":k})).collect::<Vec<_>>()},
+        {"kind":"static","effect":{"static":"modify","what":{"ref":"enchanted","noun":"creature"},"modifiers":[
+            {"modifier":"pt","power":positive(power)?,"toughness":positive(toughness)?},
+            {"modifier":"abilities","abilities":granted.iter().map(|k|json!({"gained":"keyword","keyword":{"keyword":k}})).collect::<Vec<_>>()}]}}
+    ]);
+    let source: Value = strict_read(&d.provenance.source_json)?;
+    let c = &d.characteristics;
+    let mut printed = intrinsic.join(", ");
+    printed[..1].make_ascii_uppercase();
+    let grant_text = match granted.as_slice() {
+        [word] => word.clone(),
+        [first, last] => format!("{first} and {last}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+        [] => return Ok(false),
+    };
+    let modifier = format!("Enchanted creature gets +{power}/+{toughness} and has {grant_text}.");
+    let mut lines = source["oracle_text"].as_str().unwrap_or_default().lines();
+    let bestow = format!("Bestow {}", cost.printed_fixed_cost());
+    let line = lines.next().unwrap_or_default();
+    if line != bestow
+        && !line
+            .strip_prefix(&bestow)
+            .and_then(|s| s.strip_prefix(" ("))
+            .and_then(|s| s.strip_suffix(')'))
+            .is_some_and(|s| !s.contains(['(', ')']))
+    {
+        return Ok(false);
+    }
+    let inventory: Option<Vec<_>> = source["keywords"].as_array().and_then(|a| {
+        a.iter()
+            .map(|v| v.as_str().map(str::to_ascii_lowercase))
+            .collect()
+    });
+    let mut expected = intrinsic.clone();
+    expected.push("bestow".into());
+    expected.sort();
+    let Some(mut inventory) = inventory else {
+        return Ok(false);
+    };
+    inventory.sort();
+    Ok(strict_read::<Value>(&d.provenance.abilities_json)? == ast
+        && inventory == expected
+        && lines.eq([printed.as_str(), modifier.as_str()])
+        && source["layout"] == "normal"
+        && source["name"] == d.name
+        && source["oracle_id"] == d.oracle_id
+        && source["id"] == d.provenance.printing_id
+        && source["type_line"] == format!("Enchantment Creature — {}", c.subtypes.join(" "))
+        && !c.subtypes.is_empty()
+        && !c.legendary
+        && !c.snow
+        && source["mana_cost"] == c.mana_cost.printed_fixed_cost()
+        && source["colors"] == json!(c.colors)
+        && source["color_identity"] == json!(c.color_identity)
+        && source["power"].as_str() == c.power.as_ref().map(ToString::to_string).as_deref()
+        && source["toughness"].as_str() == c.toughness.as_ref().map(ToString::to_string).as_deref())
+}
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
     if bestow_alternative(d).is_none()
@@ -227,12 +273,30 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     {
         return Ok(());
     }
-    if d.provenance.source_sha256 != SOURCE
-        || d.provenance.ast_sha256 != AST
-        || d.provenance.binding_sha256 != BINDING
-        || d.static_abilities != statics()
-        || d.keywords != keywords()
-        || d.characteristics != characteristics()
+    let [
+        StaticAbility {
+            functioning_zone: FunctioningZone::Stack,
+            effect: StaticEffect::Bestow { cost, program },
+        },
+        StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect:
+                StaticEffect::ModifyCreatures {
+                    scope: CreatureScope::Enchanted,
+                    power,
+                    toughness,
+                    keywords,
+                    restrictions,
+                },
+        },
+    ] = d.static_abilities.as_slice()
+    else {
+        return Err("bestow requires its alternative and enchanted modifier".into());
+    };
+    BestowCastPlan::new(&d.characteristics, cost.clone())?;
+    if program != &canonical_bestow_program()
+        || !restrictions.is_empty()
+        || !source_matches(d, cost, power, toughness, keywords)?
         || d.spell.as_ref() != Some(&ordinary_spell())
         || d.x_mana_cost
         || d.intrinsic_zone.is_some()
@@ -256,25 +320,93 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
         CreatureTargetV1,
         AttachmentsV1,
         BestowV1,
-        FlyingV1,
-        FirstStrikeV1,
-        VigilanceV1,
-        TrampleV1,
-        LifelinkV1,
     ];
+    let mut allowed = caps.to_vec();
+    allowed.extend(
+        SUPPORTED
+            .iter()
+            .filter_map(|k| intrinsic_keyword_capability(*k)),
+    );
+    let keyword_caps = SUPPORTED.iter().map(|word| {
+        let cap = intrinsic_keyword_capability(*word).unwrap();
+        let present = json!({"contains":{"const":word}});
+        json!({"if":{"anyOf":[{"properties":{"keywords":present}},
+            {"properties":{"static_abilities":{"contains":{"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"properties":{"keywords":present}}}}}}}}}]},
+            "then":{"properties":{"capabilities":{"contains":{"const":cap}}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":cap}}}}}})
+    }).collect::<Vec<_>>();
+    let words = json!({"minItems":1,"uniqueItems":true,"items":{"enum":SUPPORTED}});
+    let alternative = json!({"properties":{"functioning_zone":{"const":"stack"},"effect":{"type":"object","required":["bestow"],"properties":{"bestow":{"properties":{"program":{"const":canonical_bestow_program()},"cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}}}}}}}}});
+    let modifier = json!({"properties":{"functioning_zone":{"const":"battlefield"},"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"properties":{"scope":{"const":"enchanted"},"power":{"pattern":"^[1-9][0-9]*$"},"toughness":{"pattern":"^[1-9][0-9]*$"},"restrictions":{"maxItems":0},"keywords":words}}}}}});
     let marker = json!({"type":"object","required":["effect"],"properties":{"effect":{"type":"object","required":["bestow"]}}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":BestowV1}}}},
             {"required":["static_abilities"],"properties":{"static_abilities":{"contains":marker}}},
             {"properties":{"provenance":{"properties":{"abilities_json":{"pattern":"\"bestow\""}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":"Bestow \\{"}}}}}]},
-        "then":{"required":["static_abilities","keywords","spell"],"properties":{
-            "capabilities":{"minItems":caps.len(),"maxItems":caps.len(),"uniqueItems":true,"items":{"enum":caps}},
+        "then":{"allOf":keyword_caps,"required":["static_abilities","keywords","spell"],"properties":{
+            "capabilities":{"allOf":caps.iter().map(|cap|json!({"contains":{"const":cap}})).collect::<Vec<_>>(),"uniqueItems":true,"items":{"enum":allowed}},
             "spell":{"const":ordinary_spell()},"intrinsic_zone":{"type":"null"},"x_mana_cost":{"const":false},
             "activated":{"maxItems":0},"mana_abilities":{"maxItems":0},"triggered":{"maxItems":0},
-            "provenance":{"properties":{"source_sha256":{"const":SOURCE},"ast_sha256":{"const":AST},"binding_sha256":{"const":BINDING}}},"keywords":{"const":keywords()},"characteristics":{"const":characteristics()},"static_abilities":{"const":statics()}
+            "keywords":words,"characteristics":{"required":["additional_types","power","toughness"],"properties":{"kind":{"const":"creature"},"additional_types":{"const":["enchantment"]},"subtypes":{"minItems":1},"basic":{"const":false},"legendary":{"const":false},"snow":{"const":false},"power":{"type":"string"},"toughness":{"type":"string"}}},
+            "static_abilities":{"minItems":2,"maxItems":2,"prefixItems":[alternative,modifier]}
         }}
     }));
+}
+
+#[cfg(test)]
+fn keywords() -> Vec<KeywordAbility> {
+    use KeywordAbility::*;
+    vec![Flying, FirstStrike, Vigilance, Trample, Lifelink]
+}
+
+#[cfg(test)]
+fn cost(generic: i64) -> ManaCost {
+    ManaCost {
+        generic: generic.into(),
+        colored: vec![Color::W, Color::U, Color::B, Color::R, Color::G],
+    }
+}
+
+#[cfg(test)]
+fn statics() -> Vec<StaticAbility> {
+    vec![
+        StaticAbility {
+            functioning_zone: FunctioningZone::Stack,
+            effect: StaticEffect::Bestow {
+                cost: cost(2),
+                program: canonical_bestow_program(),
+            },
+        },
+        StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::Enchanted,
+                power: 4.into(),
+                toughness: 4.into(),
+                keywords: keywords(),
+                restrictions: vec![],
+            },
+        },
+    ]
+}
+
+#[cfg(test)]
+fn characteristics() -> Characteristics {
+    let colors = vec![Color::B, Color::G, Color::R, Color::U, Color::W];
+    Characteristics {
+        kind: CardKind::Creature,
+        additional_types: vec![CardKind::Enchantment],
+        basic: false,
+        legendary: false,
+        snow: false,
+        subtypes: vec!["Manticore".into()],
+        mana_cost: cost(0),
+        colors: colors.clone(),
+        color_identity: colors,
+        power: Some(4.into()),
+        toughness: Some(4.into()),
+    }
 }
 
 #[cfg(test)]
@@ -311,9 +443,9 @@ pub(super) fn witness() -> Definition {
     .unwrap();
     d.provenance.source_json = frozen.source.get().into();
     d.provenance.abilities_json = frozen.faces[0].result.abilities.get().into();
-    d.provenance.source_sha256 = SOURCE.into();
-    d.provenance.ast_sha256 = AST.into();
-    d.provenance.binding_sha256 = BINDING.into();
+    d.provenance.source_sha256 = raw["sourceSha256"].as_str().unwrap().into();
+    d.provenance.ast_sha256 = raw["astSha256"].as_str().unwrap().into();
+    d.provenance.binding_sha256 = raw["bindingSha256"].as_str().unwrap().into();
     d.capabilities = d.requirements();
     d
 }

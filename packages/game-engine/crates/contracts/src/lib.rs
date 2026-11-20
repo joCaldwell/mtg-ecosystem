@@ -2679,6 +2679,19 @@ impl Definition {
             set.extend(intrinsic_keyword_capability(*keyword));
         }
         for a in &self.static_abilities {
+            if let StaticEffect::ModifyCreatures {
+                scope: CreatureScope::Enchanted,
+                keywords,
+                ..
+            } = &a.effect
+                && bestow_alternative(self).is_some()
+            {
+                set.extend(
+                    keywords
+                        .iter()
+                        .filter_map(|k| intrinsic_keyword_capability(*k)),
+                );
+            }
             if let StaticEffect::Bestow { program, .. } = &a.effect {
                 add_program_requirements(&mut set, program);
             }

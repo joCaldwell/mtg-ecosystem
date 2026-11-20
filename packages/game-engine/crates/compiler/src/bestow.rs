@@ -307,6 +307,60 @@ mod tests {
             matches!(&definition.static_abilities[1].effect,StaticEffect::ModifyCreatures{scope:CreatureScope::Enchanted,power,toughness,keywords,..}
             if power == &Quantity::from(4) && toughness == power && keywords == &definition.keywords && keywords.len()==5)
         );
+        // A second source has different printed and alternative costs, base stats,
+        // subtype and an attached keyword that the creature itself does not have.
+        let raw =
+            include_str!("../../../tests/fixtures/ramos/695ee4fe-356d-47fb-9442-d171b618151c.json")
+                .replace("Chromanticore", "Test Griffin")
+                .replace("Manticore", "Griffin")
+                .replace("{2}{W}{U}{B}{R}{G}", "{3}{W}")
+                .replace("{W}{U}{B}{R}{G}", "{W}")
+                .replace(r#"["2","W","U","B","R","G"]"#, r#"["3","W"]"#)
+                .replace("and has flying", "and has reach")
+                .replace("+4/+4", "+2/+3");
+        let changed = crate::tests::changed_source(&raw, |r| {
+            r["source"]["power"] = json!("1");
+            r["source"]["toughness"] = json!("2");
+            for key in ["colors", "color_identity"] {
+                r["source"][key] = json!(["W"]);
+            }
+            let result = &mut r["faces"][0]["result"];
+            let mut ability = result["abilities"][2].clone();
+            let mods = &mut ability["effect"]["modifiers"];
+            mods[0]["power"]["amount"]["value"] = json!(2);
+            mods[0]["toughness"]["amount"]["value"] = json!(3);
+            mods[1]["abilities"][0]["keyword"]["keyword"] = json!("reach");
+            result["lines"][2]["ability"] = ability.clone();
+            result["abilities"][2] = ability;
+            for node in r["binding"]["nodes"].as_array_mut().unwrap() {
+                if node["path"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("/faces/0/abilities/2/")
+                {
+                    if node["keyword"] == "flying" {
+                        node["keyword"] = json!("reach");
+                    }
+                    for rule in node["rules"].as_array_mut().unwrap() {
+                        if rule.as_str() == Some("702.9") {
+                            *rule = json!("702.17");
+                        }
+                    }
+                }
+            }
+        });
+        let compiled = compile(
+            include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json"),
+            &changed,
+        );
+        let CompileResult::Lowered { definition } = compiled else {
+            panic!("{compiled:?}")
+        };
+        assert_eq!(bestow_alternative(&definition).unwrap().0.generic, 3.into());
+        assert!(!definition.keywords.contains(&KeywordAbility::Reach));
+        assert!(
+            matches!(&definition.static_abilities[1].effect,StaticEffect::ModifyCreatures{keywords,..} if keywords.contains(&KeywordAbility::Reach))
+        );
         let mut forged = binding.clone();
         forged["references"][0]["target"] = forged["nodes"][3]["id"].clone();
         assert!(cast_plan(source, &parse, &forged, identity).is_err());
