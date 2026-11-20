@@ -21,6 +21,7 @@ mod cast_payer_draw;
 pub mod catalog;
 mod colored_library_search;
 mod commander_modal_keyword;
+mod controlled_creature_spell_copy;
 mod controller_counted_draw;
 #[cfg(test)]
 mod controller_counted_draw_tests;
@@ -191,6 +192,9 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    // The complete source and its exact graph are verified before emission.
+    #[serde(skip)]
+    ControlledCreatureSpellCopy,
     // Constructed only after validating the complete raw sentence and payer graph.
     #[serde(skip)]
     CounterUnlessGeneric { generic: Quantity },
@@ -1470,6 +1474,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             vec![ability]
         } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
             vec![ability]
+        } else if controlled_creature_spell_copy::candidate(&source) {
+            vec![Ability::ControlledCreatureSpellCopy]
         } else {
             read_abilities(&canonical_abilities)?
         };
@@ -2218,6 +2224,21 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                         });
                     continue;
                 }
+                if let Ability::ControlledCreatureSpellCopy = ability {
+                    let target_slot = bind_target(
+                        &mut program,
+                        &mut slots,
+                        controlled_creature_spell_copy::SELECTION,
+                        TargetDomain::ControlledCreatureSpell,
+                    )?;
+                    program
+                        .instructions
+                        .push(Instruction::CopyControlledCreatureSpell {
+                            target_slot,
+                            source_block: 0,
+                        });
+                    continue;
+                }
                 let Ability::Spell { effects, .. } = ability else {
                     return Err(unsupported(
                         "abilities.kind",
@@ -2596,6 +2617,12 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .contains(&Capability::CastManaValueSweepV1)
     {
         cast_mana_value_sweep::validate_binding(&definition.oracle_id, &shape, &binding)?;
+    }
+    if definition
+        .capabilities
+        .contains(&Capability::ControlledCreatureSpellCopyV1)
+    {
+        controlled_creature_spell_copy::validate_binding(&definition, &shape, &binding)?;
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;

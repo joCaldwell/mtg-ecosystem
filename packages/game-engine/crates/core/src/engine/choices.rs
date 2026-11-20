@@ -767,6 +767,7 @@ impl Game {
             ..
         }) = check
             && (cast.stack_id.0 >= self.state.rules.next_stack_id
+                || self.state.rules.tokens.contains_key(&cast.spell.card)
                 || !matches!(witness, TriggerEventWitness::Moved { movement } if movement.from == Zone::Stack
                     && movement.destination == Zone::Battlefield && movement.previous == cast.spell
                     && movement.successor == *entrant))

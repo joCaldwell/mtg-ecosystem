@@ -80,7 +80,7 @@ impl Game {
     fn other_casts_mana_value(&self, spell: &StackInstance) -> Result<Quantity, String> {
         // CR 601.2i, 608.2i: this paid spell was cast in the current turn.
         // Cast history also includes spells cast above it, such as cascade casts.
-        // No supported effect copies a stack spell or changes its controller.
+        // This sorcery-only instruction counts the other casts by its caster.
         if !spell.kind.is_spell() || spell.paid.is_none() {
             return Err("cast mana value sum requires a paid spell".into());
         }

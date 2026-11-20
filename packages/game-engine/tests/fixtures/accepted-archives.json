@@ -338,6 +338,17 @@
     ]
   },
   {
+    "manifest_file": "archive-manifest-controlled-creature-spell-copy.json",
+    "manifest_sha256": "81dac19d638ebe74cfaaf03bc0efc701331a93961fb742c4e3fb330f7148db6d",
+    "file_sha256": "fb9290e269061249690c5e128652d51af00d3fe13af4cb363f342f8883fe5823",
+    "parser_revision": "1bf762e8fc177456ef5aac44908f02f957ea2cce",
+    "parser_source_sha256": "8cbe1d2e76f2b523b73ee60c4c1d21515b9dd933fc1eab304a41e286b8f88d6c",
+    "corpus_sha256": "56f1b676c55b82dbec60f96fe0c46d98656b5112f871f21d797caa523aa0cf0d",
+    "record_sha256": [
+      "2fb5407e0742bb508fc968c9254d3edbcb4e67e1ff773c43ad03a4acc339ce84"
+    ]
+  },
+  {
     "manifest_file": "archive-manifest-hand-cast-cascade.json",
     "manifest_sha256": "287400f9a9fbef90ea7ea24caa19434cd687c991421fade8d3ba4576fb1dc392",
     "file_sha256": "1797d0c1ae2b3988e92038d42efd75aebd952c9ad259711e4e2d06d84949ecb8",

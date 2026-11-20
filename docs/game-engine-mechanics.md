@@ -180,12 +180,11 @@ Divided counters bind shares before costs and commit surviving shares simultaneo
 
 Object target slots share domain/filter because the request supplies one common
 candidate set; unequal per-slot filters reject. Entity/player/opponent/stack
-targets retain distinct domains. Only current `StackHandle` → `StackId` mappings
-authorize stack targets; exclude the announcing/incomplete entries. Countering a
-spell moves it to its owner's graveyard; an ability disappears without moving its
-source. No cost refunds or countered resolution. Typed counter filters and
-uncounterability are explicit. Aggregating counter membership cannot be put in
-an unsupported simultaneous group.
+targets retain distinct domains. Current stack handles exclude announcing and
+incomplete entries. Countered spells move to their owners' graveyards; abilities
+disappear. Costs are spent. Typed counter filters and uncounterability are
+explicit. Counter groups require typed authority. Double Major copies a
+controlled creature spell into a separately counterable, nonlegendary token spell.
 
 Target legality is checked at proposal and resolution start. Loss of target
 legality after completed proposal during payment does not reverse casting

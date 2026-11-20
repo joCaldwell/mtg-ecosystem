@@ -1346,7 +1346,10 @@ fn artifact_creature_cast_is_both_an_artifact_spell_and_a_creature_permanent() {
                     power: None,
                 }),
             };
-            assert_eq!(g.eligible_stack_targets_for(&spec, None).len(), 1);
+            assert_eq!(
+                g.eligible_stack_targets_for(&spec, PlayerId(0), None).len(),
+                1
+            );
         }
         resolve(g, vec![]);
         assert_eq!(g.current(object(g, 0)).unwrap().zone, Zone::Battlefield);
