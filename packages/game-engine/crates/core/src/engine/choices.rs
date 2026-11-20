@@ -1228,7 +1228,46 @@ mod fixed_target_mode_tests {
                 objects: vec![sword],
             },
         );
-        pay_and_resolve(&mut g, 1, vec![]);
+        pay_to_priority(&mut g, 1, vec![]);
+        let mut saved = None;
+        for _ in 0..500 {
+            if let Frame::Resolve { frame } = &g.state.rules.frame
+                && frame.cursor == 1
+            {
+                assert_eq!(frame.legal_targets, [true; 5]);
+                assert_eq!(
+                    frame
+                        .target_facts
+                        .iter()
+                        .map(Option::is_some)
+                        .collect::<Vec<_>>(),
+                    [true, false, false, false, true]
+                );
+                saved = Some(
+                    Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap(),
+                );
+                break;
+            }
+            match g.advance(Budget::new(1)) {
+                Advance::Suspended { .. } => (),
+                Advance::AwaitingDecision(r @ Request::Priority { .. }) => g
+                    .respond(r.player(), r.decision_id(), Response::Pass)
+                    .unwrap(),
+                other => panic!("expected a paid resolving frame: {other:?}"),
+            }
+        }
+        let mut restored = saved.expect("missing partially resolved modal spell");
+        for game in [&mut g, &mut restored] {
+            while !game.state.rules.stack.is_empty() {
+                let r = request(game, 1);
+                if !game.state.rules.stack.is_empty() {
+                    assert!(matches!(r, Request::Priority { .. }));
+                    answer(game, 1, Response::Pass);
+                }
+            }
+        }
+        assert_eq!(g.state, restored.state);
+        assert_eq!(g.trace(), restored.trace());
         assert!(g.current(bear).unwrap().phased_out.is_some());
         assert_eq!(
             g.state

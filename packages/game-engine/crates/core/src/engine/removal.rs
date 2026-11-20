@@ -185,6 +185,10 @@ impl Game {
             })
             .collect()
     }
+    fn needs_target_facts(entry: &StackInstance, target: &TargetSpec, legal: bool) -> bool {
+        legal && (entry.mode_subset.is_none() || target.filter.is_some())
+    }
+
     pub(super) fn capture_target_facts(
         &self,
         entry: &StackInstance,
@@ -198,9 +202,7 @@ impl Game {
             .iter()
             .enumerate()
             .map(|(slot, t)| {
-                if legal.get(slot) != Some(&true)
-                    || (entry.mode_subset.is_some() && t.filter.is_none())
-                {
+                if !Self::needs_target_facts(entry, t, legal.get(slot) == Some(&true)) {
                     return Ok(None);
                 }
                 let (controller, c) = if t.domain == TargetDomain::StackSpell {
@@ -244,21 +246,20 @@ impl Game {
             .collect()
     }
     pub(super) fn validate_target_facts(&self, frame: &Resolving) -> Result<(), String> {
-        let expected = self
-            .program_for(&frame.spell)?
-            .targets
-            .iter()
-            .any(|t| t.filter.is_some());
+        let program = self.program_for(&frame.spell)?;
+        let expected = program.targets.iter().any(|t| t.filter.is_some());
         if (!expected && !frame.target_facts.is_empty())
             || (expected
-                && (frame.target_facts.len() != frame.legal_targets.len()
-                    || frame
-                        .target_facts
+                && (frame.target_facts.len() != program.targets.len()
+                    || program
+                        .targets
                         .iter()
-                        .zip(&frame.legal_targets)
-                        .any(|(f, l)| {
-                            f.is_some() != *l
-                                || f.as_ref().is_some_and(|f| {
+                        .zip(&frame.target_facts)
+                        .enumerate()
+                        .any(|(slot, (target, fact))| {
+                            let legal = frame.legal_targets.get(slot) == Some(&true);
+                            fact.is_some() != Self::needs_target_facts(&frame.spell, target, legal)
+                                || fact.as_ref().is_some_and(|f| {
                                     f.controller.0 >= 4 || f.mana_value.is_negative()
                                 })
                         })))
