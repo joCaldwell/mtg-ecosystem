@@ -3,6 +3,7 @@ pub mod commander_modal_keyword;
 pub use commander_modal_keyword::akromas_will_program;
 mod cascade_land_entry;
 mod granted_land_mana;
+pub mod hand_cast_cascade;
 pub use granted_land_mana::{
     granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static,
 };
@@ -313,6 +314,7 @@ pub enum Capability {
     CascadeV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
+    HandCastCascadeGrantV1,
     CastHistoryV1,
     CastManaValueSweepV1,
     RandomBottomV1,
@@ -789,6 +791,9 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    GrantHandCastCascade {
+        source_block: u32,
+    },
     OfferHandCastWithoutManaCost {
         source_block: u32,
     },
@@ -1249,7 +1254,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::OfferHandCastWithoutManaCost { source_block }
+            Self::GrantHandCastCascade { source_block }
+            | Self::OfferHandCastWithoutManaCost { source_block }
             | Self::Cascade { source_block, .. }
             | Self::SearchBasicLandsSplit { source_block, .. }
             | Self::SearchColoredLibrary { source_block, .. }
@@ -2760,6 +2766,7 @@ impl Definition {
         entry_graveyard_exile::validate_definition(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
+        hand_cast_cascade::validate_definition(self)?;
         if self
             .static_abilities
             .iter()
@@ -3738,6 +3745,7 @@ impl Definition {
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
+                            | Instruction::GrantHandCastCascade { .. }
                             | Instruction::Scry { .. }
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
@@ -4902,7 +4910,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::OfferHandCastWithoutManaCost { .. }
+            Instruction::GrantHandCastCascade { .. }
+            | Instruction::OfferHandCastWithoutManaCost { .. }
             | Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
@@ -5463,6 +5472,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if matches!(instruction, Instruction::DrainOpponents { .. }) {
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
+        if matches!(instruction, Instruction::GrantHandCastCascade { .. }) {
+            set.extend([
+                Capability::CascadeV1,
+                Capability::ResolutionCastV1,
+                Capability::RandomBottomV1,
+            ]);
+        }
         set.insert(match instruction {
             Instruction::ExileResolvingSpell { .. } => Capability::ExileResolvingSpellV1,
             Instruction::ProtectControllerUntilNextTurn { .. } => {
@@ -5477,6 +5493,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             Instruction::RemoveOpponentNonlandIndestructible { .. } => {
                 Capability::RemoveIndestructibleV1
             }
+            Instruction::GrantHandCastCascade { .. } => Capability::HandCastCascadeGrantV1,
             Instruction::OfferHandCastWithoutManaCost { .. } => Capability::CombatHandCastV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
@@ -5913,7 +5930,9 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "if":{"anyOf":[history,cast_mana_value_sweep::spell_schema()]},"then":{"properties":{"capabilities":{"contains":{"const":"cast_history_v1"}}}},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":"cast_history_v1"}}}}}
     }));
-    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":self_condition}}}]});
+    let present = serde_json::json!({"anyOf":[grant,{"required":["triggered"],"properties":{"triggered":{"contains":{"anyOf":[
+        self_condition,{"const":hand_cast_cascade::hand_cast_cascade_ability()}
+    ]}}}}]});
     let requirements = [
         Capability::CascadeV1,
         Capability::ResolutionCastV1,
@@ -7077,6 +7096,7 @@ pub fn catalog_schema() -> serde_json::Value {
     entry_graveyard_exile::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
+    hand_cast_cascade::extend_schema(&mut schema);
     own_graveyard_card_return::extend_schema(&mut schema);
     for (effect, cap, pattern) in [
         (
@@ -7256,6 +7276,7 @@ mod tests {
             CascadeV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
+            HandCastCascadeGrantV1,
             CastHistoryV1,
             CastManaValueSweepV1,
             RandomBottomV1,
@@ -7800,6 +7821,7 @@ mod tests {
         ]));
         definitions.push(controller_library::witness());
         definitions.push(cascade_land_entry::witness());
+        definitions.push(hand_cast_cascade::witness());
         definitions.push(controller_library::surveil_witness());
         definitions.push(counter_spell_controller_mill::witness());
         definitions.push(fixed_mill::witness());
