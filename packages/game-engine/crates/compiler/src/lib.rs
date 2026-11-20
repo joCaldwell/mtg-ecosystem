@@ -2254,7 +2254,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                             &result.lines[block].text,
                             &shape,
                             &binding,
-                            &r.oracle_identity,
+                            &definition.oracle_id,
                         )?;
                         let mana = match mana {
                             Some(mana) => Some(mana),
