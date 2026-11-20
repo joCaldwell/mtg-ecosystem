@@ -217,6 +217,42 @@ struct SavedWork {
 }
 
 impl Game {
+    pub fn observe(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
+        self.begin_query(Query::Observe { viewer }, budget)
+    }
+    pub fn player_decision_for(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
+        self.begin_query(Query::Decision { viewer }, budget)
+    }
+    pub fn check_player_response(
+        &self,
+        viewer: PlayerId,
+        token: DecisionToken,
+        response: PlayerResponse,
+        budget: Budget,
+    ) -> QueryResult {
+        self.begin_query(
+            Query::Check {
+                viewer,
+                token,
+                response,
+            },
+            budget,
+        )
+    }
+    pub fn search_context(
+        &self,
+        viewer: PlayerId,
+        sampling_seed: String,
+        budget: Budget,
+    ) -> QueryResult {
+        self.begin_query(
+            Query::Search {
+                viewer,
+                sampling_seed,
+            },
+            budget,
+        )
+    }
     fn start_work(&self, query: Query) -> Result<Work, QueryRejection> {
         let viewer = match &query {
             Query::Observe { viewer }
