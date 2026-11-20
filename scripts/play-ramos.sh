@@ -41,7 +41,7 @@ for file in catalogs/ramos.json catalogs/ramos.sha256 expected-ramos-ir.json pro
     ln "$stage/$file" "$fixtures/$file"
 done
 sh scripts/engine-env.sh python3 -B scripts/engine-cache.py check
-sh scripts/engine-env.sh cargo build --locked -p mtg-sim --message-format=json > "$run/build.jsonl"
+sh scripts/engine-env.sh cargo build --locked --profile quick -p mtg-sim --message-format=json > "$run/build.jsonl"
 sim=$(jq -rs '[.[] | select(.reason=="compiler-artifact" and .target.name=="mtg-sim" and .executable!=null) | .executable] | last // error("missing sim executable")' "$run/build.jsonl")
 cp "$sim" "$run/mtg-sim"
 exec 9>&-
