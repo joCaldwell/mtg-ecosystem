@@ -2112,3 +2112,103 @@ describe("declared attacks, entrants, and departed fight sources", () => {
     assert.ok(!graph.engineFeatures.some(feature => feature.feature === "quoted-source-reference"));
   });
 });
+
+describe("per-opponent payments and isolated branch results", () => {
+  const upkeep = "At the beginning of your upkeep, each opponent loses 3 life unless they discard a card. "
+    + "If you're the monarch, instead each opponent loses 6 life unless they discard two cards.";
+
+  it("keeps each opponent's optional discard in the chosen replacement branch", () => {
+    const graph = analyze(upkeep, "Enchantment");
+    boundCard(graph);
+    const instructions = graph.nodes.filter(node => node.node === "opponent-discard-or-life");
+    assert.deepEqual(instructions.map(node => [node.cards, node.life]), [[1, 3], [2, 6]]);
+    assert.notEqual(instructions[0].payer, instructions[1].payer);
+    instructions.forEach(instruction => {
+      const payment = graph.nodes.find(node => node.id === instruction.payment);
+      assert.ok(payment?.node === "event" && payment.optional);
+      assert.equal(payment.decider, instruction.payer);
+      assert.equal(instruction.payer, bound(graph, instruction.path + "/condition/cost/0/payer"));
+    });
+  });
+
+  it("does not make a separately named controller pay once per opponent", () => {
+    const graph = analyze(upkeep.replace("they discard a card", "you discard a card"), "Enchantment");
+    const groupPayments = graph.nodes.filter(node => node.node === "opponent-discard-or-life");
+    assert.equal(groupPayments.length, 1);
+    assert.equal(groupPayments[0].cards, 2);
+  });
+
+  const search = "Search your library for up to two basic Forest cards, reveal those cards, and put one onto the battlefield tapped "
+    + "and the rest into your hand. Then shuffle.\nSpell mastery — If there are two or more instant and/or "
+    + "sorcery cards in your graveyard, search your library for up to three basic Forest cards instead of two.";
+
+  it("only reveals and partitions the actual finds of the executed search", () => {
+    const graph = analyze(search, "Sorcery");
+    boundCard(graph);
+    const outcome = graph.nodes.find(node => node.node === "replacement-search-result");
+    const split = graph.nodes.find(node => node.node === "simultaneous-search-partition");
+    assert.ok(outcome && split && outcome.original !== outcome.replacement);
+    assert.equal(outcome.id, bound(graph, "/steps/1/what"));
+    assert.equal(outcome.id, split.pool);
+    assert.equal(split.selected, bound(graph, "/steps/2/steps/0/what"));
+    assert.equal(split.remaining, bound(graph, "/steps/2/steps/1/what"));
+    assert.equal(split.count, "one-if-found");
+    assert.ok(graph.nodes.some(node => node.node === "remainder" && node.id === split.remaining &&
+      node.pool === outcome.id && node.excluding === split.selected));
+  });
+
+  it("does not reuse the search pool after a separate library look", () => {
+    const graph = analyze(search.replace("reveal those cards, and put", "reveal those cards, look at the top two cards of your library, and put"), "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "simultaneous-search-partition"));
+  });
+
+  it("binds a temporary play permission to the exiled card instead of a battlefield participant", () => {
+    const graph = analyze("Target creature gets +3/+1 and gains haste until end of turn. Exile the top card of your library. "
+      + "You may play it until your next end step.", "Instant");
+    boundCard(graph);
+    const grant = graph.nodes.find(node => node.node === "exile-play-lifetime");
+    assert.ok(grant?.duration === "your-next-end-step");
+    assert.equal(grant.exile, bound(graph, "/permission/what"));
+    assert.notEqual(grant.exile, bound(graph, "/steps/0/what"));
+  });
+
+  it("does not infer a singleton playable exile card when an exile can produce two", () => {
+    const graph = analyze("Target creature gets +3/+1 until end of turn. Exile the top two cards of your library. "
+      + "You may play it until your next end step.", "Instant");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "exile-play-lifetime"));
+  });
+
+  const unattach = "{W}: You may unattach an Equipment from a creature you control. If you do, tap that creature "
+    + "and it gains indestructible until end of turn.";
+
+  it("uses the distinct creature released by the optional unattach for the tap and grant", () => {
+    const graph = analyze(unattach, "Creature");
+    boundCard(graph);
+    const creature = bound(graph, "/steps/0/from");
+    assert.equal(creature, bound(graph, "/effects/1/steps/0/what"));
+    assert.equal(creature, bound(graph, "/effects/1/steps/1/what"));
+  });
+
+  it("does not select the tap subject when a later separate instruction names the Equipment", () => {
+    const graph = analyze(unattach.replace("and it gains", ", then untap that Equipment and it gains"), "Creature");
+    assert.equal(graph.referencesBound, false);
+  });
+
+  it("preserves face-down privacy until a permitted play is announced", () => {
+    const graph = analyze("When this enchantment enters, exile the top card of your library face down. "
+      + "You may play that card for as long as it remains exiled.", "Enchantment");
+    boundCard(graph);
+    const grant = graph.nodes.find(node => node.node === "exile-play-lifetime");
+    assert.ok(grant?.visibility === "turn-face-up-before-announcement-unless-cast-face-down");
+    assert.equal(graph.fullyBound, false);
+  });
+
+  it("does not rebind a quoted name to the recipient when the ability continues", () => {
+    const graph = analyze('Other creatures have "Whenever this creature attacks, you may have it fight Fixture. Then draw a card."', "Creature");
+    boundCard(graph);
+    const named = bound(graph, "/steps/0/b");
+    assert.ok(graph.nodes.some(node => node.node === "source" && node.id === named));
+  });
+});

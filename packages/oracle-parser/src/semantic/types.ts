@@ -144,7 +144,7 @@ export type BindingNode = NodeBase & (
       availability: "during-permitted-players-turn"; timing: "cost-determination";
       payment: "life-equal-to-proposed-spell-mana-value"; landPlay: "normal-rules" }
   | { node: "damage-prevention-pair"; scope: string; source: string; recipient: string; predicate: string;
-      sourceFilter?: string; recipientFilter?: string }
+      sourceFilter?: string; recipientFilter?: string; sourceInformation: "current-or-last-known" }
   | { node: "captured-move-replacement"; scope: string; created: string; exile: string;
       match: Extract<ReplacementInstruction["event"], { event: "move-zone" }>;
       tracked: { kind: "one-object"; object: string } | { kind: "cast-permission"; grant: string; member: string } }
@@ -199,6 +199,12 @@ export type BindingNode = NodeBase & (
       execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }
         | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise"; ordering?: "each-owner-private-simultaneous" } }
   /** The targets that are still legal when this set of per-player targets resolves. */
+  | { node: "opponent-discard-or-life"; scope: string; opponents: string; payer: string; payment: string; loss: string;
+      cards: number; life: number; order: "apnap-choices-simultaneous-actions" }
+  | { node: "replacement-search-result"; scope: string; original: string; replacement: string;
+      condition: Condition; cardinality: "many" }
+  | { node: "simultaneous-search-partition"; scope: string; pool: string; selected: string; remaining: string;
+      battlefield: string; hand: string; chooser: string; count: "one-if-found"; order: "choose-before-both-moves" }
   | { node: "existing-counter-kind"; scope: string; chooser: string; member: string; event: string; count: 1;
       placement: "optional-for-each-member"; ordering: "choose-all-then-place" }
   | { node: "multiplayer-choice"; scope: string; event: string; group: string; member: string;
@@ -210,7 +216,8 @@ export type BindingNode = NodeBase & (
   | { node: "named-vote"; scope: string; event: string; start: string; names: string[] }
   | { node: "vote-outcome"; scope: string; event: string; choice: string; comparison: "strict-majority" }
   | { node: "linked-pool-condition"; scope: string; pool: string; comparison: "nonempty"; timing: "trigger-check-and-resolution" }
-  | { node: "exile-play-lifetime"; scope: string; exile: string; player: string; duration: "while-that-object-is-exiled" }
+  | { node: "exile-play-lifetime"; scope: string; exile: string; player: string; duration: "while-that-object-is-exiled" | "end-of-turn" | "your-next-end-step";
+      visibility?: "turn-face-up-before-announcement-unless-cast-face-down" }
   | { node: "actual-destination-count"; scope: string; event: string; result: string; destination: "graveyard" }
   | { node: "weighted-modal"; scope: string; chooser: string; maximum: number; weights: number[]; repeat: boolean;
       timing: "stack-announcement"; order: "printed-mode-order" }
@@ -318,7 +325,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount" | "commander-mana-rider" | "numeric-roll" | "random-aura-attachment" | "vote-outcome" | "actual-destination-count" | "weighted-modal-selection" | "existing-counter-kind" | "quoted-source-reference" | "entrant-control-exchange";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount" | "intervening-condition-pool" | "casting-exile-discount" | "multiplayer-choice" | "linked-card-copies" | "repeat-hand-placement" | "optional-look-remainder" | "equip-color-discount" | "commander-mana-rider" | "numeric-roll" | "random-aura-attachment" | "vote-outcome" | "actual-destination-count" | "weighted-modal-selection" | "existing-counter-kind" | "quoted-source-reference" | "entrant-control-exchange" | "search-result-partition";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;
