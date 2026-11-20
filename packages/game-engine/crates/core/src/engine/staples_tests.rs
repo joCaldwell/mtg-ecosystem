@@ -1248,6 +1248,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | StaticEffect::EntersTappedUnlessOpponentCount { .. }
                     | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandType { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::OpponentsCantCastDuringControllerTurn
                     | StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. }

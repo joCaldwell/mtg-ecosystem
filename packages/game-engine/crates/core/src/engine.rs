@@ -439,8 +439,6 @@ pub use trace::*;
 mod control;
 mod controlled_land_entry;
 mod land_reclamation;
-mod restricted_mana;
-use restricted_mana::ManaConsumer;
 mod multiplayer;
 pub use multiplayer::*;
 mod permitted_history;

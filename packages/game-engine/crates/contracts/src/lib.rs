@@ -28,6 +28,7 @@ pub use color_hybrid_cost::{
 mod checkland_entry;
 mod conditional_lands;
 mod cycling;
+pub mod paid_restricted_land;
 #[cfg(test)]
 mod wave1_mana_witnesses;
 pub use cycling::hand_discard_draw_activation;
@@ -39,7 +40,9 @@ mod hybrid_filter_mana;
 mod mana_life_gain;
 mod mana_spend;
 pub use mana_life_gain::mana_life_gain_source;
-pub use mana_spend::{ManaSpendRestriction, RestrictedMana, restricted_mana_source};
+pub use mana_spend::{
+    ManaSpellSubtype, ManaSpellTraits, ManaSpendRestriction, RestrictedMana, restricted_mana_source,
+};
 mod listed_mana_choice;
 mod pain_mana;
 pub use hybrid_filter_mana::{hybrid_filter_abilities, hybrid_filter_colors, hybrid_filter_source};
@@ -1723,6 +1726,9 @@ pub enum StaticEffect {
     EntersTappedUnlessRevealLandTypes {
         subtypes: [BasicLandType; 2],
     },
+    EntersTappedUnlessControllerLandType {
+        subtype: BasicLandType,
+    },
     EntersTappedUnlessControllerLandTypes {
         subtypes: [BasicLandType; 2],
     },
@@ -3174,6 +3180,9 @@ impl Definition {
                 StaticEffect::EntersTappedUnlessRevealLandTypes { .. } => {
                     Capability::RevealLandEntryV1
                 }
+                StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
+                    Capability::RestrictedManaV1
+                }
                 StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
                     Capability::ConditionalLandTypeEntryV1
                 }
@@ -3738,7 +3747,10 @@ impl Definition {
             return Err("unsupported complete opponent-land mana family".into());
         }
         mana_life_gain::validate(self)?;
-        mana_spend::validate(self)?;
+        let paid_restricted_land = paid_restricted_land::validate(self)?;
+        if !paid_restricted_land {
+            mana_spend::validate(self)?;
+        }
         let hybrid_filter = hybrid_filter_mana::validate(self)?;
         if self.mana_abilities.len() > 1
             || self
@@ -3746,7 +3758,7 @@ impl Definition {
                 .iter()
                 .any(|ability| ability.self_damage.is_some())
         {
-            if !hybrid_filter && !disjoint_pain_mana_family(self) {
+            if !hybrid_filter && !paid_restricted_land && !disjoint_pain_mana_family(self) {
                 return Err("unsupported complete disjoint pain-mana family".into());
             }
         } else {
@@ -4379,6 +4391,7 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessOpponentCount { .. }
                     | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandType { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
                     | StaticEffect::ControllerScopedCreatureStats { .. }
@@ -4526,6 +4539,7 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessOpponentCount { .. }
                     | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandType { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
@@ -7833,6 +7847,7 @@ pub fn catalog_schema() -> serde_json::Value {
     hybrid_filter_mana::extend_schema(&mut schema);
     mana_life_gain::extend_schema(&mut schema);
     mana_spend::extend_schema(&mut schema);
+    paid_restricted_land::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
     same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);

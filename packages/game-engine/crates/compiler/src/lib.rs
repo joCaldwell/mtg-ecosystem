@@ -106,6 +106,7 @@ mod ordinary_sequence;
 mod other_land_entry;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
+mod paid_restricted_land;
 mod pain_mana;
 #[cfg(test)]
 mod phase1_sequences_tests;
@@ -1733,7 +1734,15 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     let land_reclamation = land_reclamation::bound(&source, &shape, &result, &binding)?;
     let restricted_mana = restricted_mana::lower(&source, &shape, &result, &binding)?;
     let mana_life_gain = mana_life_gain::lower(&source, &shape, &result, &binding)?;
-    restricted_mana::reject_unbound(&abilities, restricted_mana.is_some())?;
+    let paid_restricted_land = paid_restricted_land::lower(&source, &shape, &result, &binding)?;
+    let has_paid_restricted_land = paid_restricted_land.is_some();
+    let mana_haste = restricted_mana
+        .as_ref()
+        .is_some_and(|ability| ability.source_block == 1);
+    restricted_mana::reject_unbound(
+        &abilities,
+        restricted_mana.is_some() || has_paid_restricted_land,
+    )?;
     let mut opponent_entry_mana = opponent_count_entry::bind(
         &abilities,
         result.abilities.get(),
@@ -1794,13 +1803,15 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     }
     for (block, ability) in abilities.iter().enumerate() {
         if let Ability::Static { effect, .. } = ability {
-            conditional_lands::bind(
-                effect,
-                &binding,
-                &r.oracle_identity,
-                source_block(block)?,
-                &source,
-            )?;
+            if !has_paid_restricted_land {
+                conditional_lands::bind(
+                    effect,
+                    &binding,
+                    &r.oracle_identity,
+                    source_block(block)?,
+                    &source,
+                )?;
+            }
             spell_cascade_grants::bind(
                 effect,
                 &binding,
@@ -1817,7 +1828,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             )?;
         }
     }
-    conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
+    if !has_paid_restricted_land {
+        conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
+    }
     let basic_ramp_spell = basic_land_fetch::spell(&result, &shape, &binding, &source)?;
     if basic_fetch.is_none() {
         typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
@@ -1997,6 +2010,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         .chain(color_mana)
         .chain(granted_mana)
         .chain(restricted_mana)
+        .chain(paid_restricted_land.into_iter().flatten())
         .chain(mana_life_gain)
         .collect();
     labels
@@ -2092,6 +2106,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             abilities_json: result.abilities.get().into(),
         },
     };
+    if mana_haste {
+        definition.keywords.push(KeywordAbility::Haste);
+    }
     match kind {
         CardKind::Sorcery | CardKind::Instant if basic_ramp_spell.is_some() => {
             definition.spell = basic_ramp_spell;
@@ -2171,6 +2188,12 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     }
                 }
                 &abilities[abilities.len()..]
+            } else if has_paid_restricted_land {
+                labels.statics.push(0);
+                definition
+                    .static_abilities
+                    .push(mtg_contracts::paid_restricted_land::entry());
+                &[]
             } else if has_linked_hideaway {
                 use mtg_contracts::linked_hideaway;
                 labels.triggered.push(0);

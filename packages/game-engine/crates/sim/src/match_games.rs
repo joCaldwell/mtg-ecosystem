@@ -604,18 +604,21 @@ impl Strategy<'_> {
                 ..
             } => {
                 let outer = mana_ability_source.is_none();
-                let purpose = if !outer {
-                    Some(mana_policy::ManaPurpose::Activate)
+                let purpose = if let Some(source) = mana_ability_source {
+                    Some(mana_policy::ManaPurpose::activation(v, source))
                 } else {
                     match &self.payment.action {
-                        Some(PaymentAction::Activate(..)) => {
-                            Some(mana_policy::ManaPurpose::Activate)
+                        Some(PaymentAction::Activate(source, _)) => {
+                            Some(mana_policy::ManaPurpose::activation(v, source))
                         }
-                        Some(PaymentAction::Cast(oracle_id, _))
-                            if definition(self.catalog, oracle_id)
-                                .is_ok_and(|d| d.characteristics.colors.is_empty()) =>
-                        {
-                            Some(mana_policy::ManaPurpose::CastColorless)
+                        Some(PaymentAction::Cast(oracle_id, _)) => {
+                            definition(self.catalog, oracle_id).ok().map(|definition| {
+                                mana_policy::ManaPurpose::Cast(
+                                    mtg_contracts::ManaSpellTraits::from_characteristics(
+                                        &definition.characteristics,
+                                    ),
+                                )
+                            })
                         }
                         _ => None,
                     }

@@ -2142,7 +2142,8 @@ impl Game {
                 StaticEffect::EntersTappedUnlessOpponentCount { .. } => {
                     Some(EntryLandCount::Opponents)
                 }
-                StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                | StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
                     Some(EntryLandCount::LandTypes)
                 }
                 _ => None,
@@ -2240,7 +2241,17 @@ impl Game {
                     }
                     continue;
                 }
-                StaticEffect::EntersTappedUnlessControllerLandTypes { subtypes } => {
+                StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                | StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
+                    let subtypes: &[BasicLandType] = match &ability.effect {
+                        StaticEffect::EntersTappedUnlessControllerLandTypes { subtypes } => {
+                            subtypes
+                        }
+                        StaticEffect::EntersTappedUnlessControllerLandType { subtype } => {
+                            std::slice::from_ref(subtype)
+                        }
+                        _ => unreachable!(),
+                    };
                     if self.current(object)?.zone == Zone::Battlefield {
                         return Err("checkland replacement requires an entrant from outside the battlefield".into());
                     }
