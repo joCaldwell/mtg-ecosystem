@@ -232,7 +232,7 @@ pub fn bound_fixed_activation_keyword(
         KeywordAbility::DoubleStrike => ("double strike", "702.4"),
         KeywordAbility::Flash => ("flash", "702.8"),
         KeywordAbility::Haste => ("haste", "702.10"),
-        KeywordAbility::Menace => ("menace", "702.110"),
+        KeywordAbility::Menace => ("menace", "702.111"),
         KeywordAbility::Lifelink => ("lifelink", "702.15"),
         KeywordAbility::Deathtouch => ("deathtouch", "702.2"),
         KeywordAbility::Hexproof => ("hexproof", "702.11"),

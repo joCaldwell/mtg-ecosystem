@@ -39,11 +39,16 @@ pub(super) fn validate_binding(
                 unsupported("keywords", "unsupported fixed activation keyword binding")
             })?;
             let path = format!("{base}/keywords/{index}");
+            let keyword_role = if *keyword == KeywordAbility::Flash {
+                "prospective-caster"
+            } else {
+                role
+            };
             let actor = graph.node(
                 &path,
                 "you",
                 "runtime-player",
-                json!({"scope":scope,"role":role,"rules":["109.5",rule]}),
+                json!({"scope":scope,"role":keyword_role,"rules":["109.5",rule]}),
             );
             graph.node(&path,"keyword","keyword-ability",json!({"scope":scope,"keyword":word,"abilities":["static"],"you":actor,"rules":[rule]}));
         }
