@@ -202,8 +202,13 @@ impl<'a> Bindings<'a> {
 
     /// A card may have independently supported siblings. Compare every field of
     /// the shared source/face anchors and every node/reference owned by this block.
-    pub(super) fn validate_block(&self, binding: &Value, root: &str) -> Result<(), Failure> {
-        let fail = || unsupported("binding", "incomplete cast trigger binding graph");
+    pub(super) fn validate_block(
+        &self,
+        binding: &Value,
+        root: &str,
+        message: &str,
+    ) -> Result<(), Failure> {
+        let fail = || unsupported("binding", message);
         let prefix = format!("card:{}{root}", self.identity);
         let local_path = |path: &str| {
             path == root
@@ -236,7 +241,7 @@ impl<'a> Bindings<'a> {
         });
         let n = refs.len();
         scoped["counts"] = json!({"obligations":n,"bound":n,"unresolved":0});
-        self.validate(&scoped, "incomplete cast trigger binding graph")
+        self.validate(&scoped, message)
     }
 
     /// Archive v1 can report a scope gap even when every emitted reference is bound.

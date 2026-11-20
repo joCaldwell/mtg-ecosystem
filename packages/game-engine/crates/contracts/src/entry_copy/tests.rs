@@ -24,6 +24,53 @@ struct FaceResult {
     abilities: Box<RawValue>,
 }
 
+fn definition_from_row(row: ArchiveRow) -> Definition {
+    let [face] = row.faces.as_slice() else {
+        panic!("expected the single printed face");
+    };
+    let source: Value = strict_read(row.source.get()).unwrap();
+    Definition {
+        source_labels: Some(labels()),
+        x_mana_cost: false,
+        oracle_id: row.oracle_identity,
+        name: source["name"].as_str().unwrap().into(),
+        characteristics: characteristics(),
+        intrinsic_zone: None,
+        spell: Some(permanent_spell()),
+        activated: vec![],
+        mana_abilities: vec![],
+        triggered: vec![cascade_trigger()],
+        static_abilities: vec![entry_static()],
+        keywords: vec![KeywordAbility::Flash],
+        capabilities: CAPABILITIES.into_iter().collect(),
+        provenance: SourceProvenance {
+            printing_id: source["id"].as_str().unwrap().into(),
+            source_index: row.source_index,
+            source_sha256: row.source_sha256,
+            ast_sha256: row.ast_sha256,
+            binding_sha256: row.binding_sha256,
+            archive_manifest_sha256: MANIFEST_SHA.into(),
+            parser_sha256: PARSER_SHA.into(),
+            source_json: row.source.get().into(),
+            abilities_json: face.result.abilities.get().into(),
+        },
+    }
+}
+
+pub(in crate::entry_copy) fn registry_witness() -> Definition {
+    // The historical fixture has the same source and AST. Use the
+    // registered reparse pins for this executable-shape registry check.
+    let mut row: ArchiveRow = strict_read(include_str!(
+        "../../../../tests/fixtures/ramos/cf127842-5fb1-44df-8d91-8cc0f48c559a.json"
+    ))
+    .unwrap();
+    assert_eq!(row.source_sha256, SOURCE_SHA);
+    assert_eq!(row.ast_sha256, AST_SHA);
+    row.source_index = 0;
+    row.binding_sha256 = BINDING_SHA.into();
+    definition_from_row(row)
+}
+
 #[test]
 fn protege_entry_copy_archive_probe() {
     let Some(path) = std::env::var_os("MTG_PROTEGE_ENTRY_COPY_ARCHIVE_PROBE") else {
@@ -44,36 +91,7 @@ fn protege_entry_copy_archive_probe() {
     );
     let row: ArchiveRow = strict_read(record).unwrap();
     assert_eq!(row.binding_sha256, sha256(row.binding.get().as_bytes()));
-    let [face] = row.faces.as_slice() else {
-        panic!("expected the single printed face");
-    };
-    let source: Value = strict_read(row.source.get()).unwrap();
-    let d = Definition {
-        source_labels: Some(labels()),
-        x_mana_cost: false,
-        oracle_id: row.oracle_identity,
-        name: source["name"].as_str().unwrap().into(),
-        characteristics: characteristics(),
-        intrinsic_zone: None,
-        spell: Some(permanent_spell()),
-        activated: vec![],
-        mana_abilities: vec![],
-        triggered: vec![cascade_trigger()],
-        static_abilities: vec![entry_static()],
-        keywords: vec![KeywordAbility::Flash],
-        capabilities: CAPABILITIES.into_iter().collect(),
-        provenance: SourceProvenance {
-            printing_id: source["id"].as_str().unwrap().into(),
-            source_index: row.source_index,
-            source_sha256: row.source_sha256,
-            ast_sha256: row.ast_sha256,
-            binding_sha256: row.binding_sha256,
-            archive_manifest_sha256: accepted.manifest_sha256.clone(),
-            parser_sha256: accepted.parser_source_sha256.clone(),
-            source_json: row.source.get().into(),
-            abilities_json: face.result.abilities.get().into(),
-        },
-    };
+    let d = definition_from_row(row);
     assert_eq!(d.requirements(), d.capabilities);
     d.validate().unwrap();
     let decoded: Definition = strict_read(&canonical(&d).unwrap()).unwrap();

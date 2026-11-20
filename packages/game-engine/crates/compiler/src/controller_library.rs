@@ -347,7 +347,7 @@ pub(super) fn validate_fixed_cast_effects(
             json!({"scope":graph.id(&root,"ability"),
             "operation":operation,"inputs":inputs,"availability":"when-performed","rules":["608.2c"]}),
         );
-        graph.validate_block(binding, &root)?;
+        graph.validate_block(binding, &root, "incomplete cast trigger binding graph")?;
     }
     Ok(())
 }

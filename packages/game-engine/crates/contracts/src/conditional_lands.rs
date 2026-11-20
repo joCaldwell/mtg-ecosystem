@@ -14,7 +14,8 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         .any(|a| matches!(a.effect, StaticEffect::EntersTappedUnlessPayLife { .. }));
     let typed = d.characteristics.kind == CardKind::Land
         && !d.characteristics.basic
-        && !d.characteristics.subtypes.is_empty();
+        && !d.characteristics.subtypes.is_empty()
+        && !listed_mana_choice::descriptive_land_subtype(d);
     if optional && d.static_abilities.len() != 1 {
         return Err("optional-life entry requires one uncomposed replacement".into());
     }
@@ -61,7 +62,13 @@ pub(super) fn schema(s: &mut serde_json::Value) {
     }}));
     let optional = json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":life_effect}}}}});
     let conditional = json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":effect}}}}});
-    let typed = json!({"required":["characteristics"],"properties":{"characteristics":{"required":["kind","basic","subtypes"],"properties":{"kind":{"const":"land"},"basic":{"const":false},"subtypes":{"minItems":1}}}}});
+    let typed = json!({
+        "required":["characteristics"],
+        "properties":{"characteristics":{"required":["kind","basic","subtypes"],"properties":{
+            "kind":{"const":"land"},"basic":{"const":false},"subtypes":{"minItems":1}
+        }}},
+        "not": listed_mana_choice::descriptive_land_schema()
+    });
     for (present, cap) in [
         (conditional.clone(), Capability::ConditionalBasicLandEntryV1),
         (optional.clone(), Capability::OptionalLifeLandEntryV1),

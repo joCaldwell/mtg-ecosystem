@@ -56,7 +56,7 @@ active-player main priority and an empty stack; supported flash is explicit.
 Cleanup applies net hand-size adjustments to finite limits, floored at zero,
 then clears temporary effects and marked damage atomically.
 Concessions are trusted recorded external inputs processed before work or queries.
-Land usage resets only when a new turn begins.
+Land usage resets each turn. Listed mana abilities offer only printed colors.
 
 <a id="player-visibility-and-query-recovery"></a>
 
@@ -141,9 +141,9 @@ precision. Fetch activations atomically tap, pay life and sacrifice the source
 before typed search; the current controller pays and paid roots retain LKI through
 source-owner departure. Sacrifice-source creature activations capture controller
 creatures at resolution for pure temporary keyword grants.
-Cycling pays mana then discards its announced hand source; resolution draws without
-moving that discarded card. Focused proof uses38/28,IR1; admission and opponent
-production remain open.
+Fixed-mana Cycling on typed lands and ordinary spells pays mana, then discards
+its hand source. Resolution draws one. Typed-land proof uses38/28,IR1; admission
+and opponent production remain open.
 
 ## Casting, costs, targets and stack
 
@@ -241,9 +241,10 @@ Validate an entire simultaneous damage group before life/history writes. Capture
 assignment facts separately from current or latest-departure damage-time source
 appearance. Damage-time deathtouch/lifelink and its beneficiary use that current/
 LKI source, including equipment departure and simultaneous common-prior facts.
-Noncombat damage retains the source incarnation and frozen invocation controller,
-independent of current or last-known control. Synthetic fixed damage retains the announced
-opponent through resolution and recovery. Compiler admission awaits source and target binding.
+Noncombat damage retains its source incarnation and invocation controller despite
+control changes. Fixed damage spells recheck the announced creature (CR 608.2b).
+Synthetic fixed damage retains its announced opponent through resolution and recovery.
+Its compiler admission remains open.
 Old assignment-time keywords cannot fabricate damage-time benefits. Commander
 combat history uses actual combat damage. Opponent drain credits committed
 simultaneous life losses before state-based actions.

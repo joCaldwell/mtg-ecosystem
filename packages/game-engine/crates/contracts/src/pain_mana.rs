@@ -65,10 +65,9 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
 
     let selected = json!({"required":["mana_abilities"],"properties":{
-        "mana_abilities":{"anyOf":[{"minItems":2},{"contains":{"anyOf":[
-            {"required":["self_damage"],"properties":{"self_damage":{"type":"string"}}},
-            {"properties":{"production":{"properties":{"mana":{"const":"choice"}}}}}
-        ]}}]}
+        "mana_abilities":{"anyOf":[{"minItems":2},{"contains":{
+            "required":["self_damage"],"properties":{"self_damage":{"type":"string"}}
+        }}]}
     }});
     let tap_only = json!({"properties":{
         "tap":{"const":true},"mana":{"type":"null"},"sacrifice":{"const":false},
