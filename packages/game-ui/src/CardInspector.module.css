@@ -15,14 +15,14 @@
   inline-size: min(100%, 16rem);
   aspect-ratio: 5 / 7;
   object-fit: contain;
-  margin-block-end: var(--game-space-4);
+  margin-block: var(--game-space-4) 0;
   border-radius: var(--game-radius);
   background: var(--game-panel);
   visibility: hidden;
 }
 .print[data-loaded] { visibility: visible; }
 .face { border-block: 1px solid var(--game-line); padding-block: var(--game-space-3); }
-.mana { margin: 0; font: var(--game-text-small)/1.5 var(--game-mono); color: var(--game-soft); }
+.mana { margin: 0; font-size: var(--game-text-small); color: var(--game-soft); }
 .type { font-weight: 600; font-size: var(--game-text-body); color: var(--game-soft); }
 .oracle { font-size: .875rem; line-height: 1.65; white-space: pre-line; margin-block-end: 0; }
 .inspector h3 { font-size: var(--game-text-body); margin-block-start: var(--game-space-5); }

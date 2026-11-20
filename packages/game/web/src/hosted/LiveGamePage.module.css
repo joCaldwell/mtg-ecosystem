@@ -14,7 +14,7 @@
 .notice h2 { margin: 0; font-size: var(--text-lg); }
 .notice p { margin: var(--s-2) 0 0; color: var(--muted); }
 .workspace { flex: 1; min-block-size: 0; overflow: auto; }
-@media (max-width: 1099px) { .page { block-size: auto; } }
+@media (max-width: 719px) { .page { block-size: auto; } }
 @media (pointer: coarse) { .header a { min-block-size: var(--tap); } }
 .summary {
   display: grid;

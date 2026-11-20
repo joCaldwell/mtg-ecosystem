@@ -1,4 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
+import { CardRulesPreview, CardSurface } from "@multiverse/game-ui";
 import type { CardObservation } from "../../domain/table.ts";
 import { faceOf } from "../../domain/table.ts";
 import { ManaCost } from "../ManaCost.tsx";
@@ -6,7 +7,7 @@ import { OracleText } from "../OracleText.tsx";
 import styles from "./TextCard.module.css";
 export interface TextCardProps {
   observation: CardObservation;
-  full?: boolean;
+  variant?: "compact" | "preview" | "full";
   selected?: boolean;
   targeted?: boolean;
   disabled?: boolean;
@@ -22,7 +23,7 @@ export interface TextCardProps {
 /** Display only the observation supplied by the host; hidden cards have no facts. */
 export function TextCard({
   observation,
-  full = false,
+  variant = "compact",
   selected = false,
   targeted = false,
   disabled = false,
@@ -38,13 +39,13 @@ export function TextCard({
   const [dropSide, setDropSide] = useState<"before" | "after" | null>(null);
   if (observation.visibility === "hidden")
     return (
-      <article
+      <CardSurface as="article"
         data-text-card=""
         className={`${styles.card} ${styles.hidden}`}
         aria-label={observation.label ?? "Hidden card"}
       >
         {observation.label ?? "Anonymous card"}
-      </article>
+      </CardSurface>
     );
   const { card, object, owner, controller, attachedTo, attachments } =
       observation,
@@ -90,9 +91,9 @@ export function TextCard({
     onSelect?.(e.shiftKey || e.ctrlKey || e.metaKey);
   };
   return (
-    <div
+    <CardSurface
       data-text-card=""
-      className={`${styles.card} ${full ? styles.full : styles.compact} ${targeted ? styles.targeted : ""}`}
+      className={`${styles.card} ${styles[variant]} ${targeted ? styles.targeted : ""}`}
       data-selected={selected}
       data-tapped={object?.tapped ?? false}
       data-object-id={object?.id}
@@ -128,8 +129,14 @@ export function TextCard({
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           e.stopPropagation();
-          onSelect?.(e.shiftKey || e.ctrlKey || e.metaKey);
+          if (e.key === "Enter") onSelect?.(e.shiftKey || e.ctrlKey || e.metaKey);
         }
+      }}
+      onKeyUp={(e) => {
+        if (e.target !== e.currentTarget || e.key !== " " || disabled || !onSelect) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(e.shiftKey || e.ctrlKey || e.metaKey);
       }}
       onDragOver={(e) => {
         if (
@@ -177,9 +184,14 @@ export function TextCard({
         <ManaCost cost={face.mana_cost ?? null} />
         <div className={styles.type}>{face.type_line}</div>
       </header>
-      {full && (
+      {variant === "full" && (
         <div className={styles.rules}>
           <OracleText text={face.oracle_text ?? ""} bare />
+        </div>
+      )}
+      {variant === "preview" && face.oracle_text && (
+        <div className={`${styles.rules} ${styles.previewRules}`}>
+          <CardRulesPreview><OracleText text={face.oracle_text} inline /></CardRulesPreview>
         </div>
       )}
       {(chips.length > 0 || stat) && (
@@ -194,6 +206,6 @@ export function TextCard({
       )}
       {footer && <footer className={styles.footer}>{footer}</footer>}
       {disabledReason && <small>{disabledReason}</small>}
-    </div>
+    </CardSurface>
   );
 }
