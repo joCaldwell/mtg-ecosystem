@@ -106,41 +106,129 @@ fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::D
         .find(|d| d.oracle_id == id)
         .ok_or_else(|| format!("public definition missing {id}"))
 }
+// One distinct card per color. Reassign flexible cards when a later slot
+// has no other candidate. The search depth is bounded by the five colors.
+fn colored_library_choices(
+    colors: &[Color],
+    candidates: &[mtg_core::ColoredCardCandidate],
+) -> Vec<mtg_core::ColoredCardAssignment> {
+    fn assign(
+        slot: usize,
+        colors: &[Color],
+        candidates: &[mtg_core::ColoredCardCandidate],
+        owners: &mut [Option<usize>],
+        seen: &mut [bool],
+    ) -> bool {
+        for (index, card) in candidates.iter().enumerate() {
+            if seen[index] || !card.slots.contains(&colors[slot]) {
+                continue;
+            }
+            seen[index] = true;
+            if owners[index].is_none_or(|prior| assign(prior, colors, candidates, owners, seen)) {
+                owners[index] = Some(slot);
+                return true;
+            }
+        }
+        false
+    }
+    let mut owners = vec![None; candidates.len()];
+    for slot in 0..colors.len() {
+        assign(
+            slot,
+            colors,
+            candidates,
+            &mut owners,
+            &mut vec![false; candidates.len()],
+        );
+    }
+    colors
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, color)| {
+            let card = owners.iter().position(|owner| *owner == Some(slot))?;
+            Some(mtg_core::ColoredCardAssignment {
+                slot: *color,
+                handle: candidates[card].handle.clone(),
+            })
+        })
+        .collect()
+}
 struct Strategy<'a> {
     catalog: &'a Catalog,
     policy: Policy,
     mulligans: [u8; 4],
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
+    hybrid_choices: Vec<mtg_contracts::HybridPayment>,
 }
 impl Strategy<'_> {
     fn choose(&mut self, o: &Observation) -> Result<PlayerResponse, String> {
         let v = &o.view;
         let request = o.decision.as_ref().ok_or("missing match request")?;
         Ok(match request {
-            PlayerRequest::CounterPlacementEffect { .. } => {
-                return Err("counter placement replacement choices outside this policy".into());
+            PlayerRequest::CounterPlacementEffect { candidates, .. } => {
+                PlayerResponse::CounterPlacementEffect {
+                    effect: candidates
+                        .first()
+                        .ok_or("empty counter replacement choices")?
+                        .effect
+                        .clone(),
+                }
             }
-
             PlayerRequest::HandCast { candidates, .. } => candidates
                 .first()
                 .cloned()
                 .map(|card| PlayerResponse::Cast { card })
                 .unwrap_or(PlayerResponse::Pass),
-            PlayerRequest::HandReturn { .. }
-            | PlayerRequest::LibraryOrder { .. }
-            | PlayerRequest::LibrarySelect { .. }
-            | PlayerRequest::Scry { .. }
-            | PlayerRequest::Surveil { .. } => {
-                return Err("scry outside this policy admission".into());
-            }
+            PlayerRequest::HandReturn {
+                candidates, count, ..
+            } => PlayerResponse::HandReturn {
+                objects: candidates.iter().rev().take(*count).cloned().collect(),
+            },
+            PlayerRequest::LibraryOrder { candidates, .. } => PlayerResponse::LibraryOrder {
+                objects: candidates.clone(),
+            },
+            PlayerRequest::LibrarySelect { candidates, .. } => PlayerResponse::LibrarySelect {
+                hand: candidates.first().cloned().into_iter().collect(),
+                remainder: candidates.iter().skip(1).cloned().collect(),
+            },
+            PlayerRequest::Scry { candidates, .. } => PlayerResponse::Scry {
+                top: candidates.clone(),
+                bottom: vec![],
+            },
+            PlayerRequest::Surveil { candidates, .. } => PlayerResponse::Surveil {
+                top: candidates.clone(),
+                graveyard: vec![],
+            },
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
             PlayerRequest::AdditionalCosts { .. } => {
-                return Err("optional casting costs outside this completion policy".into());
+                PlayerResponse::AdditionalCosts { selected: vec![] }
             }
-            PlayerRequest::HybridCost { symbols, .. } => PlayerResponse::HybridCost {
-                colors: symbols.iter().map(|s| s.colors[0]).collect(),
-            },
+            PlayerRequest::HybridCost { symbols, .. } => {
+                let cached = std::mem::take(&mut self.hybrid_choices);
+                let colors = if cached.len() == symbols.len()
+                    && cached
+                        .iter()
+                        .zip(symbols)
+                        .all(|(choice, symbol)| symbol.colors.contains(choice))
+                {
+                    cached
+                } else {
+                    let (definition, _) = self
+                        .top_program(v)
+                        .ok_or("hybrid announcement missing public spell")?;
+                    let (choices, plan) = mana_policy::hybrid_plan(
+                        self.catalog,
+                        v,
+                        definition.characteristics.mana_cost.clone(),
+                        symbols,
+                    )
+                    .ok_or("no affordable hybrid announcement")?;
+                    self.mana_plan = plan;
+                    choices
+                };
+                PlayerResponse::HybridCost { colors }
+            }
             PlayerRequest::AnnounceX { .. } => PlayerResponse::AnnounceX {
                 value: self
                     .top_program(v)
@@ -158,15 +246,23 @@ impl Strategy<'_> {
                 }
                 PlayerResponse::ChooseManaAbility { ability }
             }
-            PlayerRequest::ManaCombination { total, .. } => PlayerResponse::ManaCombination {
-                amounts: [
-                    Quantity::zero(),
-                    Quantity::zero(),
-                    Quantity::zero(),
-                    Quantity::zero(),
-                    total.clone(),
-                ],
-            },
+            PlayerRequest::ManaCombination { total, colors, .. } => {
+                let mut amounts = std::array::from_fn(|_| Quantity::zero());
+                if *total > Quantity::zero() {
+                    let color = self
+                        .mana_color
+                        .take()
+                        .filter(|c| colors.contains(c))
+                        .or_else(|| colors.first().copied())
+                        .ok_or("empty combination domain")?;
+                    let index = mtg_contracts::MANA_COMBINATION_COLORS
+                        .iter()
+                        .position(|c| *c == color)
+                        .ok_or("invalid mana combination color")?;
+                    amounts[index] = total.clone();
+                }
+                PlayerResponse::ManaCombination { amounts }
+            }
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
                 color: self
                     .mana_color
@@ -175,18 +271,28 @@ impl Strategy<'_> {
                     .or_else(|| colors.first().copied())
                     .ok_or("empty mana colors")?,
             },
-            PlayerRequest::CascadeLandEntry { .. } => {
-                return Err("cascade land entry outside this policy admission".into());
+            PlayerRequest::CascadeLandEntry { candidates, .. } => {
+                PlayerResponse::CascadeLandEntry {
+                    object: candidates.first().cloned(),
+                }
             }
             PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. } => {
                 return Err("copied entry outside this policy admission".into());
             }
-            PlayerRequest::Hideaway { .. } | PlayerRequest::PlayHideawayLinked { .. } => {
-                return Err("hideaway choices outside this policy admission".into());
+            PlayerRequest::Hideaway { candidates, .. } => PlayerResponse::Hideaway {
+                object: candidates
+                    .first()
+                    .cloned()
+                    .ok_or("empty hideaway selection")?,
+            },
+            PlayerRequest::PlayHideawayLinked { candidates, .. } => {
+                PlayerResponse::PlayHideawayLinked {
+                    object: candidates.first().cloned(),
+                }
             }
-            PlayerRequest::ChooseOpponent { .. } => {
-                return Err("demonstrate choice outside this policy admission".into());
-            }
+            PlayerRequest::ChooseOpponent { candidates, .. } => PlayerResponse::ChooseOpponent {
+                opponent: *candidates.first().ok_or("empty opponent selection")?,
+            },
             PlayerRequest::SearchLandBattlefield { candidates, .. } => {
                 PlayerResponse::SearchLandBattlefield {
                     object: candidates
@@ -195,8 +301,10 @@ impl Strategy<'_> {
                         .ok_or("empty revealed land partition")?,
                 }
             }
-            PlayerRequest::ColoredSearch { .. } => PlayerResponse::ColoredSearch {
-                assignments: vec![],
+            PlayerRequest::ColoredSearch {
+                colors, candidates, ..
+            } => PlayerResponse::ColoredSearch {
+                assignments: colored_library_choices(colors, candidates),
             },
             PlayerRequest::SearchLands {
                 maximum,
@@ -221,8 +329,10 @@ impl Strategy<'_> {
             PlayerRequest::OptionalRecursion { .. } => {
                 PlayerResponse::OptionalRecursion { perform: true }
             }
-            PlayerRequest::OpeningPlacement { .. } => {
-                PlayerResponse::OpeningPlacement { object: None }
+            PlayerRequest::OpeningPlacement { candidates, .. } => {
+                PlayerResponse::OpeningPlacement {
+                    object: candidates.first().cloned(),
+                }
             }
             PlayerRequest::Mulligan {
                 mulligans_taken,
@@ -237,15 +347,23 @@ impl Strategy<'_> {
                 objects: candidates.iter().rev().take(*count).cloned().collect(),
             },
             PlayerRequest::Priority { .. } => return self.priority(o),
-            PlayerRequest::Modes { candidates, .. } => PlayerResponse::Modes {
-                mode: self.choose_mode(v, candidates).ok_or("empty modes")?,
-            },
+            PlayerRequest::Modes {
+                candidates,
+                exactly,
+                allow_repeat,
+                one_or_more,
+                ..
+            } => self
+                .mode_response(v, candidates, *exactly, *allow_repeat, *one_or_more)
+                .ok_or("insufficient offered modes")?,
             PlayerRequest::Targets {
                 occurrences,
                 candidates,
                 ..
             } => {
-                let (d, p) = self.top_program(v).ok_or("missing target program")?;
+                let (d, p) = self
+                    .occurrence_program(v, occurrences)
+                    .ok_or("missing target program")?;
                 let objects = occurrences
                     .iter()
                     .map(|t| {
@@ -261,7 +379,9 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                let (d, p) = self.top_program(v).ok_or("missing player program")?;
+                let (d, p) = self
+                    .occurrence_program(v, occurrences)
+                    .ok_or("missing player program")?;
                 let players = occurrences
                     .iter()
                     .map(|t| {
@@ -276,7 +396,45 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                let (_, p) = self.top_program(v).ok_or("missing damage program")?;
+                if let [owner, cards] = occurrences.as_slice()
+                    && let mtg_contracts::TargetDomain::PlayerGraveyardCards {
+                        owner_slot,
+                        maximum,
+                    } = cards.domain
+                    && owner.slot == owner_slot
+                    && owner.domain == mtg_contracts::TargetDomain::AnyPlayer
+                {
+                    let offered: Vec<_> = candidates
+                        .iter()
+                        .filter_map(|c| match c {
+                            PlayerTargetEntity::Player { player } => Some(*player),
+                            _ => None,
+                        })
+                        .collect();
+                    let player = self
+                        .player_target(v, &offered, true)
+                        .ok_or("missing offered graveyard owner")?;
+                    let mut entities = vec![PlayerTargetEntity::Player { player }];
+                    for c in candidates {
+                        if entities.len() > usize::from(maximum) {
+                            break;
+                        }
+                        if let PlayerTargetEntity::Object { object } = c
+                            && v.objects.iter().any(|o| {
+                                &o.handle == object
+                                    && o.zone == (Zone::Graveyard { owner: player })
+                                    && o.token.is_none()
+                            })
+                            && !entities.contains(c)
+                        {
+                            entities.push(c.clone());
+                        }
+                    }
+                    return Ok(PlayerResponse::EntityTargets { entities });
+                }
+                let (_, p) = self
+                    .occurrence_program(v, occurrences)
+                    .ok_or("missing damage program")?;
                 let mut entities: Vec<PlayerTargetEntity> = vec![];
                 for _ in occurrences {
                     let distinct: Vec<_> = candidates
@@ -645,6 +803,7 @@ pub(super) fn run(
         mulligans,
         mana_plan: Default::default(),
         mana_color: None,
+        hybrid_choices: vec![],
     };
     let selected_checkpoints =
         config.seed == seed_for(&config.profile, 0) && policy == Policy::Develop;
@@ -1469,6 +1628,7 @@ mod admission_and_host_tests {
             mulligans: [0; 4],
             mana_plan: Default::default(),
             mana_color: None,
+            hybrid_choices: vec![],
         };
         let id = |name: &str| {
             catalog
