@@ -86,7 +86,7 @@ impl Game {
             if let Some((_, selector)) = ability.effect.counted_generic_reduction() {
                 let mut count = 0u32;
                 for object in self.state.rules.objects.values() {
-                    if object.zone == Zone::Battlefield
+                    if object.present_on_battlefield()
                         && (selector.controller == CountController::Any
                             || object.controller == caster)
                         && self
@@ -233,7 +233,8 @@ impl Game {
     pub(super) fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String> {
         if self.is_spell_copy(entry) {
             return if entry.cost_lock.is_none()
-                && entry.hybrid_colors.is_empty() && entry.paid.is_none()
+                && entry.hybrid_colors.is_empty()
+                && entry.paid.is_none()
                 && entry.total_cost == zero_mana_cost()
                 && entry.cast_from == Zone::Stack
             {

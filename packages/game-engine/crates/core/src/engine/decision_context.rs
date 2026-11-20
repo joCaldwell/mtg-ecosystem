@@ -211,6 +211,7 @@ impl Game {
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
+            (Frame::HandCast { frame, .. }, PlayerRequest::HandCast { .. }) => &frame.spell,
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)

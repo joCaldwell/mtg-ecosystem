@@ -25,6 +25,9 @@ pub(super) struct CastPermission {
 #[serde(tag = "return_to", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum CastCompletion {
     Priority,
+    HandTrigger {
+        frame: Box<Resolving>,
+    },
     Resolution {
         permission: CastPermission,
         progress: Box<CascadeProgress>,
@@ -177,13 +180,9 @@ impl Game {
             .spell
             .as_ref()
             .ok_or("cascade nonland is not a supported spell")?;
-        Ok(
-            self.has_target_domain(program, permission.caster, &definition.characteristics)
-                && program
-                    .additional_sacrifice
-                    .as_ref()
-                    .is_none_or(|f| !self.sacrifice_candidates(permission.caster, f).is_empty()),
-        )
+        Ok(self
+            .spell_proposal_obstacle(program, permission.caster, &definition.characteristics)
+            .is_none())
     }
     pub(super) fn validate_resolution_permission(
         &self,
@@ -212,7 +211,7 @@ impl Game {
     pub(super) fn announcement_mana_frame(&mut self, mut cast: Casting) -> Result<Frame, String> {
         self.lock_spell_cost()?;
         let stack = self.top()?;
-        if matches!(cast.completion, CastCompletion::Resolution { .. })
+        if !matches!(cast.completion, CastCompletion::Priority)
             && !self.has_selected_additional_mana(stack)
             && stack.total_cost.generic == Quantity::zero()
             && stack.total_cost.colored.is_empty()
@@ -632,6 +631,7 @@ impl Game {
     }
     pub(super) fn resolution_child(&self, owner: StackId) -> Option<StackId> {
         match &self.state.rules.frame {
+            Frame::HandCast { frame, child } if frame.stack_id == owner => *child,
             Frame::Cascade { progress } if progress.frame.stack_id == owner => progress.child,
             _ => None,
         }
@@ -665,7 +665,7 @@ impl Game {
     pub(super) fn cascade_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         match frame {
-            Frame::Cascade { .. } => stored_history::payload_charge(frame),
+            Frame::HandCast { .. } | Frame::Cascade { .. } => stored_history::payload_charge(frame),
             Frame::CommanderReturn { continuation, .. }
                 if matches!(
                     continuation.as_ref(),
@@ -686,7 +686,7 @@ impl Game {
             | Frame::SpendMana { cast }
             | Frame::Payment { cast }
             | Frame::SacrificeCost { cast }
-                if matches!(cast.completion, CastCompletion::Resolution { .. }) =>
+                if !matches!(cast.completion, CastCompletion::Priority) =>
             {
                 stored_history::payload_charge(&cast.completion)
             }

@@ -102,6 +102,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
     let spell = StackInstance {
         alternative_cost: None,
         hybrid_colors: vec![],
+        hand_cast_permission: None,
         cost_lock: None,
         selected_additional_costs: None,
         x: None,

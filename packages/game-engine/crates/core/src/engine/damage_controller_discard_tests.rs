@@ -470,3 +470,152 @@ fn damage_controller_discard_choice_binding_and_host_search_admission_remain_str
         .is_err()
     );
 }
+
+#[test]
+fn combat_hand_cast_uses_trigger_controller_and_pays_the_child_additional_cost() {
+    let mut p = prepared(false, false);
+    let raw =
+        include_str!("../../../../tests/fixtures/ramos/ac50ef98-1791-4dd4-9c1f-8cea7db7ade5.json");
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        raw,
+    ) else {
+        panic!("complete combat hand cast source must lower")
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::CombatHandCastV1)
+    );
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    let spell = CardId(1);
+    // An ordinary main-phase spell with a target and a mandatory sacrifice.
+    p.config.cards[1].oracle_id = "0c936582-d4c0-4da8-bc7e-49da5a433939".into();
+    p.config.cards[2].zone = Zone::Battlefield;
+    p.config.cards[2].oracle_id = "000d5588-5a4c-434e-988d-396632ade42c".into();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut game = Game::new(p);
+    placed(&mut game);
+    let source = game.object_id(CardId(0)).unwrap();
+    let target = game.object_id(CardId(2)).unwrap();
+    let offered = begin_resolution(&mut game);
+    let Request::HandCast {
+        player, candidates, ..
+    } = offered
+    else {
+        panic!("expected private optional hand cast")
+    };
+    assert_eq!(player, PlayerId(0));
+    assert_eq!(candidates, [game.object_id(spell).unwrap()]);
+    let chooser = view(&game, 0);
+    let Some(PlayerRequest::HandCast {
+        token, candidates, ..
+    }) = chooser.decision
+    else {
+        panic!("missing private chooser")
+    };
+    assert!(view(&game, 2).decision.is_none());
+    recover(&game);
+    let mut declined = game.fork();
+    answer(&mut declined, Response::Pass);
+    assert!(matches!(settle(&mut declined), Request::Priority { .. }));
+    assert!(declined.state.rules.stack.is_empty());
+    assert_eq!(
+        declined
+            .current(declined.object_id(spell).unwrap())
+            .unwrap()
+            .zone,
+        Zone::Hand { owner: player }
+    );
+    let QueryResult::Complete(QueryValue::Validated(receipt)) = game.check_player_response(
+        player,
+        token,
+        PlayerResponse::Cast {
+            card: candidates[0].clone(),
+        },
+        Budget::unlimited(),
+    ) else {
+        panic!("private child choice rejected")
+    };
+    game.submit(receipt).unwrap();
+    assert!(matches!(settle(&mut game), Request::Targets { .. }));
+    recover(&game);
+    let mut interrupted = game.fork();
+    answer(
+        &mut interrupted,
+        Response::Targets {
+            objects: vec![target],
+        },
+    );
+    interrupted.concede(PlayerId(1)).unwrap();
+    let Request::HandCast { candidates, .. } = settle(&mut interrupted) else {
+        panic!("the failed target proposal must return to its owning hand offer");
+    };
+    assert_eq!(candidates, [interrupted.object_id(spell).unwrap()]);
+    assert_eq!(interrupted.state.rules.stack.len(), 1);
+    assert_eq!(
+        interrupted.current(candidates[0]).unwrap().zone,
+        Zone::Hand { owner: player }
+    );
+    recover(&interrupted);
+    answer(&mut interrupted, Response::Pass);
+    assert!(matches!(settle(&mut interrupted), Request::Priority { .. }));
+    assert!(interrupted.state.rules.stack.is_empty());
+    answer(
+        &mut game,
+        Response::Targets {
+            objects: vec![target],
+        },
+    );
+    assert!(matches!(settle(&mut game), Request::SacrificeCost { .. }));
+    recover(&game);
+    answer(&mut game, Response::SacrificeCost { object: source });
+    assert!(matches!(settle(&mut game), Request::Priority { .. }));
+    assert_eq!(game.state.rules.stack.len(), 1);
+    let child = game.top().unwrap();
+    assert_eq!(child.source.card, spell);
+    assert_eq!(child.cast_from, Zone::Hand { owner: player });
+    assert!(child.hand_cast_permission.is_some());
+    assert!(child.total_cost.colored.is_empty() && child.total_cost.generic == Quantity::zero());
+    assert_eq!(child.paid.as_ref(), Some(&child.total_cost));
+    assert_eq!(
+        game.current(game.object_id(source.card).unwrap())
+            .unwrap()
+            .zone,
+        Zone::Graveyard { owner: PlayerId(2) }
+    );
+    recover(&game);
+    let mut forged = game.fork();
+    forged
+        .state
+        .rules
+        .stack
+        .last_mut()
+        .unwrap()
+        .hand_cast_permission = None;
+    assert!(
+        Game::restore(
+            forged.prepared.as_ref().clone(),
+            &forged.snapshot().unwrap()
+        )
+        .is_err()
+    );
+    for _ in 0..4 {
+        answer(&mut game, Response::Pass);
+    }
+    assert!(matches!(settle(&mut game), Request::Priority { .. }));
+    assert_eq!(
+        game.current(game.object_id(target.card).unwrap())
+            .unwrap()
+            .zone,
+        Zone::Graveyard { owner: PlayerId(1) }
+    );
+    recover(&game);
+}

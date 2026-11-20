@@ -326,6 +326,8 @@ impl Game {
             mana: self.state.rules.players[player.0 as usize].mana.clone(),
         };
         self.state.rules.players[player.0 as usize].last_known = Some(last);
+        self.expire_player_protection(player);
+        self.state.rules.players[player.0 as usize].life_frozen_until_next_turn = false;
         self.state.rules.players[player.0 as usize].status = PlayerStatus::Left;
         self.record_event(Event::PlayerDeparted { player })?;
         // Owned objects leave, not a graveyard move and not an SBA (800.4a).
@@ -588,6 +590,7 @@ impl Game {
         self.remove_group_discard_recipient(player);
         self.revalidate_actions_departure()?;
         self.revalidate_cascade_departure()?;
+        self.revalidate_hand_cast_departure()?;
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "rules_edition": "2026-09-25",
+  "rules_sha256": "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca",
+  "definitions": [
+    {
+      "oracle_id": "10000000-0000-4000-8000-000000000003",
+      "name": "Stillwater Interval",
+      "characteristics": {
+        "kind": "instant",
+        "subtypes": [],
+        "basic": false,
+        "legendary": false,
+        "mana_cost": {
+          "generic": "1",
+          "colored": []
+        },
+        "colors": [],
+        "color_identity": [],
+        "power": null,
+        "toughness": null
+      },
+      "intrinsic_zone": null,
+      "spell": {
+        "timing": "instant",
+        "resolution": "instructions",
+        "functioning_zone": "stack",
+        "targets": [],
+        "instructions": [
+          {
+            "op": "freeze_controller_life_until_next_turn",
+            "source_block": 0
+          }
+        ]
+      },
+      "capabilities": [
+        "normal_layout_v1",
+        "cast_instant_v1",
+        "controller_life_freeze_v1"
+      ],
+      "provenance": {
+        "printing_id": "20000000-0000-4000-8000-000000000003",
+        "source_index": 0,
+        "source_sha256": "38d056cea11d2f31a83590f212fd23f4dec2d33fed4e3a8962847c8aedf15c4c",
+        "ast_sha256": "319bb1186ae0c4c86880ef7bfa8ec647e1c278a8647d34bd866d64df72439e86",
+        "binding_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "archive_manifest_sha256": "b20406acec7b9af4610324af8848c76a2966315f1bb4043de2b03d53aa1a6f1b",
+        "parser_sha256": "98980a967a70d57008847ce0952edf0cc277af9ad26b8cb8739a555d97082b8d",
+        "source_json": "{\"id\":\"20000000-0000-4000-8000-000000000003\",\"oracle_id\":\"10000000-0000-4000-8000-000000000003\",\"name\":\"Stillwater Interval\",\"layout\":\"normal\",\"type_line\":\"Instant\",\"mana_cost\":\"{1}\",\"colors\":[],\"color_identity\":[],\"oracle_text\":\"Until your next turn, your life total can't change.\"}",
+        "abilities_json": "[{\"kind\":\"spell\",\"effects\":[{\"steps\":[{\"effect\":\"simultaneous\",\"steps\":[{\"effect\":\"player-rule\",\"rule\":{\"who\":{\"player\":\"you\"},\"rule\":\"cant-gain-life\"},\"duration\":{\"duration\":\"your-next-turn\"}},{\"effect\":\"player-rule\",\"rule\":{\"who\":{\"player\":\"you\"},\"rule\":\"cant-lose-life\"},\"duration\":{\"duration\":\"your-next-turn\"}}]}]}]}]"
+      }
+    }
+  ]
+}

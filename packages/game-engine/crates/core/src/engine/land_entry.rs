@@ -147,7 +147,7 @@ impl Game {
         }
         // CR118.4: zero is payable even with synthetic negative life. Positive
         // costs permit equality; all selected costs reserve ONE common balance.
-        if total > Quantity::zero() && total > self.state.rules.players[player.0 as usize].life {
+        if !self.state.rules.players[player.0 as usize].can_pay_life(&total) {
             return Err("unaffordable combined entry life cost".into());
         }
         Ok(())
