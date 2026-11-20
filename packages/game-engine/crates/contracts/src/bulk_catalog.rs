@@ -1,13 +1,13 @@
 //! Pinned offline bulk catalog format. Validation uses typed values and byte proofs.
 use crate::{
-    CURRENT_IR_VERSION, Catalog, Definition, JsonByteProof, RULES_EDITION, RULES_SHA256,
+    CURRENT_IR_VERSION, Catalog, Color, Definition, JsonByteProof, RULES_EDITION, RULES_SHA256,
     Sha256Sink, SourceProvenance, accepted_archives, library_top_mana, strict_read,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, io::Write, sync::Arc};
 
-pub const BULK_FORMAT_VERSION: u32 = 1;
+pub const BULK_FORMAT_VERSION: u32 = 2;
 pub const ARCHIVE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 pub const ARCHIVE_MAX_LINE_BYTES: usize = 1024 * 1024;
 pub const ARCHIVE_MAX_RECORDS: usize = 60_000;
@@ -115,7 +115,11 @@ pub struct BulkCardFacts {
     pub commander_legality: CommanderLegality,
     pub conspiracy: bool,
     pub ante: bool,
+    pub legendary_creature: bool,
+    pub time_lord_doctor: bool,
     pub doctors_companion: bool,
+    pub partner: bool,
+    pub color_identity: Vec<Color>,
 }
 impl BulkCardFacts {
     pub fn from_source(source: &Value) -> Result<Self, String> {
@@ -130,25 +134,69 @@ impl BulkCardFacts {
             _ => return Err("invalid source Commander legality".into()),
         };
         // Same finite-pool restrictions as embedded profile intake.
-        let conspiracy = source["type_line"]
+        let type_line = source["type_line"]
             .as_str()
-            .ok_or("missing source type line")?
+            .ok_or("missing source type line")?;
+        let conspiracy = type_line
             .split_whitespace()
             .any(|term| term == "Conspiracy");
-        let ante = source["oracle_text"]
-            .as_str()
-            .unwrap_or_default()
+        let oracle_text = source["oracle_text"].as_str().unwrap_or_default();
+        let ante = oracle_text
             .split(|c: char| !c.is_alphabetic())
             .any(|term| term.eq_ignore_ascii_case("ante"));
-        let doctors_companion = source["keywords"]
+
+        // CR 205.3m, 702.73, 702.124h/m and 903.3. Scryfall's keywords
+        // also marks "Partner with" as Partner. The exact standalone Oracle
+        // keyword line is the authority for these supported single-face forms.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        let (types, subtypes) = type_line.split_once(" — ").unwrap_or((type_line, ""));
+        let single_face = !type_line.contains(" // ") && source["card_faces"].is_null();
+        let legendary_creature = single_face
+            && types.split_whitespace().any(|t| t == "Legendary")
+            && types.split_whitespace().any(|t| t == "Creature");
+        let changeling = source["keywords"]
             .as_array()
-            .is_some_and(|keywords| keywords.iter().any(|k| k == "Doctor's companion"));
+            .is_some_and(|keywords| keywords.iter().any(|keyword| keyword == "Changeling"));
+        let all_types = oracle_text.lines().any(|line| {
+            line.strip_prefix(name)
+                .is_some_and(|rest| rest.starts_with(" is every creature type"))
+        });
+        let time_lord_doctor = legendary_creature
+            && !changeling
+            && !all_types
+            && matches!(subtypes, "Time Lord Doctor" | "Doctor Time Lord");
+        let doctors_companion = legendary_creature && oracle_text.lines().any(|line| {
+            matches!(
+                line,
+                "Doctor's companion"
+                    | "Doctor's companion (You can have two commanders if the other is the Doctor.)"
+            )
+        });
+        let partner = legendary_creature
+            && oracle_text.lines().any(|line| {
+                matches!(
+                    line,
+                    "Partner" | "Partner (You can have two commanders if both have partner.)"
+                )
+            });
+        let mut color_identity: Vec<Color> =
+            serde_json::from_value(source["color_identity"].clone())
+                .map_err(|_| "missing or invalid source color identity")?;
+        if color_identity.contains(&Color::C) {
+            return Err("colorless is not a color identity component".into());
+        }
+        color_identity.sort_unstable();
+        color_identity.dedup();
         Ok(Self {
             name: name.into(),
             commander_legality,
             conspiracy,
             ante,
+            legendary_creature,
+            time_lord_doctor,
             doctors_companion,
+            partner,
+            color_identity,
         })
     }
 }
@@ -315,6 +363,12 @@ fn validate_definition(
         || source["oracle_id"] != d.oracle_id
         || row.facts.name != d.name
         || row.facts != BulkCardFacts::from_source(&source)?
+        || row.facts.color_identity.len() != d.characteristics.color_identity.len()
+        || !row
+            .facts
+            .color_identity
+            .iter()
+            .all(|c| d.characteristics.color_identity.contains(c))
         || row.source_index != p.source_index
         || row.source_sha256 != p.source_sha256
         || row.ast_sha256.as_deref() != ast

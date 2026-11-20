@@ -675,6 +675,25 @@ impl ScenarioConfig {
         self.initial.turn_step
     }
 
+    pub(super) fn initial_library_sizes(&self) -> [u32; 4] {
+        if let Some(libraries) = &self.initial.libraries {
+            return std::array::from_fn(|seat| {
+                libraries
+                    .get(&PlayerId(seat as u8))
+                    .map_or(0, |cards| cards.len() as u32)
+            });
+        }
+        let mut sizes = [0; 4];
+        for card in &self.cards {
+            if let Zone::Library { owner } = card.zone
+                && let Some(size) = sizes.get_mut(owner.0 as usize)
+            {
+                *size += 1;
+            }
+        }
+        sizes
+    }
+
     pub(super) fn initial_libraries(&self) -> BTreeMap<PlayerId, Vec<CardId>> {
         if let Some(libraries) = &self.initial.libraries {
             return libraries.clone();

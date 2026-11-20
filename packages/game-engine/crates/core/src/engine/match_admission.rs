@@ -136,18 +136,18 @@ pub(super) fn commander_eligible(c: &Characteristics, eligibility: CommanderElig
 
 pub(super) fn deck_color_violations(
     card: &Characteristics,
-    commander: &Characteristics,
+    commander_colors: &[Color],
 ) -> (bool, bool) {
     let outside_identity = card
         .color_identity
         .iter()
-        .any(|c| !commander.color_identity.contains(c));
+        .any(|c| !commander_colors.contains(c));
     // CR 903.5d applies independently, including to nonbasic lands.
     let outside_land_colors = card
         .subtypes
         .iter()
         .filter_map(|s| basic_land_color(s))
-        .any(|c| !commander.color_identity.contains(&c));
+        .any(|c| !commander_colors.contains(&c));
     (outside_identity, outside_land_colors)
 }
 
@@ -157,7 +157,8 @@ fn validate_deck_colors(
     card: &Characteristics,
     commander: &Characteristics,
 ) -> Result<(), MatchAdmissionError> {
-    let (outside_identity, outside_land_colors) = deck_color_violations(card, commander);
+    let (outside_identity, outside_land_colors) =
+        deck_color_violations(card, &commander.color_identity);
     if outside_identity {
         return Err(MatchAdmissionError::ColorIdentity {
             player,
@@ -301,22 +302,36 @@ pub fn validate_pod(
 }
 
 pub(super) fn physical_match_config(profile: &str, decks: &[Decklist; 4]) -> ScenarioConfig {
+    physical_match_rosters(
+        profile,
+        decks
+            .each_ref()
+            .map(|deck| (std::slice::from_ref(&deck.commander), deck.cards.as_slice())),
+    )
+}
+
+pub(super) fn physical_match_rosters(
+    profile: &str,
+    decks: [(&[String], &[DeckEntry]); 4],
+) -> ScenarioConfig {
     let mut cards = Vec::with_capacity(400);
-    let mut commanders = Vec::with_capacity(4);
-    for (seat, deck) in decks.iter().enumerate() {
+    let mut commanders = Vec::with_capacity(8);
+    for (seat, (designations, entries)) in decks.into_iter().enumerate() {
         let owner = PlayerId(seat as u8);
         let mut next = seat as u32 * 100;
-        commanders.push(CardId(next));
-        cards.push(CardSetup {
-            id: CardId(next),
-            oracle_id: deck.commander.clone(),
-            owner,
-            controller: owner,
-            zone: Zone::Command { owner },
-        });
-        next += 1;
-        for row in &deck.cards {
-            if row.oracle_id == deck.commander {
+        for oracle_id in designations {
+            commanders.push(CardId(next));
+            cards.push(CardSetup {
+                id: CardId(next),
+                oracle_id: oracle_id.clone(),
+                owner,
+                controller: owner,
+                zone: Zone::Command { owner },
+            });
+            next += 1;
+        }
+        for row in entries {
+            if designations.contains(&row.oracle_id) {
                 continue;
             }
             for _ in 0..row.count {

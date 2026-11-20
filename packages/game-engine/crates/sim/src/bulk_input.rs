@@ -6,8 +6,8 @@ use mtg_contracts::{
 };
 use mtg_core::{
     Advance, BUILD_ID, Budget, CaptureOutcome, DeckInspection, DeckRole, DynamicAdmissionIdentity,
-    DynamicDeckEntry, DynamicMatchConfig, DynamicPod, Game, MatchAdmissionError, MatchConfig,
-    PlayerId, Prepared, ReplayJournal, Request, Response, SearchRejection, TraceMode, TurnStep,
+    DynamicDeckEntry, DynamicMatchConfig, Game, MatchAdmissionError, MatchConfig, PlayerId,
+    Prepared, ReplayJournal, Request, Response, SearchRejection, TraceMode, TurnStep,
     admit_dynamic_pod, inspect_dynamic_deck, match_profile,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -41,7 +41,7 @@ fn read_file<T: DeserializeOwned>(path: &Path, limit: u64) -> Result<(T, JsonByt
     strict_read_seekable_verified(&mut file, limit).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-fn load(directory: &Path, pin: &str) -> Result<BulkArtifact, String> {
+pub(super) fn load(directory: &Path, pin: &str) -> Result<BulkArtifact, String> {
     if !is_sha256(pin) || !fs::symlink_metadata(directory).is_ok_and(|m| m.is_dir()) {
         return Err(
             "expected a regular artifact directory and a lowercase manifest SHA-256".into(),
@@ -56,6 +56,17 @@ fn load(directory: &Path, pin: &str) -> Result<BulkArtifact, String> {
     let catalog = read_file(&directory.join("catalog.json"), manifest.0.catalog.bytes)?;
     let index = read_file(&directory.join("index.json"), manifest.0.index.bytes)?;
     BulkArtifact::verify(manifest, pin, BUILD_ID, catalog, index)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PodDecks {
+    decks: [Vec<DynamicDeckEntry>; 4],
+}
+
+pub(super) fn read_pod_decks(path: &Path) -> Result<[Vec<DynamicDeckEntry>; 4], String> {
+    let (pod, _): (PodDecks, _) = read_file(path, 4 * DECK_MAX as u64)?;
+    Ok(pod.decks)
 }
 
 // Accept the existing frozen production snapshot shape. Only exact identity,
@@ -179,7 +190,7 @@ fn replay(artifact: &BulkArtifact, evidence: &ReplayEvidence) -> Result<String, 
         return Err("dynamic replay envelope or journal identity mismatch".into());
     }
     let pod = admit_dynamic_pod(artifact, &evidence.config).map_err(|e| e.to_string())?;
-    if pod.identity != evidence.identity || normalized(&pod)? != evidence.config {
+    if pod.identity != evidence.identity || pod.normalized_config() != &evidence.config {
         return Err("dynamic replay admission, policy or projection identity mismatch".into());
     }
     let state = Game::replay(pod.prepared, &evidence.journal)?.state_digest()?;
@@ -187,13 +198,6 @@ fn replay(artifact: &BulkArtifact, evidence: &ReplayEvidence) -> Result<String, 
         return Err("dynamic replay state digest mismatch".into());
     }
     Ok(state)
-}
-
-fn normalized(pod: &DynamicPod) -> Result<DynamicMatchConfig, String> {
-    pod.prepared
-        .match_config()
-        .map(DynamicMatchConfig::from_match_config)
-        .ok_or_else(|| "dynamic admission did not retain normalized match data".into())
 }
 
 fn opening(prepared: Prepared, starter: PlayerId) -> Result<Game, String> {
@@ -248,8 +252,8 @@ fn foundations_witness(artifact: &BulkArtifact) -> Result<ReplayEvidence, String
         deck.reverse();
     }
     let second = admit_dynamic_pod(artifact, &config).map_err(|e| e.to_string())?;
-    let config = normalized(&first)?;
-    if first.identity != second.identity || config != normalized(&second)? {
+    let config = first.normalized_config().clone();
+    if first.identity != second.identity || &config != second.normalized_config() {
         return Err("dynamic admission identity changed with deck row order".into());
     }
     if !matches!(

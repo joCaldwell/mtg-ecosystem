@@ -216,28 +216,28 @@ impl Game {
             ManaProduction::EachPermanentColor { scope } => {
                 self.permanent_colors(*scope, player)?.into_iter().collect()
             }
-            ManaProduction::CommanderColor => self
-                .prepared
-                .config
-                .commanders
-                .iter()
-                .find(|id| {
-                    self.prepared
-                        .config
-                        .cards
-                        .iter()
-                        .any(|c| c.id == **id && c.owner == player)
-                })
-                .and_then(|id| self.prepared.config.cards.iter().find(|c| c.id == *id))
-                .and_then(|c| {
-                    self.prepared
-                        .catalog
-                        .definitions
-                        .iter()
-                        .find(|d| d.oracle_id == c.oracle_id)
-                })
-                .map(|d| d.characteristics.color_identity.clone())
-                .unwrap_or_default(),
+            // CR 702.124c, 903.4: both designations contribute their
+            // original color identities, independently of zone or control.
+            ManaProduction::CommanderColor => {
+                let mut commanders = self
+                    .state
+                    .rules
+                    .commanders
+                    .records
+                    .values()
+                    .filter(|history| history.owner == player)
+                    .peekable();
+                match commanders.next() {
+                    None => Vec::new(),
+                    Some(history) if commanders.peek().is_none() => history.color_identity.clone(),
+                    Some(history) => std::iter::once(history)
+                        .chain(commanders)
+                        .flat_map(|owner| owner.color_identity.iter().copied())
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect(),
+                }
+            }
         })
     }
     pub(super) fn mana_continuation_charge(&self) -> usize {
