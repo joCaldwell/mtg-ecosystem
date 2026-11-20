@@ -12,6 +12,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+mod basic_landwalk;
 mod bestow;
 mod bindings;
 mod cascade_land_entry;
@@ -51,6 +52,7 @@ mod draw_land_allowance;
 mod each_player_draw;
 mod entry_copy;
 mod entry_graveyard_exile;
+mod fixed_creature_damage;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
@@ -64,6 +66,7 @@ mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
 mod keyword_removal_wipe;
+mod land_entry_gain_life;
 mod library_order;
 #[cfg(test)]
 mod library_order_tests;
@@ -245,6 +248,8 @@ enum Ability {
     HandCastCascade,
     #[serde(skip)]
     ControllerWindowBlock,
+    #[serde(skip)]
+    BasicLandwalkBlock,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1521,6 +1526,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
     let binding = decode(r.binding.get(), "binding")?;
+    let landwalk = basic_landwalk::lower(&source, &shape, types.kind, &result, &binding)?;
     let self_graveyard_shuffle =
         self_graveyard_shuffle::validate(&source, &shape, &result, &binding)?;
     let bestow = bestow::cast_plan(&shape, &result, &binding, &r.oracle_identity)?;
@@ -1553,6 +1559,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         vec![Ability::PlayerGraveyardShuffle]
     } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
+    } else if landwalk.is_some() {
+        vec![Ability::BasicLandwalkBlock; result.lines.len()]
     } else if self_graveyard_shuffle {
         vec![
             Ability::PrintedProtectionFromEverything,
@@ -1764,6 +1772,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         }
     }
     let kind = types.kind;
+    let fixed_creature_damage =
+        fixed_creature_damage::lower(&shape, &result, &binding, &r.oracle_identity)?;
     // CR118.6/118.6a: no mana cost is distinct from a printed {0}. Until the
     // IR represents absence explicitly, reject nonland sources rather than
     // granting ordinary casting or silently treating a free hit as cost zero.
@@ -1863,7 +1873,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         mana_abilities,
         triggered: vec![],
         static_abilities: vec![],
-        keywords: vec![],
+        keywords: landwalk.unwrap_or_default(),
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,
@@ -1878,6 +1888,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if fixed_creature_damage.is_some() => {
+            definition.spell = fixed_creature_damage;
+        }
         CardKind::Sorcery | CardKind::Instant if permanent_union.is_some() => {
             definition.spell = permanent_union;
         }
@@ -1909,7 +1922,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                     "nonempty land abilities are not supported",
                 ));
             }
-            if kind == CardKind::Creature && abilities.is_empty() && !source.oracle_text.is_empty()
+            if kind == CardKind::Creature
+                && abilities.is_empty()
+                && definition.keywords.is_empty()
+                && !source.oracle_text.is_empty()
             {
                 return Err(invalid(
                     "source.oracle_text",
@@ -1969,6 +1985,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
+                    Ability::BasicLandwalkBlock => {}
                     Ability::PrintedProtectionFromEverything => {
                         definition
                             .keywords
@@ -2393,6 +2410,15 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
                 if let Ability::Keywords { keywords, .. } = ability {
                     if matches!(keywords.as_slice(), [k] if k.keyword == "kicker") {
                         continue; // Complete declaration and linked condition checked together.
+                    }
+                    if let [keyword] = keywords.as_slice()
+                        && keyword.keyword == "cycling"
+                    {
+                        labels.activated.push(source_block(block)?);
+                        definition
+                            .activated
+                            .push(cycling::lower(keyword, source_block(block)?)?);
+                        continue;
                     }
                     let previous = definition.triggered.len();
                     optional_costs::instant_keywords(&mut definition, keywords, block)?;
@@ -2858,6 +2884,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     graveyard_battlefield_return::validate_binding(&definition, &shape, &binding)?;
     creature_entry_return::validate_source(&definition, &labels, &original, &shape, &binding)?;
     entry_graveyard_exile::validate_binding(&definition, &shape, &binding)?;
+    land_entry_gain_life::validate_binding(&definition, &shape, &binding)?;
     combat_hand_cast::bind(&definition, &shape, &binding)?;
     if let Some(spell) = &definition.spell
         && !spell.modes.is_empty()
@@ -5663,6 +5690,9 @@ fn lower_trigger(
     if let Some(ability) =
         entry_graveyard_exile::lower_trigger(trigger, effects, intervening, block)
     {
+        return Ok(ability);
+    }
+    if let Some(ability) = land_entry_gain_life::lower(trigger, effects, intervening, block)? {
         return Ok(ability);
     }
     if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {

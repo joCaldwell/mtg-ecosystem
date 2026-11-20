@@ -14,6 +14,32 @@ pub(super) fn present(definition: &Definition) -> bool {
     )
 }
 
+// CR 205.3i/305.6: these subtypes confer no intrinsic mana ability.
+pub(super) fn descriptive_land_subtype(definition: &Definition) -> bool {
+    definition.characteristics.kind == CardKind::Land
+        && !definition.characteristics.basic
+        && matches!(definition.characteristics.subtypes.as_slice(),
+            [name] if matches!(name.as_str(), "Gate" | "Town"))
+        && present(definition)
+}
+
+fn selected_schema() -> Value {
+    json!({"required":["mana_abilities"],"properties":{"mana_abilities":{
+        "minItems":1,"maxItems":1,"items":{"properties":{"production":{
+            "properties":{"mana":{"const":"choice"}}
+        }}}
+    }}})
+}
+
+pub(super) fn descriptive_land_schema() -> Value {
+    json!({"allOf":[selected_schema(),{"required":["characteristics"],"properties":{
+        "characteristics":{"properties":{
+            "kind":{"const":"land"},"basic":{"const":false},
+            "subtypes":{"enum":[["Gate"],["Town"]]}
+        }}
+    }}]})
+}
+
 pub(super) fn validate(definition: &Definition) -> Result<(), String> {
     let [
         ManaAbility {
@@ -43,17 +69,12 @@ pub(super) fn validate(definition: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let production = json!({
-        "properties":{"mana":{"const":"choice"}}
-    });
     let capability = json!({"contains":{"const":Capability::ListedManaChoiceV1}});
     schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap()
         .push(json!({
-            "if":{"required":["mana_abilities"],"properties":{"mana_abilities":{
-                "minItems":1,"maxItems":1,"items":{"properties":{"production":production}}
-            }}},
+            "if":selected_schema(),
             "then":{"properties":{
                 "capabilities":capability,
                 "mana_abilities":{"items":{"properties":{
@@ -91,6 +112,16 @@ mod tests {
     fn listed_mana_choice_rejects_other_costs_and_repeated_colors() {
         let valid = witness();
         valid.validate().unwrap();
+
+        let mut gate = valid.clone();
+        gate.characteristics.subtypes = vec!["Gate".into()];
+        gate.capabilities = gate.requirements();
+        gate.validate().unwrap();
+        assert!(
+            !gate
+                .capabilities
+                .contains(&Capability::TypedNonbasicIntrinsicManaV1)
+        );
 
         let mut duplicate = valid.clone();
         duplicate.mana_abilities[0].production = ManaProduction::Choice {

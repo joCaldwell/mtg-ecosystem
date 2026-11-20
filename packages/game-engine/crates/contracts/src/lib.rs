@@ -33,11 +33,13 @@ pub use opponent_mana::opponent_land_mana_family;
 mod listed_mana_choice;
 mod pain_mana;
 pub use pain_mana::disjoint_pain_mana_family;
+pub mod basic_landwalk;
 mod cast_entry;
 mod entry_copy;
 mod saga;
 pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
 mod fixed_creature_activation;
+pub mod fixed_creature_damage;
 pub use fixed_creature_activation::{
     FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
     has_fixed_creature_activation,
@@ -78,6 +80,7 @@ pub use controlled_phasing::controller_window_instructions;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
+mod land_entry_gain_life;
 mod set_exile;
 pub use set_exile::{SetExileClause, set_exile_modes};
 mod hand_cast;
@@ -349,6 +352,7 @@ pub enum Capability {
     DemonstrateV1,
     ProtectionFromEverythingV1,
     SelfGraveyardRevealShuffleV1,
+    BasicLandwalkV1,
     StaticSpellCascadeGrantV1,
     CascadeLandEntryV1,
     HandCastCascadeGrantV1,
@@ -480,6 +484,7 @@ pub enum Capability {
     PowerFilteredCreatureEntryV1,
     CreatureEntryReturnV1,
     EntryGraveyardExileV1,
+    LandEntryGainLifeV1,
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
@@ -812,6 +817,10 @@ impl CreatureToken {
             || self
                 .keywords
                 .contains(&KeywordAbility::ProtectionFromEverything)
+            || self
+                .keywords
+                .iter()
+                .any(|k| k.basic_landwalk_type().is_some())
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
@@ -2278,6 +2287,11 @@ pub enum KeywordAbility {
     #[serde(rename = "double strike")]
     DoubleStrike,
     Menace,
+    Plainswalk,
+    Islandwalk,
+    Swampwalk,
+    Mountainwalk,
+    Forestwalk,
     ProtectionFromEachColor,
     // CR 702.16j: intrinsic battlefield protection from every source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -2301,6 +2315,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "first strike" => Ok(Self::FirstStrike),
             "double strike" => Ok(Self::DoubleStrike),
             "menace" => Ok(Self::Menace),
+            "plainswalk" => Ok(Self::Plainswalk),
+            "islandwalk" => Ok(Self::Islandwalk),
+            "swampwalk" => Ok(Self::Swampwalk),
+            "mountainwalk" => Ok(Self::Mountainwalk),
+            "forestwalk" => Ok(Self::Forestwalk),
             "protection_from_each_color" => Ok(Self::ProtectionFromEachColor),
             "protection_from_everything" => Ok(Self::ProtectionFromEverything),
             "hexproof" => Ok(Self::Hexproof),
@@ -2322,6 +2341,11 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "first strike",
                     "double strike",
                     "menace",
+                    "plainswalk",
+                    "islandwalk",
+                    "swampwalk",
+                    "mountainwalk",
+                    "forestwalk",
                     "protection_from_each_color",
                     "protection_from_everything",
                     "hexproof",
@@ -2404,6 +2428,7 @@ fn static_creature_modification_valid(
             && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
         || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
         || keywords.contains(&KeywordAbility::ProtectionFromEverything)
+        || keywords.iter().any(|k| k.basic_landwalk_type().is_some())
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -2594,7 +2619,9 @@ impl Definition {
                 set.insert(Capability::LandPlayV1);
                 if self.characteristics.basic {
                     set.insert(Capability::BasicLandManaV1);
-                } else if !self.characteristics.subtypes.is_empty() {
+                } else if !self.characteristics.subtypes.is_empty()
+                    && !listed_mana_choice::descriptive_land_subtype(self)
+                {
                     set.insert(Capability::TypedNonbasicIntrinsicManaV1);
                 }
             }
@@ -2731,6 +2758,9 @@ impl Definition {
                 set.insert(Capability::SacrificeV1);
             }
             add_program_requirements(&mut set, &ability.program);
+        }
+        if land_entry_gain_life::present(self) {
+            set.insert(Capability::LandEntryGainLifeV1);
         }
         for ability in &self.triggered {
             if ability.death_filter.is_some()
@@ -2967,6 +2997,7 @@ impl Definition {
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
+        land_entry_gain_life::validate(self)?;
         bestow::validate(self)?;
         hand_cast::validate(self)?;
         cast_mana_value_sweep::validate_definition(self)?;
@@ -3359,7 +3390,10 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        basic_landwalk::validate_definition(self)?;
         creature_planeswalker_return::validate(self)?;
+        fixed_creature_damage::validate(self, fixed_activations)?;
+        cycling::validate_spell_source(self)?;
         modal_targets::validate_definition(self)?;
         graveyard_shuffle::validate_definition(self)?;
         graveyard_battlefield_return::validate_definition(self)?;
@@ -3715,6 +3749,7 @@ impl Definition {
                             && (self
                                 .capabilities
                                 .contains(&Capability::EntryGraveyardExileV1)
+                                || self.capabilities.contains(&Capability::LandEntryGainLifeV1)
                                 || self.capabilities.contains(&Capability::HideawayV1)))
                 }),
             }
@@ -4186,7 +4221,7 @@ impl Definition {
                         || basic_land_color(&c.subtypes[0]).is_none()
                         || !self.mana_abilities.is_empty()
                 } else {
-                    if c.subtypes.is_empty() {
+                    if c.subtypes.is_empty() || listed_mana_choice::descriptive_land_subtype(self) {
                         self.mana_abilities.is_empty()
                             && !typed_land_search::activation_definition(self)
                     } else {
@@ -5292,7 +5327,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                     Some(
                         domain @ (TargetDomain::AnyDamageTarget
                         | TargetDomain::OpponentPlayer
-                        | TargetDomain::PlayerOrPlaneswalker),
+                        | TargetDomain::PlayerOrPlaneswalker
+                        | TargetDomain::BattlefieldCreature),
                     ) => Some((*target_slot, domain)),
                     _ => return Err("unbound fixed damage target".into()),
                 }
@@ -5549,6 +5585,11 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
         KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
         KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
         KeywordAbility::Menace => Capability::MenaceV1,
+        KeywordAbility::Plainswalk
+        | KeywordAbility::Islandwalk
+        | KeywordAbility::Swampwalk
+        | KeywordAbility::Mountainwalk
+        | KeywordAbility::Forestwalk => Capability::BasicLandwalkV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
     })
 }
@@ -6370,6 +6411,7 @@ pub fn catalog_schema() -> serde_json::Value {
             serde_json::json!({"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"land"}}}}},"then":{"properties":{"keywords":{"items":{"not":{"const":"flash"}}}}}})
         ]);
 
+    basic_landwalk::extend_schema(&mut schema);
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
@@ -7404,6 +7446,7 @@ pub fn catalog_schema() -> serde_json::Value {
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
     entry_graveyard_exile::extend_schema(&mut schema);
+    land_entry_gain_life::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
@@ -7595,6 +7638,8 @@ mod tests {
             DemonstrateV1,
             ProtectionFromEverythingV1,
             SelfGraveyardRevealShuffleV1,
+            BasicLandwalkV1,
+            EnterAsCopyOfPermanentEnteredThisTurnV1,
             StaticSpellCascadeGrantV1,
             CascadeLandEntryV1,
             HandCastCascadeGrantV1,
@@ -7672,6 +7717,7 @@ mod tests {
             PowerFilteredCreatureEntryV1,
             CreatureEntryReturnV1,
             EntryGraveyardExileV1,
+            LandEntryGainLifeV1,
             CreatureDiesV1,
             CastEnchantmentV1,
             AuraControlV1,
@@ -8172,6 +8218,8 @@ mod tests {
         definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
+        definitions.push(land_entry_gain_life::witness());
+        definitions.push(entry_copy::registry_witness());
         definitions.push(saga::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
@@ -8625,6 +8673,35 @@ mod tests {
         hybrid.keywords.clear();
         hybrid.capabilities = hybrid.requirements();
         definitions.push(hybrid);
+
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/basic-landwalk-zendikar-farguide.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        let mut landwalk = definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .clone();
+        landwalk.name = source["name"].as_str().unwrap().into();
+        landwalk.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        landwalk.provenance.printing_id = source["id"].as_str().unwrap().into();
+        landwalk.provenance.source_json = canonical(source).unwrap();
+        landwalk.provenance.source_sha256 = sha256(landwalk.provenance.source_json.as_bytes());
+        landwalk.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        landwalk.provenance.ast_sha256 =
+            sha256(format!("[{}]", landwalk.provenance.abilities_json).as_bytes());
+        landwalk.provenance.binding_sha256 = record["bindingSha256"].as_str().unwrap().into();
+        landwalk.characteristics.subtypes = vec!["Elemental".into()];
+        landwalk.characteristics.power = Some(3.into());
+        landwalk.characteristics.toughness = Some(3.into());
+        landwalk.characteristics.mana_cost.generic = 4.into();
+        landwalk.source_labels = None;
+        landwalk.keywords = vec![KeywordAbility::Forestwalk];
+        landwalk.capabilities = landwalk.requirements();
+        definitions.push(landwalk);
 
         definitions.push(self_graveyard_shuffle::tests::definition());
         for cap in vocabulary {

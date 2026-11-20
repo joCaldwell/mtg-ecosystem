@@ -185,3 +185,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(super) fn registry_witness() -> Definition {
+    tests::registry_witness()
+}

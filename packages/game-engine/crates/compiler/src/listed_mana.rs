@@ -96,21 +96,8 @@ pub(super) fn lower(
     }
 
     let root = format!("/faces/0/abilities/{block}");
-    let mana = format!("{root}/effects/0/steps/0");
     let mut graph = bindings::Bindings::new(identity, source);
-    graph.ability(&root, "activated", "activator");
-    let activator = graph.id(&root, "you");
-    let object = graph.id("/source", "object");
-    let you = json!({"player":"you"});
-    graph.event(&root, &mana, "add-mana", &activator, false);
-    graph.reference(
-        &format!("{root}/costs/0/source"),
-        &json!({"ref":"self"}),
-        &object,
-        "201.5",
-    );
-    graph.reference(&format!("{root}/costs/0/payer"), &you, &activator, "109.5");
-    graph.reference(&format!("{mana}/who"), &you, &activator, "109.5");
+    bind_tap_mana(&mut graph, &root);
     graph.validate_block(binding, &root, "incomplete listed mana binding graph")?;
 
     Ok(Some(ManaAbility {
@@ -125,6 +112,23 @@ pub(super) fn lower(
         production: ManaProduction::Choice { colors },
         source_block: source_block(block)?,
     }))
+}
+
+pub(super) fn bind_tap_mana(graph: &mut bindings::Bindings<'_>, root: &str) {
+    let mana = format!("{root}/effects/0/steps/0");
+    graph.ability(root, "activated", "activator");
+    let activator = graph.id(root, "you");
+    let object = graph.id("/source", "object");
+    let you = json!({"player":"you"});
+    graph.event(root, &mana, "add-mana", &activator, false);
+    graph.reference(
+        &format!("{root}/costs/0/source"),
+        &json!({"ref":"self"}),
+        &object,
+        "201.5",
+    );
+    graph.reference(&format!("{root}/costs/0/payer"), &you, &activator, "109.5");
+    graph.reference(&format!("{mana}/who"), &you, &activator, "109.5");
 }
 
 #[cfg(test)]
