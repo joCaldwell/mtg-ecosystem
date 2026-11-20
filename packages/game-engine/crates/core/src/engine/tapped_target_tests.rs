@@ -496,9 +496,9 @@ fn tapped_target_private_attachment_targetability_and_feature_admission_remain_s
         )
         .unwrap();
         let d = g.definition(CardId(2)).unwrap();
-        assert!(!g.has_target_domain(d.spell.as_ref().unwrap(), PlayerId(1)));
+        assert!(!g.has_target_domain(d.spell.as_ref().unwrap(), PlayerId(1), &d.characteristics));
         assert_eq!(
-            g.has_target_domain(d.spell.as_ref().unwrap(), PlayerId(0)),
+            g.has_target_domain(d.spell.as_ref().unwrap(), PlayerId(0), &d.characteristics),
             equipment == "Swiftfoot Boots"
         );
     }

@@ -303,12 +303,13 @@ impl Game {
                     object.zone == Zone::Battlefield && object.controller == top.controller
                 })
             });
+        let source = self.targeting_characteristics(top)?;
         let candidates = root
             .modes
             .iter()
             .enumerate()
             .filter(|(i, _)| *i != 2 || may_choose_both)
-            .filter(|(_, m)| self.has_target_domain(&m.program, top.controller))
+            .filter(|(_, m)| self.has_target_domain(&m.program, top.controller, source))
             .map(|(i, _)| i as u32)
             .collect();
         Ok(Some(Request::Modes {

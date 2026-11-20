@@ -950,7 +950,7 @@ impl Game {
                         .map_err(invalid)?;
                     if !self
                         .top()
-                        .is_ok_and(|e| self.entity_target_legal(target, e.controller))
+                        .is_ok_and(|e| self.entity_target_legal(target, e))
                     {
                         return Err(QueryRejection::InvalidResponse);
                     }
