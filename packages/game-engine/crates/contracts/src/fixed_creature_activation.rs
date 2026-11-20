@@ -328,9 +328,19 @@ pub(super) fn extend_schema(schema: &mut Value) {
         {"properties":{"instructions":{"contains":{"properties":{"op":{"enum":["destroy_permanent","gain_life"]}}}}}},
         {"properties":{"instructions":{"contains":{"properties":{"op":{"const":"deal_damage"}}}},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
     ]}}});
+    let effect_capabilities = [
+        ("deal_damage",vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
+        ("destroy_permanent",vec![Capability::PermanentRemovalV1]),
+        ("gain_life",vec![Capability::LifeGainV1]),
+    ].into_iter().map(|(op,caps)|json!({
+        "if":{"properties":{"activated":{"contains":{"properties":{"program":{"properties":{
+            "instructions":{"contains":{"properties":{"op":{"const":op}}}}
+        }}}}}}},
+        "then":{"properties":{"capabilities":{"allOf":caps.into_iter().map(|cap|json!({"contains":{"const":cap}})).collect::<Vec<_>>()}}}
+    })).collect::<Vec<_>>();
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"required":["activated"],"properties":{"activated":{"contains":candidate}}},
-        "then":{"properties":{"activated":{"items":{"$ref":"#/$defs/FixedCreatureActivation"}},
+        "then":{"allOf":effect_capabilities,"properties":{"activated":{"items":{"$ref":"#/$defs/FixedCreatureActivation"}},
             "keywords":{"uniqueItems":true,"items":{"enum":["flying","reach","trample","vigilance"]}},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"intrinsic_zone":{"type":"null"},
             "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0}}},
             "triggered":{"maxItems":1,"items":{"required":["intervening_if"],"properties":{"intervening_if":{"const":InterveningCondition::SourceCastByController}}}},
