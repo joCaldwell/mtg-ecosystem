@@ -917,7 +917,8 @@ fn fixed_set_exile_moves_one_zone_batch_and_preserves_commander_choice() {
 
 #[test]
 fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
-    let raw = include_str!("../../../../tests/fixtures/ramos/4eb813fd-2d5a-4b02-8193-662681ef4e7d.json");
+    let raw =
+        include_str!("../../../../tests/fixtures/ramos/4eb813fd-2d5a-4b02-8193-662681ef4e7d.json");
     let parsed = mtg_compiler::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
@@ -976,9 +977,13 @@ fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
         answer(&mut g, 1, Response::ActivateMana { object });
     }
     answer(&mut g, 1, Response::FinishMana { undo_mana: false });
-    answer(&mut g, 1, Response::SpendMana {
-        spending: BTreeMap::from([(Color::W, 2.into()), (Color::C, 4.into())]),
-    });
+    answer(
+        &mut g,
+        1,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::W, 2.into()), (Color::C, 4.into())]),
+        },
+    );
     loop {
         let request = request(&mut g, 1);
         if g.state.rules.stack.is_empty() {
