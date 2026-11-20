@@ -1012,6 +1012,8 @@ fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(moved, [CardId(2), CardId(1)]);
+    // The spell exiles its controller's tapped mana rocks with the other
+    // artifacts before exiling the creature.
+    assert_eq!(moved, [CardId(2), CardId(5), CardId(6), CardId(1)]);
     recover(&g);
 }
