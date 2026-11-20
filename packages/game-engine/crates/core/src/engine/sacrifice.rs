@@ -14,13 +14,9 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield() && o.controller == player)
             .filter(|o| {
-                self.definition(o.id.card).is_ok_and(|d| {
-                    (filter.types.is_empty()
-                        || filter.types.iter().any(|k| d.characteristics.has_type(*k)))
-                        && filter
-                            .subtypes
-                            .iter()
-                            .all(|s| d.characteristics.subtypes.contains(s))
+                self.characteristics(o.id).is_ok_and(|c| {
+                    (filter.types.is_empty() || filter.types.iter().any(|k| c.has_type(*k)))
+                        && filter.subtypes.iter().all(|s| c.subtypes.contains(s))
                 })
             })
             .map(|o| o.id)
@@ -473,7 +469,7 @@ impl Game {
                 {
                     return Err("snapshot sacrificed cost facts invariant".into());
                 }
-                self.validate_characteristic_identity(f.object, &f.characteristics)?;
+                self.validate_characteristic_identity(f.object, f.zone, &f.characteristics)?;
             }
             let count = self.invocation_sacrifice(e).map_or(0, |(_, count)| count);
             if e.paid.is_some() && count == 1 && e.sacrificed.is_none() {

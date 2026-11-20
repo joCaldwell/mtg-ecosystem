@@ -300,11 +300,16 @@ impl Game {
                         && self.has_keyword(object, KeywordAbility::Hexproof)))
         })
     }
-    pub(super) fn entity_target_legal(&self, target: TargetEntity, controller: PlayerId) -> bool {
+    pub(super) fn entity_target_legal(&self, target: TargetEntity, entry: &StackInstance) -> bool {
         self.entity_legal(target)
             && match target {
                 TargetEntity::Player { .. } => true,
-                TargetEntity::Object { object } => self.targetable_by(object, controller),
+                TargetEntity::Object { object } => {
+                    self.targetable_by(object, entry.controller)
+                        && self
+                            .targeting_characteristics(entry)
+                            .is_ok_and(|source| !self.protected_from(object, source))
+                }
             }
     }
     pub(super) fn attachment_sbas(
@@ -318,7 +323,8 @@ impl Game {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let subtypes = &self.definition(o.id.card)?.characteristics.subtypes;
+            let source = &self.definition(o.id.card)?.characteristics;
+            let subtypes = &source.subtypes;
             let legal = match o.attached_to {
                 Some(target) => {
                     target != o.id
@@ -326,6 +332,7 @@ impl Game {
                             .current(target)
                             .is_ok_and(|t| t.present_on_battlefield() && self.is_live(t.controller))
                         && self.attachment_target_type_valid(o.id.card, target.card)?
+                        && !self.protected_from(target, source)
                 }
                 None => false,
             };

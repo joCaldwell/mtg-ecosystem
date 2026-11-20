@@ -142,7 +142,7 @@ impl Game {
             return Err("wrong cascade grant descriptor".into());
         };
         self.grant_program(grant_source, static_ability_index)?;
-        self.validate_characteristic_identity(grant_source, &fact.characteristics)?;
+        self.validate_characteristic_identity(grant_source, fact.zone, &fact.characteristics)?;
         let cost = &cast.spell.characteristics.mana_cost;
         let mut mana_value = cost.generic.clone();
         mana_value.add(&Quantity::from(cost.colored.len() as i64));

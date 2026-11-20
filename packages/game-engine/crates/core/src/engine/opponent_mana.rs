@@ -20,9 +20,8 @@ impl Game {
                 continue;
             }
             let definition = self.definition(object.id.card)?;
-            // The admitted layers preserve card type and basic land subtypes.
-            // Future type/ability grants must enter the effective view here.
-            let characteristics = &definition.characteristics;
+            let mut characteristics = definition.characteristics.clone();
+            self.apply_land_subtype_grants(object.id, &mut characteristics)?;
             if !characteristics.has_type(CardKind::Land) {
                 continue;
             }

@@ -279,6 +279,12 @@ pub enum PlayerRequest {
         candidates: Vec<ObjectHandle>,
         previous_choices: Vec<(PlayerId, ObjectHandle)>,
     },
+    ChooseManaAbility {
+        token: DecisionToken,
+        player: PlayerId,
+        choices: Vec<ManaAbilityIdentity>,
+        mana_ability_source: ObjectHandle,
+    },
     ManaColor {
         token: DecisionToken,
         player: PlayerId,
@@ -463,6 +469,7 @@ impl PlayerRequest {
             | Self::Scry { token, .. }
             | Self::Surveil { token, .. } => token,
             Self::LegendRule { token, .. }
+            | Self::ChooseManaAbility { token, .. }
             | Self::ManaColor { token, .. }
             | Self::SearchLands { token, .. }
             | Self::SearchLandBattlefield { token, .. }
@@ -540,6 +547,9 @@ pub enum PlayerResponse {
     },
     ForcedSacrifice {
         object: ObjectHandle,
+    },
+    ChooseManaAbility {
+        ability: ManaAbilityIdentity,
     },
     ManaColor {
         color: Color,
@@ -1802,7 +1812,7 @@ impl Game {
                         )
                     }) =>
             {
-                if !self.has_target_domain(self.program()?, viewer) {
+                if !self.top_has_target_domain()? {
                     return Ok(None);
                 }
                 Ok(Some(PlayerRequest::Targets {
@@ -1823,6 +1833,17 @@ impl Game {
                     candidates: self.eligible_players(self.program()?.targets[0].domain, viewer),
                 }))
             }
+            Frame::ManaSourceChoice {
+                player,
+                source,
+                scope: ManaSourceScope::Mixed,
+                ..
+            } if *player == viewer => Ok(Some(PlayerRequest::ChooseManaAbility {
+                token,
+                player: viewer,
+                choices: self.mixed_mana_choices(viewer, *source)?,
+                mana_ability_source: self.handle_for(viewer, *source)?,
+            })),
             Frame::ManaSourceChoice {
                 player,
                 source,
@@ -2117,8 +2138,7 @@ impl Game {
                         Some((self.state.rules.revision, 9))
                     }
                     Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer
-                            && !self.has_target_domain(self.program()?, viewer) =>
+                        if self.top()?.controller == viewer && !self.top_has_target_domain()? =>
                     {
                         None
                     }
@@ -2408,6 +2428,9 @@ impl Game {
                     .map(|object| self.resolve_handle(viewer, object))
                     .collect::<Result<Vec<_>, _>>()?,
             }),
+            PlayerResponse::ChooseManaAbility { ability } => {
+                Ok(Response::ChooseManaAbility { ability: *ability })
+            }
             PlayerResponse::ManaColor { color } => Ok(Response::ManaColor { color: *color }),
             PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
                 spending: spending.clone(),

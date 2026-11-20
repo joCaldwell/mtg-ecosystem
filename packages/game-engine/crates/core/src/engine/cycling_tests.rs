@@ -144,7 +144,7 @@ fn announce_cycle(g: &mut Game, source: ObjectId) {
     );
     assert_eq!(serialized["source_facts"]["zone"], serialized["cast_from"]);
     assert_eq!(serialized["kind"]["entry"], "activated");
-    assert_eq!(observation(g, 0).observation_version, 36);
+    assert_eq!(observation(g, 0).observation_version, 38);
     for viewer in 0..4 {
         let view = observation(g, viewer).view;
         assert!(

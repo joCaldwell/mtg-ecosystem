@@ -235,10 +235,9 @@ impl Game {
                     .objects
                     .values()
                     .filter(|o| {
-                        self.is_battlefield_creature(o.id)
-                            && self
-                                .top()
-                                .is_ok_and(|e| self.targetable_by(o.id, e.controller))
+                        self.top().is_ok_and(|entry| {
+                            self.entity_target_legal(TargetEntity::Object { object: o.id }, entry)
+                        })
                     })
                     .map(|o| TargetEntity::Object { object: o.id }),
             )
@@ -255,7 +254,7 @@ impl Game {
             || entities.len() != program.targets.len()
             || entities.iter().enumerate().any(|(slot, target)| {
                 program.targets[slot].domain != TargetDomain::AnyDamageTarget
-                    || !self.entity_target_legal(*target, top.controller)
+                    || !self.entity_target_legal(*target, top)
             })
         {
             return Err("invalid damage targets".into());
@@ -379,7 +378,7 @@ impl Game {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            self.validate_characteristic_identity(entry.source, &fact.characteristics)?;
+            self.validate_characteristic_identity(entry.source, fact.zone, &fact.characteristics)?;
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {
@@ -803,6 +802,9 @@ impl Game {
             DamageRecipient::Creature { object } => {
                 if !self.is_battlefield_creature(object) {
                     return Err("invalid creature damage recipient".into());
+                }
+                if self.protected_from(object, &damage.source.characteristics) {
+                    return Err("protection requires the damage transaction".into());
                 }
                 let o = self
                     .state

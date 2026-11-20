@@ -37,8 +37,45 @@ impl Game {
             KeywordSource::Historical(object) => object.keywords.contains(&keyword),
         }
     }
+    // CR 105.1/702.16b–h. The admitted color layer is immutable, including
+    // instantiated token colors. C denotes colorless and is not a sixth color.
+    pub(super) fn has_color(source: &Characteristics) -> bool {
+        source.colors.iter().any(|color| *color != Color::C)
+    }
+
+    pub(super) fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
+        // The only admitted producer is a resolved GrantKeywordsSet. Most
+        // target and blocker queries run with no continuous effect rows.
+        !self.state.rules.effects.is_empty()
+            && Self::has_color(source)
+            && self
+                .current(target)
+                .is_ok_and(|o| o.zone == Zone::Battlefield)
+            && self.has_keyword(target, KeywordAbility::ProtectionFromEachColor)
+    }
+
+    // CR 608.2b: when the exact ability source has left, use its LKI,
+    // even if the same physical card has since returned.
+    pub(super) fn targeting_characteristics<'a>(
+        &'a self,
+        entry: &'a StackInstance,
+    ) -> Result<&'a Characteristics, String> {
+        if self.current(entry.source).is_ok() {
+            Ok(&self.definition(entry.source.card)?.characteristics)
+        } else {
+            entry
+                .source_facts
+                .as_ref()
+                .filter(|facts| facts.object == entry.source)
+                .map(|facts| &facts.characteristics)
+                .ok_or_else(|| "missing last-known targeting source".into())
+        }
+    }
+
     pub(super) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
-        !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
+        self.definition(blocker.card)
+            .is_ok_and(|source| !self.protected_from(attacker, &source.characteristics))
+            && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
             && !self.has_restriction(blocker, CreatureRestriction::CantAttackOrBlock)
             && (!self.has_keyword(attacker, KeywordAbility::Flying)
                 || self.has_keyword(blocker, KeywordAbility::Flying)
@@ -63,7 +100,11 @@ impl Game {
                 let fact = appearances
                     .get(&damage.id)
                     .ok_or("missing damage-time source appearance")?;
-                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                self.validate_characteristic_identity(
+                    fact.object,
+                    fact.zone,
+                    &fact.characteristics,
+                )?;
                 if fact.object != damage.source.object
                     || fact.owner != damage.source.owner
                     || fact.default_controller != damage.source.default_controller

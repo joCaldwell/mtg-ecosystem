@@ -172,7 +172,7 @@ struct ObservationWork {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
 enum Task {
-    // Sidecar v31 includes divided-counter terms in saved target requests.
+    // Sidecar v33 includes protection in observations and damage-effect choices.
     // Projection/request headers remain explicit work, never hidden work
     // performed even when the caller grants no budget.
     Initialize,
@@ -562,7 +562,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: if self.phased_formats { 38 } else { 36 },
+                    observation_version: if self.phased_formats { 39 } else { 38 },
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -804,7 +804,17 @@ impl Game {
                             | PlayerResponse::FinishMana { .. }
                             | PlayerResponse::SpendMana { .. },
                         ) => true,
-                        (Frame::ManaSourceChoice { .. }, PlayerResponse::ManaColor { .. }) => true,
+                        (
+                            Frame::ManaSourceChoice {
+                                scope: ManaSourceScope::Mixed,
+                                ..
+                            },
+                            PlayerResponse::ChooseManaAbility { .. },
+                        ) => true,
+                        (
+                            Frame::ManaSourceChoice { scope, .. },
+                            PlayerResponse::ManaColor { .. },
+                        ) => *scope != ManaSourceScope::Mixed,
                         (Frame::LandEntry { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::Cascade { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
@@ -953,7 +963,7 @@ impl Game {
                         .map_err(invalid)?;
                     if !self
                         .top()
-                        .is_ok_and(|e| self.entity_target_legal(target, e.controller))
+                        .is_ok_and(|e| self.entity_target_legal(target, e))
                     {
                         return Err(QueryRejection::InvalidResponse);
                     }
@@ -1054,7 +1064,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: if self.phased_formats { 38 } else { 36 },
+                            observation_version: if self.phased_formats { 39 } else { 38 },
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1090,7 +1100,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 32,
+                    context_version: 34,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1109,7 +1119,7 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: if self.phased_formats { 34 } else { 32 },
+            work_version: if self.phased_formats { 35 } else { 34 },
             build_id: BUILD_ID.into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
@@ -1118,7 +1128,7 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != if self.phased_formats { 34 } else { 32 }
+        if saved.work_version != if self.phased_formats { 35 } else { 34 }
             || saved.build_id != BUILD_ID
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?

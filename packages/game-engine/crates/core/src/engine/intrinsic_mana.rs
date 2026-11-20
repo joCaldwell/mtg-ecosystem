@@ -3,18 +3,36 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 impl Game {
+    pub(super) fn intrinsic_mana_colors(&self, source: ObjectId) -> Result<Vec<Color>, String> {
+        let object = self.current(source)?;
+        if !object.present_on_battlefield()
+            || !self
+                .definition(source.card)?
+                .characteristics
+                .has_type(CardKind::Land)
+        {
+            return Ok(vec![]);
+        }
+        let c = self.characteristics(source)?;
+        Ok(c.subtypes
+            .iter()
+            .filter_map(|s| basic_land_color(s))
+            .collect())
+    }
     pub(super) fn intrinsic_choice_colors(
         &self,
         player: PlayerId,
         source: ObjectId,
     ) -> Result<Vec<Color>, String> {
         let o = self.current(source)?;
-        let colors = self.mana_abilities(source)?;
+        let colors = self.intrinsic_mana_colors(source)?;
         if !self.is_live(player)
-            || o.zone != Zone::Battlefield
+            || !o.present_on_battlefield()
             || o.controller != player
             || o.tapped
-            || self.is_permanent_mana(source)
+            || (self.characteristics(source)?.has_type(CardKind::Creature)
+                && !o.attack_ready
+                && !self.has_keyword(source, KeywordAbility::Haste))
             || colors.is_empty()
         {
             return Err("invalid unpaid intrinsic mana source".into());
