@@ -19,7 +19,8 @@ pub(super) struct CastPermission {
     cursor: u32,
     source_block: u32,
     pub(super) alternative_cost: AlternativeCost,
-    resulting_mana_value_below: Quantity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resulting_mana_value_below: Option<Quantity>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "return_to", rename_all = "snake_case", deny_unknown_fields)]
@@ -30,8 +31,47 @@ pub(super) enum CastCompletion {
     },
     Resolution {
         permission: CastPermission,
-        progress: Box<CascadeProgress>,
+        progress: CastOwner,
     },
+}
+/// The original cascade progress remains its serialized resolution owner.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(super) enum CastOwner {
+    Cascade(Box<CascadeProgress>),
+    RevealAndCast(Box<RevealAndCastProgress>),
+}
+impl CastOwner {
+    pub(super) fn permission(&self) -> Result<CastPermission, String> {
+        match self {
+            Self::Cascade(progress) => progress.permission(),
+            Self::RevealAndCast(progress) => progress.permission(),
+        }
+    }
+    pub(super) fn resume(self) -> Frame {
+        match self {
+            Self::Cascade(progress) => Frame::Cascade { progress },
+            Self::RevealAndCast(progress) => Frame::RevealAndCast { progress },
+        }
+    }
+}
+impl CastPermission {
+    pub(super) fn from_instruction(
+        frame: &Resolving,
+        source_block: u32,
+        object: ObjectId,
+        ceiling: Option<Quantity>,
+    ) -> Self {
+        Self {
+            caster: frame.spell.controller,
+            object,
+            owner: frame.stack_id,
+            cursor: frame.cursor,
+            source_block,
+            alternative_cost: AlternativeCost::WithoutManaCost,
+            resulting_mana_value_below: ceiling,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -72,15 +112,15 @@ impl CascadeProgress {
         self.frame.spell.controller
     }
     fn permission(&self) -> Result<CastPermission, String> {
-        Ok(CastPermission {
-            object: self.hit.ok_or("cascade offer without hit")?,
-            caster: self.caster(),
-            owner: self.frame.stack_id,
-            cursor: self.frame.cursor,
-            source_block: self.source_block,
-            alternative_cost: AlternativeCost::WithoutManaCost,
-            resulting_mana_value_below: self.threshold.clone(),
-        })
+        if self.stage != CascadeStage::Offer || self.child.is_some() {
+            return Err("cascade permission outside its offer".into());
+        }
+        Ok(CastPermission::from_instruction(
+            &self.frame,
+            self.source_block,
+            self.hit.ok_or("cascade offer without hit")?,
+            Some(self.threshold.clone()),
+        ))
     }
 }
 impl Game {
@@ -152,26 +192,24 @@ impl Game {
             .has_type(CardKind::Land)
             && self.nonstack_mana_value(object)? < *threshold)
     }
-    fn resolution_permission_identity(
+    pub(super) fn resolution_offer_legal(
         &self,
         permission: &CastPermission,
-        progress: &CascadeProgress,
-    ) -> Result<(), String> {
-        if progress.stage != CascadeStage::Offer
-            || &progress.permission()? != permission
-            || self.current(permission.object)?.zone != Zone::Exile
+    ) -> Result<bool, String> {
+        if self.current(permission.object)?.zone != Zone::Exile
             || self.state.rules.cards[&permission.object.card].owner != permission.caster
-            || !self.cascade_hit(permission.object, &permission.resulting_mana_value_below)?
-            || progress.child.is_some()
+            || self
+                .definition(permission.object.card)?
+                .characteristics
+                .has_type(CardKind::Land)
+            || match &permission.resulting_mana_value_below {
+                Some(limit) => self.nonstack_mana_value(permission.object)? >= *limit,
+                None => false,
+            }
             || self.top()?.id != permission.owner
         {
             return Err("resolution cast permission invariant".into());
         }
-        Ok(())
-    }
-    fn cascade_offer_legal(&self, progress: &CascadeProgress) -> Result<bool, String> {
-        let permission = progress.permission()?;
-        self.resolution_permission_identity(&permission, progress)?;
         if !self.is_live(permission.caster) || self.cast_is_prohibited(permission.caster)? {
             return Ok(false);
         }
@@ -179,21 +217,10 @@ impl Game {
         let program = definition
             .spell
             .as_ref()
-            .ok_or("cascade nonland is not a supported spell")?;
+            .ok_or("revealed nonland is not a supported spell")?;
         Ok(self
             .spell_proposal_obstacle(program, permission.caster, &definition.characteristics)
             .is_none())
-    }
-    pub(super) fn validate_resolution_permission(
-        &self,
-        permission: &CastPermission,
-        progress: &CascadeProgress,
-    ) -> Result<(), String> {
-        self.resolution_permission_identity(permission, progress)?;
-        if !self.cascade_offer_legal(progress)? {
-            return Err("no legal cascade casting path".into());
-        }
-        Ok(())
     }
     pub(super) fn resulting_permission_matches(
         &self,
@@ -206,7 +233,10 @@ impl Game {
             && stack.source.card == permission.object.card
             && permission.object.incarnation.checked_add(1) == Some(stack.source.incarnation)
             && stack.alternative_cost == Some(permission.alternative_cost)
-            && self.stack_mana_value(stack)? < permission.resulting_mana_value_below)
+            && match &permission.resulting_mana_value_below {
+                Some(limit) => self.stack_mana_value(stack)? < *limit,
+                None => true,
+            })
     }
     pub(super) fn announcement_mana_frame(&mut self, mut cast: Casting) -> Result<Frame, String> {
         self.lock_spell_cost()?;
@@ -379,7 +409,7 @@ impl Game {
         }
         Ok((self.is_live(progress.caster())
             && progress.stage == CascadeStage::Offer
-            && self.cascade_offer_legal(progress)?)
+            && self.resolution_offer_legal(&progress.permission()?)?)
         .then_some(Request::OptionalEffect {
             decision_id: self.state.rules.revision,
             player: progress.caster(),
@@ -409,7 +439,11 @@ impl Game {
         if player != progress.caster() || !matches!(response, Response::OptionalEffect { .. }) {
             return Err("cascade offer belongs only to its caster".into());
         }
-        self.validate_resolution_permission(&progress.permission()?, progress)
+        if self.resolution_offer_legal(&progress.permission()?)? {
+            Ok(())
+        } else {
+            Err("no legal cascade casting path".into())
+        }
     }
     pub(super) fn prepare_cascade_remainder(
         &self,
@@ -487,7 +521,7 @@ impl Game {
             }
             CascadeStage::Offer => {
                 let permission = progress.permission()?;
-                let legal = self.cascade_offer_legal(&progress)?;
+                let legal = self.resolution_offer_legal(&permission)?;
                 // CR608.2g/800.4: an already accepted choice belongs to THIS
                 // offer even if a concession removed its last legal target.
                 // Consume only the exact frame-bound response; an invariant
@@ -499,9 +533,9 @@ impl Game {
                     let Response::OptionalEffect { perform } = input.response else {
                         return Err("cascade accepted choice shape invariant".into());
                     };
-                    self.resolution_permission_identity(&permission, &progress)?;
                     if legal && perform {
-                        return self.announce_resolution_spell(permission, Box::new(progress));
+                        return self
+                            .announce_resolution_spell(CastOwner::Cascade(Box::new(progress)));
                     }
                 } else if legal {
                     return Err("missing accepted cascade choice".into());
@@ -631,6 +665,9 @@ impl Game {
     }
     pub(super) fn resolution_child(&self, owner: StackId) -> Option<StackId> {
         match &self.state.rules.frame {
+            Frame::RevealAndCast { progress } if progress.frame.stack_id == owner => {
+                progress.child()
+            }
             Frame::HandCast { frame, child } if frame.stack_id == owner => *child,
             Frame::Cascade { progress } if progress.frame.stack_id == owner => progress.child,
             _ => None,
@@ -653,7 +690,7 @@ impl Game {
                 input.player == progress.caster()
                     && matches!(input.response, Response::OptionalEffect { .. })
             })
-            && !self.cascade_offer_legal(progress)?
+            && !self.resolution_offer_legal(&progress.permission()?)?
         {
             // The accepted journal entry remains historical. Departure consumes
             // this exact invalidated offer input before exposing/recovering the
@@ -665,7 +702,9 @@ impl Game {
     pub(super) fn cascade_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         match frame {
-            Frame::HandCast { .. } | Frame::Cascade { .. } => stored_history::payload_charge(frame),
+            Frame::Cascade { .. } | Frame::HandCast { .. } | Frame::RevealAndCast { .. } => {
+                stored_history::payload_charge(frame)
+            }
             Frame::CommanderReturn { continuation, .. }
                 if matches!(
                     continuation.as_ref(),
@@ -694,56 +733,61 @@ impl Game {
         }
     }
     pub(super) fn validate_cascade_state(&self) -> Result<(), String> {
-        let (progress, permission, announcing) = match self
-            .underlying_mana_frame(&self.state.rules.frame)
-        {
-            Frame::Cascade { progress }
-            | Frame::LandEntry {
-                origin: EntryOrigin::Cascade { progress },
-                ..
-            } => (progress.as_ref(), None, false),
-            Frame::AdditionalCosts { cast }
-            | Frame::HybridCost { cast }
-            | Frame::AnnounceX { cast }
-            | Frame::Modes { cast }
-            | Frame::Targets { cast }
-            | Frame::EntityTargets { cast }
-            | Frame::StackTargets { cast }
-            | Frame::PlayerTargets { cast }
-            | Frame::Mana { cast }
-            | Frame::SpendMana { cast }
-            | Frame::Payment { cast }
-            | Frame::SacrificeCost { cast } => {
-                let CastCompletion::Resolution {
-                    permission,
-                    progress,
-                } = &cast.completion
-                else {
-                    return Ok(());
-                };
-                if cast.original_object != permission.object
-                    || self.top()?.cast_from != Zone::Exile
-                    || self.top()?.alternative_cost != Some(AlternativeCost::WithoutManaCost)
-                    || self.stack_mana_value(self.top()?)? >= permission.resulting_mana_value_below
-                    || self
-                        .top()?
-                        .x
-                        .as_ref()
-                        .is_some_and(|x| *x != Quantity::zero())
-                {
-                    return Err("snapshot permission announcement invariant".into());
+        let (progress, permission, announcing) =
+            match self.underlying_mana_frame(&self.state.rules.frame) {
+                Frame::RevealAndCast { progress } => {
+                    return self.validate_reveal_and_cast(progress, None);
                 }
-                (progress.as_ref(), Some(permission), true)
-            }
-            Frame::CommanderReturn { continuation, .. } => {
-                let CommanderContinuation::CascadeBottom { progress } = continuation.as_ref()
-                else {
-                    return Ok(());
-                };
-                (progress.as_ref(), None, false)
-            }
-            _ => return Ok(()),
-        };
+                Frame::Cascade { progress }
+                | Frame::LandEntry {
+                    origin: EntryOrigin::Cascade { progress },
+                    ..
+                } => (progress.as_ref(), None, false),
+                Frame::AdditionalCosts { cast }
+                | Frame::HybridCost { cast }
+                | Frame::AnnounceX { cast }
+                | Frame::Modes { cast }
+                | Frame::Targets { cast }
+                | Frame::EntityTargets { cast }
+                | Frame::StackTargets { cast }
+                | Frame::PlayerTargets { cast }
+                | Frame::Mana { cast }
+                | Frame::SpendMana { cast }
+                | Frame::Payment { cast }
+                | Frame::SacrificeCost { cast } => {
+                    let CastCompletion::Resolution {
+                        permission,
+                        progress,
+                    } = &cast.completion
+                    else {
+                        return Ok(());
+                    };
+                    if cast.original_object != permission.object
+                        || !self.resulting_permission_matches(permission, self.top()?)?
+                        || self
+                            .top()?
+                            .x
+                            .as_ref()
+                            .is_some_and(|x| *x != Quantity::zero())
+                    {
+                        return Err("snapshot permission announcement invariant".into());
+                    }
+                    match progress {
+                        CastOwner::Cascade(progress) => (progress.as_ref(), Some(permission), true),
+                        CastOwner::RevealAndCast(progress) => {
+                            return self.validate_reveal_and_cast(progress, Some(permission));
+                        }
+                    }
+                }
+                Frame::CommanderReturn { continuation, .. } => {
+                    let CommanderContinuation::CascadeBottom { progress } = continuation.as_ref()
+                    else {
+                        return Ok(());
+                    };
+                    (progress.as_ref(), None, false)
+                }
+                _ => return Ok(()),
+            };
         self.validate_resolving_owned(
             &progress.frame,
             if announcing {

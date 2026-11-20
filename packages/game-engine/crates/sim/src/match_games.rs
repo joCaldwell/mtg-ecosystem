@@ -169,6 +169,9 @@ impl Strategy<'_> {
             PlayerRequest::CascadeLandEntry { .. } => {
                 return Err("cascade land entry outside this policy admission".into());
             }
+            PlayerRequest::ChooseOpponent { .. } => {
+                return Err("demonstrate choice outside this policy admission".into());
+            }
             PlayerRequest::SearchLandBattlefield { candidates, .. } => {
                 PlayerResponse::SearchLandBattlefield {
                     object: candidates

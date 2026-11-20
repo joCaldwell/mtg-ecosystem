@@ -37,6 +37,7 @@ mod counter_spell_controller_mill;
 mod counter_spell_controller_mill_tests;
 mod counter_unless_generic;
 pub mod coverage;
+mod creative_technique;
 mod creature_entry_return;
 mod diagnostics;
 mod distinct_permanent_colors;
@@ -194,6 +195,11 @@ struct Source {
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Ability {
+    // The complete spell, cast trigger, and source graph are verified together.
+    #[serde(skip)]
+    Demonstrate,
+    #[serde(skip)]
+    RevealAndCast,
     // The complete source and its exact graph are verified before emission.
     #[serde(skip)]
     ControlledCreatureSpellCopy,
@@ -1480,6 +1486,8 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         controller_window::lower(&shape, &result, &binding, &r.oracle_identity)?;
     let abilities = if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
+    } else if creative_technique::candidate(&source, &shape) {
+        vec![Ability::Demonstrate, Ability::RevealAndCast]
     } else if let Some(abilities) = hand_cast_cascade::lower(&source, &shape, &result, &binding)? {
         abilities
     } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
@@ -2218,6 +2226,28 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             )?;
             let mut slots = BTreeMap::new();
             for (block, ability) in abilities.iter().enumerate() {
+                if let Ability::Demonstrate = ability {
+                    let source_block = source_block(block)?;
+                    definition.triggered.push(TriggeredAbility {
+                        functioning_zone: FunctioningZone::Stack,
+                        condition: TriggerCondition::SelfSpellCast,
+                        intervening_if: None,
+                        death_filter: None,
+                        program: SpellProgram {
+                            timing: SpellTiming::Instant,
+                            instructions: vec![Instruction::Demonstrate { source_block }],
+                            ..program.clone()
+                        },
+                    });
+                    labels.triggered.push(source_block);
+                    continue;
+                }
+                if let Ability::RevealAndCast = ability {
+                    program.instructions.push(Instruction::RevealAndCast {
+                        source_block: source_block(block)?,
+                    });
+                    continue;
+                }
                 if let Ability::Keywords { keywords, .. } = ability {
                     if matches!(keywords.as_slice(), [k] if k.keyword == "kicker") {
                         continue; // Complete declaration and linked condition checked together.
@@ -2675,6 +2705,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         .contains(&Capability::ControlledCreatureSpellCopyV1)
     {
         controlled_creature_spell_copy::validate_binding(&definition, &shape, &binding)?;
+    }
+    if definition.capabilities.contains(&Capability::DemonstrateV1) {
+        creative_technique::validate_binding(&definition.oracle_id, &shape, &binding)?;
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
