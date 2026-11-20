@@ -507,7 +507,7 @@ impl Game {
             .iter()
             .filter(|entry| {
                 Some(entry.id) != exclude
-                    && entry.paid.is_some()
+                    && self.stack_entry_complete(entry)
                     && match domain {
                         TargetDomain::StackSpell => entry.kind.is_spell(),
                         TargetDomain::StackActivatedOrTriggeredAbility => !entry.kind.is_spell(),

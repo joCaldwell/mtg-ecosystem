@@ -103,6 +103,7 @@ fn rich_fixture() -> PermittedView {
         player_targets: vec![PlayerId(2)],
         controller: PlayerId(1),
         cast_complete: true,
+        spell_copy: false,
         targets: vec![target],
     }];
     v

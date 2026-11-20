@@ -170,6 +170,8 @@ pub struct VisibleStackEntry {
     pub player_targets: Vec<PlayerId>,
     pub controller: PlayerId,
     pub cast_complete: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spell_copy: bool,
     pub targets: Vec<VisibleTarget>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1266,6 +1268,7 @@ impl Game {
             player_targets: instance.player_targets.clone(),
             controller: instance.controller,
             cast_complete: instance.paid.is_some(),
+            spell_copy: self.is_spell_copy(instance),
             targets,
         })
     }
