@@ -106,3 +106,160 @@ mod tests {
         assert!(target_occurrences(&root, choose, &[0, 2]).is_err());
     }
 }
+
+impl ModeCount {
+    pub fn for_root(root: &SpellProgram) -> Option<Self> {
+        match root.resolution {
+            SpellResolution::ChooseModes { exactly } => Some(Self::Exactly(exactly)),
+            SpellResolution::OneOrMoreModes => Some(Self::OneOrMore),
+            _ => None,
+        }
+    }
+}
+
+pub fn fixed_player_modes(
+    text: &str,
+    ast: &serde_json::Value,
+    timing: SpellTiming,
+) -> Option<SpellProgram> {
+    use serde_json::json;
+    let mut lines = text.lines();
+    let header = lines.next()?;
+    let exactly = match header {
+        "Choose two —" => 2,
+        "Choose three —" => 3,
+        _ => return None,
+    };
+    let mut root = SpellProgram {
+        timing,
+        functioning_zone: FunctioningZone::Stack,
+        resolution: SpellResolution::ChooseModes { exactly },
+        targets: vec![],
+        instructions: vec![],
+        modes: vec![],
+        additional_sacrifice: None,
+        optional_additional_costs: vec![],
+    };
+    let mut options = vec![];
+    let mut ids = BTreeSet::new();
+    for (i, line) in lines.enumerate() {
+        let clause = line.strip_prefix("• Target player ")?;
+        let (verb, number) = clause.strip_suffix(" life.")?.split_once(' ')?;
+        let amount = number
+            .parse::<u32>()
+            .ok()
+            .filter(|n| *n > 0 && n.to_string() == number)?;
+        let step = &ast[0]["effects"][0]["steps"][0]["options"][i]["effects"][0]["steps"][0];
+        let selection = step["who"]["selectionId"].as_str()?;
+        if selection.is_empty() || !ids.insert(selection.to_owned()) {
+            return None;
+        }
+        let recipient = LifeRecipient::Target { target_slot: 0 };
+        let (operation, instruction) = match verb {
+            "gains" => (
+                "gain-life",
+                Instruction::GainLife {
+                    recipient,
+                    amount: Quantity::from(i64::from(amount)),
+                    source_block: 0,
+                },
+            ),
+            "loses" => (
+                "lose-life",
+                Instruction::LoseLife {
+                    recipient,
+                    amount: Quantity::from(i64::from(amount)),
+                    source_block: 0,
+                },
+            ),
+            _ => return None,
+        };
+        let who = json!({"player":"target-player","selectionId":selection});
+        options.push(json!({"effects":[{"steps":[{"effect":operation,"who":who,"amount":{"amount":"fixed","value":amount}}]}]}));
+        root.modes.push(SpellMode {
+            program: SpellProgram {
+                timing,
+                functioning_zone: FunctioningZone::Stack,
+                resolution: SpellResolution::Instructions,
+                targets: vec![TargetSpec {
+                    slot: 0,
+                    selection_id: selection.into(),
+                    chooser: Chooser::Controller,
+                    stage: EvaluationStage::Announcement,
+                    domain: TargetDomain::AnyPlayer,
+                    filter: None,
+                }],
+                instructions: vec![instruction],
+                modes: vec![],
+                additional_sacrifice: None,
+                optional_additional_costs: vec![],
+            },
+        });
+    }
+    let expected = json!([{"kind":"spell","effects":[{"steps":[{"effect":"modal","count":{"exactly":exactly},"options":options}]}]}]);
+    (root.modes.len() >= exactly as usize && *ast == expected).then_some(root)
+}
+
+pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
+    fn fixed(p: &SpellProgram) -> bool {
+        matches!(p.resolution, SpellResolution::ChooseModes { .. })
+            || p.modes.iter().any(|m| fixed(&m.program))
+    }
+    let fail =
+        || "fixed target modes require the complete ordinary source and target operands".to_owned();
+    if d.activated.iter().any(|a| fixed(&a.program))
+        || d.triggered.iter().any(|a| fixed(&a.program))
+        || d.static_abilities.iter().any(
+            |a| matches!(&a.effect,StaticEffect::GrantSpellCascade{program,..} if fixed(program)),
+        )
+    {
+        return Err(fail());
+    }
+    let uses = d.spell.as_ref().is_some_and(fixed);
+    if !uses
+        && !d.provenance.source_json.contains("Choose two")
+        && !d.provenance.source_json.contains("Choose three")
+    {
+        return Ok(());
+    }
+    let src: serde_json::Value = strict_read(&d.provenance.source_json)?;
+    let text = src["oracle_text"].as_str().unwrap_or("");
+    let ast: serde_json::Value = strict_read(&d.provenance.abilities_json)?;
+    let timing = match d.characteristics.kind {
+        CardKind::Instant => SpellTiming::Instant,
+        CardKind::Sorcery => SpellTiming::MainPhase,
+        _ if !uses => return Ok(()),
+        _ => return Err(fail()),
+    };
+    let candidate = fixed_player_modes(text, &ast, timing);
+    let source_candidate = text
+        .lines()
+        .next()
+        .is_some_and(|h| matches!(h, "Choose two —" | "Choose three —"))
+        && text.lines().skip(1).all(|l| {
+            l.starts_with("• Target player gains ") || l.starts_with("• Target player loses ")
+        });
+    if !uses && !source_candidate {
+        return Ok(());
+    }
+    if candidate.is_none()
+        || d.spell != candidate
+        || d.x_mana_cost
+        || !d.activated.is_empty()
+        || !d.triggered.is_empty()
+        || !d.static_abilities.is_empty()
+        || !d.mana_abilities.is_empty()
+        || !d.keywords.is_empty()
+        || d.source_labels.as_ref().is_some_and(|l| {
+            l != &SourceLabels {
+                text: text.into(),
+                blocks: vec![text.into()],
+                spell_modes: text.lines().skip(1).map(str::to_owned).collect(),
+                ..Default::default()
+            }
+        })
+    {
+        return Err(fail());
+    }
+    Ok(())
+}

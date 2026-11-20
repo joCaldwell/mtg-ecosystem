@@ -148,6 +148,15 @@ impl Game {
         player: PlayerId,
         source: &Characteristics,
     ) -> bool {
+        if let SpellResolution::ChooseModes { exactly } = program.resolution {
+            return program
+                .modes
+                .iter()
+                .filter(|mode| self.has_target_domain(&mode.program, player, source))
+                .take(exactly as usize)
+                .count()
+                == exactly as usize;
+        }
         if !program.modes.is_empty() {
             return program
                 .modes

@@ -1434,6 +1434,8 @@ pub enum Request {
         player: PlayerId,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         one_or_more: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exactly: Option<u32>,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {

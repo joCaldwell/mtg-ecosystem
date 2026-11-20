@@ -47,6 +47,7 @@ mod entry_graveyard_exile;
 mod fixed_mill;
 #[cfg(test)]
 mod fixed_mill_tests;
+mod fixed_target_modes;
 mod graveyard_battlefield_return;
 mod graveyard_shuffle;
 mod group_discard;
@@ -203,6 +204,8 @@ enum Ability {
     CommanderModalKeyword,
     #[serde(skip)]
     PlayerGraveyardShuffle,
+    #[serde(skip)]
+    FixedTargetModes,
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1461,7 +1464,10 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
     )?;
     let graveyard_shuffle =
         graveyard_shuffle::lower(&shape, &result, &binding, &r.oracle_identity)?;
-    let abilities = if graveyard_shuffle.is_some() {
+    let fixed_modes = fixed_target_modes::lower(&shape, &result, &binding, &r.oracle_identity)?;
+    let abilities = if fixed_modes.is_some() {
+        vec![Ability::FixedTargetModes]
+    } else if graveyard_shuffle.is_some() {
         vec![Ability::PlayerGraveyardShuffle]
     } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
         vec![Ability::CommanderModalKeyword]
@@ -1747,6 +1753,9 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
         },
     };
     match kind {
+        CardKind::Sorcery | CardKind::Instant if fixed_modes.is_some() => {
+            definition.spell = fixed_modes;
+        }
         CardKind::Sorcery | CardKind::Instant if graveyard_shuffle.is_some() => {
             definition.spell = graveyard_shuffle;
         }

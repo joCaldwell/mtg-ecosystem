@@ -348,6 +348,8 @@ pub enum PlayerRequest {
         player: PlayerId,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         one_or_more: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exactly: Option<u32>,
         candidates: Vec<u32>,
     },
     CounterPlacementEffect {
@@ -1530,11 +1532,13 @@ impl Game {
         if let Some(Request::Modes {
             player,
             one_or_more,
+            exactly,
             ..
         }) = self.modes_request()?
         {
             return Ok((player == viewer).then_some(PlayerRequest::Modes {
                 one_or_more,
+                exactly,
                 token,
                 player,
                 candidates: vec![],

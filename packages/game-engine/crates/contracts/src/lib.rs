@@ -1546,6 +1546,7 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
+    ChooseModes { exactly: u32 },
     OneOrMoreModes,
     Instructions,
     Permanent,
@@ -3082,6 +3083,7 @@ impl Definition {
         {
             return Err("invalid source/AST provenance".into());
         }
+        modal_targets::validate_definition(self)?;
         graveyard_shuffle::validate_definition(self)?;
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
@@ -3924,7 +3926,9 @@ impl Definition {
                     || p.timing != cast_timing
                     || !matches!(
                         p.resolution,
-                        SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                        SpellResolution::Instructions
+                            | SpellResolution::OneOrMoreModes
+                            | SpellResolution::ChooseModes { .. }
                     )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
@@ -4507,7 +4511,9 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             || !p.instructions.is_empty()
             || !matches!(
                 p.resolution,
-                SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                SpellResolution::Instructions
+                    | SpellResolution::OneOrMoreModes
+                    | SpellResolution::ChooseModes { .. }
             )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
@@ -6008,7 +6014,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
             "targets":{"maxItems":0},"instructions":{"maxItems":0},
-            "resolution":{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},
+            "resolution":{"anyOf":[{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},{"type":"object","required":["choose_modes"],"properties":{"choose_modes":{"properties":{"exactly":{"minimum":2,"maximum":3}}}}}]},
             "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
                 "modes":{"maxItems":0},"instructions":{"minItems":1},
                 "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}

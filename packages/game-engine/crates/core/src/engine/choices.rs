@@ -290,7 +290,8 @@ impl PartialEq for BoundModeSubset {
 impl Eq for BoundModeSubset {}
 impl BoundModeSubset {
     fn build(root: &SpellProgram, chosen: &[u32]) -> Result<Self, String> {
-        let indices = mtg_contracts::modal_targets::ModeCount::OneOrMore
+        let indices = mtg_contracts::modal_targets::ModeCount::for_root(root)
+            .ok_or("not a subset selection")?
             .selected(root.modes.len(), chosen)?;
         let plan = Self {
             indices,
@@ -300,15 +301,10 @@ impl BoundModeSubset {
         Ok(plan)
     }
     fn validate(&self, root: &SpellProgram) -> Result<(), String> {
-        if root.resolution != SpellResolution::OneOrMoreModes
-            || self.indices.is_empty()
-            || self.indices.windows(2).any(|p| p[0] >= p[1])
-            || self
-                .indices
-                .last()
-                .is_none_or(|last| *last as usize >= root.modes.len())
-        {
-            return Err("invalid nonempty subset of printed modes".into());
+        let count = mtg_contracts::modal_targets::ModeCount::for_root(root)
+            .ok_or("invalid mode subset source")?;
+        if count.selected(root.modes.len(), &self.indices)? != self.indices {
+            return Err("selected modes out of printed order".into());
         }
         Ok(())
     }
@@ -318,6 +314,7 @@ impl BoundModeSubset {
                 self.validate(root)?;
                 let indices = &self.indices;
                 let mut instructions = Vec::with_capacity(indices.len());
+                let mut targets = vec![];
                 for index in indices {
                     let child = &root
                         .modes
@@ -327,13 +324,46 @@ impl BoundModeSubset {
                     let [instruction] = child.instructions.as_slice() else {
                         return Err("unexpected mode instructions".into());
                     };
-                    instructions.push(instruction.clone());
+                    let instruction = if child.targets.is_empty() {
+                        instruction.clone()
+                    } else {
+                        let [target] = child.targets.as_slice() else {
+                            return Err("unsupported targeted occurrence group".into());
+                        };
+                        let mut target = target.clone();
+                        target.slot = u32::try_from(targets.len())
+                            .map_err(|_| "mode target capacity exceeded")?;
+                        let slot = target.slot;
+                        targets.push(target);
+                        match instruction {
+                            Instruction::GainLife {
+                                recipient: LifeRecipient::Target { target_slot: 0 },
+                                amount,
+                                source_block,
+                            } => Instruction::GainLife {
+                                recipient: LifeRecipient::Target { target_slot: slot },
+                                amount: amount.clone(),
+                                source_block: *source_block,
+                            },
+                            Instruction::LoseLife {
+                                recipient: LifeRecipient::Target { target_slot: 0 },
+                                amount,
+                                source_block,
+                            } => Instruction::LoseLife {
+                                recipient: LifeRecipient::Target { target_slot: slot },
+                                amount: amount.clone(),
+                                source_block: *source_block,
+                            },
+                            _ => return Err("unsupported targeted mode effect".into()),
+                        }
+                    };
+                    instructions.push(instruction);
                 }
                 let program = SpellProgram {
                     timing: root.timing,
                     functioning_zone: FunctioningZone::Stack,
                     resolution: SpellResolution::Instructions,
-                    targets: vec![],
+                    targets,
                     modes: vec![],
                     instructions,
                     additional_sacrifice: None,
@@ -412,6 +442,10 @@ impl Game {
             decision_id: self.state.rules.revision,
             player: top.controller,
             one_or_more: root.resolution == SpellResolution::OneOrMoreModes,
+            exactly: match root.resolution {
+                SpellResolution::ChooseModes { exactly } => Some(exactly),
+                _ => None,
+            },
             candidates,
         }))
     }
@@ -424,7 +458,10 @@ impl Game {
         else {
             return Err("no mode choice".into());
         };
-        if p != player || !candidates.contains(&mode) {
+        if matches!(self.root_program_for(self.top()?)?.resolution,SpellResolution::ChooseModes{exactly} if exactly!=1)
+            || p != player
+            || !candidates.contains(&mode)
+        {
             return Err("invalid mode choice".into());
         }
         Ok(())
@@ -437,7 +474,7 @@ impl Game {
             .take()
             .ok_or("missing mode input")?;
         let root = self.root_program_for(self.top()?)?;
-        if root.resolution == SpellResolution::OneOrMoreModes {
+        if mtg_contracts::modal_targets::ModeCount::for_root(root).is_some() {
             let modes = match input.response {
                 Response::ModeSubset { modes } => modes,
                 Response::Modes { mode } => vec![mode],
@@ -713,7 +750,7 @@ impl Game {
         } else {
             match entry.mode {
                 Some(mode)
-                    if root.resolution != SpellResolution::OneOrMoreModes
+                    if mtg_contracts::modal_targets::ModeCount::for_root(root).is_none()
                         && (mode as usize) < root.modes.len() => {}
                 None if matches!(&self.state.rules.frame,Frame::Modes{cast} if cast.stack_id==entry.id) =>
                     {}
@@ -842,5 +879,69 @@ impl Game {
             }
         }
         Err("missing shield origin quantity".into())
+    }
+}
+
+#[cfg(test)]
+mod fixed_target_mode_tests {
+    use super::*;
+    use crate::engine::equipped_indestructible_tests::{
+        answer, object, pay_and_resolve, prepared, recover, request,
+    };
+    #[test]
+    fn paid_exact_two_targeted_modes_bind_distinct_occurrences_and_replay_print_order() {
+        let raw = include_str!("../../../../tests/fixtures/synthetic-fixed-target-modes.json");
+        let result = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            raw,
+        );
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("{result:?}")
+        };
+        let mut p = prepared(&[("Forest", true), ("Forest", false)], false);
+        p.config.cards[0].oracle_id = definition.oracle_id.clone();
+        let c = Arc::make_mut(&mut p.catalog);
+        c.definitions.push(*definition);
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        p.catalog_digest = digest(&*p.catalog).unwrap();
+        p.profile_digest = digest(&p.config).unwrap();
+        let mut g = Game::with_trace(p, TraceMode::Detailed);
+        request(&mut g, 1);
+        let card = object(&g, 0).card;
+        answer(&mut g, 1, Response::Cast { card });
+        let modes = request(&mut g, 1);
+        assert!(matches!(
+            modes,
+            Request::Modes {
+                exactly: Some(2),
+                ..
+            }
+        ));
+        let caster = modes.player();
+        let revision = modes.decision_id();
+        for ids in [vec![0], vec![1, 1], vec![0, 1, 2]] {
+            assert!(
+                g.respond(caster, revision, Response::ModeSubset { modes: ids })
+                    .is_err()
+            );
+        }
+        answer(&mut g, 1, Response::ModeSubset { modes: vec![1, 0] });
+        let r = request(&mut g, 1);
+        assert!(
+            matches!(&r,Request::PlayerTargets{occurrences,..} if occurrences.iter().map(|s|s.slot).collect::<Vec<_>>()==[0,1])
+        );
+        // Reusing the same player across distinct occurrences is legal.
+        answer(
+            &mut g,
+            1,
+            Response::PlayerTargets {
+                players: vec![PlayerId(1), PlayerId(1)],
+            },
+        );
+        recover(&g);
+        pay_and_resolve(&mut g, 1, vec![]);
+        assert_eq!(g.state.rules.players[1].life, 41.into());
+        recover(&g);
     }
 }
