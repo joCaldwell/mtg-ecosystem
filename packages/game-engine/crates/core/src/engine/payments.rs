@@ -268,7 +268,7 @@ impl Game {
         }
         if let StackKind::Activated { ability, .. } = stack.kind
             && let ActivationCost::Composite { costs } =
-                &self.definition(stack.source.card)?.activated[ability as usize].cost
+                &self.copiable_definition(stack.source)?.activated[ability as usize].cost
             && !self.permanent_source_costs_payable(stack.source, stack.controller, costs)
         {
             return Ok(AnnouncementPayment::Unpayable);
