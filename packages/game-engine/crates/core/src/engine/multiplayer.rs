@@ -551,7 +551,7 @@ impl Game {
         if matches!(
             self.state.rules.frame,
             Frame::Priority
-                | Frame::CounterUnless { .. }
+                | Frame::ResolutionPayment { .. }
                 | Frame::Mana { .. }
                 | Frame::SacrificeCost { .. }
                 | Frame::SpendMana { .. }
