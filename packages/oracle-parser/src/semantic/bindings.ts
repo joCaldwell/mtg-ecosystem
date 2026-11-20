@@ -3,6 +3,7 @@
 // ambiguous referent. Every unsupported scope remains a reported obligation.
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+import { isDeepStrictEqual } from "node:util";
 import type { Ability, Amount, CascadeExiledCards, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
@@ -13,6 +14,14 @@ import type {
 } from "./types.ts";
 
 const RULES_URL = "https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt";
+// Double Major's complete spell paragraph. A retarget option, another copy
+// exception or an enclosing choice would require different bindings.
+const DIRECT_CREATURE_SPELL_COPY = {
+  effect: "copy-stack-object", who: { player: "you" }, count: { amount: "fixed", value: 1 },
+  what: { ref: "target", count: { amount: "fixed", value: 1 }, selectionId: "line:0:1",
+    filter: { cls: "spell", types: ["creature"], control: "you" } },
+  copyExceptions: [{ change: "types", types: { supertypes: { operation: "remove", types: ["legendary"] } } }],
+} satisfies Effect;
 const SYMBOLIC_AMOUNTS = new Set(["x", "that-number", "that-much", "replacement-event-quantity"]);
 interface Candidate { id: string; cardinality: BindingCardinality; domain: "object" | "object-or-player" | "player" | "number"; description?: ObjectFilter;
   /** The departed object this one became in its new zone (CR 400.7e, 400.7j). */
@@ -27,6 +36,7 @@ interface Context {
   source: string; face: string; ability: string; you: string; phase: BindingPhase;
   objects: Candidate[]; players: Candidate[]; quantities: Candidate[]; x?: string;
   spellAbility?: boolean;
+  directCreatureSpellCopy?: Extract<Effect, { effect: "copy-stack-object" }>;
   sourceMoved?: boolean;
   /** The object the source became in the public zone a zone-change trigger
    * saw it move to (CR 400.7e). */
@@ -1203,6 +1213,7 @@ class Analyzer {
       this.targets.set(id, { id, path, signature });
     }
     this.node({ id, path, node: "selection", scope: context.ability, expression, cardinality,
+      ...(context.directCreatureSpellCopy?.what === expression ? { chooser: context.you } : {}),
       timing: targeted ? "stack-announcement" : context.phase,
       selection: targeted ? "target" : "evaluate-reference", rules: targeted ? ["601.2c"] : ["608.2h"] });
     const candidate = this.bound(expression, path, id, targeted ? ["601.2c"] : ["608.2h"]);
@@ -1799,6 +1810,14 @@ class Analyzer {
         context.objects = []; context.players = []; context.quantities = [];
         return;
       case "copy-stack-object": case "copy-card": case "choose-new-targets":
+        if (effect === context.directCreatureSpellCopy) {
+          this.engineFeature("permanent-spell-copy", path,
+            "Recheck the target, copy its spell decisions and copiable values with the printed exception, and resolve the copy as a token permanent.",
+            ["601.2c", "608.2b", "707.9", "707.10", "707.10f"]);
+          objectPaths.push(child(path, "what")); playerPaths.push(child(path, "who"));
+          produces = "objects"; cardinality = "one"; identity = "new-objects";
+          break;
+        }
         this.diagnostic("unsupported-scope", path, "Stack-copy results and copy target-selection timing require their own binding scope.", ["707.10", "115.7"]);
         context.objects = []; context.players = []; context.quantities = [];
         return;
@@ -2092,7 +2111,7 @@ class Analyzer {
       }
     }
   }
-  ability(ability: Ability, path: string, face: string, source: string): void {
+  ability(ability: Ability, path: string, face: string, source: string, soleCardAbility = false): void {
     const id = this.id(path, "ability");
     const you = this.id(path, "you");
     const role = ability.kind === "activated" || ability.kind === "loyalty" ? "activator"
@@ -2175,6 +2194,13 @@ class Analyzer {
         this.sentences(ability.effects, child(path, "effects"), context);
         break;
       case "spell": {
+        const first = ability.effects[0]?.steps[0];
+        if (soleCardAbility && first?.effect === "copy-stack-object") {
+          const { abilityWord, ...paragraph } = ability;
+          if (abilityWord === undefined && isDeepStrictEqual(paragraph, {
+            kind: "spell", effects: [{ steps: [DIRECT_CREATURE_SPELL_COPY] }],
+          })) context.directCreatureSpellCopy = first;
+        }
         const previous = this.spellParagraph?.face === face ? this.spellParagraph.context : undefined;
         if (previous) Object.assign(context, { objects: previous.objects, players: previous.players, quantities: previous.quantities,
           departed: previous.departed, sourceMoved: previous.sourceMoved, mentionedObject: previous.mentionedObject, sourceNamed: previous.sourceNamed });
@@ -2373,7 +2399,7 @@ export function analyzeCardBindings(input: CardBindingInput): CardBindingAnalysi
       continue;
     }
     result.abilities.forEach((ability, abilityIndex) => analyzer.ability(ability,
-      child(child(path, "abilities"), abilityIndex), face, source));
+      child(child(path, "abilities"), abilityIndex), face, source, faces.length === 1 && result.abilities.length === 1));
   }
   for (const face of input.faces) if (!Number.isInteger(face.sourceFaceIndex) || face.sourceFaceIndex < 0 || face.sourceFaceIndex >= faces.length)
     analyzer.diagnostic("face-mismatch", "/faces", "A supplied parse references a nonexistent source face.", []);
