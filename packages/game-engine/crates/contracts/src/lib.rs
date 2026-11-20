@@ -2866,25 +2866,6 @@ impl Definition {
         set
     }
     pub fn validate(&self) -> Result<(), String> {
-        if self.provenance.source_sha256 == library_top_mana::SOURCE
-            || self
-                .capabilities
-                .contains(&Capability::LookTopMayRevealForManaV1)
-            || self.triggered.iter().any(|a| {
-                matches!(
-                    a.condition,
-                    TriggerCondition::StepBegan {
-                        step: BeginningStep::PrecombatMain,
-                        ..
-                    }
-                )
-            })
-        {
-            let expected = library_top_mana::frozen_definition()?;
-            return (*self == expected)
-                .then_some(())
-                .ok_or_else(|| "invalid library-top mana composition".into());
-        }
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
@@ -3305,10 +3286,11 @@ impl Definition {
         {
             return Err("invalid identity, characteristics, or capability closure".into());
         }
-        if !accepted_provenance(
+        if !(accepted_provenance(
             &self.provenance.archive_manifest_sha256,
             &self.provenance.parser_sha256,
-        ) || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
+        ) || library_top_mana::authenticated_reparse(&self.provenance))
+            || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
             || sha256(format!("[{}]", self.provenance.abilities_json).as_bytes())
                 != self.provenance.ast_sha256
         {
@@ -3321,9 +3303,12 @@ impl Definition {
         commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
-        unspent_mana::validate(self)?;
+        let library_top = library_top_mana::validate(self)?;
+        if !library_top {
+            unspent_mana::validate(self)?;
+        }
         granted_land_mana::validate_definition(self)?;
-        color_hybrid_cost::validate_definition(self, opening_composition)?;
+        color_hybrid_cost::validate_definition(self, opening_composition, library_top)?;
         keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
@@ -3893,7 +3878,8 @@ impl Definition {
                 || p.instructions.iter().any(|instruction| {
                     !matches!(
                         instruction,
-                        Instruction::PumpSet { .. }
+                        Instruction::LookTopMayRevealForMana { .. }
+                            | Instruction::PumpSet { .. }
                             | Instruction::DealDamage { .. }
                             | Instruction::LoseLifeDeathController { .. }
                             | Instruction::SacrificeDamage { .. }

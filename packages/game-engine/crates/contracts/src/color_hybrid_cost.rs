@@ -28,6 +28,10 @@ pub struct ColorHybridSymbol {
 }
 
 pub fn color_hybrid_cost(text: &str) -> Option<(ManaCost, Vec<ColorHybridSymbol>)> {
+    ordinary_cost(text).filter(|(_, hybrid)| !hybrid.is_empty())
+}
+
+pub(super) fn ordinary_cost(text: &str) -> Option<(ManaCost, Vec<ColorHybridSymbol>)> {
     fn color(symbol: &str) -> Option<Color> {
         match symbol {
             "W" => Some(Color::W),
@@ -78,10 +82,14 @@ pub fn color_hybrid_cost(text: &str) -> Option<(ManaCost, Vec<ColorHybridSymbol>
         rest = tail;
         first = false;
     }
-    (!hybrid.is_empty()).then_some((base, hybrid))
+    Some((base, hybrid))
 }
 
-pub(super) fn validate_definition(d: &Definition, opening_composition: bool) -> Result<(), String> {
+pub(super) fn validate_definition(
+    d: &Definition,
+    opening_composition: bool,
+    library_top: bool,
+) -> Result<(), String> {
     let c = &d.characteristics;
     let raw = &d.provenance.source_json;
     if c.hybrid_mana.is_empty() && !raw.contains('/') {
@@ -94,6 +102,9 @@ pub(super) fn validate_definition(d: &Definition, opening_composition: bool) -> 
         return Ok(());
     }
     let mut type_line = format!("{:?}", c.kind);
+    if library_top && c.legendary {
+        type_line = format!("Legendary {type_line}");
+    }
     if !c.subtypes.is_empty() {
         type_line.push_str(" — ");
         type_line.push_str(&c.subtypes.join(" "));
@@ -120,7 +131,7 @@ pub(super) fn validate_definition(d: &Definition, opening_composition: bool) -> 
         || source["oracle_id"] != d.oracle_id
         || source["id"] != d.provenance.printing_id
         || source["type_line"] != type_line
-        || c.legendary
+        || (c.legendary && !library_top)
         || c.snow
         || !c.additional_types.is_empty()
         || c.colors.iter().copied().collect::<BTreeSet<_>>() != printed_colors
@@ -132,13 +143,14 @@ pub(super) fn validate_definition(d: &Definition, opening_composition: bool) -> 
             .any(|k| !source[*k].is_null())
         || source["colors"] != serde_json::json!(c.colors)
         || source["color_identity"] != serde_json::json!(c.color_identity)
-        || (!opening_composition && source["oracle_text"] != "")
-        || (!opening_composition
+        || (!library_top && !opening_composition && source["oracle_text"] != "")
+        || (!library_top
+            && !opening_composition
             && strict_read::<serde_json::Value>(&d.provenance.abilities_json)?
                 != serde_json::json!([]))
         || !d.activated.is_empty()
-        || !d.triggered.is_empty()
-        || (!opening_composition && !d.static_abilities.is_empty())
+        || (!library_top && !d.triggered.is_empty())
+        || (!library_top && !opening_composition && !d.static_abilities.is_empty())
         || !d.mana_abilities.is_empty()
         || !d.keywords.is_empty()
         || source["name"] != d.name
@@ -213,6 +225,6 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     let cap = json!({"contains":{"const":Capability::ColorHybridCostV1}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"anyOf":[{"properties":{"characteristics":marker}},{"properties":{"capabilities":cap}},{"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""mana_cost"\s*:\s*"[^"]*\{[WUBRG]/[WUBRGP]\}"#}}}}}]},
-        "then":{"required":["spell","capabilities","characteristics"],"properties":{"capabilities":cap,"characteristics":{"allOf":[marker],"properties":{"kind":{"enum":["artifact","creature","enchantment"]},"hybrid_mana":{"items":{"properties":{"colors":{"uniqueItems":true,"prefixItems":[{"enum":["W","U","B","R","G"]}],"items":{"enum":["W","U","B","R","G","pay_two_life"]}}}}}}},"spell":{"type":"object","properties":{"resolution":{"const":"permanent"},"timing":{"const":"main_phase"},"functioning_zone":{"const":"stack"},"targets":{"maxItems":0},"instructions":{"maxItems":0},"modes":{"maxItems":0},"optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"}}},"x_mana_cost":{"const":false},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0}}}
+        "then":{"if":{"not":library_top_mana::marker_schema()},"then":{"properties":{"triggered":{"maxItems":0},"static_abilities":{"maxItems":0}}},"required":["spell","capabilities","characteristics"],"properties":{"capabilities":cap,"characteristics":{"allOf":[marker],"properties":{"kind":{"enum":["artifact","creature","enchantment"]},"hybrid_mana":{"items":{"properties":{"colors":{"uniqueItems":true,"prefixItems":[{"enum":["W","U","B","R","G"]}],"items":{"enum":["W","U","B","R","G","pay_two_life"]}}}}}}},"spell":{"type":"object","properties":{"resolution":{"const":"permanent"},"timing":{"const":"main_phase"},"functioning_zone":{"const":"stack"},"targets":{"maxItems":0},"instructions":{"maxItems":0},"modes":{"maxItems":0},"optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"}}},"x_mana_cost":{"const":false},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},"keywords":{"maxItems":0}}}
     }));
 }

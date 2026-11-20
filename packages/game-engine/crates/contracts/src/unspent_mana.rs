@@ -4,7 +4,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-fn text() -> String {
+pub(super) fn text() -> String {
     format!(
         "If you would lose unspent mana, that mana becomes {} instead.",
         "black"
@@ -91,7 +91,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "pattern":r#""oracle_text"\s*:\s*"If you would lose unspent mana, that mana becomes black instead\.""#
             }}}}}
         ]},
-        "then":{"required":["spell","static_abilities"],"properties":{
+        "then":{"if":{"not":library_top_mana::marker_schema()},"then":{"properties":{"triggered":{"maxItems":0}}},"required":["spell","static_abilities"],"properties":{
             "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0},
                 "basic":{"const":false},"snow":{"const":false}}},
             "static_abilities":{"const":[static_ability]},
@@ -100,7 +100,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "timing":{"const":"main_phase"},"resolution":{"const":"permanent"},"targets":{"maxItems":0},
                 "instructions":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},
                 "optional_additional_costs":{"maxItems":0}}},
-            "activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},
+            "activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
             "keywords":{"maxItems":0},"intrinsic_zone":{"type":"null"},"x_mana_cost":{"const":false}
         }},
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::UnspentManaConversionV1}}}}}
