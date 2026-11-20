@@ -1,4 +1,4 @@
-import type { Amount, CascadeExiledCards, ChosenValueRef, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, ValueChoice } from "../ast.ts";
+import type { Amount, CascadeExiledCards, ChosenValueRef, Color, Effect, ObjectFilter, ObjectRef, ParseCardResult, PlayerRef, ReplacementInstruction, Trigger, ValueChoice, VariableConstraint } from "../ast.ts";
 import type { KeywordAbilityKind } from "./keyword-scopes.ts";
 
 /** Structural source input: callers may pass the complete Scryfall record.
@@ -126,11 +126,14 @@ export type BindingNode = NodeBase & (
       change: Extract<ReplacementInstruction["replace"], { replacement: "modify-quantity" }>["change"];
       unit: "token-specification" | "mana-specification" | "damage-source-and-recipient" | "life-source-and-recipient" | "counter-kind-and-recipient";
       operands: string[] }
+  /** CR 122.2, 122.6, 603.2c: a matched counter change, grouped by its one recipient. */
+  | { node: "counter-change-match"; scope: string; event: string;
+      pattern: Extract<Trigger, { trigger: "counter-change" }>; recipients: string[]; actor?: string }
   | { node: "defined-number"; scope: string; definition: Amount }
   /** X chosen and announced by `chooser` as the spell was cast or the ability
    * activated (CR 107.3a, 107.3k), or, for a permanent's own entry, as the
    * spell it was cast (CR 107.3m). */
-  | { node: "announced-number"; scope: string; chooser: string; announcement: "cast" | "activation" | "entering-spell" }
+  | { node: "announced-number"; scope: string; chooser: string; announcement: "cast" | "activation" | "entering-spell"; constraints?: VariableConstraint[] }
 );
 
 export type ReferenceBinding = {
@@ -174,7 +177,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

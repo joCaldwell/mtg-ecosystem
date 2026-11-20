@@ -4,7 +4,7 @@
 // Rules: CR 109.5, 201.5, 400.7j, 601.2c, 608.2h/k, 107.3, 607.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import { isDeepStrictEqual } from "node:util";
-import type { Ability, Amount, CascadeExiledCards, Color, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
+import type { Ability, Amount, CascadeExiledCards, Color, Cost, CostModification, Effect, GainedAbility, KeywordInstance, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
@@ -200,6 +200,9 @@ interface Context {
   /** A scope whose capture/antecedent rules are not implemented. */
   barrier?: string;
   replacementSubjectPath?: string;
+  eventPredicate?: true;
+  sourceExclusionPath?: string;
+  sacrificedCost?: Candidate;
   entryChoice?: ChoiceOrigin;
   resolutionChoice?: ChoiceOrigin;
   availableChoice?: ChoiceOrigin;
@@ -310,6 +313,26 @@ function namesObject(value: unknown, definiteOnly: boolean): boolean {
   if (typeof value.ref === "string" && !["self", "this", "it", "them"].includes(value.ref) && !(definiteOnly && INDEFINITE_REFS.has(value.ref))) return true;
   return Object.values(value).some(entry => namesObject(entry, definiteOnly));
 }
+/** A constraint on a chosen X is not a printed definition of X (CR 107.3a, c). */
+function definesX(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(definesX);
+  return isRecord(value) && ((value.variable === "x" && isRecord(value.value) && typeof value.value.amount === "string")
+    || Object.values(value).some(definesX));
+}
+function costHasX(value: unknown): boolean {
+  return /"X"|"amount":"x"/.test(JSON.stringify(value ?? null));
+}
+function soleObjectPayment(costs: Cost[]): number {
+  const index = costs.findIndex(cost => cost.cost === "sacrifice" && cost.what.ref === "filter");
+  return costs.every((cost, at) => at === index ||
+    cost.cost === "mana" || cost.cost === "tap-self" || cost.cost === "untap-self" ||
+    (cost.cost === "pay-life" && cost.amount.amount === "fixed")) ? index : -1;
+}
+function performsSacrifice(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(performsSacrifice);
+  return isRecord(value) && (value.effect === "sacrifice" || Object.values(value).some(performsSacrifice));
+}
+
 /** Printed keyword parameters that are paid or chosen as the keyword's cost. */
 const KEYWORD_PAYMENT_FIELDS = new Set(["cost", "additionalCosts", "materials", "costModifications", "restriction", "variableConstraints"]);
 const PROTECTION_FROM_EVERYTHING = { keyword: "protection", from: [{ scope: "everything" }] } satisfies KeywordInstance;
@@ -365,6 +388,12 @@ function combine(a: Candidate[], b: Candidate[]): Candidate[] {
   const distinct = new Map<string, Candidate>();
   for (const candidate of [...a, ...b]) if (!distinct.has(candidate.id)) distinct.set(candidate.id, candidate);
   return [...distinct.values()];
+}
+function unambiguousPluralRecipient(context: Context): Candidate | undefined {
+  const candidates = combine(context.objects, context.players);
+  const [recipient] = candidates;
+  if (!context.barrier && candidates.length === 1 && recipient.domain === "object" &&
+      recipient.cardinality === "many" && !recipient.qualifiedOnly) return recipient;
 }
 function description(ref: ObjectRef | CascadeExiledCards): ObjectFilter | undefined {
   if ("filter" in ref) return ref.filter;
@@ -532,7 +561,11 @@ class Analyzer {
     if (Array.isArray(value)) { value.forEach((entry, index) => this.walk(entry, child(path, index), context)); return; }
     if (!isRecord(value)) return;
     if (value.recipient === "they") {
-      this.unresolved({ recipient: "they" }, path, "unsupported-reference", "The ability recipient's pronoun needs an antecedent and a player/object domain; parser ordering cannot establish either.", ["109.1", "113.1"]);
+      const recipient = unambiguousPluralRecipient(context);
+      if (recipient) {
+        this.bound({ recipient: "they" }, path, recipient.id, ["608.2c", "611.2c"]);
+      } else this.unresolved({ recipient: "they" }, path, "unsupported-reference",
+        "The ability recipient's pronoun needs an antecedent and a player/object domain; parser ordering cannot establish either.", ["109.1", "113.1"]);
       return;
     }
     if (value.ref === "affected-object") {
@@ -901,8 +934,10 @@ class Analyzer {
       // permanent's ability, before any other object is named, the excluded
       // object is the permanent itself. Elsewhere (a spell, or after a
       // trigger or instruction names an object) it may be that object.
-      if (context.permanentSource && !context.mentionedObject && this.onlySource(context) && !context.barrier && !context.sourceMoved)
-        this.bound({ ref: "self" }, child(path, "other"), context.source, ["201.5"]);
+      if (context.permanentSource && !context.barrier && !context.sourceMoved &&
+          (path === context.sourceExclusionPath || (!context.mentionedObject && this.onlySource(context))))
+        this.bound({ ref: "self" }, child(path, "other"), context.source,
+          path === context.sourceExclusionPath ? ["201.5", "602.2b", "701.21a"] : ["201.5"]);
       else this.diagnostic("unsupported-reference", child(path, "other"), "The excluded antecedent of other/another is unresolved.", ["201.5"]);
     }
     // CR 702.33e: "kicked" refers to the kicker ability printed on the object;
@@ -1321,6 +1356,17 @@ class Analyzer {
     if (grant.gained === "keyword" && grant.costDefinition) this.walk(grant.costDefinition, child(path, "costDefinition"), { ...granted, phase: "payment" });
   }
   object(expression: ObjectRef, path: string, context: Context): Candidate | undefined {
+    // A paid sacrifice and a later zone successor are different objects.
+    // This contextual reference is supported only for information about the
+    // uniquely identified original object (CR 400.7, 608.2h, 701.21a).
+    if (!context.barrier && context.lastKnown && context.sacrificedCost &&
+        expression.ref === "related" && expression.number === "singular" &&
+        expression.relation.relation === "event-result" && expression.relation.event === "sacrifice" &&
+        expression.relation.scope === "contextual" && describes(context.sacrificedCost.description, expression.filter)) {
+      const rules = ["601.2h", "602.2b", "608.2h", "701.21a"];
+      this.bound(expression, path, context.sacrificedCost.id, rules);
+      return context.sacrificedCost;
+    }
     if (expression.ref === "card-extraction-group") context = { ...context, barrier: "Separate card-extraction slots require distinct allocation, shared-pool, branch-choice and aggregate result bindings." };
     const target = expression.ref === "target" || expression.ref === "any-target";
     const operands = target ? { ...context, announcementOperand: true } : context;
@@ -1596,14 +1642,14 @@ class Analyzer {
           "The target count requires its announcing ability.", ["601.2c"]);
       }
     }
+    const predicateRules = context.eventPredicate ? ["603.2c"] : context.phase === "replacement-match" ? ["614.1a"] : undefined;
+    const rules = targeted ? ["601.2c"] : predicateRules ?? ["608.2h"];
     this.node({ id, path, node: "selection", scope: context.ability, expression, cardinality,
       ...(context.directCreatureSpellCopy?.what === expression ? { chooser: context.you } : {}),
       ...(countChoice ? { countChoice } : {}),
       timing: targeted ? "stack-announcement" : context.phase,
-      selection: targeted ? "target" : context.phase === "replacement-match" ? "event-participant-filter" : "evaluate-reference",
-      rules: targeted ? ["601.2c"] : context.phase === "replacement-match" ? ["614.1a"] : ["608.2h"] });
-    const candidate = this.bound(expression, path, id,
-      targeted ? ["601.2c"] : context.phase === "replacement-match" ? ["614.1a"] : ["608.2h"]);
+      selection: targeted ? "target" : predicateRules ? "event-participant-filter" : "evaluate-reference", rules });
+    const candidate = this.bound(expression, path, id, rules);
     return { ...candidate, cardinality };
   }
   at(path: string): Candidate | undefined {
@@ -1800,7 +1846,8 @@ class Analyzer {
     const ability = this.node({ id: this.id(path, kind), path, node: "ability", source: context.source, face: context.face,
       abilityKind: kind, you: context.you, rules });
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
-      decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined };
+      decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
+      sacrificedCost: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
     const delayed = this.nestedAbility(path, context, "delayed-triggered", ["603.7"]);
@@ -2001,6 +2048,19 @@ class Analyzer {
       "Look privately at the top card, offer its public reveal only when eligible, and allocate the printed amount among its colors only after revealing it. Put the looked-at card into hand in either branch.",
       ["105.2", "106.1a", "107.4e", "107.4f", "400.1", "608.2c", "608.2d", "609.3", "701.20"]);
   }
+  costModifications(modifications: CostModification[] | undefined, path: string, payment: Context): void {
+    modifications?.forEach((modification, index) => {
+      const at = child(path, index);
+      const scoped = { ...payment };
+      this.definitions(modification.bindings, child(at, "bindings"), scoped);
+      this.walk(modification, at, scoped);
+      if (scoped.x && this.result.references.some(reference => reference.binding === "bound" &&
+          reference.target === scoped.x && reference.path.startsWith(`${at}/bindings/`))) {
+        this.invalidNodes.set(scoped.x, "unresolved-dependency");
+        this.diagnostic("unsupported-number-binding", child(at, "bindings"), "A payment definition cannot establish itself recursively.", ["107.3c"]);
+      }
+    });
+  }
   definitions(bindings: Sentence["bindings"], path: string, context: Context): void {
     if (!bindings) return;
     for (const [index, binding] of bindings.entries()) {
@@ -2138,7 +2198,7 @@ class Analyzer {
       if (changed?.domain === "object") context.objects = combine(context.objects, [changed]);
       return;
     }
-    if (effect.effect === "gain-abilities" && "recipient" in effect.what) {
+    if (effect.effect === "gain-abilities" && "recipient" in effect.what && !unambiguousPluralRecipient(context)) {
       this.walk(effect, path, { ...context, barrier: "An unresolved ability recipient cannot establish an object or player antecedent." });
       context.objects = []; context.players = []; context.quantities = [];
       return;
@@ -2343,12 +2403,17 @@ class Analyzer {
         // Airbend exiles its target (it may then be cast from exile).
         objectPaths.push(child(path, "what")); playerPaths.push(child(path, "who"));
         produces = "objects"; identity = "zone-successors"; break;
+      case "manifest-dread":
+        // CR 701.62a, 701.40a: at most one card becomes a face-down
+        // creature. The other looked-at cards never enter this result.
+        playerPaths.push(child(path, "who"));
+        produces = "objects"; identity = "new-objects"; cardinality = "one"; break;
       case "manifest": case "cloak":
         // The card is turned face down and put onto the battlefield: a new object (CR 400.7, 701.40, 701.58).
         objectPaths.push(child(path, "what")); playerPaths.push(child(path, "who"));
         produces = "objects"; identity = "new-objects"; break;
       case "learn": case "open-attraction": case "assemble-contraption": case "incubate": case "create-role": case "amass":
-      case "discover": case "endure": case "manifest-dread":
+      case "discover": case "endure":
         if ("what" in effect) objectPaths.push(child(path, "what"));
         if ("attachedTo" in effect) objectPaths.push(child(path, "attachedTo"));
         if ("who" in effect && effect.who) playerPaths.push(child(path, "who"));
@@ -2411,6 +2476,7 @@ class Analyzer {
       const destination = effect.effect === "move-zone" ? effect.to.zone : undefined;
       const established: ObjectFilter | undefined = identity === "zone-successors"
         ? { ...(objects[0]?.description ?? {}), cls: destination === "battlefield" ? "permanent" : "card" }
+        : effect.effect === "manifest-dread" ? { cls: "permanent", types: ["creature"] }
         : effect.effect === "create-token" ? { cls: "token", ...("types" in effect.token && effect.token.types.length ? { types: effect.token.types as NonNullable<ObjectFilter["types"]> } : {}) }
         : ["look-at", "mill", "draw", "reveal"].includes(effect.effect) ? { cls: "card" } : undefined;
       const result = this.eventResult(path, event, produces, cardinality, identity, established);
@@ -2474,8 +2540,47 @@ class Analyzer {
     // targets this creature, put a +1/+1 counter on it").
     if (context.triggerObject && !/"ref":"(self|this)"/.test(JSON.stringify(trigger))) context.spellPronoun = true;
   }
+  counterChange(trigger: Extract<Trigger, { trigger: "counter-change" }>, path: string, context: Context): boolean {
+    const { on, match, by } = trigger;
+    const recipients = on.recipient === "any-of" ? on.recipients : [on];
+    if (context.barrier || !("recipients" in match) || match.recipients !== "each" ||
+        (by && by.player !== "you") || !recipients.every(recipient => recipient.recipient === "object"
+          ? replacementObject(recipient.what) || recipient.what.ref === "this" || recipient.what.ref === "self"
+          : replacementPlayer(recipient.who))) return false;
+    // CR 122.6a: the actor is independent of the recipient. Each matching
+    // recipient gets its own occurrence; the count is of the actual change.
+    const scope: Context = { ...context, phase: "trigger-match", eventPredicate: true };
+    this.walk(trigger, path, scope);
+    const candidates = recipients.flatMap((recipient, index) => {
+      const base = on.recipient === "any-of" ? `${path}/on/recipients/${index}` : child(path, "on");
+      const candidate = this.at(child(base, recipient.recipient === "object" ? "what" : "who"));
+      return candidate ? [candidate] : [];
+    });
+    const actor = by ? this.at(child(path, "by")) : undefined;
+    if (candidates.length !== recipients.length || (by && !actor)) return false;
+    const event = this.event(path, context, "trigger:counter-change", [...candidates, ...(actor ? [actor] : [])]);
+    const rules = ["122.2", "122.6", "122.6a", "603.2c", "603.10", "700.1"];
+    this.node({ id: this.id(path, "counter-change"), path, node: "counter-change-match", scope: context.ability,
+      event, pattern: trigger, recipients: candidates.map(candidate => candidate.id), ...(actor ? { actor: actor.id } : {}), rules });
+    this.engineFeature("counter-change-event", path,
+      "Match actual counter changes by kind, actor and recipient. Partition each event by recipient and apply the printed counter grouping.", rules);
+    context.quantities = [this.eventResult(child(path, "count"), event, "quantity", "one", "measured-quantity")];
+    const [candidate] = candidates;
+    if (on.recipient === "object") {
+      const result = this.eventResult(path, event, "objects", "one", "same-objects", candidate.description);
+      context.objects = [result];
+      if (candidate.id === context.source) this.sourceAliases.add(result.id);
+    } else if (on.recipient === "player" && candidate.id !== context.you) {
+      context.players = [this.eventResult(path, event, "player", "one", "same-objects")];
+    } else if (on.recipient === "any-of") {
+      // A mixed event does not make an object or player available in every outcome.
+      context.mentionedObject = true;
+    }
+    return true;
+  }
   triggerPattern(trigger: Trigger, path: string, context: Context): void {
     if (trigger.trigger === "counter-change") {
+      if (this.counterChange(trigger, path, context)) return;
       const barrier = "Counter-change triggers need per-counter/per-recipient/group occurrence, placing/removing actor, and event quantity/recipient captures bound.";
       this.diagnostic("unsupported-scope", path, barrier, ["122.2", "122.6", "122.7", "603.2c"]);
       this.walk(trigger, path, { ...context, phase: "trigger-match", barrier });
@@ -2661,16 +2766,19 @@ class Analyzer {
     // entry from such a spell (107.3m). Text that defines X wins (107.3c); a
     // granted ability has no announced X (107.3j).
     const granted = this.result.nodes.some(node => node.id === source && node.node === "recipient");
-    if (!granted && !JSON.stringify(ability).includes('"variable":"x"')) {
-      const hasX = (value: unknown) => /"X"|"amount":"x"/.test(JSON.stringify(value ?? null));
+    if (!granted && !definesX(ability)) {
       const entering = (ability.kind === "triggered" && ability.trigger.trigger === "enters" && "what" in ability.trigger
           && isRecord(ability.trigger.what) && ["self", "this"].includes(String(ability.trigger.what.ref)))
         || (ability.kind === "static" && ["enters-with-counters", "as-enters", "entry-choice"].includes(String(ability.effect.static)));
-      const announcement = (ability.kind === "activated" && hasX(ability.costs)) || (ability.kind === "loyalty" && hasX(ability.cost)) ? "activation" as const
+      const announcement = (ability.kind === "activated" && costHasX(ability.costs)) || (ability.kind === "loyalty" && costHasX(ability.cost)) ? "activation" as const
         : ability.kind === "spell" && this.xFaces.has(face) ? "cast" as const
         : entering && this.xFaces.has(face) && this.permanentFaces.has(face) ? "entering-spell" as const : undefined;
-      if (announcement) context.announcedX = this.node({ id: this.id(path, "announced-x"), path, node: "announced-number", scope: id, chooser: you, announcement,
-        rules: announcement === "activation" ? ["107.3a", "107.3k", "602.2b"] : announcement === "cast" ? ["107.3a", "601.2b"] : ["107.3m"] });
+      const constraints = ability.kind === "activated" ? ability.variableConstraints : undefined;
+      if (announcement && constraints?.some(constraint => !("not" in constraint))) {
+        this.diagnostic("unsupported-number-binding", child(path, "variableConstraints"),
+          "An announcement constraint needs its own earlier bound value.", ["107.3a", "601.2b"]);
+      } else if (announcement) context.announcedX = this.node({ id: this.id(path, "announced-x"), path, node: "announced-number", scope: id, chooser: you, announcement,
+        ...(constraints?.length ? { constraints } : {}), rules: announcement === "activation" ? ["107.3a", "107.3k", "602.2b"] : announcement === "cast" ? ["107.3a", "601.2b"] : ["107.3m"] });
     }
     switch (ability.kind) {
       case "activated": case "loyalty": {
@@ -2681,11 +2789,13 @@ class Analyzer {
               ? "Forecast requires the source's hand/owner/upkeep bindings, activation history, and reveal lifetime."
               : "Intrinsic activated-keyword rules require the source incarnation's activation, attack, or entry history and payment bindings.",
             ability.keyword === "forecast" ? ["702.57"] : ["702"]);
-        this.walk(ability.kind === "activated" ? ability.costs : ability.cost,
-          child(path, ability.kind === "activated" ? "costs" : "cost"), payment);
+        const costs = child(path, ability.kind === "activated" ? "costs" : "cost");
+        const solePayment = ability.kind === "activated" ? soleObjectPayment(ability.costs) : -1;
+        if (solePayment >= 0) payment.sourceExclusionPath = `${costs}/${solePayment}/what/filter`;
+        this.walk(ability.kind === "activated" ? ability.costs : ability.cost, costs, payment);
         this.walk(ability.restriction, child(path, "restriction"), payment);
         this.walk(ability.permission, child(path, "permission"), payment);
-        this.walk(ability.costModifications, child(path, "costModifications"), payment);
+        this.costModifications(ability.costModifications, child(path, "costModifications"), payment);
         context.sourceMoved = payment.sourceMoved;
         // Objects the cost selected are the effect's antecedents ("Sacrifice a
         // creature: You gain life equal to its toughness"); a sacrificed,
@@ -2704,6 +2814,8 @@ class Analyzer {
           const selected = this.at(child(child(child(path, "costs"), index), "what"));
           if (!selected || selected.id === context.source || selected.domain !== "object") return;
           this.costObjects.add(selected.id);
+          if (index === solePayment && cost.cost === "sacrifice" && selected.cardinality === "one" &&
+              !performsSacrifice(ability.effects)) context.sacrificedCost = selected;
           if (["sacrifice", "exile", "discard", "return", "move-zone"].includes(cost.cost)) context.departed = combine(context.departed ?? [], [selected]);
           else if (["tap-objects", "untap-objects", "exert", "reveal"].includes(cost.cost)) context.objects = combine(context.objects, [selected]);
         });
@@ -2765,8 +2877,20 @@ class Analyzer {
           "Replacement-event roles and captures need a separate scope.", ["614"]);
         break;
       case "keywords": ability.keywords.forEach((keyword, index) => this.keyword(keyword, child(child(path, "keywords"), index), context)); break;
-      case "additional-cost": this.walk(ability.costs, child(path, "costs"), { ...context, phase: "payment" });
-        this.walk(ability.costModifications, child(path, "costModifications"), { ...context, phase: "payment" }); break;
+      case "additional-cost": {
+        const payment = { ...context, phase: "payment" as const };
+        // Additional costs and the spell paragraph use one announced X on
+        // the stack. Do not share it with activated or triggered abilities.
+        const spells = cardAbilities?.flatMap((entry, index) => entry.kind === "spell" ? [{ entry, index }] : []);
+        if (!ability.optional && !ability.variableConstraints?.length &&
+            costHasX(ability.costs) && spells?.length === 1 && !definesX(spells[0].entry)) {
+          const spellPath = `${path.slice(0, path.lastIndexOf("/"))}/${spells[0].index}`;
+          payment.announcedX = this.id(spellPath, "announced-x");
+        }
+        this.walk(ability.costs, child(path, "costs"), payment);
+        this.costModifications(ability.costModifications, child(path, "costModifications"), payment);
+        break;
+      }
       case "exert-on-attack": {
         // The linked "When you do" ability is a separate reflexive trigger
         // whose "it" is the exerted object; its capture is not bound here.

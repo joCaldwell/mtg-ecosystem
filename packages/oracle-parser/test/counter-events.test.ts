@@ -127,11 +127,17 @@ describe('counter-change triggers preserve occurrence, actor, and recipient scop
       ]),
     ]);
   });
-  it('keeps event participants and removed-counter quantities unresolved, never substituting the source', () => {
+  it('captures the removed-counter quantity and the matched recipient separately from the source', () => {
     const result = parse('Whenever one or more counters are removed from a creature, draw that many cards.');
     const bound = analyzeCardBindings({ identity: 'counter-test', source: { name: 'Counter fixture', layout: 'normal', type_line: 'Artifact' }, faces: [{ sourceFaceIndex: 0, result }] });
     assert.equal(bound.fullyBound, false);
-    assert.ok(bound.diagnostics.some(d => d.code === 'unsupported-scope' && /Counter-change/.test(d.message)));
-    assert.ok(bound.references.some(r => 'amount' in r.expression && r.expression.amount === 'that-much' && r.binding === 'unresolved'));
+    assert.equal(bound.referencesBound, true, JSON.stringify(bound.diagnostics));
+    const match = bound.nodes.find(node => node.node === 'counter-change-match');
+    assert.ok(match);
+    assert.notDeepEqual(match.recipients, [bound.nodes.find(node => node.node === 'source')?.id]);
+    const reference = bound.references.find(r => 'amount' in r.expression && r.expression.amount === 'that-much');
+    assert.ok(reference?.binding === 'bound');
+    const amount = bound.nodes.find(node => node.id === reference.target);
+    assert.ok(amount?.node === 'event-result' && amount.event === match.event && amount.identity === 'measured-quantity');
   });
 });
