@@ -109,6 +109,23 @@ impl Game {
         })
     }
 
+    pub(super) fn announce_combat_hand_spell(
+        &mut self,
+        frame: Box<Resolving>,
+        object: ObjectId,
+    ) -> Result<(), String> {
+        let player = frame.spell.controller;
+        if !self.hand_cast_candidates(&frame)?.contains(&object) {
+            return Err("unavailable hand spell".into());
+        }
+        self.begin_spell_announcement(SpellAnnouncement {
+            player,
+            original_object: object,
+            cast_from: Zone::Hand { owner: player },
+            completion: CastCompletion::HandTrigger { frame },
+        })
+    }
+
     // CR 601.2a-i: one proposal constructor owns the move, fresh stack identity
     // and unfinished payment marker. No cast occurrence is emitted here.
     fn begin_spell_announcement(&mut self, announcement: SpellAnnouncement) -> Result<(), String> {
@@ -122,6 +139,7 @@ impl Game {
         self.check_stack_capacity(1)?;
         let alternative_cost = match &completion {
             CastCompletion::Priority => None,
+            CastCompletion::HandTrigger { .. } => Some(cascade::AlternativeCost::WithoutManaCost),
             CastCompletion::Resolution { permission, .. } => Some(permission.alternative_cost),
         };
         let total_cost = match alternative_cost {
@@ -131,6 +149,13 @@ impl Game {
             }
         };
         let id = StackId(self.state.rules.next_stack_id);
+        let hand_cast_permission =
+            match &completion {
+                CastCompletion::HandTrigger { frame } => Some(Box::new(
+                    self.hand_cast_permission(frame, original_object, id)?,
+                )),
+                _ => None,
+            };
         self.state.rules.next_stack_id = self
             .state
             .rules
@@ -154,6 +179,7 @@ impl Game {
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost,
+            hand_cast_permission,
             x: (alternative_cost.is_some() && self.definition(card)?.x_mana_cost)
                 .then(Quantity::zero),
             death_controller: None,
@@ -421,6 +447,7 @@ impl Game {
         };
         self.state.rules.frame = match cast.completion {
             CastCompletion::Priority => Frame::Priority,
+            CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
             CastCompletion::Resolution {
                 permission,
                 mut progress,

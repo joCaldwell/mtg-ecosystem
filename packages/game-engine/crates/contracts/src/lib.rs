@@ -45,6 +45,8 @@ mod artifact_modal;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
+mod hand_cast;
+pub use hand_cast::{combat_hand_cast_ast, combat_hand_cast_trigger};
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -254,6 +256,7 @@ pub enum Capability {
     CountedSelfGenericCostReductionV1,
     OptionalAdditionalManaCostV1,
     ResolutionCastV1,
+    CombatHandCastV1,
     CascadeV1,
     StaticSpellCascadeGrantV1,
     CastHistoryV1,
@@ -710,6 +713,9 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    OfferHandCastWithoutManaCost {
+        source_block: u32,
+    },
     /// CR 702.85a: threshold comes from the originating spell, never paid cost.
     Cascade {
         threshold: CascadeThreshold,
@@ -1140,7 +1146,8 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::Cascade { source_block, .. }
+            Self::OfferHandCastWithoutManaCost { source_block }
+            | Self::Cascade { source_block, .. }
             | Self::SearchBasicLandsSplit { source_block, .. }
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
@@ -2611,6 +2618,7 @@ impl Definition {
         power_filtered_removal::validate_definition(self)?;
         creature_entry_return::validate_definition(self)?;
         entry_graveyard_exile::validate_definition(self)?;
+        hand_cast::validate(self)?;
         if self
             .static_abilities
             .iter()
@@ -4707,7 +4715,8 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
                 token.validate()?;
                 None
             }
-            Instruction::Cascade { .. }
+            Instruction::OfferHandCastWithoutManaCost { .. }
+            | Instruction::Cascade { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
@@ -5241,6 +5250,7 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::OfferHandCastWithoutManaCost { .. } => Capability::CombatHandCastV1,
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -6956,6 +6966,7 @@ mod tests {
             CountedSelfGenericCostReductionV1,
             OptionalAdditionalManaCostV1,
             ResolutionCastV1,
+            CombatHandCastV1,
             CascadeV1,
             StaticSpellCascadeGrantV1,
             CastHistoryV1,

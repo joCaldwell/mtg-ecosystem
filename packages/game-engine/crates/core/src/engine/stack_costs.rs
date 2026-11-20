@@ -150,6 +150,7 @@ impl Game {
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost: None,
+            hand_cast_permission: None,
             x: None,
             death_controller: None,
             sacrificed: None,
@@ -438,9 +439,10 @@ impl Game {
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
+        self.validate_hand_cast_child(entry)?;
         if entry.alternative_cost.is_some()
             && (!entry.kind.is_spell()
-                || entry.cast_from != Zone::Exile
+                || (entry.cast_from != Zone::Exile && entry.hand_cast_permission.is_none())
                 || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
             || (entry.kind.is_spell()
                 && entry.cast_from == Zone::Exile

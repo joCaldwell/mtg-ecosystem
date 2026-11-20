@@ -1243,6 +1243,7 @@ impl Game {
                         cost_lock: None,
                         selected_additional_costs: None,
                         alternative_cost: None,
+                        hand_cast_permission: None,
                         x: None,
                         death_controller: trigger.death_controller,
                         sacrificed: None,

@@ -333,6 +333,8 @@ mod actions;
 mod divided_counters;
 pub use divided_counters::CounterDivision;
 mod cascade;
+mod hand_cast;
+use hand_cast::HandCastPermission;
 #[cfg(test)]
 mod cascade_tests;
 mod casting;
@@ -627,6 +629,15 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn has_combat_hand_cast(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::CombatHandCastV1))
+    }
+    fn snapshot_version(&self) -> u32 {
+        if self.has_combat_hand_cast() { 59 } else { 56 }
+    }
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
         let profile_digest = pod
@@ -899,6 +910,8 @@ struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     alternative_cost: Option<cascade::AlternativeCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    hand_cast_permission: Option<Box<HandCastPermission>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     death_controller: Option<PlayerId>,
@@ -1013,6 +1026,10 @@ enum Frame {
         source: ObjectId,
         scope: ManaSourceScope,
         resume: Box<Frame>,
+    },
+    HandCast {
+        frame: Box<Resolving>,
+        child: Option<StackId>,
     },
     Cascade {
         progress: Box<CascadeProgress>,
@@ -1272,6 +1289,11 @@ pub struct AcceptedInput {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    HandCast {
+        player: PlayerId,
+        decision_id: u64,
+        candidates: Vec<ObjectId>,
+    },
     AdditionalCosts {
         decision_id: u64,
         player: PlayerId,
@@ -1487,7 +1509,8 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::HandReturn { decision_id, .. }
+            Self::HandCast { decision_id, .. }
+            | Self::HandReturn { decision_id, .. }
             | Self::LibraryOrder { decision_id, .. }
             | Self::LibrarySelect { decision_id, .. }
             | Self::Scry { decision_id, .. }
@@ -1527,7 +1550,8 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::HandReturn { player, .. }
+            Self::HandCast { player, .. }
+            | Self::HandReturn { player, .. }
             | Self::LibraryOrder { player, .. }
             | Self::LibrarySelect { player, .. }
             | Self::Scry { player, .. }
@@ -2585,6 +2609,9 @@ impl Game {
         if let Some(req) = self.combat_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
+        if let Some(req) = self.hand_cast_request()? {
+            return Ok((req.player() == viewer).then_some(req));
+        }
         if let Some(req) = self.cascade_request()? {
             return Ok((req.player() == viewer).then_some(req));
         }
@@ -2732,6 +2759,9 @@ impl Game {
         }
         if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
             return self.validate_resolution_payment_response(payment, player, response);
+        }
+        if matches!(&self.state.rules.frame, Frame::HandCast { .. }) {
+            return self.validate_hand_cast_response(player, response);
         }
         if let Frame::Cascade { progress } = &self.state.rules.frame {
             return self.validate_cascade_response(progress, player, response);
@@ -3019,6 +3049,7 @@ impl Game {
         }
         match self.state.rules.frame.clone() {
             Frame::LandEntry { .. } => self.land_entry_step()?,
+            Frame::HandCast { frame, child } => self.hand_cast_step(frame, child)?,
             Frame::Cascade { progress } => self.cascade_step(*progress)?,
             Frame::ResolutionPayment { frame, payment } => {
                 self.resolution_payment_step(frame, payment)?
@@ -3161,6 +3192,13 @@ impl Game {
                     self.finish_spell(&stack, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
+                        Instruction::OfferHandCastWithoutManaCost { .. } => {
+                            self.state.rules.frame = Frame::HandCast {
+                                frame: Box::new(frame),
+                                child: None,
+                            };
+                            return Ok(());
+                        }
                         Instruction::Cascade { source_block, .. } => {
                             return self.begin_cascade(frame, *source_block);
                         }
@@ -3357,7 +3395,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 56,
+            snapshot_version: self.prepared.snapshot_version(),
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3399,7 +3437,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 56
+        if s.snapshot_version != prepared.snapshot_version()
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
@@ -3505,6 +3543,7 @@ impl Game {
         self.validate_commander_state()?;
         self.validate_actions_state()?;
         self.validate_cascade_state()?;
+        self.validate_hand_cast_state()?;
         for p in &s.rules.players {
             if (p.status == PlayerStatus::Left) != p.last_known.is_some()
                 || p.last_known

@@ -46,6 +46,7 @@ fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
 }
 fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match frame {
+        Frame::HandCast { frame, .. } => Some(&frame.spell),
         Frame::Cascade { progress } => Some(&progress.frame.spell),
         Frame::LandEntry {
             origin: EntryOrigin::Search { frame },
@@ -79,6 +80,7 @@ fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
 }
 fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
     match frame {
+        Frame::HandCast { frame, .. } => update_entry(&mut frame.spell, fact),
         Frame::Cascade { progress } => update_entry(&mut progress.frame.spell, fact),
         Frame::LandEntry {
             origin: EntryOrigin::Search { frame },
