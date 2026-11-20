@@ -5,7 +5,7 @@ use std::io;
 
 fn reference<'a>(game: &'a Game, digest: &'a str) -> SnapshotRef<'a> {
     SnapshotRef {
-        snapshot_version: 75,
+        snapshot_version: 76,
         build_id: BUILD_ID,
         catalog_digest: &game.prepared.catalog_digest,
         profile_digest: &game.prepared.profile_digest,
