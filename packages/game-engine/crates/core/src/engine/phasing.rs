@@ -153,6 +153,53 @@ impl Game {
         }
     }
 
+    pub(super) fn validate_phasing_state(&self) -> Result<(), String> {
+        for object in self.state.rules.objects.values() {
+            let Some(status) = object.phased_out else {
+                continue;
+            };
+            if object.zone != Zone::Battlefield
+                || self.state.rules.blocking_creatures.contains(&object.id)
+                || self
+                    .state
+                    .rules
+                    .combat
+                    .iter()
+                    .any(|a| a.attacker == object.id || a.blockers.contains(&object.id))
+            {
+                return Err("invalid phased-out battlefield or combat membership".into());
+            }
+            match status {
+                PhaseReturn::Direct {
+                    controller_at_phase_out,
+                } if controller_at_phase_out.0 >= 4 => {
+                    return Err("invalid phasing return seat".into());
+                }
+                PhaseReturn::Indirect { attached_to } => {
+                    if object.attached_to != Some(attached_to) {
+                        return Err("invalid indirect phasing attachment".into());
+                    }
+                    let mut seen = BTreeSet::from([object.id]);
+                    let mut parent = attached_to;
+                    while let Ok(host) = self.current(parent) {
+                        if !seen.insert(parent) {
+                            return Err("cyclic indirect phasing return".into());
+                        }
+                        match host.phased_out {
+                            Some(PhaseReturn::Indirect { attached_to }) => parent = attached_to,
+                            Some(PhaseReturn::Direct { .. }) => break,
+                            None => {
+                                return Err("indirectly phased attachment has present host".into());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     // No source may emit this transition until the remaining consumers and
     // replay boundary accept its status. One rules operation updates the set.
     pub(super) fn phase_out_controller_permanents(
@@ -186,12 +233,17 @@ impl Game {
         }
         let ids = schedule.phase_in_at_untap(self, previous_owner)?;
         for id in &ids {
-            self.state
-                .rules
-                .objects
-                .get_mut(&id.card)
-                .unwrap()
-                .phased_out = None;
+            let object = self.current(*id)?;
+            let lost_host = matches!(object.phased_out, Some(PhaseReturn::Direct { .. }))
+                && object
+                    .attached_to
+                    .is_some_and(|host| self.zone(host) != Some(Zone::Battlefield));
+            let returning = self.state.rules.objects.get_mut(&id.card).unwrap();
+            returning.phased_out = None;
+            if lost_host {
+                returning.attached_to = None;
+                returning.attachment_timestamp = None;
+            }
         }
         self.reconcile_controllers()?;
         Ok(ids)

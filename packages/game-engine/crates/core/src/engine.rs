@@ -3444,17 +3444,7 @@ impl Game {
     }
     fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
-        if self
-            .state
-            .rules
-            .objects
-            .values()
-            .any(|object| object.phased_out.is_some())
-        {
-            return Err(
-                "phasing restoration requires executable source and replay authority".into(),
-            );
-        }
+        self.validate_phasing_state()?;
         let s = &self.state;
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.
