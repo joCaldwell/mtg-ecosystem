@@ -3057,7 +3057,8 @@ impl Game {
                 if self.program()?.targets.iter().any(|t| {
                     !matches!(
                         t.domain,
-                        TargetDomain::ControlledBattlefieldCreature
+                        TargetDomain::CreatureOrPlaneswalker
+                            | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
