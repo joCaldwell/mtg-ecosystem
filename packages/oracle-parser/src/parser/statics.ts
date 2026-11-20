@@ -239,7 +239,16 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
 }
 
 export function parseStatic(c: Cursor): StaticEffect | null {
-  return c.attempt((c) => {
+  return c.attempt((c): StaticEffect | null => {
+    if (c.words("as", "you", "cascade")) {
+      if (!c.punct(",") || !c.words("you", "may", "put", "a", "land", "card", "from", "among", "the", "exiled", "cards")
+        || !c.words("onto", "the", "battlefield", "tapped")) return null;
+      c.punct(".");
+      if (!c.done()) return c.fail("end of cascade instruction");
+      return { static: "as-cascade", controller: { player: "you" },
+        choice: { optional: true, from: { ref: "cascade-exiled-cards" }, filter: { types: ["land"], cls: "card" },
+          count: 1, to: "battlefield", tapped: true } };
+    }
     // A printed ability never opens with a bare pronoun statement: "It's a …"
     // needs the clause that establishes "it" (a condition, or the preceding
     // instruction it completes), so it is not a free-standing static ability.

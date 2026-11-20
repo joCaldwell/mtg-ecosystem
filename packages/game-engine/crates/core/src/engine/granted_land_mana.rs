@@ -50,7 +50,7 @@ fn granted_land_mana_pays_cast_and_rechecks_departed_grant() {
     catalog.definitions.sort_by(|a,b| a.oracle_id.cmp(&b.oracle_id));
     catalog.validate().unwrap();
     let caster=PlayerId(0);
-    let mut add=|name: &str, owner, controller, zone| {
+    let add=|name: &str, owner, controller, zone| {
         let row=catalog.definitions.iter().find(|d| d.name==name || d.oracle_id==name).unwrap();
         CardSetup { id: CardId(0), oracle_id:row.oracle_id.clone(), owner, controller, zone }
     };

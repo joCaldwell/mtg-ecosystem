@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import type { Ability, ObjectRef, StaticEffect } from "../src/ast.ts";
 import { parseOracleText } from "../src/parser/index.ts";
+import { analyzeCardBindings } from "../src/semantic/bindings.ts";
 
 // Static abilities. Wordings are taken from
 // the cached Scryfall corpus; card names are noted per test.
@@ -29,6 +31,43 @@ function rejects(text: string, typeLine: string, name?: string) {
 const creature: ObjectRef = { ref: "this", noun: "creature" };
 const fixed = (value: number) => ({ amount: "fixed" as const, value });
 const eachOtherPlayer = { player: "filtered", base: { player: "each-player" }, filter: { otherThan: { player: "you" } } };
+
+it("binds Averna's optional land choice to the matching cascade occurrence", () => {
+  const fixture = new URL("../../game-engine/tests/fixtures/ramos/23695bc2-86d3-4d78-b374-9e83c4cc9cc4.json", import.meta.url);
+  const { source, oracleIdentity } = JSON.parse(readFileSync(fixture, "utf8"));
+  const parseSource = (text: string) => parseOracleText(text, source.name, { typeLine: source.type_line, includeSourceProvenance: true });
+  const result = parseSource(source.oracle_text);
+  assert.ok(result.ok, JSON.stringify(result.lines));
+  assert.deepEqual(JSON.parse(JSON.stringify(result.abilities)), [{ kind: "static", effect: { static: "as-cascade", controller: { player: "you" },
+    choice: { optional: true, from: { ref: "cascade-exiled-cards" }, filter: { types: ["land"], cls: "card" },
+      count: 1, to: "battlefield", tapped: true } } }]);
+  const graph = analyzeCardBindings({ identity: oracleIdentity, source, faces: [{ sourceFaceIndex: 0, result }] });
+  const you = graph.nodes.find(node => node.node === "runtime-player" && node.role === "static-source-controller");
+  const occurrence = graph.nodes.find(node => node.node === "cascade-occurrence");
+  const pool = graph.nodes.find(node => node.node === "cascade-exiled-pool");
+  const decider = graph.nodes.find(node => node.node === "derived-player" && node.role === "controller");
+  const event = graph.nodes.find(node => node.node === "event");
+  assert.ok(you && occurrence && pool && decider?.node === "derived-player" && event);
+  assert.equal(occurrence.controllerMatches, you.id);
+  assert.equal(decider.of, occurrence.id);
+  assert.equal(pool.occurrence, occurrence.id);
+  assert.equal(event.optional, true);
+  assert.equal(event.decider, decider.id);
+  assert.deepEqual(event.inputs, [pool.id]);
+  assert.deepEqual(graph.references.map(ref => [ref.expression, ref.binding === "bound" && ref.target]), [
+    [{ player: "you" }, you.id], [{ ref: "cascade-exiled-cards" }, pool.id],
+  ]);
+  assert.equal(graph.referencesBound, true, JSON.stringify(graph.diagnostics));
+  assert.equal(graph.fullyBound, false);
+  assert.deepEqual(graph.engineFeatures.map(need => need.feature), ["cascade-resolution"]);
+  for (const [printed, changed] of [
+    ["you cascade", "an opponent cascades"], ["you may put", "you put"], ["a land card", "a nonland card"],
+    ["the exiled cards", "cards in exile"], ["battlefield tapped", "battlefield tapped under an opponent's control"],
+  ]) {
+    const text = source.oracle_text.replace(printed, changed);
+    assert.equal(parseSource(text).ok, false, text);
+  }
+});
 
 describe("day/night as a permanent enters (CR 614.1c, 731.1)", () => {
   const neither = { condition: "day-night", state: "neither" };

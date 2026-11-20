@@ -164,16 +164,18 @@ impl Game {
         if !self.is_live(permission.caster) || self.cast_is_prohibited(permission.caster)? {
             return Ok(false);
         }
-        let program = self
-            .definition(permission.object.card)?
+        let definition = self.definition(permission.object.card)?;
+        let program = definition
             .spell
             .as_ref()
             .ok_or("cascade nonland is not a supported spell")?;
-        Ok(self.has_target_domain(program, permission.caster)
-            && program
-                .additional_sacrifice
-                .as_ref()
-                .is_none_or(|f| !self.sacrifice_candidates(permission.caster, f).is_empty()))
+        Ok(
+            self.has_target_domain(program, permission.caster, &definition.characteristics)
+                && program
+                    .additional_sacrifice
+                    .as_ref()
+                    .is_none_or(|f| !self.sacrifice_candidates(permission.caster, f).is_empty()),
+        )
     }
     pub(super) fn validate_resolution_permission(
         &self,

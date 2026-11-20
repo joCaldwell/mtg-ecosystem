@@ -1,4 +1,6 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+pub mod commander_modal_keyword;
+pub use commander_modal_keyword::akromas_will_program;
 mod granted_land_mana;
 pub use granted_land_mana::{granted_land_mana_printed, granted_land_mana_source, granted_land_mana_static};
 mod controller_land_types;
@@ -395,6 +397,7 @@ pub enum Capability {
     SelfDiesV1,
     InterveningIfV1,
     ModalChoiceV1,
+    CommanderModalKeywordGrantV1,
     NonemptyModeSubsetV1,
     DefenderV1,
     FlyingV1,
@@ -698,6 +701,9 @@ impl CreatureToken {
             && self.subtypes.iter().any(|s| {
                 unsupported_rules_subtype(s) || matches!(s.as_str(), "Aura" | "Equipment")
             }))
+            || self
+                .keywords
+                .contains(&KeywordAbility::ProtectionFromEachColor)
             || self.keywords.contains(&KeywordAbility::Flash)
             || self.keywords.contains(&KeywordAbility::Indestructible)
             || self.colors.contains(&Color::C)
@@ -2049,6 +2055,7 @@ pub enum KeywordAbility {
     #[serde(rename = "double strike")]
     DoubleStrike,
     Menace,
+    ProtectionFromEachColor,
 }
 impl<'de> Deserialize<'de> for KeywordAbility {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -2068,6 +2075,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
             "first strike" => Ok(Self::FirstStrike),
             "double strike" => Ok(Self::DoubleStrike),
             "menace" => Ok(Self::Menace),
+            "protection_from_each_color" => Ok(Self::ProtectionFromEachColor),
             "hexproof" => Ok(Self::Hexproof),
             "shroud" => Ok(Self::Shroud),
 
@@ -2087,6 +2095,7 @@ impl<'de> Deserialize<'de> for KeywordAbility {
                     "first strike",
                     "double strike",
                     "menace",
+                    "protection_from_each_color",
                     "hexproof",
                     "shroud",
                 ],
@@ -2165,6 +2174,7 @@ fn static_creature_modification_valid(
         || (*scope == CreatureScope::Enchanted && !aura)
         || (*scope == CreatureScope::Controller
             && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
+        || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
         || keywords.contains(&KeywordAbility::Flash)
         || (keywords.contains(&KeywordAbility::Indestructible)
             && (!equipment
@@ -2543,7 +2553,7 @@ impl Definition {
             add_program_requirements(&mut set, &ability.program);
         }
         for keyword in &self.keywords {
-            set.insert(intrinsic_keyword_capability(*keyword));
+            set.extend(intrinsic_keyword_capability(*keyword));
         }
         for a in &self.static_abilities {
             if let StaticEffect::GrantSpellCascade {
@@ -2680,7 +2690,7 @@ impl Definition {
                     && (!matches!(
                         self.characteristics.kind,
                         CardKind::Instant | CardKind::Sorcery
-                    ) || !ordinary_keyword_grant(p))
+                    ) || !(ordinary_keyword_grant(p) || akromas_will_program(p)))
             })
         {
             return Err("unsupported complete temporary keyword definition".into());
@@ -2989,6 +2999,12 @@ impl Definition {
         {
             return Err("keywords require creature characteristics".into());
         }
+        if self
+            .keywords
+            .contains(&KeywordAbility::ProtectionFromEachColor)
+        {
+            return Err("protection from each color requires the commander modal grant".into());
+        }
         if self.keywords.contains(&KeywordAbility::Flash) && c.kind == CardKind::Land {
             return Err("flash on lands is outside supported casting semantics".into());
         }
@@ -3027,6 +3043,7 @@ impl Definition {
         graveyard_battlefield_return::validate_definition(self)?;
         nonland_exile_life::validate_definition(self)?;
         own_graveyard_card_return::validate_definition(self)?;
+        commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
         granted_land_mana::validate_definition(self)?;
@@ -3867,7 +3884,10 @@ impl Definition {
                 {
                     return Err("invalid spell functioning zone or empty program".into());
                 }
-                validate_instruction_program(p)?;
+                // The closed modal grant was validated as a whole, including its protected child.
+                if !akromas_will_program(p) {
+                    validate_instruction_program(p)?;
+                }
             }
         }
         Ok(())
@@ -5109,8 +5129,9 @@ fn has_controller_discard(program: &SpellProgram) -> bool {
         .any(|m| has_controller_discard(&m.program))
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
-fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Capability {
-    match keyword {
+fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
+    Some(match keyword {
+        KeywordAbility::ProtectionFromEachColor => return None,
         KeywordAbility::Flash => Capability::FlashV1,
         KeywordAbility::Defender => Capability::DefenderV1,
         KeywordAbility::Flying => Capability::FlyingV1,
@@ -5125,7 +5146,7 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Capability {
         KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
         KeywordAbility::Menace => Capability::MenaceV1,
         KeywordAbility::Hexproof | KeywordAbility::Shroud => Capability::AttachmentsV1,
-    }
+    })
 }
 // One primitive mapping for targeted and set grants, including schema closure.
 fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Capability> {
@@ -5180,6 +5201,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
     }
     if !program.modes.is_empty() {
         set.insert(Capability::ModalChoiceV1);
+        if akromas_will_program(program) {
+            set.insert(Capability::CommanderModalKeywordGrantV1);
+        }
         if program.resolution == SpellResolution::OneOrMoreModes {
             set.insert(Capability::NonemptyModeSubsetV1);
         }
@@ -5788,7 +5812,10 @@ pub fn catalog_schema() -> serde_json::Value {
         .clone();
     for value in intrinsic_keywords {
         let keyword: KeywordAbility = serde_json::from_value(value.clone()).unwrap();
-        let capability = intrinsic_keyword_capability(keyword);
+        let Some(capability) = intrinsic_keyword_capability(keyword) else {
+            schema["$defs"]["Definition"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"const":value}}]});
+            continue;
+        };
         schema["$defs"]["Definition"].as_object_mut().unwrap()
             .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
             .push(serde_json::json!({
@@ -5801,7 +5828,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // separate battlefield grant to other controlled permanents.
     schema["$defs"]["CreatureToken"]["properties"]["additional_types"] = serde_json::json!({"type":"array","maxItems":1,"items":{"enum":["artifact","enchantment"]}});
     extend_multitype_token_schema(&mut schema);
-    schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible"]}}]});
+    schema["$defs"]["CreatureToken"]["properties"]["keywords"]["items"] = serde_json::json!({"allOf":[{"$ref":"#/$defs/KeywordAbility"},{"not":{"enum":["flash","indestructible","protection_from_each_color"]}}]});
     let grant = serde_json::json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{"required":["effect"],"properties":{"effect":{"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}}}}}}}}});
     let permanent_grant_effect = serde_json::json!({
         "const": StaticEffect::GrantOtherControlledPermanentsIndestructible
@@ -5834,14 +5861,14 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["StaticEffect"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .push(serde_json::json!({"properties":{"modify_creatures":{
-            "properties":{"keywords":{"items":{"not":{"const":"flash"}}}},
+            "properties":{"keywords":{"items":{"not":{"enum":["flash","protection_from_each_color"]}}}},
             "if":{"required":["keywords"],"properties":{"keywords":{"contains":{"const":"indestructible"}}}},
             "then":{"properties":{"scope":{"const":"equipped"},"power":{"const":"0"},"toughness":{"const":"0"},"keywords":{"const":["indestructible"]},"restrictions":{"const":[]}}}
         }}}));
     schema["$defs"]["Definition"].as_object_mut().unwrap()
         .entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap()
         .extend([
-            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible)]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
+            serde_json::json!({"if":{"anyOf":[intrinsic.clone(),grant.clone(),permanent_grant.clone(),temporary_keyword("indestructible"),temporary_set_keyword(KeywordAbility::Indestructible),{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}]},"then":{"properties":{"capabilities":{"contains":{"const":"indestructible_v1"}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":"indestructible_v1"}}}}}}),
             serde_json::json!({"if":permanent_grant,"then":{"properties":{
                 "characteristics":{"properties":{"kind":{"const":"creature"}}},
                 "static_abilities":{"maxItems":1},"activated":{"maxItems":0},
@@ -6468,7 +6495,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({"properties":{
         "activated":{"items":{"anyOf":[{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}},{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordAbility"}]}},
         "triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}},
-        "spell":{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}
+        "spell":{"anyOf":[{"$ref":"#/$defs/CommanderModalKeywordProgram"},{"properties":{"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/KeywordGrantFreeProgram"}}}}}}]}
     }}));
     // Optional fields deserialize null as None. Only a non-null cost/restriction
     // selects this family; a selected counter cost must then be a positive quantity.
@@ -6626,7 +6653,7 @@ pub fn catalog_schema() -> serde_json::Value {
     ]});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"anyOf":[set_grant_program,{"required":["instructions"],"properties":{"instructions":{"contains":controller_set}}}]},
-        "then":set_family_program
+        "then":{"anyOf":[set_family_program,{"$ref":"#/$defs/CommanderModalKeywordChild"}]}
     }));
     // Recursion fences every mode, trigger and activation as well as top-level spells.
     schema["$defs"]["KeywordGrantFreeProgram"]["properties"]["instructions"]["items"]["not"]["properties"]
@@ -6691,7 +6718,7 @@ pub fn catalog_schema() -> serde_json::Value {
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::CastSorceryV1}},{"not":{"contains":{"const":Capability::CastInstantV1}}}]}}}}
         ]},"else":{"if":{"$ref":"#/$defs/HasActivatedSetKeyword"},
             "then":{"$ref":"#/$defs/SacrificeSourceCreatureSetKeywordDefinition"},
-            "else":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}}
+            "else":{"if":{"not":{"required":["spell"],"properties":{"spell":{"$ref":"#/$defs/CommanderModalKeywordProgram"}}}},"then":{"properties":{"capabilities":{"items":{"not":{"enum":[creature_cap,permanent_cap]}}}}}}}
     }));
     sacrifice_set::schema(&mut schema);
     // Keep the Aura-control operation and capability paired with its complete
@@ -6870,6 +6897,7 @@ pub fn catalog_schema() -> serde_json::Value {
     flash_end_step_draw::extend_schema(&mut schema);
     paid_counted_draw::extend_schema(&mut schema);
     power_entry_draw::extend_schema(&mut schema);
+    commander_modal_keyword::extend_schema(&mut schema);
     divided_plus_one_counters::extend_schema(&mut schema);
     power_filtered_removal::extend_schema(&mut schema);
     creature_entry_return::extend_schema(&mut schema);
@@ -7101,6 +7129,7 @@ mod tests {
             SelfDiesV1,
             InterveningIfV1,
             ModalChoiceV1,
+            CommanderModalKeywordGrantV1,
             NonemptyModeSubsetV1,
             DefenderV1,
             FlyingV1,
@@ -7573,6 +7602,7 @@ mod tests {
         definitions.push(power_filtered_removal::witness());
         definitions.push(cast_payer_draw::witness());
         definitions.push(divided_plus_one_counters::witness());
+        definitions.push(commander_modal_keyword::witness());
         definitions.push(creature_entry_return::witness());
         definitions.push(entry_graveyard_exile::witness(CardKind::Land));
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));

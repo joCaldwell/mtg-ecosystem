@@ -210,7 +210,7 @@ fn permanent_target_kernel_control_type_zone_incarnation_targetability_and_prefl
     let (g, _, _) = kernel(PAIR, 1);
     let entry = frame(&g).spell;
     let p = g.program_for(&entry).unwrap();
-    assert!(g.has_target_domain(p, PlayerId(0)));
+    assert!(g.has_target_domain(p, PlayerId(0), g.targeting_characteristics(&entry).unwrap()));
     for id in [1, 2, 4] {
         assert!(g.object_target_legal(&entry, object(&g, id)));
     }

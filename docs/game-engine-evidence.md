@@ -236,4 +236,5 @@ Death sweep `93755057`:56/29/0, `generated/ramos/destruction-main94/`.
 `4e4db6ca`:58/27/0, `generated/ramos/cast-loss-main102/`.
 Activations `c3ef4bd0`:61/24/0,55/33, `generated/ramos/activated-composition/`.
 Sweeps `44618fda`:64/21/0,58/36/32, IR1, `generated/ramos/sweep-compositions-main111/`.
+Mixed mana `226507a0`:66/19/0,60/38/34, `generated/ramos/mixed-mana-main115/`.
 Deck/consumer admission remains open.
