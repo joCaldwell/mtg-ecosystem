@@ -369,5 +369,16 @@
     "record_sha256": [
       "e7f74eeafcd6a4ba0a23cdeb1f02cc3b6bbeb643b83bdef426f949904639f49b"
     ]
+  },
+  {
+    "manifest_file": "archive-manifest-progenitus-replacement.json",
+    "manifest_sha256": "2e336b680c306296fc5d57d75c5b49a5f3e2b1de36cde7c6c7f2d6a7309ffe4d",
+    "file_sha256": "c5fbc3e89be7b8c69fa6b4e2a74deec2509b214a2484e1200f7ef86cf7f64ab2",
+    "parser_revision": "2aca551f2c228827c317d21f1531c90402d6c690",
+    "parser_source_sha256": "0cd08bef4a2d3896ca42c2753ad6e1225953b5d8b718ee255b4e80e5fa73fbb5",
+    "corpus_sha256": "fce8dbaed9058a3824a1a38a80706f55982432910761353cdb2d6734292600ee",
+    "record_sha256": [
+      "5a438fee440e791120c3dad3722c39d999ba1046e9915c0f49ff82bd4177f5cf"
+    ]
   }
 ]
