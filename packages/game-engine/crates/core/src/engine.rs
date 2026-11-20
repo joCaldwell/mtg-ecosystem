@@ -636,16 +636,6 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
-    fn phased_formats(&self) -> bool {
-        self.catalog.definitions.iter().any(|d| {
-            d.capabilities
-                .contains(&Capability::ControlledPermanentPhasingV1)
-                || d.capabilities.contains(&Capability::ControllerLifeFreezeV1)
-                || d.capabilities
-                    .contains(&Capability::ControllerProtectionUntilNextTurnV1)
-        })
-    }
-
     // Existing reviewed catalogs keep their exact private snapshot envelope.
     // The headless land-type family can retain new unpaid selection frames.
     fn has_land_type_grant(&self) -> bool {
@@ -2346,7 +2336,6 @@ pub struct SnapshotWriteInfo {
     pub state_sha256: String,
 }
 pub struct Game {
-    phased_formats: bool,
     catalog_has_land_type_grant: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
@@ -2505,7 +2494,6 @@ impl Game {
             },
         };
         let mut game = Self {
-            phased_formats: prepared.phased_formats(),
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
             prepared: Arc::new(prepared),
             state,
@@ -2528,7 +2516,6 @@ impl Game {
     }
     pub fn fork(&self) -> Self {
         Self {
-            phased_formats: self.phased_formats,
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
             prepared: self.prepared.clone(),
             state: self.state.clone(),
@@ -3590,7 +3577,6 @@ impl Game {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
         let game = Self {
-            phased_formats: prepared.phased_formats(),
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
             prepared: Arc::new(prepared),
             state: s.state,
