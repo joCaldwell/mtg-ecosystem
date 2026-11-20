@@ -181,6 +181,9 @@ export type BindingNode = NodeBase & (
       execution: { kind: "draw"; players: string[]; amount: number; order: "apnap" }
         | { kind: "for-each"; domain: string; member: string; membership: "announcement" | "resolution"; processing: "instruction-wise" } }
   /** The targets that are still legal when this set of per-player targets resolves. */
+  | { node: "bounded-payment-amount"; scope: string; payment: string; payer: string; minimum: 0; maximum: string }
+  | { node: "destroyed-permanents"; scope: string; event: string; destination: "graveyard";
+      information: "before-move"; cardinality: "many" }
   | { node: "controller-search"; scope: string; exile: string; player: string; decision: string;
       search: string; entry: string; shuffle: string }
   | { node: "result-union"; scope: string; from: string[]; cardinality: "many" }
@@ -265,7 +268,7 @@ export interface BindingDiagnostic {
  * - reveal-and-cast: resolve the scan, random bottom placement and immediate cast (CR 608.2c–g). */
 export type EngineFeature = "protection-from-everything" | "graveyard-reveal-and-shuffle"
   | "event-history" | "damage-prevention" | "characteristic-layers" | "cascade-resolution"
-  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search";
+  | "repeatable-modal-selection" | "cast-keyword-grant" | "permanent-spell-copy" | "entry-copy-replacement" | "demonstrate" | "reveal-and-cast" | "hideaway-resolution" | "linked-exile-play" | "look-top-may-reveal-for-mana" | "quantity-replacement" | "devotion" | "counter-change-event" | "stack-instruction" | "text-change" | "private-library-look" | "recipient-dependent-damage" | "characteristic-predicate" | "static-rule" | "keep-unspent-mana" | "library-scan" | "card-copy" | "group-instruction" | "event-aggregate" | "monstrosity-event" | "emblem" | "linked-exile-pool" | "intrinsic-payment" | "action-cost-condition" | "value-exchange" | "targeting-permission" | "phase-scheduling" | "counter-destination" | "activation-permission" | "class-level" | "attack-declaration" | "attack-payment" | "zone-replacement" | "source-dependent-damage" | "multi-library-exile" | "sequential-cast" | "private-exile-look" | "exile-and-search-results" | "shared-land-type-search" | "opponent-group-damage" | "controller-search" | "bounded-payment-amount";
 export interface EngineFeatureNeed {
   feature: EngineFeature;
   path: string;

@@ -1237,3 +1237,56 @@ describe("resolution choices and participant identity", () => {
     assert.ok(!graph.nodes.some(node => node.node === "controller-search"));
   });
 });
+
+describe("actual outcomes across payments and players", () => {
+  it("limits a resolution payment to the triggering life gain and supplies X only on payment", () => {
+    const graph = analyze("Whenever you gain life, you may pay {X}, where X is less than or equal "
+      + "to the amount of life you gained. If you do, draw X cards.", "Artifact");
+    boundCard(graph);
+    const payment = graph.nodes.find(node => node.node === "bounded-payment-amount");
+    assert.ok(payment);
+    assert.equal(payment.id, bound(graph, "/costs/0/symbols/0"));
+    assert.equal(payment.id, bound(graph, "/effects/1/steps/0/amount"));
+    assert.ok(graph.nodes.some(node => node.id === payment.maximum && node.node === "event-result"));
+  });
+
+  it("does not supply the paid X to the branch that declined to pay", () => {
+    const graph = analyze("Whenever you gain life, you may pay {X}, where X is less than or equal "
+      + "to the amount of life you gained. If you don't, draw X cards.", "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(graph.references.some(reference => reference.path.endsWith("/steps/0/amount") && reference.binding === "unresolved"));
+  });
+
+  it("uses each permanent's former controller only for actual moves to the graveyard", () => {
+    const graph = analyze("When this creature enters, you may destroy up to three target noncreature permanents. "
+      + "For each permanent put into a graveyard this way, its controller creates a 3/3 green Elephant creature token.", "Creature");
+    boundCard(graph);
+    const destroyed = graph.nodes.find(node => node.node === "destroyed-permanents");
+    assert.ok(destroyed && destroyed.destination === "graveyard" && destroyed.information === "before-move");
+    const member = bound(graph, "/who/of");
+    assert.ok(graph.nodes.some(node => node.id === member && node.node === "instruction-member" && node.group === destroyed.id));
+    assert.ok(graph.nodes.some(node => node.id === destroyed.event && node.node === "event" && node.optional));
+  });
+
+  it("does not use a destroy event when the immediately prior action was another instruction", () => {
+    const graph = analyze("Destroy target artifact. Draw a card. For each permanent put into a graveyard this way, "
+      + "its controller creates a 3/3 green Elephant creature token.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "destroyed-permanents"));
+  });
+
+  it("binds a group of actual tokens created across all players", () => {
+    const graph = analyze("Each player creates three tapped 1/1 white Warrior creature tokens. Goad those tokens.", "Sorcery");
+    boundCard(graph);
+    assert.ok(graph.engineFeatures.some(feature => feature.feature === "group-instruction"));
+    const tokens = bound(graph, "/effects/1/steps/0/what");
+    assert.ok(graph.nodes.some(node => node.id === tokens && node.node === "event-result" &&
+      node.cardinality === "many" && node.identity === "new-objects"));
+  });
+
+  it("rejects a group reference after two independent token instructions", () => {
+    const graph = analyze("Each player creates three tapped 1/1 white Warrior creature tokens. "
+      + "Create a Gold token. Goad those tokens.", "Sorcery");
+    assert.equal(graph.referencesBound, false);
+  });
+});
