@@ -1250,44 +1250,118 @@ mod fixed_target_mode_tests {
 
     #[test]
     fn paid_mixed_target_modes_place_counters_then_shuffle_opposing_graveyard_and_replay() {
-        let result = mtg_compiler::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
-            include_str!(
-                "../../../../tests/fixtures/ramos/9c0f7cdc-9095-40ae-bf83-75a5ffda72b9.json"
-            ),
-        );
-        let mtg_compiler::CompileResult::Lowered { definition } = result else {
-            panic!("{result:?}")
-        };
-        let mut p = prepared(
-            &[
-                ("Forest", true),
-                ("Forest", false),
-                ("Forest", false),
-                ("Island", false),
-                ("Grizzly Bears", false),
-                ("Forest", false),
-            ],
-            false,
-        );
-        let owner = PlayerId(1);
-        p.config.cards[0].oracle_id = definition.oracle_id.clone();
-        p.config.cards[4].owner = PlayerId(2);
-        p.config.cards[4].controller = PlayerId(2);
-        p.config.cards[5].owner = owner;
-        p.config.cards[5].controller = owner;
-        p.config.cards[5].zone = Zone::Graveyard { owner };
-        let c = Arc::make_mut(&mut p.catalog);
-        c.definitions.push(*definition);
-        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-        c.validate().unwrap();
-        p.catalog_digest = digest(&*p.catalog).unwrap();
-        p.profile_digest = digest(&p.config).unwrap();
+        let p = crate::engine::staples_tests::seeded_mixed_target_fixture(include_str!(
+            "../../../../tests/fixtures/ramos/9c0f7cdc-9095-40ae-bf83-75a5ffda72b9.json"
+        ));
         let mut g = Game::with_trace(p, TraceMode::Detailed);
-        request(&mut g, 1);
-        let card = object(&g, 0).card;
-        let creature = object(&g, 4);
-        let buried = object(&g, 5);
+        let owner = PlayerId(1);
+        let mut board = None;
+        for _ in 0..1200 {
+            let r = request(&mut g, 1);
+            let seat = r.player();
+            let response = match &r {
+                Request::Mulligan { .. } => Response::Mulligan { take: false },
+                Request::Priority { .. }
+                    if g.active_player() == Some(seat)
+                        && g.turn().step == TurnStep::PrecombatMain
+                        && matches!(seat.0, 0 | 2) =>
+                {
+                    let lands = g
+                        .state
+                        .rules
+                        .objects
+                        .values()
+                        .filter(|o| {
+                            o.zone == Zone::Battlefield
+                                && o.controller == seat
+                                && g.definition(o.id.card)
+                                    .unwrap()
+                                    .characteristics
+                                    .has_type(CardKind::Land)
+                        })
+                        .count();
+                    if seat == PlayerId(0) && lands >= 3 {
+                        let find = |zone, name| {
+                            g.state
+                                .rules
+                                .objects
+                                .values()
+                                .find(|o| {
+                                    o.zone == zone && g.definition(o.id.card).unwrap().name == name
+                                })
+                                .unwrap()
+                                .id
+                        };
+                        let card = find(Zone::Hand { owner: seat }, "Quandrix Command").card;
+                        let creature = find(Zone::Battlefield, "Isamaru, Hound of Konda");
+                        let buried = g
+                            .state
+                            .rules
+                            .objects
+                            .values()
+                            .find(|o| o.zone == Zone::Graveyard { owner })
+                            .unwrap()
+                            .id;
+                        board = Some((card, creature, buried));
+                        break;
+                    }
+                    if seat == PlayerId(2)
+                        && lands > 0
+                        && let Some(id) = g
+                            .state
+                            .rules
+                            .objects
+                            .values()
+                            .find(|o| o.zone == Zone::Command { owner: seat })
+                            .map(|o| o.id.card)
+                    {
+                        answer(&mut g, 1, Response::Cast { card: id });
+                        pay_and_resolve(&mut g, 1, vec![]);
+                        continue;
+                    }
+                    if g.turn().lands_played == 0 && (seat == PlayerId(0) || lands == 0) {
+                        let name = if seat == PlayerId(2) {
+                            "Plains"
+                        } else if lands == 0 {
+                            "Island"
+                        } else {
+                            "Forest"
+                        };
+                        let card = g
+                            .state
+                            .rules
+                            .objects
+                            .values()
+                            .find(|o| {
+                                o.zone == Zone::Hand { owner: seat }
+                                    && g.definition(o.id.card).unwrap().name == name
+                            })
+                            .unwrap()
+                            .id
+                            .card;
+                        Response::PlayLand { card }
+                    } else {
+                        Response::Pass
+                    }
+                }
+                Request::Priority { .. } => Response::Pass,
+                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                Request::Discard {
+                    count, candidates, ..
+                } => Response::Discard {
+                    objects: candidates
+                        .iter()
+                        .copied()
+                        .filter(|o| g.definition(o.card).unwrap().name != "Quandrix Command")
+                        .take(*count)
+                        .collect(),
+                },
+                other => panic!("unexpected seeded development {other:?}"),
+            };
+            g.respond(seat, r.decision_id(), response).unwrap();
+        }
+        let (card, creature, buried) = board.expect("paid mixed-mode opening");
+        let before = g.state.rules.match_state.as_ref().unwrap().library_shuffles;
         let mut departed = g.fork();
         answer(&mut departed, 1, Response::Cast { card });
         answer(&mut departed, 1, Response::ModeSubset { modes: vec![0, 3] });
@@ -1368,12 +1442,24 @@ mod fixed_target_mode_tests {
                 2.into()
             );
             assert_eq!(
-                branch.zone(object(&branch, 5)),
+                branch.zone(branch.object_id(buried.card).unwrap()),
                 Some(if select_card {
                     Zone::Library { owner }
                 } else {
                     Zone::Graveyard { owner }
                 })
+            );
+            let mut expected = before;
+            expected[owner.0 as usize] += 1;
+            assert_eq!(
+                branch
+                    .state
+                    .rules
+                    .match_state
+                    .as_ref()
+                    .unwrap()
+                    .library_shuffles,
+                expected
             );
             recover(&branch);
         }
