@@ -74,6 +74,7 @@ use optional_costs::KickedCondition;
 mod artifact_loss;
 mod artifact_modal;
 mod conditional_lands;
+mod controller_land_types;
 mod cycling;
 #[cfg(test)]
 mod cycling_tests;
@@ -2522,6 +2523,7 @@ fn lower(manifest: &str, record: &str) -> Result<Definition, Failure> {
             ));
         }
     }
+    controller_land_types::bind(&definition, &shape, &binding)?;
     definition.source_labels = Some(labels);
     definition
         .validate()
@@ -4442,6 +4444,9 @@ fn lower_static(effect: &SourceStaticEffect, source_block: u32) -> Result<Static
     }
     if let SourceStaticEffect::PlayerRule { rule } = effect {
         return unlimited_hand_size::lower_rule(rule);
+    }
+    if let Some(grant) = controller_land_types::lower(effect) {
+        return Ok(grant);
     }
     if let Some(grant) = static_permanent_indestructible::lower(effect) {
         return Ok(grant);

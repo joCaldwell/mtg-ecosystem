@@ -1507,7 +1507,7 @@ impl Game {
             return Err("snapshot trigger source invariant".into());
         }
         {
-            self.validate_characteristic_identity(source, &fact.characteristics)?;
+            self.validate_characteristic_identity(source, fact.zone, &fact.characteristics)?;
         }
         Ok(())
     }
@@ -1546,9 +1546,14 @@ impl Game {
                     let damage = &member.damage;
                     let fact = &damage.source;
                     let appearance = &member.match_source;
-                    self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                    self.validate_characteristic_identity(
+                        fact.object,
+                        fact.zone,
+                        &fact.characteristics,
+                    )?;
                     self.validate_characteristic_identity(
                         appearance.object,
+                        appearance.zone,
                         &appearance.characteristics,
                     )?;
                     if (damage.id.0 as usize) >= self.damage_limit()
@@ -1589,10 +1594,15 @@ impl Game {
                 match_source,
             } => {
                 let fact = &damage.source;
-                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+                self.validate_characteristic_identity(
+                    fact.object,
+                    fact.zone,
+                    &fact.characteristics,
+                )?;
                 if let Some(appearance) = match_source {
                     self.validate_characteristic_identity(
                         appearance.object,
+                        appearance.zone,
                         &appearance.characteristics,
                     )?;
                     if appearance.object != fact.object
@@ -1641,7 +1651,11 @@ impl Game {
                 attacker,
                 defender_player_id,
             } => {
-                self.validate_characteristic_identity(attacker.object, &attacker.characteristics)?;
+                self.validate_characteristic_identity(
+                    attacker.object,
+                    attacker.zone,
+                    &attacker.characteristics,
+                )?;
                 attacker.zone == Zone::Battlefield
                     && !attacker.tapped
                     && (attacker.attack_ready || attacker.keywords.contains(&KeywordAbility::Haste))
@@ -1666,6 +1680,7 @@ impl Game {
             TriggerEventWitness::SpellCast { cast } => {
                 self.validate_characteristic_identity(
                     cast.spell.object,
+                    cast.spell.zone,
                     &cast.spell.characteristics,
                 )?;
                 cast.history.turn_number > 0
@@ -1721,7 +1736,11 @@ impl Game {
                     && death_controller.is_none()
             }
             TriggerEventWitness::CreatureEnteredWithPower { entrant, movement } => {
-                self.validate_characteristic_identity(entrant.object, &entrant.characteristics)?;
+                self.validate_characteristic_identity(
+                    entrant.object,
+                    entrant.zone,
+                    &entrant.characteristics,
+                )?;
                 let token = self.state.rules.tokens.contains_key(&entrant.object.card);
                 let actual_entry = match movement {
                     Some(m) => {

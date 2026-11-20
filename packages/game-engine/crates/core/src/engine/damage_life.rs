@@ -369,7 +369,7 @@ impl Game {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            self.validate_characteristic_identity(entry.source, &fact.characteristics)?;
+            self.validate_characteristic_identity(entry.source, fact.zone, &fact.characteristics)?;
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {
