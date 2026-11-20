@@ -28,12 +28,18 @@ mod cast_entry;
 mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
+mod cast_subtype;
 pub mod catalog;
 mod checkland_entry;
 mod colored_library_search;
 mod combat_hand_cast;
+mod combat_window;
 mod commander_modal_keyword;
 mod composed_spell;
+#[cfg(test)]
+mod composition_wave_a_tests;
+#[cfg(test)]
+mod composition_wave_c_tests;
 mod controlled_creature_spell_copy;
 mod controlled_land_entry;
 mod controller_counted_draw;
@@ -66,7 +72,6 @@ mod entry_copy;
 mod entry_graveyard_exile;
 mod equipped_trigger;
 mod fetched_land_untap;
-mod fixed_color_protection;
 mod fixed_creature_damage;
 mod fixed_mill;
 #[cfg(test)]
@@ -81,6 +86,8 @@ mod hand_return;
 #[cfg(test)]
 mod hand_return_tests;
 mod hybrid_filter_mana;
+mod impulse_play;
+mod intrinsic_keyword_blocks;
 mod keyword_removal_wipe;
 mod land_entry_gain_life;
 mod land_entry_scry;
@@ -107,11 +114,13 @@ mod other_land_entry;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
 mod pain_mana;
+mod permanent_entry;
 #[cfg(test)]
 mod phase1_sequences_tests;
 mod power_entry_draw;
 mod power_filtered_removal;
 mod repeated_target_modes;
+mod resolution_mana;
 mod restricted_mana;
 mod reveal_land_entry;
 mod saga;
@@ -289,7 +298,7 @@ enum Ability {
     #[serde(skip)]
     ControllerWindowBlock,
     #[serde(skip)]
-    BasicLandwalkBlock,
+    BoundKeywords(Vec<KeywordAbility>),
     #[serde(rename = "additional-cost")]
     AdditionalCost {
         #[serde(rename = "abilityWord")]
@@ -1624,10 +1633,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         .map_err(|err| unsupported("binding", err));
     }
     let binding = decode(r.binding.get(), "binding")?;
-    let intrinsic_keywords = basic_landwalk::lower(&source, &shape, types.kind, &result, &binding)?
-        .or(fixed_color_protection::lower(
-            &source, &shape, types.kind, &result, &binding,
-        )?);
+    let intrinsic_keywords =
+        intrinsic_keyword_blocks::lower(&source, &shape, types.kind, &result, &binding)?;
     let mut attack_pump =
         source_attack_pump::lower(&source, &shape, types.kind, &result, &binding)?;
     let self_graveyard_shuffle =
@@ -1670,6 +1677,20 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             &archive.parser_source_sha256,
         )?,
     };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => resolution_mana::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
+    };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => {
+            combat_window::lower_spell(&shape, &result, &binding, &r.oracle_identity, types.kind)?
+        }
+    };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => impulse_play::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
+    };
     let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
         matches!(
@@ -1680,6 +1701,11 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             }]
         )
     });
+    let entrance_noun =
+        mtg_contracts::permanent_entry::noun(types.kind, &types.subtypes).or_else(|| {
+            (!intrinsic_keywords.is_empty() && types.kind == CardKind::Creature)
+                .then_some("creature")
+        });
     let abilities = if has_conditional_fetch {
         fetched_land_untap::decoded_activation(&canonical_abilities)?
     } else if let Some(program) = composition {
@@ -1694,8 +1720,6 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         vec![Ability::PlayerGraveyardShuffle]
     } else if controller_window.is_some() {
         vec![Ability::ControllerWindowBlock; 2]
-    } else if intrinsic_keywords.is_some() {
-        vec![Ability::BasicLandwalkBlock; result.lines.len()]
     } else if self_graveyard_shuffle {
         vec![
             Ability::PrintedProtectionFromEverything,
@@ -1716,11 +1740,21 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     } else if controlled_creature_spell_copy::candidate(&source) {
         vec![Ability::ControlledCreatureSpellCopy]
     } else {
-        if result.lines.iter().any(|l| {
-            l.text.starts_with(mtg_contracts::equipped_trigger::DAMAGE)
-                || l.text.starts_with(mtg_contracts::equipped_trigger::DIES)
-                || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
-        }) {
+        if !intrinsic_keywords.is_empty()
+            || result.lines.iter().any(|l| {
+                l.text.starts_with(mtg_contracts::equipped_trigger::DAMAGE)
+                    || l.text.starts_with(mtg_contracts::equipped_trigger::DIES)
+                    || (types.kind == CardKind::Creature
+                        && mtg_contracts::permanent_entry::each_creature_sacrifice(&l.text))
+                    || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
+                    || mtg_contracts::cast_subtype::candidate(&l.text)
+                    || (types.kind == CardKind::Land
+                        && mtg_contracts::combat_window::split_activation(&l.text).is_some())
+                    || entrance_noun.is_some_and(|noun| {
+                        mtg_contracts::permanent_entry::candidate(&l.text, noun)
+                    })
+            })
+        {
             let raw: Vec<Box<RawValue>> = decode(&canonical_abilities, "abilities")?;
             if raw.len() != result.lines.len() {
                 return Err(invalid("lines", "unaccounted equipped source block"));
@@ -1728,6 +1762,44 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             raw.iter()
                 .enumerate()
                 .map(|(block, raw)| {
+                    if let Some(keywords) = intrinsic_keywords.get(&block) {
+                        return Ok(Ability::BoundKeywords(keywords.clone()));
+                    }
+                    let entry_subject = entrance_noun.or_else(|| {
+                        (types.kind == CardKind::Creature
+                            && mtg_contracts::permanent_entry::each_creature_sacrifice(
+                                &result.lines[block].text,
+                            ))
+                        .then_some("creature")
+                    });
+                    if let Some(noun) = entry_subject
+                        && let Some(a) = permanent_entry::lower(
+                            block,
+                            &result,
+                            &binding,
+                            &shape,
+                            &r.oracle_identity,
+                            noun,
+                        )?
+                    {
+                        return Ok(a);
+                    }
+                    if let Some(a) =
+                        cast_subtype::lower(block, &result, &binding, &shape, &r.oracle_identity)?
+                    {
+                        return Ok(a);
+                    }
+                    if types.kind == CardKind::Land
+                        && let Some(a) = combat_window::lower_activation(
+                            block,
+                            &result,
+                            &binding,
+                            &shape,
+                            &r.oracle_identity,
+                        )?
+                    {
+                        return Ok(a);
+                    }
                     if let Some(a) = ability_sequence::lower(
                         block,
                         &result,
@@ -2105,7 +2177,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         mana_abilities,
         triggered: vec![],
         static_abilities: vec![],
-        keywords: intrinsic_keywords.unwrap_or_default(),
+        keywords: vec![],
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
             printing_id: source.id,
@@ -2228,7 +2300,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             };
             for (block, ability) in remaining_abilities.iter().enumerate() {
                 match ability {
-                    Ability::BasicLandwalkBlock => {}
+                    Ability::BoundKeywords(keywords) => definition.keywords.extend(keywords),
                     Ability::PrintedProtectionFromEverything => {
                         definition
                             .keywords

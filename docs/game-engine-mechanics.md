@@ -126,6 +126,28 @@ before typed search; paid roots retain LKI through source-owner departure.
 
 ## Casting, costs, targets and stack
 
+Fixed mana-producing spells and exact per-permanent mana multipliers use the
+ordinary stack. Casting pays all costs before resolution. The resolving spell
+counts matching permanents once and credits its controller through a staged
+mana event. A zero count leaves the mana pool untouched.
+
+Cast observers can match a spell subtype or a disjunction of subtypes against
+its frozen paid cast event. A temporary creature combat restriction attaches to
+the resolved target incarnation, expires in cleanup, and applies when blockers
+are declared (CR 506.4a, 509.1b). Its paid source and ordered sibling instructions
+remain distinct.
+
+A library play window follows the face-up exile successors of one exact
+resolution. The beneficiary uses ordinary priority, timing, costs, and land
+allowance. Leaving exile ends that incarnation's permission. An undone cast
+restores the original incarnation. A next-turn window expires in the cleanup
+of the beneficiary's next actual turn (CR 400.7j, 514.2, 611.2a).
+
+Fixed controller-relative stat modifiers reselect their recipients by live
+controller and creature type in layer 7c. Signed modifiers and independently
+verified intrinsic keyword blocks use the same layer from creature, artifact,
+and enchantment sources (CR 611.3, 613.4c).
+
 Stack projections run bottom to top. Saved announcement handles are historical
 and never bind successor incarnations; reversal restores living players' passes.
 Resolving frames retain frozen instances through supported source departure
@@ -372,6 +394,13 @@ controllers, actors, incarnations and witnesses. Power-filtered entries use
 derived post-event power; intervening conditions recheck at resolution. Source
 status uses current incarnation or departure-refreshed LKI. Cast triggers collect
 after successful payment; declared attacks use the real declaration batch.
+Intrinsic landwalk and fixed-color protection can share a card with separately
+proved entry effects and fixed paid creature activations. Entry triggers on
+artifacts, Equipment and Auras use the entering incarnation. Supported entry
+blocks can draw, change the controller's life, deal targeted damage or destroy
+a target. A one-creature sacrifice for each player collects choices in APNAP
+order and moves the chosen creatures together.
+
 Event-player, source controller, invocation controller and recipient cannot be
 interchanged. Optional “may” is an actual decision; unsupported source
 explanation blocks a browser control. Compiler presence does not expand

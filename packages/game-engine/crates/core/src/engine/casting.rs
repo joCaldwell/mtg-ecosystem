@@ -29,7 +29,8 @@ impl Game {
         let definition = self.definition(card)?;
         if !(object.zone == (Zone::Hand { owner: player })
             || (object.zone == (Zone::Command { owner: player })
-                && self.state.rules.commanders.history(card).is_some()))
+                && self.state.rules.commanders.history(card).is_some())
+            || self.may_play_exile(player, object.id))
             || self.state.rules.cards[&card].owner != player
             || definition.spell.is_none()
         {

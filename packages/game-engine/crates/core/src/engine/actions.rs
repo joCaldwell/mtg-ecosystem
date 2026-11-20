@@ -1426,12 +1426,19 @@ impl Game {
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::RegenerateSource { .. }
             | Instruction::GrantSourceKeywords { .. }
+            | Instruction::GrantCreatureRestriction { .. }
             | Instruction::ModifyPowerToughness { .. }
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::GrantHandCastCascade { .. }
             | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
+            Instruction::ExileLibraryForPlay { .. } => self.execute_impulse_play(frame),
+            Instruction::AddResolutionMana {
+                color,
+                quantity,
+                source_block,
+            } => self.produce_resolution_mana(frame, color, quantity, source_block),
             Instruction::DrainOpponents {
                 amount,
                 source_block,

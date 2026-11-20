@@ -443,12 +443,15 @@ impl Game {
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
         self.validate_hand_cast_child(entry)?;
+        let paid_exile = entry.cast_from == Zone::Exile
+            && self.paid_exile_cast_authorized(entry.controller, entry.source);
         if entry.alternative_cost == Some(cascade::AlternativeCost::Bestow)
             && (!entry.kind.is_spell()
                 || mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_none()
                 || (!self.is_spell_copy(entry)
                     && (entry.hand_cast_permission.is_some()
-                        || !matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller))))
+                        || (!paid_exile
+                            && !matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller)))))
         {
             return Err("invalid bestow casting authority".into());
         }
@@ -460,6 +463,7 @@ impl Game {
                 || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
             || (entry.kind.is_spell()
                 && entry.cast_from == Zone::Exile
+                && !paid_exile
                 && entry.alternative_cost != Some(cascade::AlternativeCost::WithoutManaCost))
         {
             return Err("snapshot alternative casting cost/origin invariant".into());

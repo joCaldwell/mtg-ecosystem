@@ -342,3 +342,29 @@ fn slice4_food_and_clue_use_normal_paid_abilities() {
         });
     }
 }
+
+#[test]
+fn composition_wave_a_paid_artifact_entry_keeps_mana_and_draw_programs_independent() {
+    use super::equipped_indestructible_tests::cast;
+    const PRISM: &str =
+        include_str!("../../../../tests/fixtures/134a9877-5cfb-4a2a-a0f0-930dce45f58b.json");
+    both(
+        prepared_with_sources(
+            &[
+                ("Prophetic Prism", 0, 0, true),
+                ("Forest", 0, 0, false),
+                ("Forest", 0, 0, false),
+            ],
+            &[PRISM],
+        ),
+        |g, q| {
+            let before = g.state.rules.libraries[&PlayerId(0)].len();
+            cast(g, q, 0, vec![]);
+            let prism = object(g, 0);
+            assert_eq!(g.current(prism).unwrap().zone, Zone::Battlefield);
+            assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), before - 1);
+            assert_eq!(g.definition(prism.card).unwrap().mana_abilities.len(), 1);
+            recover(g);
+        },
+    );
+}

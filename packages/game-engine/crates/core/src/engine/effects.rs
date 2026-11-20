@@ -62,6 +62,24 @@ impl ResolvedEffect {
             ResolvedEffectKind::ProtectControllerUntilNextTurn
         )
     }
+    fn extends_beyond_creation_turn(&self) -> bool {
+        self.lasts_until_controller_turn()
+            || matches!(
+                self.kind,
+                ResolvedEffectKind::PlayExiled {
+                    window: mtg_contracts::PlayWindow::ThroughNextControllerTurn,
+                    ..
+                }
+            )
+    }
+
+    fn survives_cleanup(&self, owner: PlayerId, turn: u64) -> bool {
+        self.extends_beyond_creation_turn()
+            && (self.lasts_until_controller_turn()
+                || self.origin.controller != owner
+                || self.expires_in_cleanup_of_turn == turn)
+    }
+
     pub(super) fn additional_land_plays(&self, player: PlayerId, turn: u64) -> Option<&Quantity> {
         match &self.kind {
             ResolvedEffectKind::AdditionalLandPlays { count }
@@ -102,10 +120,18 @@ pub enum ResolvedEffectKind {
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
     },
+    CombatRestriction {
+        target: ObjectId,
+        restriction: CreatureRestriction,
+    },
     ModifyPowerToughness {
         target: ObjectId,
         power: Quantity,
         toughness: Quantity,
+    },
+    PlayExiled {
+        objects: Vec<ObjectId>,
+        window: mtg_contracts::PlayWindow,
     },
     PreventCombatDamage,
     AdditionalLandPlays {
@@ -612,6 +638,28 @@ impl Game {
                     source_block,
                 )
             }
+            Instruction::GrantCreatureRestriction {
+                target_slot,
+                restriction,
+                source_block,
+            } => {
+                let target = *self
+                    .bound_object_target(&frame.spell, target_slot as usize)
+                    .ok_or("missing combat restriction target")?;
+                if frame.legal_targets.get(target_slot as usize) != Some(&true)
+                    || !self.target_is_creature(target)
+                {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                (
+                    ResolvedEffectKind::CombatRestriction {
+                        target,
+                        restriction,
+                    },
+                    source_block,
+                )
+            }
             Instruction::ModifyPowerToughness {
                 target_slot,
                 power,
@@ -716,6 +764,7 @@ impl Game {
         };
         let target_handles = match &kind {
             ResolvedEffectKind::GrantKeywords { target, .. }
+            | ResolvedEffectKind::CombatRestriction { target, .. }
             | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                 self.capture_trigger_source_handles(*target)?
             }
@@ -1490,6 +1539,26 @@ impl Game {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        Instruction::ExileLibraryForPlay {
+                            count,
+                            window,
+                            source_block,
+                        },
+                        ResolvedEffectKind::PlayExiled {
+                            objects,
+                            window: actual_window,
+                        },
+                    ) => {
+                        *window == *actual_window
+                            && *source_block == effect.origin.source_block
+                            && self.valid_impulse_effect_objects(effect, objects, *count)
+                            && objects.iter().all(|id| {
+                                self.current(*id)
+                                    .is_ok_and(|o| o.zone == Zone::Exile && o.hideaway.is_none())
+                            })
+                    }
+
+                    (
                         Instruction::RegenerateSource { source_block },
                         ResolvedEffectKind::RegenerationShield,
                     ) => {
@@ -1626,6 +1695,33 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
+                        Instruction::GrantCreatureRestriction {
+                            target_slot,
+                            restriction,
+                            source_block,
+                        },
+                        ResolvedEffectKind::CombatRestriction {
+                            target,
+                            restriction: actual,
+                        },
+                    ) => {
+                        restriction == actual
+                            && *source_block == effect.origin.source_block
+                            && frame.spell.mode.is_none()
+                            && (frame.spell.kind.is_spell()
+                                || frame.spell.kind.activated_index().is_some())
+                            && frame.spell.paid.is_some()
+                            && self.top()? == &frame.spell
+                            && self.bound_object_target(&frame.spell, *target_slot as usize)
+                                == Some(target)
+                            && frame.legal_targets.get(*target_slot as usize) == Some(&true)
+                            && self.target_is_creature(*target)
+                            && !self.state.rules.effects.iter().any(|active| {
+                                active.origin.stack_id == frame.spell.id
+                                    && active.origin.cursor == frame.cursor
+                            })
+                    }
+                    (
                         Instruction::ModifyPowerToughness {
                             target_slot,
                             power,
@@ -1726,6 +1822,7 @@ impl Game {
                             })
                     }
                     ResolvedEffectKind::GrantKeywords { target, .. }
+                    | ResolvedEffectKind::CombatRestriction { target, .. }
                     | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
@@ -1822,12 +1919,14 @@ impl Game {
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
                 self.state.rules.delayed_chapters.clear();
+                let turn = self.state.rules.turn.number;
+                let owner = self.state.rules.turn_owner;
                 let expired = self
                     .state
                     .rules
                     .effects
                     .iter()
-                    .filter(|e| !e.lasts_until_controller_turn())
+                    .filter(|e| !e.survives_cleanup(owner, turn))
                     .map(|e| e.id)
                     .collect();
                 let previous = self
@@ -1841,7 +1940,7 @@ impl Game {
                 self.state
                     .rules
                     .effects
-                    .retain(ResolvedEffect::lasts_until_controller_turn);
+                    .retain(|e| e.survives_cleanup(owner, turn));
                 for o in self.state.rules.objects.values_mut() {
                     o.marked_damage = Quantity::zero();
                     o.deathtouch_damage = false;
@@ -1977,7 +2076,7 @@ impl Game {
             if !ids.insert(e.id)
                 || e.id.0 >= self.state.rules.next_effect_id
                 || e.origin.controller.0 >= 4
-                || if e.lasts_until_controller_turn() {
+                || if e.extends_beyond_creation_turn() {
                     e.expires_in_cleanup_of_turn == 0
                         || e.expires_in_cleanup_of_turn > self.state.rules.turn.number
                 } else {
@@ -2009,6 +2108,45 @@ impl Game {
                     || !e.target_handles.is_empty()
                 {
                     return Err("invalid hand cast cascade effect attachment".into());
+                }
+                continue;
+            }
+            if let ResolvedEffectKind::CombatRestriction {
+                target,
+                restriction,
+            } = &e.kind
+            {
+                let source = self.copiable_definition(e.origin.source)?;
+                let program = if let Some(index) = e.origin.activated_ability {
+                    source.activated.get(index as usize).map(|a| &a.program)
+                } else {
+                    source.spell.as_ref()
+                };
+                if e.origin.mode.is_some()
+                    || e.target_handles.len() != 4
+                    || !self
+                        .copiable_definition(*target)?
+                        .characteristics
+                        .has_type(CardKind::Creature)
+                    || !matches!(program.and_then(|p|p.instructions.get(e.origin.cursor as usize)),
+                        Some(Instruction::GrantCreatureRestriction {restriction:expected,source_block,..})
+                            if expected==restriction && *source_block==e.origin.source_block)
+                {
+                    return Err("invalid historical combat restriction".into());
+                }
+                continue;
+            }
+            if let ResolvedEffectKind::PlayExiled { objects, window } = &e.kind {
+                let definition = self.copiable_definition(e.origin.source)?;
+                if !self.is_live(e.origin.controller)
+                    || e.origin.mode.is_some()
+                    || e.origin.activated_ability.is_some()
+                    || !matches!(definition.spell.as_ref().and_then(|p| p.instructions.get(e.origin.cursor as usize)),
+                        Some(Instruction::ExileLibraryForPlay { count, window: expected_window, source_block })
+                            if window == expected_window && *source_block == e.origin.source_block
+                                && self.valid_impulse_effect_objects(e, objects, *count))
+                {
+                    return Err("invalid historical play permission".into());
                 }
                 continue;
             }
@@ -2405,6 +2543,13 @@ pub enum VisibleEffect {
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
+    CombatRestriction {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        target: VisibleTarget,
+        restriction: CreatureRestriction,
+        expires_in_cleanup_of_turn: u64,
+    },
     ModifyPowerToughness {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2423,6 +2568,12 @@ pub enum VisibleEffect {
         origin: VisibleEffectSource,
         count: Quantity,
         expires_in_cleanup_of_turn: u64,
+    },
+    PlayExiled {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        cards: Vec<ObjectHandle>,
+        window: mtg_contracts::PlayWindow,
     },
     GrantHandCastCascade {
         handle: EffectHandle,
@@ -2695,6 +2846,16 @@ impl Game {
                 keywords: keywords.clone(),
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
+            ResolvedEffectKind::CombatRestriction {
+                target,
+                restriction,
+            } => VisibleEffect::CombatRestriction {
+                handle,
+                origin,
+                target: target_view(*target)?,
+                restriction: *restriction,
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
             ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power,
@@ -2723,6 +2884,19 @@ impl Game {
                     expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
                 }
             }
+            ResolvedEffectKind::PlayExiled { objects, window } => VisibleEffect::PlayExiled {
+                handle,
+                origin,
+                cards: objects
+                    .iter()
+                    .filter(|object| {
+                        self.current(**object)
+                            .is_ok_and(|o| o.zone == Zone::Exile && o.hideaway.is_none())
+                    })
+                    .map(|object| self.handle_for(viewer, *object))
+                    .collect::<Result<_, _>>()?,
+                window: *window,
+            },
             ResolvedEffectKind::GrantHandCastCascade { .. } => {
                 VisibleEffect::GrantHandCastCascade {
                     handle,

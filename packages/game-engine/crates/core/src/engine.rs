@@ -50,12 +50,16 @@ mod opponent_nonland_destroy_tests;
 #[cfg(test)]
 mod permanent_owner_hand_tests;
 use hideaway::HideawayLink;
+mod impulse_play;
+#[cfg(test)]
+mod impulse_play_tests;
 mod random_discard;
 mod removal;
 #[cfg(test)]
 mod removal_information_tests;
 #[cfg(test)]
 mod removal_tests;
+mod resolution_mana;
 mod sacrifice;
 #[cfg(test)]
 mod sacrifice_tests;
@@ -81,6 +85,8 @@ mod attachments_tests;
 mod aura_control_tests;
 #[cfg(test)]
 mod blocking_target_tests;
+#[cfg(test)]
+mod combat_window_tests;
 #[cfg(test)]
 mod composed_spell_tests;
 mod counter_placement;
@@ -4917,6 +4923,8 @@ mod tests {
 
 #[cfg(test)]
 mod indestructible_tests;
+#[cfg(test)]
+mod scoped_creature_stats_tests;
 #[cfg(test)]
 mod static_permanent_indestructible_tests;
 
