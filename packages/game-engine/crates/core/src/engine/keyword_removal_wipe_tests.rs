@@ -17,6 +17,25 @@ fn keyword_removal_wipe_paid_capture_and_recovery() {
     ))
     .unwrap();
     catalog.definitions.push(*definition);
+    for (header, raw) in [
+        (
+            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../tests/fixtures/f90fe86c-5cca-483b-93c2-6e856fa01c88.json"),
+        ),
+        (
+            manifest,
+            include_str!(
+                "../../../../tests/fixtures/ramos/216cb26e-8da9-478b-bfbc-8030f7adee72.json"
+            ),
+        ),
+    ] {
+        let result = mtg_compiler::compile(header, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("{result:?}");
+        };
+        catalog.definitions.push(*definition);
+    }
+
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -63,6 +82,7 @@ fn keyword_removal_wipe_paid_capture_and_recovery() {
     let opposing = add("Darksteel Myr", rival, Zone::Battlefield);
     let own = add("Darksteel Myr", caster, Zone::Battlefield);
     let ordinary = add("Grizzly Bears", rival, Zone::Battlefield);
+    let grant_source = add("Avacyn, Angel of Hope", rival, Zone::Battlefield);
     let land = add("Island", rival, Zone::Battlefield);
     let prepared = Prepared {
         catalog_digest: digest(&catalog).unwrap(),
@@ -79,6 +99,10 @@ fn keyword_removal_wipe_paid_capture_and_recovery() {
         game.respond(request.player(), request.decision_id(), response)
             .unwrap();
     };
+    assert!(
+        game.current_keywords(game.object_id(ordinary).unwrap())
+            .contains(&KeywordAbility::Indestructible)
+    );
     answer(&mut game, Response::Cast { card: spell });
     for id in sources {
         let object = game.object_id(id).unwrap();
@@ -94,7 +118,7 @@ fn keyword_removal_wipe_paid_capture_and_recovery() {
         panic!("expected priority after destruction");
     };
     assert!(game.state.rules.stack.is_empty());
-    for id in [opposing, ordinary] {
+    for id in [opposing, ordinary, grant_source] {
         assert_eq!(
             game.current(game.object_id(id).unwrap()).unwrap().zone,
             Zone::Graveyard { owner: rival }
@@ -126,7 +150,7 @@ fn keyword_removal_wipe_paid_capture_and_recovery() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(destroy.occurrences.len(), 3);
+    assert_eq!(destroy.occurrences.len(), 4);
     assert!(matches!(
         destroy.occurrences[1].actual,
         EventOutcome::DestructionPrevented { .. }
