@@ -256,6 +256,13 @@ export type BindingNode = NodeBase & (
       timing: "trigger-check-and-resolution" }
   | { node: "named-vote"; scope: string; event: string; start: string; names: string[] }
   | { node: "vote-outcome"; scope: string; event: string; choice: string; comparison: "strict-majority" }
+  /** One resolution-local choice per opponent, with a shared reveal. */
+  | { node: "secret-choice-reveal"; scope: string; event: string; choosers: string; controller: string;
+      options: [string, string]; collection: "private-apnap"; count: "one-per-chooser"; reveal: "simultaneous" }
+  | { node: "secret-choice-outcome"; scope: string; revealed: string; recipients: string;
+      damage: { amount: number; timing: "simultaneous"; sourceInformation: "current-or-last-known" };
+      when: { kind: "unanimous"; choice: string; unless?: string } | { kind: "otherwise"; unless: [string, string] } }
+  | { node: "secret-choice-subset"; scope: string; revealed: string; chose: string; cardinality: "many" }
   | { node: "linked-pool-condition"; scope: string; pool: string; comparison: "nonempty"; timing: "trigger-check-and-resolution" }
   | { node: "exile-play-lifetime"; scope: string; exile: string; player: string; duration: "while-that-object-is-exiled" | "end-of-turn" | "your-next-end-step";
       visibility?: "turn-face-up-before-announcement-unless-cast-face-down"; requiresDecision?: string }
@@ -303,6 +310,11 @@ export type BindingNode = NodeBase & (
   | { node: "targeting-permission"; scope: string; controller: string; affected: string[]; evaluation: "each-target-legality-check";
       duration: Extract<Effect, { effect: "targeting-as-though" }>["duration"] }
   | { node: "scheduled-phase"; scope: string; phase: Extract<Trigger, { trigger: "phase-in-turn" }>["phase"]; turn: "next" }
+  /** The matched step occurrence, and the attachment criterion at match time. */
+  | { node: "first-upkeep-start"; scope: string; event: string; enchantedPlayer: string;
+      occurrence: "first-actual-upkeep-of-turn"; attachmentAt: "trigger-match" }
+  | { node: "upkeep-insertion"; scope: string; event: string; player: string; after: string;
+      count: Amount; placement: "same-phase"; order: "most-recent-first" }
   | { node: "skip-draw-step"; scope: string; who: string }
   | { node: "cast-mana-paid"; scope: string; occurrence: string; measure: "total" }
   | { node: "cast-history-exclusion"; scope: string; occurrence: string; caster: string }

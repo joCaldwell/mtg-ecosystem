@@ -386,6 +386,7 @@ interface Context {
   castActors?: { caster: Candidate; filter: ObjectFilter };
   stackPlacement?: Candidate;
   singleTargetStackGuard?: true;
+  firstUpkeep?: { scope: string; occurrence: string; player: Candidate };
   /** A scope whose capture/antecedent rules are not implemented. */
   barrier?: string;
   replacementSubjectPath?: string;
@@ -436,6 +437,7 @@ interface Context {
   linkedExile?: LinkedExileOrigin;
   countedLinkedPool?: Candidate;
   namedVote?: { path: string; event: string; names: string[] };
+  unexportedSecretChoices?: true;
   weightedMode?: string;
   lexicalAbilityPath?: string;
   delayedSchedule?: boolean;
@@ -2796,6 +2798,11 @@ class Analyzer {
       return undefined;
     }
     if (expression.player === "you") return this.bound(expression, path, context.you, ["109.5"]);
+    if (expression.player === "those-players" && context.unexportedSecretChoices) {
+      this.unresolved(expression, path, "unsupported-scope",
+        "The private choice cohort and its outcome recipients are local to that instruction.", ["608.2c", "608.2d"]);
+      return undefined;
+    }
     if (expression.player === "chosen-player") {
       this.unresolved(expression, path, "unsupported-reference", "The chosen player requires its exact announcement, resolution or linked pre-entry choice; no new selection is implied.", ["601.2c", "608.2d", "607.1c", "607.2d"]);
       return undefined;
@@ -5740,6 +5747,65 @@ class Analyzer {
     }
     return true;
   }
+  private insertUpkeep(effect: Extract<Effect, { effect: "add-steps" }>, path: string, context: Context): void {
+    const rules = ["500.2", "500.9", "503.1", "805.8"];
+    const matched = context.firstUpkeep;
+    if (context.barrier || context.phase !== "resolution" || matched?.scope !== context.ability) {
+      this.unresolved(effect.who, child(path, "who"), "unsupported-scope",
+        "An added upkeep after this step requires the matched upkeep occurrence and player.", rules);
+      return;
+    }
+    this.walk(effect.count, child(path, "count"), context);
+    const player = this.bound(effect.who, child(path, "who"), matched.player.id, ["113.7a", "603.2c"]);
+    const event = this.event(path, context, effect.effect, [player], context.conditional ? { conditional: true } : {});
+    this.node({ id: this.id(path, "upkeep-insertion"), path, node: "upkeep-insertion", scope: context.ability,
+      event, player: player.id, after: matched.occurrence, count: effect.count, placement: "same-phase", order: "most-recent-first", rules });
+    this.engineFeature("phase-scheduling", path,
+      "Insert the additional upkeep after the captured step in the same phase, newest insertion first.", rules);
+  }
+
+  private secretChoiceDamage(effect: Extract<Effect, { effect: "secret-choice-damage" }>, path: string, context: Context): void {
+    const rules = ["101.1", "101.4", "102.2", "109.5", "608.2c", "608.2d", "608.2f", "608.2h", "701.38c"];
+    if (context.barrier || context.phase !== "resolution") {
+      this.unresolved(effect.who, child(path, "who"), "unsupported-scope",
+        "Private choices and their shared reveal require a single resolution scope.", rules);
+      return;
+    }
+    const choosers = this.player(effect.who, child(path, "who"), context);
+    if (!choosers) return;
+    const outcomePath = (index: number) => child(child(path, "outcomes"), index);
+    const outcomeId = (index: number) => this.id(outcomePath(index), "secret-choice-outcome");
+    const sources = effect.outcomes.map((outcome, index) =>
+      this.object(outcome.source, child(outcomePath(index), "source"), { ...this.branch(context), lastKnown: true }));
+    if (!sources.every(source => source !== undefined)) return;
+    const event = this.event(path, context, "secret-choice-reveal", [choosers], context.conditional ? { conditional: true } : {});
+    const revealed = this.node({ id: this.id(path, "secret-choice-reveal"), path, node: "secret-choice-reveal",
+      scope: context.ability, event, choosers: choosers.id, controller: context.you, options: effect.choices,
+      collection: "private-apnap", count: "one-per-chooser", reveal: "simultaneous", rules });
+    for (const [index, outcome] of effect.outcomes.entries()) {
+      const at = outcomePath(index);
+      const recipients = outcome.when === "unanimous" ? choosers : {
+        id: this.node({ id: this.id(at, "secret-choice-subset"), path: child(at, "recipients"),
+          node: "secret-choice-subset", scope: context.ability, revealed, chose: outcome.recipients.chose,
+          cardinality: "many", rules }),
+        cardinality: "many" as const, domain: "player" as const,
+      };
+      // Preserve printed precedence even if there are no remaining choosers
+      // and both universal predicates would otherwise be vacuously true.
+      const when = outcome.when === "unanimous" ? {
+        kind: "unanimous" as const, choice: outcome.choice, ...(index === 1 ? { unless: outcomeId(0) } : {}),
+      }
+        : { kind: "otherwise" as const, unless: [outcomeId(0), outcomeId(1)] as [string, string] };
+      const condition = this.node({ id: outcomeId(index), path: at, node: "secret-choice-outcome", scope: context.ability,
+        revealed, recipients: recipients.id, when,
+        damage: { amount: outcome.amount.value, timing: "simultaneous", sourceInformation: "current-or-last-known" }, rules });
+      this.event(at, context, "damage", [sources[index], recipients], { conditional: true, condition, requiresResult: revealed });
+    }
+    this.engineFeature("multiplayer-choice", path,
+      "Collect one private choice from each opponent, reveal them together, and deal damage to the recipients of the single matching outcome.", rules);
+    context.unexportedSecretChoices = true;
+  }
+
   effect(effect: Effect, path: string, context: Context): void {
     const precedingEffect = context.previousEffect;
     context.previousEffect = path;
@@ -5749,6 +5815,8 @@ class Analyzer {
     context.directCardChoice = undefined;
     const exportedCast = context.explicitExiledCast?.path === precedingEffect ? context.explicitExiledCast : undefined;
     context.explicitExiledCast = undefined;
+    if (effect.effect === "add-steps") return this.insertUpkeep(effect, path, context);
+    if (effect.effect === "secret-choice-damage") return this.secretChoiceDamage(effect, path, context);
     if (effect.effect === "choose-object") context.uncertainTargetOrigin = true;
     const graveyardReturn = this.graveyardReturnScope(effect, path, context);
     if (effect.effect === "reveal") context.uncertainRevealOrigin = true;
@@ -6411,6 +6479,21 @@ class Analyzer {
     return true;
   }
   triggerPattern(trigger: Trigger, path: string, context: Context): void {
+    if (trigger.trigger === "phase" && trigger.firstEachTurn && !context.barrier) {
+      const rules = ["303.4b", "500.11", "503.1", "603.2c", "614.10a"];
+      const enchanted = this.player(trigger.whose, child(path, "whose"), { ...context, phase: "trigger-match" });
+      if (!enchanted) return;
+      const event = this.event(path, context, "trigger:phase", [enchanted]);
+      const occurrence = this.node({ id: this.id(path, "first-upkeep-start"), path, node: "first-upkeep-start",
+        scope: context.ability, event, enchantedPlayer: enchanted.id, occurrence: "first-actual-upkeep-of-turn",
+        attachmentAt: "trigger-match", rules });
+      const player = this.eventResult(path, event, "player", "one", "same-objects");
+      context.firstUpkeep = { scope: context.ability, occurrence, player };
+      context.players = [player];
+      this.engineFeature("phase-scheduling", path,
+        "Match only the first upkeep that starts in the turn and capture its step and the matched enchanted player at trigger time.", rules);
+      return;
+    }
     if (trigger.trigger === "player-attacks" && !context.barrier && trigger.per === "declaration" &&
         trigger.who.player === "you" && trigger.whom &&
         (trigger.whom.player === "a-player" || trigger.whom.player === "the-initiative-holder") &&
@@ -6859,6 +6942,7 @@ class Analyzer {
           stackCopies: previous.stackCopies, previousEffect: previous.previousEffect, uncertainStackOrigin: previous.uncertainStackOrigin,
           scans: previous.scans, dieResults: previous.dieResults, uncertainDieOrigin: previous.uncertainDieOrigin, uncertainScanOrigin: previous.uncertainScanOrigin, uncertainRevealOrigin: previous.uncertainRevealOrigin,
           copiedCards: previous.copiedCards, uncertainCardCopyOrigin: previous.uncertainCardCopyOrigin,
+          unexportedSecretChoices: previous.unexportedSecretChoices,
           measuredEvents: previous.measuredEvents, uncertainMeasureOrigin: previous.uncertainMeasureOrigin,
           declaredTargets: previous.declaredTargets, uncertainTargetOrigin: previous.uncertainTargetOrigin });
         this.sentences(ability.effects, child(path, "effects"), context);
