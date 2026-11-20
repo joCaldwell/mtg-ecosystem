@@ -60,6 +60,15 @@ impl Game {
         &'a self,
         entry: &'a StackInstance,
     ) -> Result<&'a Characteristics, String> {
+        if entry.alternative_cost == Some(cascade::AlternativeCost::Bestow) && entry.kind.is_spell()
+        {
+            return entry
+                .source_facts
+                .as_ref()
+                .filter(|fact| fact.object == entry.source)
+                .map(|fact| &fact.characteristics)
+                .ok_or_else(|| "missing bestowed source facts".into());
+        }
         if self.current(entry.source).is_ok() {
             Ok(&self.definition(entry.source.card)?.characteristics)
         } else {

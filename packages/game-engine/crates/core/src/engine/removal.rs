@@ -171,13 +171,14 @@ impl Game {
                     .iter()
                     .find(|e| e.id == *id)
                     .is_some_and(|entry| {
-                        self.definition(entry.source.card).is_ok_and(|d| {
+                        self.targeting_characteristics(entry).is_ok_and(|c| {
                             (!controlled_creature
                                 || (entry.controller == controller
-                                    && d.characteristics.has_type(CardKind::Creature)))
-                                && spec.filter.as_ref().is_none_or(|f| {
-                                    f.types.iter().any(|k| d.characteristics.has_type(*k))
-                                })
+                                    && c.has_type(CardKind::Creature)))
+                                && spec
+                                    .filter
+                                    .as_ref()
+                                    .is_none_or(|f| f.types.iter().any(|k| c.has_type(*k)))
                         })
                     })
             })
@@ -207,10 +208,7 @@ impl Game {
                         .iter()
                         .find(|e| Some(&e.id) == entry.stack_targets.get(slot))
                         .ok_or("missing LKI stack target")?;
-                    (
-                        e.controller,
-                        self.definition(e.source.card)?.characteristics.clone(),
-                    )
+                    (e.controller, self.targeting_characteristics(e)?.clone())
                 } else {
                     let object = *entry
                         .targets

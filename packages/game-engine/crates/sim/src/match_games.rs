@@ -1460,6 +1460,7 @@ mod admission_and_host_tests {
             current: Some(ObjectHandle("own-permanent".into())),
         };
         let entry = |name: &str| mtg_core::VisibleStackEntry {
+            bestowed: false,
             selected_additional_costs: None,
             x: None,
             mana_value: None,

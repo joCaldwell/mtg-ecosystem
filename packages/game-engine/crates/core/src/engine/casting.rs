@@ -6,6 +6,7 @@ use super::*;
 /// Priority and the exact one-use cascade permission supply separate authorities;
 /// both consume this proposal and use the same announcement/payment stages.
 struct SpellAnnouncement {
+    bestow: bool,
     player: PlayerId,
     original_object: ObjectId,
     cast_from: Zone,
@@ -17,6 +18,7 @@ impl Game {
         &self,
         player: PlayerId,
         card: CardId,
+        bestow: bool,
     ) -> Result<SpellAnnouncement, String> {
         if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player
         {
@@ -33,19 +35,28 @@ impl Game {
         {
             return Err("invalid or unsupported cast".into());
         }
-        let program = definition.spell.as_ref().ok_or("missing cast program")?;
+        let program = if bestow {
+            mtg_contracts::bestow_alternative(definition)
+                .ok_or("missing bestow permission")?
+                .1
+        } else {
+            definition.spell.as_ref().ok_or("missing cast program")?
+        };
         // CR 601.2/702.8a: only the permission authority supplies timing/zone
         // access. Global prohibitions still apply to every eventual authority.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         if program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
-        if let Some(reason) =
-            self.spell_proposal_obstacle(program, player, &definition.characteristics)
-        {
+        if let Some(reason) = self.spell_proposal_obstacle(
+            program,
+            player,
+            &self.proposed_cast_characteristics(card, bestow)?,
+        ) {
             return Err(reason.into());
         }
         Ok(SpellAnnouncement {
+            bestow,
             player,
             original_object: object.id,
             cast_from: object.zone,
@@ -80,7 +91,8 @@ impl Game {
         player: PlayerId,
         card: CardId,
     ) -> Result<(), String> {
-        self.priority_spell_announcement(player, card).map(|_| ())
+        self.priority_spell_announcement(player, card, false)
+            .map(|_| ())
     }
 
     pub(super) fn announce_priority_spell(
@@ -88,10 +100,49 @@ impl Game {
         player: PlayerId,
         card: CardId,
     ) -> Result<(), String> {
-        let announcement = self.priority_spell_announcement(player, card)?;
+        let announcement = self.priority_spell_announcement(player, card, false)?;
         self.begin_spell_announcement(announcement)
     }
 
+    pub(super) fn validate_priority_bestow(
+        &self,
+        player: PlayerId,
+        card: CardId,
+    ) -> Result<(), String> {
+        self.priority_spell_announcement(player, card, true)
+            .map(|_| ())
+    }
+    pub(super) fn announce_priority_bestow(
+        &mut self,
+        player: PlayerId,
+        card: CardId,
+    ) -> Result<(), String> {
+        let announcement = self.priority_spell_announcement(player, card, true)?;
+        self.begin_spell_announcement(announcement)
+    }
+    pub(super) fn is_bestowed_spell(&self, object: ObjectId) -> bool {
+        self.state.rules.stack.iter().any(|s| {
+            s.source == object
+                && s.kind.is_spell()
+                && s.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+        })
+    }
+    pub(super) fn proposed_cast_characteristics(
+        &self,
+        card: CardId,
+        bestow: bool,
+    ) -> Result<Characteristics, String> {
+        let definition = self.definition(card)?;
+        if !bestow {
+            return Ok(definition.characteristics.clone());
+        }
+        let (cost, _) = mtg_contracts::bestow_alternative(definition)
+            .ok_or("missing printed bestow permission")?;
+        Ok(
+            mtg_contracts::BestowCastPlan::new(&definition.characteristics, cost.clone())?
+                .characteristics(mtg_contracts::BestowForm::Aura),
+        )
+    }
     pub(super) fn announce_resolution_spell(
         &mut self,
         permission: CastPermission,
@@ -99,6 +150,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_resolution_permission(&permission, &progress)?;
         self.begin_spell_announcement(SpellAnnouncement {
+            bestow: false,
             player: permission.caster,
             original_object: permission.object,
             cast_from: Zone::Exile,
@@ -119,6 +171,7 @@ impl Game {
             return Err("unavailable hand spell".into());
         }
         self.begin_spell_announcement(SpellAnnouncement {
+            bestow: false,
             player,
             original_object: object,
             cast_from: Zone::Hand { owner: player },
@@ -130,6 +183,7 @@ impl Game {
     // and unfinished payment marker. No cast occurrence is emitted here.
     fn begin_spell_announcement(&mut self, announcement: SpellAnnouncement) -> Result<(), String> {
         let SpellAnnouncement {
+            bestow,
             player,
             original_object,
             cast_from,
@@ -138,7 +192,7 @@ impl Game {
         let card = original_object.card;
         self.check_stack_capacity(1)?;
         let alternative_cost = match &completion {
-            CastCompletion::Priority => None,
+            CastCompletion::Priority => bestow.then_some(cascade::AlternativeCost::Bestow),
             CastCompletion::HandTrigger { .. } => Some(cascade::AlternativeCost::WithoutManaCost),
             CastCompletion::Resolution { permission, .. } => Some(permission.alternative_cost),
         };
@@ -175,6 +229,10 @@ impl Game {
             )?
             .successor;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
+        let mut source_facts = self.object_before(source)?;
+        if bestow {
+            source_facts.characteristics = self.proposed_cast_characteristics(card, true)?;
+        }
         self.state.rules.stack.push(StackInstance {
             cost_lock: None,
             selected_additional_costs: None,
@@ -188,7 +246,7 @@ impl Game {
             mode_subset: None,
             mode: None,
             effect_source_handles,
-            source_facts: Some(self.object_before(source)?),
+            source_facts: Some(source_facts),
             entity_targets: vec![],
             announced_entity_targets: vec![],
             stack_targets: vec![],

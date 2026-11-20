@@ -502,6 +502,9 @@ impl RootHandleMap {
     }
     pub fn response(&self, response: &PlayerResponse) -> Result<PlayerResponse, String> {
         Ok(match response {
+            PlayerResponse::Bestow { card } => PlayerResponse::Bestow {
+                card: self.object(card)?,
+            },
             PlayerResponse::Cast { card } => PlayerResponse::Cast {
                 card: self.object(card)?,
             },

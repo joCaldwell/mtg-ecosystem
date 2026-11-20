@@ -1327,6 +1327,9 @@ pub enum Response {
     ActivateMana {
         object: ObjectId,
     },
+    Bestow {
+        card: CardId,
+    },
     Cast {
         card: CardId,
     },
@@ -2697,6 +2700,13 @@ impl Game {
     fn root_program_for(&self, stack: &StackInstance) -> Result<&SpellProgram, String> {
         let definition = self.definition(stack.source.card)?;
         match &stack.kind {
+            StackKind::Spell
+                if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow) =>
+            {
+                mtg_contracts::bestow_alternative(definition)
+                    .map(|(_, program)| program)
+                    .ok_or_else(|| "missing bestow cast program".to_owned())
+            }
             StackKind::Spell => definition
                 .spell
                 .as_ref()
@@ -3041,6 +3051,9 @@ impl Game {
             {
                 Ok(())
             }
+            (Frame::Priority, Response::Bestow { card }) if self.state.rules.priority == player => {
+                self.validate_priority_bestow(player, *card)
+            }
             (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
                 self.validate_priority_spell_cast(player, *card)
             }
@@ -3243,6 +3256,9 @@ impl Game {
                     Response::ActivateMana { object } => {
                         self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
+                    Response::Bestow { card } => {
+                        self.announce_priority_bestow(input.player, card)?
+                    }
                     Response::Cast { card } => {
                         self.announce_priority_spell(input.player, card)?;
                     }
@@ -3346,7 +3362,14 @@ impl Game {
                     .is_some_and(|check| !check.passed())
                     || (!frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l))
                 {
-                    self.finish_spell(&stack, false)?;
+                    if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                        && frame.condition_check.is_none()
+                        && frame.legal_targets == [false]
+                    {
+                        self.complete_spell(&stack, true, true)?;
+                    } else {
+                        self.finish_spell(&stack, false)?;
+                    }
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
                         Instruction::OfferHandCastWithoutManaCost { .. } => {
@@ -3456,6 +3479,14 @@ impl Game {
         Ok(())
     }
     fn finish_spell(&mut self, stack: &StackInstance, resolved: bool) -> Result<(), String> {
+        self.complete_spell(stack, resolved, false)
+    }
+    fn complete_spell(
+        &mut self,
+        stack: &StackInstance,
+        resolved: bool,
+        bestow_fallback: bool,
+    ) -> Result<(), String> {
         if !stack.kind.is_spell() {
             return self.finish_ability(stack, resolved);
         }
@@ -3481,7 +3512,9 @@ impl Game {
                     Zone::Graveyard { owner }
                 };
             if destination == Zone::Battlefield
-                && self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"]
+                && !bestow_fallback
+                && (stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                    || self.definition(stack.source.card)?.characteristics.subtypes == ["Aura"])
             {
                 self.finish_spell_aura_entry(
                     stack.source,
@@ -3571,7 +3604,7 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 66,
+            snapshot_version: 69,
             build_id: BUILD_ID,
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
@@ -3613,7 +3646,7 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 66
+        if s.snapshot_version != 69
             || s.build_id != BUILD_ID
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest

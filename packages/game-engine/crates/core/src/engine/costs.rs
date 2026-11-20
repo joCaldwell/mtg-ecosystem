@@ -162,6 +162,12 @@ impl Game {
             match alternative {
                 None => definition.characteristics.mana_cost.clone(),
                 Some(cascade::AlternativeCost::WithoutManaCost) => zero_mana_cost(),
+                Some(cascade::AlternativeCost::Bestow) => {
+                    mtg_contracts::bestow_alternative(definition)
+                        .ok_or("missing printed bestow cost")?
+                        .0
+                        .clone()
+                }
             },
             x,
             &additional,

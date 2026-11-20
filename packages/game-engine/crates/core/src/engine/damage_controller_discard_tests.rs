@@ -619,3 +619,123 @@ fn combat_hand_cast_uses_trigger_controller_and_pays_the_child_additional_cost()
     );
     recover(&game);
 }
+
+#[test]
+fn paid_bestow_ordinary_attachment_detachment_and_illegal_target_fallback() {
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/ramos/695ee4fe-356d-47fb-9442-d171b618151c.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("bestow source must lower: {compiled:?}")
+    };
+    let mut setup = prepared(false, false);
+    setup.config.cards[0].oracle_id = ISAMARU.into();
+    setup.config.cards[0].owner = PlayerId(1);
+    setup.config.cards[0].controller = PlayerId(1);
+    setup.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let mut lands = Vec::new();
+    for id in [
+        "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
+        "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+        SWAMP,
+        "a3fb7228-e76b-4e96-a40e-20b5fed75685",
+        FOREST,
+        SWAMP,
+        SWAMP,
+    ] {
+        let card = CardId(setup.config.cards.len() as u32);
+        lands.push(card);
+        setup.config.cards.push(CardSetup {
+            id: card,
+            oracle_id: id.into(),
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: Zone::Battlefield,
+        });
+    }
+    let catalog = Arc::make_mut(&mut setup.catalog);
+    catalog.definitions.push(*definition.clone());
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    setup.catalog_digest = digest(catalog).unwrap();
+    setup.profile_digest = digest(&setup.config).unwrap();
+    for (bestow, depart_before_resolution) in [(false, false), (true, false), (true, true)] {
+        let mut g = Game::new(setup.clone());
+        let card = CardId(1);
+        let target = g.object_id(CardId(0)).unwrap();
+        let before = g.characteristics(target).unwrap();
+        if bestow {
+            answer(&mut g, Response::Bestow { card });
+            assert!(matches!(settle(&mut g), Request::Targets { .. }));
+            answer(
+                &mut g,
+                Response::Targets {
+                    objects: vec![target],
+                },
+            );
+        } else {
+            answer(&mut g, Response::Cast { card });
+        }
+        assert!(matches!(settle(&mut g), Request::Mana { .. }));
+        let cost = g.top().unwrap().total_cost.clone();
+        assert_eq!(cost.generic, if bestow { 2.into() } else { 0.into() });
+        for &land in lands.iter().take(if bestow { 7 } else { 5 }) {
+            let object = g.object_id(land).unwrap();
+            answer(&mut g, Response::ActivateMana { object });
+        }
+        answer(&mut g, Response::FinishMana { undo_mana: false });
+        if matches!(settle(&mut g), Request::SpendMana { .. }) {
+            let mut spending = BTreeMap::<Color, Quantity>::new();
+            for c in &cost.colored {
+                spending.entry(*c).or_default().add(&1.into());
+            }
+            spending.entry(Color::B).or_default().add(&cost.generic);
+            answer(&mut g, Response::SpendMana { spending });
+        }
+        settle(&mut g);
+        let entry = g.top().unwrap();
+        assert_eq!(entry.paid.as_ref(), Some(&cost));
+        assert_eq!(g.is_bestowed_spell(entry.source), bestow);
+        assert_eq!(
+            g.characteristics(entry.source)
+                .unwrap()
+                .has_type(CardKind::Creature),
+            !bestow
+        );
+        recover(&g);
+        if depart_before_resolution {
+            g.concede(PlayerId(1)).unwrap();
+        }
+        for _ in 0..40 {
+            settle(&mut g);
+            if g.state.rules.stack.is_empty() {
+                break;
+            }
+            passive(&mut g);
+        }
+        let permanent = g.object_id(card).unwrap();
+        assert_eq!(g.zone(permanent), Some(Zone::Battlefield));
+        if bestow && !depart_before_resolution {
+            let c = g.characteristics(permanent).unwrap();
+            assert_eq!(c.subtypes, ["Aura"]);
+            assert_eq!(g.current(permanent).unwrap().attached_to, Some(target));
+            let mut expected = before.power.clone().unwrap();
+            expected.add(&4.into());
+            assert_eq!(g.characteristics(target).unwrap().power, Some(expected));
+            assert!(g.has_keyword(target, KeywordAbility::Flying));
+            recover(&g);
+            g.concede(PlayerId(1)).unwrap();
+            settle(&mut g);
+        }
+        assert_eq!(g.object_id(card), Some(permanent));
+        assert_eq!(g.current(permanent).unwrap().attached_to, None);
+        assert_eq!(
+            g.characteristics(permanent).unwrap(),
+            definition.characteristics
+        );
+        recover(&g);
+    }
+}
