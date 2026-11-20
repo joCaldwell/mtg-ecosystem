@@ -53,6 +53,9 @@ use hideaway::HideawayLink;
 mod impulse_play;
 #[cfg(test)]
 mod impulse_play_tests;
+mod optional_block;
+#[cfg(test)]
+mod optional_block_tests;
 mod random_discard;
 mod removal;
 #[cfg(test)]
@@ -2489,6 +2492,10 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    OptionalBlock {
+        accepted_by: Option<PlayerId>,
+    },
+    OptionalSkipped,
     DelayedChapterRegistered {
         issuer: StackId,
     },

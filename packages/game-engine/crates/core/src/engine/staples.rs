@@ -29,6 +29,9 @@ impl<'a> LandSearch<'a> {
                 source_block,
                 ..
             } => (None, 1, false, *force_tapped, *source_block),
+            Instruction::SearchRecipientBasicLand { source_block, .. } => {
+                (None, 1, false, true, *source_block)
+            }
             Instruction::SearchBasicLandsSplit { source_block } => {
                 (None, 2, true, true, *source_block)
             }
@@ -79,6 +82,28 @@ impl Game {
                 .get(frame.cursor as usize)?,
         )
     }
+    fn search_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
+        let program = self.program_for(&frame.spell)?;
+        if let Some(Instruction::SearchRecipientBasicLand { recipient, .. }) =
+            program.instructions.get(frame.cursor as usize)
+        {
+            let player = self
+                .optional_recipient(frame, recipient)?
+                .ok_or("missing search recipient")?;
+            let prior = frame
+                .cursor
+                .checked_sub(1)
+                .and_then(|i| program.instructions.get(i as usize));
+            if !matches!(prior, Some(Instruction::ChooseOptional { chooser, following: 1, .. }) if chooser == recipient)
+                || !matches!(frame.outcomes.last(), Some(InstructionOutcome::OptionalBlock { accepted_by: Some(actor) }) if *actor == player)
+            {
+                return Err("target-controller search requires its accepted optional block".into());
+            }
+            return Ok(player);
+        }
+        Ok(frame.spell.controller)
+    }
+
     fn active_land_search(&self) -> Option<LandSearch<'_>> {
         if let Frame::LandEntry {
             origin: EntryOrigin::Search { frame },
@@ -106,7 +131,7 @@ impl Game {
             ..
         } = &self.state.rules.frame
         {
-            if frame.spell.controller != player {
+            if self.search_player(frame)? != player {
                 return Err("wrong entry search controller".into());
             }
             return self.entry_search_force_tapped(frame);
@@ -114,7 +139,7 @@ impl Game {
         let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
             return Err("no searched land entry".into());
         };
-        if frame.spell.controller != player
+        if self.search_player(frame)? != player
             || !matches!(
                 choice,
                 ResolutionChoice::Search { .. } | ResolutionChoice::SearchSplit { .. }
@@ -150,8 +175,9 @@ impl Game {
     ) -> Result<(), String> {
         self.entry_search_block(frame)?;
         let search = self.land_search_for(frame).ok_or("missing entry search")?;
-        let player = frame.spell.controller;
-        if !self.is_live(player)
+        let player = self.search_player(frame)?;
+        if frame.entry_search_player() != player
+            || !self.is_live(player)
             || objects.len() > search.maximum as usize
             || objects.iter().any(|o| {
                 self.current(*o).is_err()
@@ -171,7 +197,7 @@ impl Game {
         batch: &CommittedBatch,
     ) -> Result<(), String> {
         let source_block = self.entry_search_block(&frame)?;
-        let player = frame.spell.controller;
+        let player = self.search_player(&frame)?;
         let fetched_land = self
             .conditional_basic_fetch_minimum(&frame)?
             .map(|_| self.searched_basic_successor(player, batch))
@@ -506,7 +532,8 @@ impl Game {
                 };
                 Ok(())
             }
-            op @ (Instruction::SearchBasicLands { .. }
+            op @ (Instruction::SearchRecipientBasicLand { .. }
+            | Instruction::SearchBasicLands { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::FetchBasicLand { .. }
             | Instruction::SearchTypedLands { .. }) => {
@@ -517,13 +544,18 @@ impl Game {
                     descriptor.source_block,
                     descriptor.split,
                 );
-                if !self.is_live(frame.spell.controller) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                let player = self.search_player(&frame)?;
+                if !self.is_live(player) {
+                    let outcome = if matches!(op, Instruction::SearchRecipientBasicLand { .. }) {
+                        InstructionOutcome::PlayerActionSkipped { player }
+                    } else {
+                        InstructionOutcome::Effect { actual: None }
+                    };
+                    return self.finish_instruction(frame, outcome);
                 }
                 self.state.rules.frame = Frame::ResolutionChoice {
                     choice: ResolutionChoice::Search {
-                        player: frame.spell.controller,
+                        player,
                         maximum,
                         split,
                         source_block,
@@ -990,7 +1022,8 @@ impl Game {
                 },
                 instruction,
             ) => {
-                *player == frame.spell.controller
+                self.search_player(frame)
+                    .is_ok_and(|actor| *player == actor)
                     && LandSearch::instruction(instruction).is_some_and(|s| {
                         *split == s.split
                             && *maximum == s.maximum
@@ -1045,7 +1078,10 @@ impl Game {
                     source_block,
                     fetched_land,
                 },
-                Instruction::SearchBasicLands {
+                Instruction::SearchRecipientBasicLand {
+                    source_block: b, ..
+                }
+                | Instruction::SearchBasicLands {
                     source_block: b, ..
                 }
                 | Instruction::SearchBasicLandsSplit { source_block: b }
@@ -1061,7 +1097,8 @@ impl Game {
                 | Instruction::RevealAndCast { source_block: b }
                 | Instruction::OptionalShuffleLibrary { source_block: b },
             ) => {
-                *player == frame.spell.controller
+                self.search_player(frame)
+                    .is_ok_and(|actor| *player == actor)
                     && source_block == b
                     && fetched_land.as_ref().is_none_or(|movement| {
                         self.conditional_basic_fetch_minimum(frame)

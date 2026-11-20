@@ -108,6 +108,8 @@ mod opponent_count_entry;
 mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
+mod optional_block;
+mod optional_trigger;
 mod optional_costs;
 mod ordinary_sequence;
 mod other_land_entry;
@@ -1700,6 +1702,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         Some(program) => Some(program),
         None => impulse_play::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
     };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => optional_block::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
+    };
     let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
         matches!(
@@ -1762,6 +1768,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     || (types.kind == CardKind::Creature
                         && mtg_contracts::permanent_entry::each_creature_sacrifice(&l.text))
                     || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
+                    || mtg_contracts::optional_trigger::candidate(&l.text, types.kind)
                     || mtg_contracts::cast_subtype::candidate(&l.text)
                     || (types.kind == CardKind::Land
                         && mtg_contracts::combat_window::split_activation(&l.text).is_some())
@@ -1797,6 +1804,11 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                             noun,
                         )?
                     {
+                        return Ok(a);
+                    }
+                    if let Some(a) = optional_trigger::lower(
+                        block, &result, &binding, &shape, &r.oracle_identity, types.kind
+                    )? {
                         return Ok(a);
                     }
                     if let Some(a) =

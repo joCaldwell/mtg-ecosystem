@@ -111,6 +111,13 @@ library steps also compose in supported self-entry and declared-attack
 triggers, and in paid source-sacrifice activations. The stack invocation's
 controller receives each look decision during resolution.
 
+Optional blocks keep their decision at resolution (CR 603.5, 608.2d). When an
+exile spell offers its target's controller a basic-land search, that player is
+bound before exile. Acceptance starts a private search and always shuffles that
+library, including a search that finds nothing (CR 701.23b, 701.24a). Declining
+skips the search and shuffle. The same decision can guard fixed life gain in
+admitted creature-entry and upkeep triggers.
+
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
 Surviving activators retain paid abilities when a borrowed source's owner leaves.

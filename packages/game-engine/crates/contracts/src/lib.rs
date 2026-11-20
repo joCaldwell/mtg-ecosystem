@@ -143,6 +143,8 @@ mod draw_discard;
 pub mod equipped_trigger;
 pub mod impulse_play;
 pub mod intrinsic_keyword_blocks;
+pub mod optional_block;
+pub mod optional_trigger;
 pub mod permanent_entry;
 pub use impulse_play::PlayWindow;
 pub mod resolution_mana;
@@ -435,6 +437,7 @@ pub enum Capability {
     CastColorPredicateV1,
     CastSubtypePredicateV1,
     TemporaryCombatRestrictionV1,
+    OptionalEffectBlockV1,
     LibraryPlayWindowV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
@@ -1194,6 +1197,16 @@ pub enum Instruction {
         search: TypedLandSearch,
         source_block: u32,
     },
+    ChooseOptional {
+        chooser: EffectRecipient,
+        #[schemars(range(min = 1))]
+        following: u32,
+        source_block: u32,
+    },
+    SearchRecipientBasicLand {
+        recipient: EffectRecipient,
+        source_block: u32,
+    },
     SearchBasicLands {
         maximum: u32,
         source_block: u32,
@@ -1552,7 +1565,9 @@ impl Instruction {
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
-            Self::SearchBasicLands { source_block, .. }
+            Self::ChooseOptional { source_block, .. }
+            | Self::SearchRecipientBasicLand { source_block, .. }
+            | Self::SearchBasicLands { source_block, .. }
             | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. }
             | Self::CreatePredefinedTokens { source_block, .. }
@@ -3315,6 +3330,8 @@ impl Definition {
         permanent_entry::validate(self)?;
         cast_subtype::validate(self)?;
         combat_window::validate(self)?;
+        optional_block::validate(self)?;
+        optional_trigger::validate(self)?;
         resolution_mana::validate(self)?;
         impulse_play::validate(self)?;
         predefined_tokens::validate(self)?;
@@ -4460,6 +4477,7 @@ impl Definition {
                             | Instruction::UntapControllerLands { .. }
                             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
+                            | Instruction::ChooseOptional { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::GrantHandCastCascade { .. }
@@ -5706,6 +5724,15 @@ fn validate_instruction_program_with_chapter(
                 }
                 None
             }
+            Instruction::ChooseOptional {
+                chooser: recipient, ..
+            }
+            | Instruction::SearchRecipientBasicLand { recipient, .. } => match recipient {
+                EffectRecipient::Controller => None,
+                EffectRecipient::TargetController { target_slot } => {
+                    Some(reference(p, *target_slot)?)
+                }
+            },
             Instruction::SearchBasicLands { maximum, .. } => {
                 if *maximum == 0 || *maximum > 2 {
                     return Err("unsupported basic land search maximum".into());
@@ -6478,7 +6505,10 @@ fn add_program_requirements_for_source_pump(
             Instruction::SearchColoredLibrary { .. } => Capability::ColoredLibrarySearchV1,
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
-            Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::ChooseOptional { .. } => Capability::OptionalEffectBlockV1,
+            Instruction::SearchBasicLands { .. } | Instruction::SearchRecipientBasicLand { .. } => {
+                Capability::BasicLandSearchV1
+            }
             Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
             Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
                 Capability::AnnouncedXEffectsV1
@@ -8084,6 +8114,7 @@ pub fn catalog_schema() -> serde_json::Value {
     resolution_mana::extend_schema(&mut schema);
     cast_subtype::extend_schema(&mut schema);
     combat_window::extend_schema(&mut schema);
+    optional_block::extend_schema(&mut schema);
     impulse_play::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
@@ -8500,6 +8531,7 @@ mod tests {
             CastColorPredicateV1,
             CastSubtypePredicateV1,
             TemporaryCombatRestrictionV1,
+            OptionalEffectBlockV1,
             LibraryPlayWindowV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
@@ -8913,6 +8945,7 @@ mod tests {
         definitions.push(resolution_mana::witness());
         definitions.push(cast_subtype::witness());
         definitions.push(combat_window::witness());
+        definitions.push(optional_block::witness());
         definitions.push(impulse_play::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
