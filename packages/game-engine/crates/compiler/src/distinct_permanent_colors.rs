@@ -201,6 +201,40 @@ fn validate_binding(
         "counts":{"obligations":8,"bound":6,"unresolved":2},
         "referencesBound":false,"engineFeatures":[],"fullyBound":false
     });
+    let mut expected = expected;
+    if binding["referencesBound"] == true {
+        let static_scope = format!("{root}/faces/0/abilities/1#ability");
+        let static_you = format!("{root}/faces/0/abilities/1#you");
+        let query = format!("{root}{stats_among}#query");
+        let rules = ["611.3a", "613.1g", "613.6"];
+        // The typed archive proves the continuous subject and query directly.
+        let nodes = expected["nodes"].as_array_mut().unwrap();
+        let activation_index = nodes
+            .iter()
+            .position(|node| node["id"] == mana_scope)
+            .unwrap();
+        nodes.splice(
+            activation_index..activation_index,
+            [
+                json!({"id":format!("{root}{stats}#affected-member"),"path":stats,
+                "node":"characteristic-subject","scope":static_scope,"role":"affected-member",
+                "of":source,"timing":"continuous","rules":rules}),
+                json!({"id":query,"path":stats_among,"node":"selection","scope":static_scope,
+                "expression":among,"cardinality":"many","timing":"continuous",
+                "selection":"evaluate-reference","rules":["608.2h"]}),
+            ],
+        );
+        expected["references"][1] = json!({"path":stats_control,"expression":you,"binding":"bound",
+            "target":static_you,"rules":["109.5"]});
+        expected["references"][2] = json!({"path":stats_among,"expression":among,"binding":"bound",
+            "target":query,"rules":["608.2h"]});
+        expected["diagnostics"] = json!([]);
+        expected["counts"] = json!({"obligations":8,"bound":8,"unresolved":0});
+        expected["referencesBound"] = json!(true);
+        expected["engineFeatures"] = json!([{"feature":"characteristic-layers","path":stats,
+            "message":"Reevaluate the modifier on each affected object in the appropriate layer.",
+            "rules":rules}]);
+    }
     if *binding != expected {
         return Err(unsupported(
             "binding.mana",

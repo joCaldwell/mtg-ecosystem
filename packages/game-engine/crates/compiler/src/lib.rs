@@ -1596,6 +1596,33 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         CardKind::Land => "land",
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
+    if result
+        .abilities
+        .get()
+        .contains("\"look-top-may-reveal-for-mana\"")
+    {
+        if !archive
+            .record_sha256
+            .contains(&sha256(record.trim_end().as_bytes()))
+        {
+            return Err(unsupported(
+                "record",
+                "library-top mana requires its accepted exact archive row",
+            ));
+        }
+        return library_top_mana::typed_archive_definition(SourceProvenance {
+            printing_id: source.id,
+            source_index: r.source_index,
+            source_sha256: r.source_sha256,
+            ast_sha256,
+            binding_sha256: r.binding_sha256,
+            archive_manifest_sha256: archive.manifest_sha256.clone(),
+            parser_sha256: archive.parser_source_sha256.clone(),
+            source_json: r.source.get().into(),
+            abilities_json: result.abilities.get().into(),
+        })
+        .map_err(|err| unsupported("binding", err));
+    }
     let binding = decode(r.binding.get(), "binding")?;
     let intrinsic_keywords = basic_landwalk::lower(&source, &shape, types.kind, &result, &binding)?
         .or(fixed_color_protection::lower(
@@ -3255,7 +3282,11 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     definition
         .validate()
         .map_err(|e| unsupported("definition", e))?;
-    if (self_graveyard_shuffle || archive.manifest_file == entry_copy::MANIFEST_FILE)
+    let entry_copy = definition
+        .static_abilities
+        .iter()
+        .any(|ability| ability.effect == StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn);
+    if (self_graveyard_shuffle || entry_copy || archive.manifest_file == entry_copy::MANIFEST_FILE)
         && !archive
             .record_sha256
             .contains(&sha256(record.trim_end().as_bytes()))
@@ -11586,6 +11617,8 @@ mod temporary_deathtouch_tests;
 #[cfg(test)]
 mod collar_source_tests;
 
+#[cfg(test)]
+mod r3_binding_tests;
 #[cfg(test)]
 mod ramos_m1_tests;
 

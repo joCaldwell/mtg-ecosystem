@@ -9,7 +9,8 @@ const BASE: &str = "/faces/0/abilities/0";
 const LOSS: &str = "/faces/0/abilities/0/effects/0/steps/0";
 const GAIN: &str = "/faces/0/abilities/0/effects/1/steps/0";
 
-fn expected_graph(source: &Value, identity: &str, announced_x: bool) -> Value {
+fn graph<'a>(source: &Value, identity: &'a str, announced_x: bool, typed: bool) -> Bindings<'a> {
+    const RULES: &[&str] = &["119.3", "608.2c", "608.2f", "608.2h"];
     let mut graph = Bindings::new(identity, source);
     graph.ability(BASE, "spell", "spell-controller");
     let scope = graph.id(BASE, "ability");
@@ -52,9 +53,20 @@ fn expected_graph(source: &Value, identity: &str, announced_x: bool) -> Value {
         &controller,
         "109.5",
     );
+    if typed {
+        graph.node(
+            &format!("{GAIN}/amount"),
+            "event-aggregate",
+            "event-aggregate",
+            json!({"scope":scope,"event":graph.id(LOSS,"event"),"measure":"life-lost","rules":RULES}),
+        );
+    }
     graph.event(BASE, GAIN, "gain-life", &controller, false);
     graph.result(GAIN, "quantity", "measured-quantity", None);
-    graph.with_scope_diagnostic(json!({
+    graph
+}
+fn expected_graph(source: &Value, identity: &str, announced_x: bool) -> Value {
+    graph(source, identity, announced_x, false).with_scope_diagnostic(json!({
         "code":"unsupported-scope","path":format!("{GAIN}/amount"),
         "message":"An event or history quantity needs its exact measured event(s), participants and period bound; no nearby number substitutes for it.",
         "rules":["119.3","120.3","608.2h"]
@@ -117,7 +129,16 @@ pub(super) fn lower(
     {
         return Err(fail());
     }
-    if *binding != expected_graph(source, source["oracle_id"].as_str().ok_or_else(fail)?, x) {
+    let identity = source["oracle_id"].as_str().ok_or_else(fail)?;
+    if binding["referencesBound"] == true {
+        graph(source, identity, x, true).validate_ordered_with_features(
+            binding,
+            &[json!({"feature":"event-aggregate","path":format!("{GAIN}/amount"),
+                "message":"Sum the actual outcomes of the bound instruction across its participants.",
+                "rules":["119.3","608.2c","608.2f","608.2h"]})],
+            "requires the exact opponent loss and controller gain aggregate graph",
+        )?;
+    } else if *binding != expected_graph(source, identity, x) {
         return Err(unsupported(
             "binding",
             "requires the exact opponent loss and controller gain diagnostic graph",
