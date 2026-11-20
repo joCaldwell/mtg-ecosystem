@@ -3407,3 +3407,49 @@ fn match_policy_partitions_only_offered_library_handles() {
         }
     );
 }
+
+#[test]
+fn match_policy_hybrid_uses_offered_mana_and_only_payable_life() {
+    use mtg_contracts::{
+        ColorHybridSymbol,
+        HybridPayment::{Mana, PayTwoLife},
+    };
+    let catalog = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+    let mut v = wipe_tests::view(&catalog);
+    v.objects.clear();
+    let payer = v.players.iter_mut().find(|p| p.player == v.viewer).unwrap();
+    payer.mana = BTreeMap::from([(Color::U, 1.into())]);
+    payer.life = 3.into();
+    let symbols = [
+        ColorHybridSymbol {
+            colors: [Mana(Color::G), Mana(Color::U)],
+        },
+        ColorHybridSymbol {
+            colors: [Mana(Color::R), PayTwoLife],
+        },
+    ];
+    let (chosen, plan) = mana_policy::hybrid_plan(&catalog, &v, zero_cost(), &symbols).unwrap();
+    assert_eq!(chosen, [Mana(Color::U), PayTwoLife]);
+    assert!(plan.is_empty());
+    v.players
+        .iter_mut()
+        .find(|p| p.player == v.viewer)
+        .unwrap()
+        .life_frozen_until_next_turn = true;
+    assert!(mana_policy::hybrid_plan(&catalog, &v, zero_cost(), &symbols).is_none());
+    let mut strategy = strategy(&catalog);
+    strategy.mana_color = Some(Color::G);
+    let mut obs = observation(v);
+    obs.decision = Some(PlayerRequest::ManaCombination {
+        token: mtg_core::DecisionToken("restricted".into()),
+        player: obs.view.viewer,
+        total: 7.into(),
+        colors: vec![Color::U, Color::R],
+    });
+    assert_eq!(
+        strategy.choose(&obs).unwrap(),
+        PlayerResponse::ManaCombination {
+            amounts: [0_i64, 7, 0, 0, 0].map(Quantity::from)
+        }
+    );
+}
