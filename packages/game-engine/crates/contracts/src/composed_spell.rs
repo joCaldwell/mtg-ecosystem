@@ -482,6 +482,7 @@ pub(crate) fn extend_schema(schema: &mut Value) {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     use serde_json::value::RawValue;
+    use std::collections::BTreeMap;
 
     type RawFields = BTreeMap<String, Box<RawValue>>;
     let raw: RawFields = strict_read(include_str!(
