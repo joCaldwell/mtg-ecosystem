@@ -331,3 +331,52 @@ describe("characteristic comparisons and local continuous rules", () => {
     assert.equal(graph.fullyBound, false);
   });
 });
+
+describe("sequential library scans and temporary card copies", () => {
+  it("records an ordered scan's pool and matching card as different results", () => {
+    const graph = analyze("Exile cards from the top of your library until you exile a nonland card. "
+      + "You may cast that card without paying its mana cost.", "Sorcery");
+    boundCard(graph);
+    const scan = graph.nodes.find(node => node.node === "library-scan");
+    assert.ok(scan && scan.operation === "exile");
+    const match = graph.nodes.find(node => node.id === scan.matches);
+    assert.ok(match?.node === "event-result" && match.subsetOf === scan.pool && match.identity === "zone-successors");
+    assert.equal(match.id, bound(graph, "/instruction/what"));
+    assert.notEqual(scan.pool, scan.matches);
+  });
+
+  it("keeps the rest of a reveal scan in the original library pool", () => {
+    const graph = analyze("Reveal cards from the top of your library until you reveal a land card. "
+      + "Put that card onto the battlefield and the rest on the bottom of your library in a random order.", "Sorcery");
+    boundCard(graph);
+    const scan = graph.nodes.find(node => node.node === "library-scan");
+    const rest = graph.nodes.find(node => node.node === "remainder");
+    assert.ok(scan && rest);
+    assert.equal(scan.operation, "reveal");
+    assert.equal(rest.pool, scan.pool);
+    assert.equal(rest.excluding, scan.matches);
+  });
+
+  it("rejects a scan result outside the branch that produced it", () => {
+    const graph = analyze("If you control a creature, exile cards from the top of your library until you exile a nonland card. "
+      + "You may cast that card without paying its mana cost.", "Sorcery");
+    assert.ok(graph.references.some(reference => reference.path.endsWith("/instruction/what") && reference.binding === "unresolved"));
+  });
+
+  it("copies an exiled card before any of the resulting copies is cast", () => {
+    const graph = analyze("Exile target instant or sorcery card from a graveyard. Copy that card three times. "
+      + "You may cast the copies without paying their mana costs.", "Sorcery");
+    boundCard(graph);
+    const copy = graph.nodes.find(node => node.node === "card-copy");
+    assert.ok(copy && copy.count === 3);
+    assert.equal(copy.card, bound(graph, "/effects/1/steps/0/what"));
+    assert.equal(copy.result, bound(graph, "/instruction/what"));
+    assert.notEqual(copy.result, copy.card);
+  });
+
+  it("does not equate a copied card with a missing prior exile", () => {
+    const graph = analyze("{2}, {T}: You may copy the exiled card. If you do, you may cast the copy without paying its mana cost.", "Artifact");
+    assert.equal(graph.referencesBound, false);
+    assert.ok(!graph.nodes.some(node => node.node === "card-copy"));
+  });
+});

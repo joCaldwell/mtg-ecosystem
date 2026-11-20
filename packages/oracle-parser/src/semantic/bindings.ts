@@ -189,6 +189,7 @@ function quantityUnit(event: ReplacementInstruction["event"]): QuantityUnit | un
 type StackInstruction = Extract<Effect, { effect: "copy-stack-object" | "change-targets" | "choose-new-targets" | "change-text" }>;
 type StackObjectClass = "spell" | "ability" | "spell-or-ability";
 type StackCopyCapture = { event: string; result: Candidate; chooser: string; inlineRetarget: boolean };
+type ScanCapture = { event: string; operation: "reveal" | "exile"; pool: Candidate; matches: Candidate };
 
 function stackClasses(filter: ObjectFilter | undefined): StackObjectClass | undefined {
   if (!filter || filter.orPlayer || filter.orOpponent) return;
@@ -258,6 +259,10 @@ interface Context {
   uncertainStackOrigin?: boolean;
   characteristicSubject?: string;
   affectedMember?: Candidate;
+  scans?: ScanCapture[];
+  uncertainScanOrigin?: boolean;
+  copiedCards?: Candidate[];
+  uncertainCardCopyOrigin?: boolean;
   entryChoice?: ChoiceOrigin;
   resolutionChoice?: ChoiceOrigin;
   availableChoice?: ChoiceOrigin;
@@ -1627,6 +1632,18 @@ class Analyzer {
         action: "exile", event: capture.event, rules });
       return this.antecedent(expression, path, [capture.result], objectCardinality(expression), rules);
     }
+    if (!context.barrier && !context.uncertainScanOrigin && context.scans?.length === 1 &&
+        expression.ref === "related" && expression.relation.relation === "event-result" &&
+        expression.relation.event === context.scans[0].operation && expression.filter.cls === "card" &&
+        Object.keys(expression.filter).length === 1 &&
+        (expression.relation.event !== "exile" || !context.exileResults?.length)) {
+      const { event, pool, matches } = context.scans[0];
+      const rules = ["608.2c", expression.relation.event === "reveal" ? "701.20" : "400.7j"];
+      const at = child(path, "relation");
+      this.node({ id: this.id(at, "event-link"), path: at, node: "event-link", scope: context.ability,
+        action: expression.relation.event, event, rules });
+      return this.antecedent(expression, path, [expression.number === "plural" ? pool : matches], objectCardinality(expression), rules);
+    }
     // A paid sacrifice and a later zone successor are different objects.
     // This contextual reference is supported only for information about the
     // uniquely identified original object (CR 400.7, 608.2h, 701.21a).
@@ -1760,6 +1777,9 @@ class Analyzer {
         this.unresolved(expression, path, "unsupported-reference", "This chosen object needs its exact announcement, resolution/search or linked-choice result; proximity does not establish the origin.", ["601.2c", "608.2d", "607.2d"]);
         return undefined;
       case "copy-result":
+        if (context.copiedCards?.length === 1 && !context.uncertainCardCopyOrigin &&
+            /\/instruction\/(?:what|fromAmong)$/.test(path))
+          return this.antecedent(expression, path, context.copiedCards, objectCardinality(expression), ["707.12", "707.12a"]);
         this.unresolved(expression, path, "unsupported-reference", "This printed copy reference needs a specific copy-result binding; it is not the most recent object.", ["707.10"]);
         return undefined;
       case "amassed-army":
@@ -1783,6 +1803,17 @@ class Analyzer {
         return this.bound(expression, path, this.attachedTo(path, context), ["301.5f", "303.4m"]);
       }
       case "rest": {
+        const scan = context.scans?.length === 1 && !context.uncertainScanOrigin ? context.scans[0] : undefined;
+        const explicitPool = expression.of ? this.at(child(path, "of")) : undefined;
+        if (scan && (explicitPool ? explicitPool.id === scan.pool.id :
+            !expression.of && !this.poolSelections.has(context.ability) &&
+              !context.objects.some(candidate => candidate.id !== scan.matches.id && candidate.cardinality !== "one"))) {
+          const rules = ["608.2c", scan.operation === "reveal" ? "701.20" : "400.7j"];
+          const id = this.node({ id: this.id(path, "remainder"), path, node: "remainder", scope: context.ability,
+            pool: scan.pool.id, excluding: scan.matches.id, rules });
+          return this.bound(expression, path, id, rules);
+        }
+
         // "Put one of them into your hand and the rest into your graveyard":
         // the pool the same sentence's selection chose from, less that choice.
         const sentence = /^(.*\/effects\/\d+)\//.exec(path)?.[1];
@@ -2006,6 +2037,10 @@ class Analyzer {
       branch.uncertainExileOrigin || branch.exileResults !== context.exileResults);
     context.uncertainStackOrigin ||= branches.some(branch =>
       branch.uncertainStackOrigin || branch.stackCopies !== context.stackCopies);
+    context.uncertainScanOrigin ||= branches.some(branch =>
+      branch.uncertainScanOrigin || branch.scans !== context.scans);
+    context.uncertainCardCopyOrigin ||= branches.some(branch =>
+      branch.uncertainCardCopyOrigin || branch.copiedCards !== context.copiedCards);
   }
   /** CR 700.2a-c: modes are chosen as the spell or ability is put on the stack,
    * and a mode's targets exist only if it was chosen. Each mode binds in its own
@@ -2171,7 +2206,8 @@ class Analyzer {
     return { ...this.branch(context), ability, phase: "resolution", decisions: undefined, previousDecisions: undefined,
       decider: undefined, conditional: undefined, availableChoice: undefined, entryChoice: undefined, resolutionChoice: undefined,
       sacrificedCost: undefined, stackCopies: undefined, exileResults: undefined,
-      uncertainExileOrigin: undefined, uncertainStackOrigin: undefined };
+      uncertainExileOrigin: undefined, uncertainStackOrigin: undefined, scans: undefined, uncertainScanOrigin: undefined,
+      copiedCards: undefined, uncertainCardCopyOrigin: undefined };
   }
   delayedTrigger(effect: Extract<Effect, { effect: "create-delayed-trigger" }>, path: string, context: Context): void {
     const delayed = this.nestedAbility(path, context, "delayed-triggered", ["603.7"]);
@@ -2490,6 +2526,67 @@ class Analyzer {
       }
     }
   }
+  private libraryScan(effect: Extract<Effect, { effect: "scan-library" }>, path: string, context: Context): boolean {
+    const { library, until, operation } = effect;
+    if (context.barrier || context.phase !== "resolution" || effect.optional || effect.forEach || effect.forEachVote ||
+        library.zone !== "library" || (library.owner !== "your" && library.owner !== "their") ||
+        until.count.amount !== "fixed" || !Number.isSafeInteger(until.count.value) || until.count.value < 1) return false;
+    this.walk(effect.who, child(path, "who"), context);
+    const actor = this.at(child(path, "who"));
+    if (actor?.domain !== "player" || actor.cardinality !== "one") return false;
+    this.walk(library, child(path, "library"), { ...context, actor });
+    const owner = this.at(`${path}/library/owner`);
+    if (!owner || owner.id !== actor.id) {
+      this.diagnostic("unsupported-scope", path, "A scan must bind the library of the player performing it.", ["608.2c"]);
+      return true;
+    }
+    const rules = ["608.2c", "609.3", operation === "exile" ? "701.13" : "701.20"];
+    const match = `${path}/until/matching`;
+    const subject = this.node({ id: this.id(match, "scan-candidate"), path: match, node: "characteristic-subject",
+      scope: context.ability, role: "evaluated-candidate", timing: "resolution", rules });
+    this.walk(until.matching, match, { ...context, characteristicSubject: subject, actor });
+    const event = this.event(path, context, `library-scan:${operation}`, [actor, owner],
+      context.conditional ? { conditional: true } : {});
+    const identity = operation === "exile" ? "zone-successors" as const : "same-objects" as const;
+    const pool = this.eventResult(path, event, "objects", "many", identity, { cls: "card" });
+    const matches = this.eventResult(child(path, "until"), event, "objects",
+      until.count.value === 1 ? "one" : "many", identity, { cls: "card" }, pool.id);
+    this.node({ id: this.id(path, "scan"), path, node: "library-scan", scope: context.ability, actor: actor.id,
+      owner: owner.id, operation, filter: until.matching, count: until.count.value, pool: pool.id, matches: matches.id, event, rules });
+    this.engineFeature("library-scan", path,
+      "Process the library in order until the requested number of matches or exhaustion. Keep the complete pool distinct from the matches.", rules);
+    context.scans = [...(context.scans ?? []), { event, operation, pool, matches }];
+    if (operation === "exile") context.uncertainExileOrigin = true;
+    context.objects = combine(context.objects, [matches]);
+    context.mentionedObject = true;
+    if (actor.id !== context.you) context.players = combine(context.players, [actor]);
+    return true;
+  }
+
+  private copyCard(effect: Extract<Effect, { effect: "copy-card" }>, path: string, context: Context): boolean {
+    if (context.barrier || context.phase !== "resolution" || effect.forEach || effect.forEachVote ||
+        effect.optional || effect.decidedBy || effect.who.player !== "you" ||
+        effect.count.amount !== "fixed" || !Number.isSafeInteger(effect.count.value) || effect.count.value < 1 ||
+        context.exileResults?.length !== 1 || context.uncertainExileOrigin ||
+        (effect.what.ref !== "it" && effect.what.ref !== "that" && effect.what.ref !== "related")) return false;
+    const card = this.object(effect.what, child(path, "what"), context);
+    if (!card || card.id !== context.exileResults[0].result.id || card.cardinality !== "one") {
+      this.diagnostic("unsupported-scope", path, "The copied card must be the one explicitly retained in exile.", ["707.12"]);
+      return true;
+    }
+    const chooser = this.player(effect.who, child(path, "who"), context)!;
+    const event = this.event(path, context, effect.effect, [card, chooser],
+      context.conditional ? { conditional: true } : {});
+    const result = this.eventResult(path, event, "objects", effect.count.value === 1 ? "one" : "many", "new-objects");
+    const rules = ["112.2a", "608.2g", "704.5e", "707.12", "707.12a"];
+    this.node({ id: this.id(path, "card-copy"), path, node: "card-copy", scope: context.ability,
+      event, card: card.id, chooser: chooser.id, count: effect.count.value, result: result.id, rules });
+    this.engineFeature("card-copy", path, "Create temporary copies in the original card's zone and offer any printed immediate casting choices.", rules);
+    context.copiedCards = [...(context.copiedCards ?? []), result];
+    context.objects = combine(context.objects, [result]);
+    return true;
+  }
+
   /** CR 115.7a–f, 707.10: copies retain the original choices and source.
    * Selecting new targets during copy creation is tied to the copy event. */
   stackInstruction(effect: StackInstruction, path: string, context: Context): boolean {
@@ -2577,6 +2674,8 @@ class Analyzer {
     return true;
   }
   effect(effect: Effect, path: string, context: Context): void {
+    if (effect.effect === "scan-library" && this.libraryScan(effect, path, context)) return;
+    if (effect.effect === "copy-card" && this.copyCard(effect, path, context)) return;
     if ((effect.effect === "copy-stack-object" || effect.effect === "change-targets" ||
         effect.effect === "choose-new-targets" || effect.effect === "change-text") &&
         this.stackInstruction(effect, path, context)) return;
@@ -2798,6 +2897,7 @@ class Analyzer {
       case "exchange-values": case "exchange-zones": case "choose-random": case "choose-friend-or-foe":
       case "scan-library": case "grant-look-permission": case "self-replacement": case "look-top-may-reveal-for-mana":
         this.diagnostic("unsupported-scope", path, "This instruction's event/result associations are not yet established.", ["608.2c"]);
+        if (effect.effect === "scan-library") context.uncertainScanOrigin = true;
         context.objects = []; context.players = []; context.quantities = [];
         return;
       case "copy-stack-object": case "copy-card": case "choose-new-targets":
@@ -2811,6 +2911,7 @@ class Analyzer {
         }
         this.diagnostic("unsupported-scope", path, "Stack-copy results and copy target-selection timing require their own binding scope.", ["707.10", "115.7"]);
         if (effect.effect !== "choose-new-targets") context.uncertainStackOrigin = true;
+        if (effect.effect === "copy-card") context.uncertainCardCopyOrigin = true;
         context.objects = []; context.players = []; context.quantities = [];
         return;
       case "change-text":
@@ -3303,7 +3404,9 @@ class Analyzer {
         if (previous) Object.assign(context, { objects: previous.objects, players: previous.players, quantities: previous.quantities,
           departed: previous.departed, sourceMoved: previous.sourceMoved, mentionedObject: previous.mentionedObject, sourceNamed: previous.sourceNamed,
           exileResults: previous.exileResults, uncertainExileOrigin: previous.uncertainExileOrigin,
-          stackCopies: previous.stackCopies, uncertainStackOrigin: previous.uncertainStackOrigin });
+          stackCopies: previous.stackCopies, uncertainStackOrigin: previous.uncertainStackOrigin,
+          scans: previous.scans, uncertainScanOrigin: previous.uncertainScanOrigin,
+          copiedCards: previous.copiedCards, uncertainCardCopyOrigin: previous.uncertainCardCopyOrigin });
         this.sentences(ability.effects, child(path, "effects"), context);
         this.spellParagraph = { face, context };
         return;
