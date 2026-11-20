@@ -35,7 +35,7 @@ pub(super) fn validate_binding(
         graph.ability(base, "keywords", role);
         let scope = graph.id(base, "ability");
         for (index, keyword) in d.keywords.iter().enumerate() {
-            let (word, rule) = fixed_activation_keyword(*keyword).ok_or_else(|| {
+            let (word, rule) = bound_fixed_activation_keyword(d, *keyword).ok_or_else(|| {
                 unsupported("keywords", "unsupported fixed activation keyword binding")
             })?;
             let path = format!("{base}/keywords/{index}");
@@ -147,12 +147,16 @@ fn bind_activation(graph: &mut Bindings<'_>, block: u32, spec: &FixedCreatureAct
             expression,
             &target.selection_id,
         ));
+    } else if operation == "pump" {
+        let source = graph.id("/source", "object");
+        graph.reference(&format!("{path}/what"), &step["what"], &source, "201.5");
+        inputs.push(source);
     } else {
         graph.reference(&format!("{path}/who"), &you, &actor, "109.5");
         inputs.push(actor);
     }
     graph.node(&path,"event","event",json!({"scope":scope,"operation":operation,"inputs":inputs,"availability":"when-performed","rules":["608.2c"]}));
-    if operation != "destroy" {
+    if matches!(operation, "damage" | "gain-life") {
         graph.result(&path, "quantity", "measured-quantity", None);
     }
 }
@@ -325,4 +329,62 @@ fn fixed_activations_match_paid_cost_targets_and_entry_history() {
             "{tail}"
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn fixed_self_pump_preserves_signed_stats_and_rejects_wrong_source() {
+    let manifest = include_str!("../../../tests/fixtures/archive-manifest-current.json");
+    let record = include_str!("../../../tests/fixtures/flowstone-wyvern.json");
+    let CompileResult::Lowered { definition } = compile(manifest, record) else {
+        panic!("exact frozen source did not lower");
+    };
+    assert_eq!(definition.keywords, [KeywordAbility::Flying]);
+    let [activation] = definition.activated.as_slice() else {
+        panic!("expected one activation");
+    };
+    assert_eq!(
+        activation.cost,
+        ActivationCost::Mana {
+            cost: ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::R],
+            }
+        }
+    );
+    assert!(activation.program.targets.is_empty());
+    assert_eq!(
+        activation.program.instructions,
+        [Instruction::ModifySourcePowerToughness {
+            power: 2.into(),
+            toughness: (-2).into(),
+            duration: Duration::UntilEndOfTurn,
+            source_block: 1,
+        }]
+    );
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::TemporaryPowerToughnessV1)
+    );
+    assert!(!definition.capabilities.contains(&Capability::SacrificeV1));
+
+    let wrong_source = crate::tests::changed_source(record, |r| {
+        r["binding"]["references"][1]["target"] = r["binding"]["references"][0]["target"].clone();
+    });
+    assert!(matches!(
+        compile(manifest, &wrong_source),
+        CompileResult::Unsupported { .. }
+    ));
+    let mut forged = *definition;
+    forged.activated[0]
+        .program
+        .instructions
+        .push(Instruction::DrawCards {
+            recipient: None,
+            count: 1.into(),
+            source_block: 1,
+        });
+    forged.capabilities = forged.requirements();
+    assert!(forged.validate().is_err());
 }

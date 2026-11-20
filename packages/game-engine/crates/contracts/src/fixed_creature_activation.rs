@@ -14,6 +14,21 @@ fn positive(n: &str) -> Option<u32> {
     (value > 0 && value.to_string() == n).then_some(value)
 }
 
+fn signed_stat(text: &str) -> Option<(Quantity, Value)> {
+    let (sign, digits) = match text.as_bytes().first()? {
+        b'+' => (1, &text[1..]),
+        b'-' => (-1, &text[1..]),
+        _ => return None,
+    };
+    let value: u32 = digits.parse().ok()?;
+    (value.to_string() == digits).then(|| {
+        (
+            (i64::from(value) * sign).into(),
+            json!({"sign":sign,"amount":{"amount":"fixed","value":value}}),
+        )
+    })
+}
+
 pub fn fixed_creature_activation(
     line: &str,
     name: &str,
@@ -37,7 +52,7 @@ pub fn fixed_creature_activation(
             "C" => cost.colored.push(Color::C),
             _ if symbols.is_empty() && symbol.bytes().all(|b| b.is_ascii_digit()) => {
                 let generic: Quantity = symbol.parse().ok()?;
-                if generic <= Quantity::zero() || generic.to_string() != symbol {
+                if generic.is_negative() || generic.to_string() != symbol {
                     return None;
                 }
                 cost.generic = generic;
@@ -67,7 +82,38 @@ pub fn fixed_creature_activation(
     let fixed = |value| json!({"amount":"fixed","value":value});
     let mut targets = Vec::new();
     let mut label = line.to_owned();
-    let (instruction, step) = if let Some(n) = effect
+    let (instruction, step) = if let Some((subject, stats)) = effect
+        .strip_suffix(" until end of turn.")
+        .and_then(|text| text.rsplit_once(" gets "))
+    {
+        let what = if subject == "This creature" {
+            json!({"ref":"this","noun":"creature"})
+        } else if subject == name
+            || name
+                .split_once(',')
+                .is_some_and(|(short, _)| subject == short)
+        {
+            json!({"ref":"self"})
+        } else {
+            return None;
+        };
+        let stats = stats.replace('−', "-");
+        let (power, toughness) = stats.split_once('/')?;
+        let (power, ast_power) = signed_stat(power)?;
+        let (toughness, ast_toughness) = signed_stat(toughness)?;
+        let subject = if what["ref"] == "self" { "~" } else { subject };
+        label = format!("{printed_cost}: {subject} gets {stats} until end of turn.");
+        (
+            Instruction::ModifySourcePowerToughness {
+                power,
+                toughness,
+                duration: Duration::UntilEndOfTurn,
+                source_block: block,
+            },
+            json!({"effect":"pump","what":what,"power":ast_power,"toughness":ast_toughness,
+                "duration":{"duration":"end-of-turn"}}),
+        )
+    } else if let Some(n) = effect
         .strip_prefix("You gain ")
         .and_then(|v| v.strip_suffix(" life."))
     {
@@ -133,6 +179,12 @@ pub fn fixed_creature_activation(
             json!({"effect":"damage","source":{"ref":"self"},"amount":fixed(n),"to":{"to":"object","ref":what}}),
         )
     };
+    if (symbols[0] == "0" && symbols.len() != 1)
+        || (symbols[0] == "0"
+            && !matches!(instruction, Instruction::ModifySourcePowerToughness { .. }))
+    {
+        return None;
+    }
     Some(FixedCreatureActivation {
         label,
         ast: json!({"kind":"activated","costs":[{"cost":"mana","symbols":symbols}],"effects":[{"steps":[step]}]}),
@@ -164,23 +216,82 @@ pub fn fixed_activation_keyword(keyword: KeywordAbility) -> Option<(&'static str
     })
 }
 
+pub fn bound_fixed_activation_keyword(
+    d: &Definition,
+    keyword: KeywordAbility,
+) -> Option<(&'static str, &'static str)> {
+    if let Some(bound) = fixed_activation_keyword(keyword) {
+        return Some(bound);
+    }
+    if d.activated.is_empty() || !d.activated.iter().all(mana_self_pump) {
+        return None;
+    }
+    Some(match keyword {
+        KeywordAbility::Defender => ("defender", "702.3"),
+        KeywordAbility::FirstStrike => ("first strike", "702.7"),
+        KeywordAbility::DoubleStrike => ("double strike", "702.4"),
+        KeywordAbility::Flash => ("flash", "702.8"),
+        KeywordAbility::Haste => ("haste", "702.10"),
+        KeywordAbility::Menace => ("menace", "702.110"),
+        KeywordAbility::Lifelink => ("lifelink", "702.15"),
+        KeywordAbility::Deathtouch => ("deathtouch", "702.2"),
+        KeywordAbility::Hexproof => ("hexproof", "702.11"),
+        KeywordAbility::Shroud => ("shroud", "702.18"),
+        KeywordAbility::Indestructible => ("indestructible", "702.12"),
+        _ => return None,
+    })
+}
+
+pub(super) fn mana_self_pump(a: &ActivatedAbility) -> bool {
+    matches!(a.cost, ActivationCost::Mana { .. })
+        && matches!(
+            a.program.instructions.as_slice(),
+            [Instruction::ModifySourcePowerToughness {
+                duration: Duration::UntilEndOfTurn,
+                ..
+            }]
+        )
+}
+
+fn pump_keyword_reminder(keyword: KeywordAbility) -> Option<&'static str> {
+    Some(match keyword {
+        KeywordAbility::Defender => "(This creature can't attack.)",
+        KeywordAbility::FirstStrike => {
+            "(This creature deals combat damage before creatures without first strike.)"
+        }
+        KeywordAbility::Flying => {
+            "(This creature can't be blocked except by creatures with flying or reach.)"
+        }
+        KeywordAbility::Reach => "(This creature can block creatures with flying.)",
+        KeywordAbility::Menace => {
+            "(This creature can't be blocked except by two or more creatures.)"
+        }
+        KeywordAbility::Lifelink => {
+            "(Damage dealt by this creature also causes you to gain that much life.)"
+        }
+        KeywordAbility::Flash => "(You may cast this spell any time you could cast an instant.)",
+        _ => return None,
+    })
+}
+
 pub fn has_fixed_creature_activation(d: &Definition) -> bool {
     d.activated.iter().any(|a| {
         matches!(a.cost, ActivationCost::Mana { .. })
-            && (a.program.instructions.iter().any(|i| {
-                matches!(
-                    i,
-                    Instruction::GainLife { .. } | Instruction::DestroyPermanent { .. }
-                )
-            }) || a
-                .program
-                .targets
-                .iter()
-                .any(|t| t.domain == TargetDomain::BattlefieldCreature)
-                && a.program
-                    .instructions
+            && (mana_self_pump(a)
+                || a.program.instructions.iter().any(|i| {
+                    matches!(
+                        i,
+                        Instruction::GainLife { .. } | Instruction::DestroyPermanent { .. }
+                    )
+                })
+                || a.program
+                    .targets
                     .iter()
-                    .any(|i| matches!(i, Instruction::DealDamage { .. })))
+                    .any(|t| t.domain == TargetDomain::BattlefieldCreature)
+                    && a.program
+                        .instructions
+                        .iter()
+                        .any(|i| matches!(i, Instruction::DealDamage { .. })))
     })
 }
 
@@ -196,6 +307,7 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
         ]
         .iter()
         .any(|word| raw.contains(word))
+        && !(raw.contains("}: ") && raw.contains(" until end of turn."))
     {
         return Ok(false);
     }
@@ -223,7 +335,7 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
     if keyword_blocks == 1 {
         let mut words = Vec::new();
         for keyword in &d.keywords {
-            let (word, _) = fixed_activation_keyword(*keyword).ok_or(error)?;
+            let (word, _) = bound_fixed_activation_keyword(d, *keyword).ok_or(error)?;
             if words.contains(&word) {
                 return Err(error.into());
             }
@@ -231,7 +343,13 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
         }
         let mut printed = words.join(", ");
         printed[..1].make_ascii_uppercase();
-        if text.lines().next() != Some(printed.as_str())
+        let first = text.lines().next().unwrap_or("");
+        let exact_reminder = match d.keywords.as_slice() {
+            [keyword] if d.activated.iter().all(mana_self_pump) => pump_keyword_reminder(*keyword)
+                .is_some_and(|reminder| first == format!("{printed} {reminder}")),
+            _ => false,
+        };
+        if (first != printed && !exact_reminder)
             || ast.first()
                 != Some(
                     &json!({"kind":"keywords","keywords":words.iter().map(|w|json!({"keyword":w})).collect::<Vec<_>>()}),
@@ -247,7 +365,7 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
         let actual = raw_keywords.as_array().ok_or(error)?;
         if actual.len() != d.keywords.len()
             || d.keywords.iter().any(|k| {
-                fixed_activation_keyword(*k).is_none_or(|(word, _)| {
+                bound_fixed_activation_keyword(d, *k).is_none_or(|(word, _)| {
                     !actual
                         .iter()
                         .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case(word)))
@@ -317,6 +435,9 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let damage = json!({"properties":{"op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}});
     let destroy = json!({"properties":{"op":{"const":"destroy_permanent"},"target_slot":{"const":0},"optional":{"const":false},"regeneration_forbidden":{"const":false}}});
     let gain = json!({"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},"amount":{"pattern":"^[1-9][0-9]*$"}}});
+    let pump_op = "modify_source_power_toughness";
+    let pump =
+        json!({"properties":{"op":{"const":pump_op},"duration":{"const":"until_end_of_turn"}}});
     let target = |domain: &str, filter: Value| {
         json!({"minItems":1,"maxItems":1,"items":{"properties":{
             "slot":{"const":0},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":domain},
@@ -332,21 +453,29 @@ pub(super) fn extend_schema(schema: &mut Value) {
     );
     let program = json!({"properties":{"functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
         "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1}},
-        "oneOf":[branch(damage,target("battlefield_creature",json!({"type":"null"}))),branch(destroy,json!({"allOf":[union,{"items":{"required":["filter"]}}]})),branch(gain,json!({"maxItems":0}))]});
+        "oneOf":[branch(damage,target("battlefield_creature",json!({"type":"null"}))),branch(destroy,json!({"allOf":[union,{"items":{"required":["filter"]}}]})),branch(gain,json!({"maxItems":0})),branch(pump.clone(),json!({"maxItems":0}))]});
     let mana = json!({"type":"object","required":["mana"],"properties":{"mana":{"properties":{"cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}},"anyOf":[
         {"properties":{"generic":{"pattern":"^[1-9][0-9]*$"}}},{"properties":{"colored":{"minItems":1}}}
     ]}}}}});
+    let has_pump =
+        json!({"properties":{"program":{"properties":{"instructions":{"contains":pump}}}}});
+    let zero = json!({"type":"object","required":["mana"],"properties":{"mana":{"properties":{"cost":{"properties":{
+        "generic":{"const":"0"},"colored":{"maxItems":0}
+    }}}}}});
     schema["$defs"]["FixedCreatureActivation"] = json!({"required":["cost","program","functioning_zone"],"properties":{
-        "cost":mana,"program":program,"functioning_zone":{"const":"battlefield"}
-    }});
+        "program":program,"functioning_zone":{"const":"battlefield"}
+    },"if":has_pump,"then":{"properties":{"cost":{"anyOf":[mana,zero]}}},
+        "else":{"properties":{"cost":mana}}
+    });
     let candidate = json!({"required":["cost","program"],"properties":{"cost":{"required":["mana"],"type":"object"},"program":{"anyOf":[
-        {"properties":{"instructions":{"contains":{"properties":{"op":{"enum":["destroy_permanent","gain_life"]}}}}}},
+        {"properties":{"instructions":{"contains":{"properties":{"op":{"enum":["destroy_permanent","gain_life",pump_op]}}}}}},
         {"properties":{"instructions":{"contains":{"properties":{"op":{"const":"deal_damage"}}}},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
     ]}}});
     let printed_effects = [
         ("deal_damage", r" deals [1-9][0-9]* damage to target creature\."),
         ("destroy_permanent", r"Destroy target artifact or enchantment\."),
         ("gain_life", r"You gain [1-9][0-9]* life\."),
+        (pump_op, r" gets [+−-][0-9]+/[+−-][0-9]+ until end of turn\."),
     ].into_iter().map(|(op, printed)| json!({
         "if":{"properties":{"provenance":{"properties":{"source_json":{
             "pattern":format!(r#""oracle_text"\s*:\s*"(?:[^"]*\\n)?(?:\{{[WUBRGC0-9]+\}})+: [^"\\]*?{printed}(?:\\n|")"#)
@@ -359,6 +488,9 @@ pub(super) fn extend_schema(schema: &mut Value) {
         .as_array_mut()
         .unwrap()
         .extend(printed_effects);
+    let mana_pump = json!({"allOf":[has_pump,{"properties":{"cost":{
+        "type":"object","required":["mana"]
+    }}}]});
     let effect_capabilities = [
         ("deal_damage",vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
         ("destroy_permanent",vec![Capability::PermanentRemovalV1]),
@@ -372,10 +504,31 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"required":["activated"],"properties":{"activated":{"contains":candidate}}},
         "then":{"allOf":effect_capabilities,"properties":{"activated":{"items":{"$ref":"#/$defs/FixedCreatureActivation"}},
-            "keywords":{"uniqueItems":true,"items":{"enum":["flying","reach","trample","vigilance"]}},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"intrinsic_zone":{"type":"null"},
+            "keywords":{"uniqueItems":true},"static_abilities":{"maxItems":0},"mana_abilities":{"maxItems":0},"intrinsic_zone":{"type":"null"},
             "characteristics":{"properties":{"kind":{"const":"creature"},"additional_types":{"maxItems":0}}},
             "triggered":{"maxItems":1,"items":{"required":["intervening_if"],"properties":{"intervening_if":{"const":InterveningCondition::SourceCastByController}}}},
             "capabilities":{"allOf":[{"contains":{"const":Capability::ManaActivationCostV1}},{"contains":{"const":Capability::ActivatedAbilityV1}}]}
         }}
+    }));
+    let only_pump = json!({"properties":{"activated":{"minItems":1,"items":mana_pump}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "if":{"required":["activated"],"properties":{"activated":{"contains":candidate}}},
+        "then":{
+            "if":only_pump,
+            "then":{"properties":{
+                "keywords":{"items":{"enum":[
+                    "flying","reach","trample","vigilance","defender","first strike","double strike",
+                    "flash","haste","menace","lifelink","deathtouch","hexproof","shroud","indestructible"
+                ]}},
+                "capabilities":{"not":{"contains":{"const":Capability::SacrificeV1}}}
+            }},
+            "else":{"properties":{"keywords":{
+                "items":{"enum":["flying","reach","trample","vigilance"]}
+            }}}
+        }
+    }));
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "if":{"required":["activated"],"properties":{"activated":{"contains":mana_pump}}},
+        "then":{"properties":{"capabilities":{"contains":{"const":Capability::TemporaryPowerToughnessV1}}}}
     }));
 }

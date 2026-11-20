@@ -41,8 +41,8 @@ pub use saga::{ChapterEffect, LifeChapter, chapter_lines, life_chapters};
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
 pub use fixed_creature_activation::{
-    FixedCreatureActivation, fixed_activation_keyword, fixed_creature_activation,
-    has_fixed_creature_activation,
+    FixedCreatureActivation, bound_fixed_activation_keyword, fixed_activation_keyword,
+    fixed_creature_activation, has_fixed_creature_activation,
 };
 mod cast_mana_value_sweep;
 mod cast_origin;
@@ -2782,7 +2782,11 @@ impl Definition {
             {
                 set.insert(Capability::SacrificeV1);
             }
-            add_program_requirements(&mut set, &ability.program);
+            add_program_requirements_for_activation(
+                &mut set,
+                &ability.program,
+                fixed_creature_activation::mana_self_pump(ability),
+            );
         }
         if land_sacrifice_draw::present(self) {
             set.insert(Capability::LandSacrificeDrawV1);
@@ -5662,6 +5666,14 @@ fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Cap
     })
 }
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    add_program_requirements_for_activation(set, program, false);
+}
+
+fn add_program_requirements_for_activation(
+    set: &mut BTreeSet<Capability>,
+    program: &SpellProgram,
+    mana_self_pump: bool,
+) {
     if !program.optional_additional_costs.is_empty() {
         set.insert(Capability::OptionalAdditionalManaCostV1);
     }
@@ -5902,6 +5914,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::EachPlayerSacrifice { .. }
             | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
+            Instruction::ModifySourcePowerToughness { .. } if mana_self_pump => {
+                Capability::TemporaryPowerToughnessV1
+            }
             Instruction::SacrificeDamage { .. }
             | Instruction::EachOpponentSacrifice { .. }
             | Instruction::ModifySourcePowerToughness { .. } => Capability::SacrificeV1,
