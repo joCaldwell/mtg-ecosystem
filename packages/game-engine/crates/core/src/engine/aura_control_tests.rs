@@ -1193,3 +1193,6 @@ mod own_graveyard_card_return_tests;
 #[cfg(test)]
 #[path = "counter_unless_generic_tests.rs"]
 mod counter_unless_generic_tests;
+
+#[path = "cast_payer_draw_tests.rs"]
+mod cast_payer_draw_tests;

@@ -1183,20 +1183,7 @@ impl Game {
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
             Instruction::OptionalDrawCards { source_block } => {
-                if !self.is_live(player) {
-                    return self.finish_instruction(
-                        frame,
-                        InstructionOutcome::PlayerActionSkipped { player },
-                    );
-                }
-                self.state.rules.frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::OptionalDraw {
-                        player,
-                        source_block,
-                    },
-                };
-                Ok(())
+                self.offer_controller_draw(frame, source_block)
             }
             Instruction::DiscardPlayerSet {
                 scope,
@@ -1240,11 +1227,10 @@ impl Game {
                 target_slot,
                 source_block,
             } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
-            Instruction::CounterSpellUnlessPays {
-                target_slot,
-                generic,
-                ..
-            } => self.begin_counter_payment(frame, target_slot, generic),
+            Instruction::CounterSpellUnlessPays { .. }
+            | Instruction::OptionalDrawUnlessCasterPays { .. } => {
+                self.begin_resolution_payment(frame)
+            }
             Instruction::CounterSpellAndMillController {
                 target_slot,
                 count,
@@ -1253,6 +1239,26 @@ impl Game {
             _ => Err("unexpected action instruction".into()),
         }
     }
+    pub(super) fn offer_controller_draw(
+        &mut self,
+        frame: Resolving,
+        source_block: u32,
+    ) -> Result<(), String> {
+        let player = frame.spell.controller;
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        self.state.rules.frame = Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::OptionalDraw {
+                player,
+                source_block,
+            },
+        };
+        Ok(())
+    }
+
     pub(super) fn draw_one(
         &mut self,
         frame: Resolving,

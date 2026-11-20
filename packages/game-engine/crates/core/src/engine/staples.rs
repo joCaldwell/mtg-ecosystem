@@ -221,6 +221,7 @@ impl Game {
                 recipient: LifeRecipient::Controller,
                 ..
             }
+            | Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::DrawControllerCards { .. }
             | Instruction::DrawCardsIfAdditionalCost { .. }
@@ -835,6 +836,10 @@ impl Game {
                 },
                 Instruction::OptionalDrawCards {
                     source_block: expected,
+                }
+                | Instruction::OptionalDrawUnlessCasterPays {
+                    source_block: expected,
+                    ..
                 },
             ) => *player == frame.spell.controller && source_block == expected,
             (
