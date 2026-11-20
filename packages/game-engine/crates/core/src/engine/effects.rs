@@ -68,6 +68,10 @@ impl ResolvedEffect {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolvedEffectKind {
+    RemoveIndestructibleSet {
+        targets: Vec<ObjectId>,
+        timestamp: u64,
+    },
     GrantKeywordsSet {
         targets: Vec<ObjectId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1185,6 +1189,19 @@ impl Game {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        Instruction::RemoveOpponentNonlandIndestructible { source_block },
+                        ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp },
+                    ) => {
+                        *targets
+                            == self.objects_in_set(
+                                &ObjectSet::OpponentNonlandPermanents,
+                                frame.spell.controller,
+                            )
+                            && *timestamp == self.state.rules.next_batch_id
+                            && *source_block == effect.origin.source_block
+                    }
+
+                    (
                         Instruction::PumpSet {
                             set,
                             power,
@@ -1337,7 +1354,8 @@ impl Game {
                     }
                 };
                 let valid_target_handles = match &effect.kind {
-                    ResolvedEffectKind::PumpSet { targets, .. }
+                    ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
+                    | ResolvedEffectKind::PumpSet { targets, .. }
                     | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                     | ResolvedEffectKind::ExileDamaged { targets } => {
                         effect.target_handles.len() == targets.len() * 4
@@ -1608,6 +1626,20 @@ impl Game {
             let mut bound = false;
             for (program, instruction) in instructions {
                 bound |= match (instruction, &e.kind) {
+                    (
+                        Instruction::RemoveOpponentNonlandIndestructible { source_block },
+                        ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp },
+                    ) => {
+                        *timestamp > 0
+                            && *timestamp <= self.state.rules.next_batch_id
+                            && *source_block == e.origin.source_block
+                            && self.valid_set_effect_targets(
+                                e,
+                                targets,
+                                Some(&ObjectSet::OpponentNonlandPermanents),
+                            )
+                    }
+
                     (
                         Instruction::PumpSet {
                             power,
@@ -1895,6 +1927,12 @@ pub struct VisibleEffectSource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum VisibleEffect {
+    RemoveIndestructibleSet {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        targets: Vec<VisibleTarget>,
+        expires_in_cleanup_of_turn: u64,
+    },
     GrantKeywordsSet {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2124,6 +2162,14 @@ impl Game {
                 .collect()
         };
         Ok(match &e.kind {
+            ResolvedEffectKind::RemoveIndestructibleSet { targets, .. } => {
+                VisibleEffect::RemoveIndestructibleSet {
+                    handle,
+                    origin,
+                    targets: set_views(targets)?,
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
             ResolvedEffectKind::PumpSet {
                 targets,
                 power,
@@ -2482,7 +2528,12 @@ impl Game {
             let keywords_valid = {
                 let battlefield = d.source.zone == Zone::Battlefield;
                 let creature = d.source.characteristics.kind == CardKind::Creature;
-                expected_keywords.iter().all(|k| d.source.keywords.contains(k))
+                expected_keywords.iter().all(|k| {
+                    d.source.keywords.contains(k)
+                        || (*k == KeywordAbility::Indestructible && battlefield
+                            && self.prepared.catalog.definitions.iter().any(|definition|
+                                definition.capabilities.contains(&Capability::RemoveIndestructibleV1)))
+                })
                     && d.source.keywords.iter().enumerate().all(|(n, k)| {
                         !d.source.keywords[..n].contains(k)
                             && (expected_keywords.contains(k)

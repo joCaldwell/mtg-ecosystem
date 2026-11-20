@@ -30,7 +30,7 @@ Exact-deck admission remains open. [Historical plan](https://github.com/joCaldwe
 
 ### M2 Complete land and ramp infrastructure
 
-`c3ef4bd0` compiles **61/85 definitions**, with 24 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
+`44618fda` compiles **64/85 definitions**, with 21 Unsupported. [Evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration)
 retains exact producer boundaries; complete-deck admission remains open.
 
 ### M4 Complete the cascade package and casting history
@@ -52,7 +52,7 @@ choose-two/graveyard targets and Conflux colored search.
 ### M7 Complete protection and board interaction
 
 Anguished Unmaking, Void Rend, Ruinous Ultimatum and Avacyn have focused witnesses.
-Death-trigger destruction has a paid witness. Complete Exterminatus, Farewell and Akroma's Will.
+Death-trigger destruction, Exterminatus and Farewell have paid witnesses. Complete Akroma's Will.
 
 ### M8 Add spell and permanent copies
 

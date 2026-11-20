@@ -343,6 +343,7 @@ impl Game {
                         Object {
                             attached_to: None,
                             attachment_timestamp: None,
+                            keyword_timestamp: Some(self.state.rules.next_batch_id),
                             plus_one_counters: Quantity::zero(),
                             marked_damage: Quantity::zero(),
                             deathtouch_damage: false,

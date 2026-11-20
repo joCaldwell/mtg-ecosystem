@@ -273,6 +273,99 @@ impl ScenarioConfig {
         c
     }
 }
+// Only canonical indices enter the snapshot and replay identity. The selected
+// instruction sequence is derived afresh from the build-fenced catalog after restore.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BoundModeSubset {
+    pub(super) indices: Vec<u32>,
+    #[serde(skip)]
+    compiled: std::sync::OnceLock<Result<SpellProgram, String>>,
+}
+impl PartialEq for BoundModeSubset {
+    fn eq(&self, other: &Self) -> bool {
+        self.indices == other.indices
+    }
+}
+impl Eq for BoundModeSubset {}
+impl BoundModeSubset {
+    fn build(root: &SpellProgram, chosen: &[u32]) -> Result<Self, String> {
+        if chosen.len() > root.modes.len() {
+            return Err("too many chosen modes".into());
+        }
+        let mut indices = chosen.to_vec();
+        indices.sort_unstable();
+        let plan = Self {
+            indices,
+            compiled: Default::default(),
+        };
+        plan.validate(root)?;
+        Ok(plan)
+    }
+    fn validate(&self, root: &SpellProgram) -> Result<(), String> {
+        if root.resolution != SpellResolution::OneOrMoreModes
+            || self.indices.is_empty()
+            || self.indices.windows(2).any(|p| p[0] >= p[1])
+            || self
+                .indices
+                .last()
+                .is_none_or(|last| *last as usize >= root.modes.len())
+        {
+            return Err("invalid nonempty subset of printed modes".into());
+        }
+        Ok(())
+    }
+    pub(super) fn program(&self, root: &SpellProgram) -> Result<&SpellProgram, String> {
+        self.compiled
+            .get_or_init(|| {
+                self.validate(root)?;
+                let indices = &self.indices;
+                let mut instructions = Vec::with_capacity(indices.len());
+                for index in indices {
+                    let child = &root
+                        .modes
+                        .get(*index as usize)
+                        .ok_or("unknown printed mode")?
+                        .program;
+                    let [instruction] = child.instructions.as_slice() else {
+                        return Err("unexpected mode instructions".into());
+                    };
+                    instructions.push(instruction.clone());
+                }
+                let program = SpellProgram {
+                    timing: root.timing,
+                    functioning_zone: FunctioningZone::Stack,
+                    resolution: SpellResolution::Instructions,
+                    targets: vec![],
+                    modes: vec![],
+                    instructions,
+                    additional_sacrifice: None,
+                    optional_additional_costs: vec![],
+                };
+                Ok(program)
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+}
+impl Game {
+    pub(super) fn authorize_mode_subset(
+        &self,
+        player: PlayerId,
+        indices: &[u32],
+    ) -> Result<BoundModeSubset, String> {
+        let top = self.top()?;
+        if !matches!(&self.state.rules.frame,Frame::Modes{cast} if cast.stack_id==top.id)
+            || !top.kind.is_spell()
+            || top.controller != player
+            || top.mode.is_some()
+            || top.mode_subset.is_some()
+        {
+            return Err("unauthorized mode subset".into());
+        }
+        BoundModeSubset::build(self.root_program_for(top)?, indices)
+    }
+}
 impl Game {
     pub(super) fn selected_program<'a>(
         &self,
@@ -315,6 +408,7 @@ impl Game {
         Ok(Some(Request::Modes {
             decision_id: self.state.rules.revision,
             player: top.controller,
+            one_or_more: root.resolution == SpellResolution::OneOrMoreModes,
             candidates,
         }))
     }
@@ -339,26 +433,50 @@ impl Game {
             .pending
             .take()
             .ok_or("missing mode input")?;
-        let Response::Modes { mode } = input.response else {
-            return Err("mode response invariant".into());
-        };
-        self.validate_mode(input.player, mode)?;
-        let top = self
-            .state
-            .rules
-            .stack
-            .last_mut()
-            .ok_or("missing modal spell")?;
-        if top.mode.is_some() {
-            return Err("mode already selected".into());
+        let root = self.root_program_for(self.top()?)?;
+        if root.resolution == SpellResolution::OneOrMoreModes {
+            let modes = match input.response {
+                Response::ModeSubset { modes } => modes,
+                Response::Modes { mode } => vec![mode],
+                _ => return Err("expected mode subset".into()),
+            };
+            let selected = self.authorize_mode_subset(input.player, &modes)?;
+            let indices = selected.indices.clone();
+            let top = self
+                .state
+                .rules
+                .stack
+                .last_mut()
+                .ok_or("missing modal spell")?;
+            top.mode_subset = Some(selected);
+            let stack_id = top.id;
+            self.record_event(Event::ModeSubsetSelected {
+                stack_id,
+                player: input.player,
+                modes: indices,
+            })?;
+        } else {
+            let Response::Modes { mode } = input.response else {
+                return Err("mode response invariant".into());
+            };
+            self.validate_mode(input.player, mode)?;
+            let top = self
+                .state
+                .rules
+                .stack
+                .last_mut()
+                .ok_or("missing modal spell")?;
+            if top.mode.is_some() {
+                return Err("mode already selected".into());
+            }
+            top.mode = Some(mode);
+            let stack_id = top.id;
+            self.record_event(Event::ModeSelected {
+                stack_id,
+                player: input.player,
+                mode,
+            })?;
         }
-        top.mode = Some(mode);
-        let stack_id = top.id;
-        self.record_event(Event::ModeSelected {
-            stack_id,
-            player: input.player,
-            mode,
-        })?;
         if cast.origin.is_spell() {
             self.state.rules.frame = self.spell_announcement_frame(cast)?;
         } else {
@@ -547,6 +665,7 @@ impl Game {
                 || cast.stack_id != top.id
                 || root.modes.is_empty()
                 || top.mode.is_some()
+                || top.mode_subset.is_some()
                 || top.paid.is_some()
                 || self.bound_target_count(top) != 0
             {
@@ -569,6 +688,13 @@ impl Game {
         Ok(())
     }
     pub(super) fn validate_mode_binding(&self, entry: &StackInstance) -> Result<(), String> {
+        if let Some(subset) = &entry.mode_subset {
+            let root = self.root_program_for(entry)?;
+            if !entry.kind.is_spell() || entry.mode.is_some() || subset.validate(root).is_err() {
+                return Err("invalid reconstructed subset program".into());
+            }
+            return Ok(());
+        }
         if matches!(entry.kind, StackKind::Triggered { .. }) {
             return if entry.mode.is_none() {
                 Ok(())
@@ -583,7 +709,9 @@ impl Game {
             }
         } else {
             match entry.mode {
-                Some(mode) if (mode as usize) < root.modes.len() => {}
+                Some(mode)
+                    if root.resolution != SpellResolution::OneOrMoreModes
+                        && (mode as usize) < root.modes.len() => {}
                 None if matches!(&self.state.rules.frame,Frame::Modes{cast} if cast.stack_id==entry.id) =>
                     {}
                 _ => return Err("missing/invalid modal selection".into()),

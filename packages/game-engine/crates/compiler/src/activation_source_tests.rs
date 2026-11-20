@@ -286,7 +286,7 @@ fn activation_it_requires_a_first_top_level_source_sacrifice() {
         condition_kind: None,
         bindings: vec![],
         steps: vec![Step::Modal {
-            count: ModeCount { exactly: 1 },
+            count: ModeCount::Exact { exactly: 1 },
             options: vec![
                 ModeOption {
                     effects: effects.clone()
@@ -336,7 +336,7 @@ fn activation_it_requires_a_first_top_level_source_sacrifice() {
         condition_kind: None,
         bindings: vec![],
         steps: vec![Step::Modal {
-            count: ModeCount { exactly: 1 },
+            count: ModeCount::Exact { exactly: 1 },
             options: vec![
                 ModeOption {
                     effects: explicit_this

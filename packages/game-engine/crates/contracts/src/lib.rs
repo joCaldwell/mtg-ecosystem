@@ -47,6 +47,8 @@ mod artifact_modal;
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
+mod set_exile;
+pub use set_exile::{SetExileClause, set_exile_modes};
 mod opponent_life_drain;
 mod targeted_counted_draw;
 mod targeted_discard;
@@ -64,8 +66,10 @@ mod hand_return;
 pub use draw_discard::controller_draw_discard_program;
 mod library_order;
 pub use hand_return::controller_hand_return_program;
+mod keyword_removal_wipe;
 mod library_selection;
 mod nonland_exile_life;
+pub use keyword_removal_wipe::{keyword_removal_wipe_program, keyword_removal_wipe_source};
 mod opponent_nonland_destroy;
 mod source_dies_nonland_destroy;
 pub use source_dies_nonland_destroy::{death_sweep_abilities, death_sweep_source_block};
@@ -185,6 +189,19 @@ pub struct ManaCost {
     pub generic: Quantity,
     pub colored: Vec<Color>,
 }
+impl ManaCost {
+    fn printed_fixed_cost(&self) -> String {
+        let mut text = String::new();
+        if self.generic != Quantity::zero() || self.colored.is_empty() {
+            text.push_str(&format!("{{{}}}", self.generic));
+        }
+        for color in &self.colored {
+            text.push_str(&format!("{{{color:?}}}"));
+        }
+        text
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -357,6 +374,7 @@ pub enum Capability {
     HandActivationV1,
     DiscardSourceCostV1,
     AnyDamageTargetV1,
+    RemoveIndestructibleV1,
     PlayerOrPlaneswalkerTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
@@ -374,6 +392,7 @@ pub enum Capability {
     InterveningIfV1,
     ModalChoiceV1,
     CommanderModalKeywordGrantV1,
+    NonemptyModeSubsetV1,
     DefenderV1,
     FlyingV1,
     ReachV1,
@@ -509,6 +528,8 @@ pub enum ObjectSet {
     NonlandPermanents,
     OpponentNonlandPermanents,
     Enchantments,
+    Artifacts,
+    GraveyardCards,
     AttackingCreatures,
     OpponentCreatures,
     FlyingCreatures,
@@ -770,6 +791,9 @@ pub enum Instruction {
     MoveSet {
         set: ObjectSet,
         action: SetMove,
+        source_block: u32,
+    },
+    RemoveOpponentNonlandIndestructible {
         source_block: u32,
     },
     DestroySet {
@@ -1161,6 +1185,7 @@ impl Instruction {
             | Self::Surveil { source_block, .. }
             | Self::MillCards { source_block, .. } => *source_block,
             Self::MoveSet { source_block, .. } => *source_block,
+            Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
@@ -1476,6 +1501,7 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SpellResolution {
+    OneOrMoreModes,
     Instructions,
     Permanent,
 }
@@ -2607,6 +2633,7 @@ impl Definition {
         targeted_counted_draw::validate_definition(self)?;
         targeted_discard::validate_definition(self)?;
         artifact_modal::validate(self)?;
+        set_exile::validate(self)?;
         each_player_draw::validate_definition(self)?;
         group_discard::validate_definition(self)?;
         opponent_life_drain::validate_definition(self)?;
@@ -3006,6 +3033,7 @@ impl Definition {
         commander_modal_keyword::validate_definition(self)?;
         cast_payer_draw::validate_definition(self)?;
         self_spell_protection::validate_definition(self)?;
+        keyword_removal_wipe::validate_definition(self)?;
         opponent_nonland_destroy::validate_definition(self)?;
         source_tap_damage::validate_definition(self)?;
         source_dies_nonland_destroy::validate_definition(self)?;
@@ -3834,7 +3862,10 @@ impl Definition {
                 let p = self.spell.as_ref().ok_or("missing spell program")?;
                 if p.functioning_zone != FunctioningZone::Stack
                     || p.timing != cast_timing
-                    || p.resolution != SpellResolution::Instructions
+                    || !matches!(
+                        p.resolution,
+                        SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+                    )
                     || (p.instructions.is_empty() && p.modes.is_empty())
                 {
                     return Err("invalid spell functioning zone or empty program".into());
@@ -4414,7 +4445,10 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
         if p.modes.len() < 2
             || !p.targets.is_empty()
             || !p.instructions.is_empty()
-            || p.resolution != SpellResolution::Instructions
+            || !matches!(
+                p.resolution,
+                SpellResolution::Instructions | SpellResolution::OneOrMoreModes
+            )
         {
             return Err("modal root must choose exactly one of multiple complete programs".into());
         }
@@ -4423,7 +4457,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
             if !child.modes.is_empty()
                 || child.timing != p.timing
                 || child.functioning_zone != p.functioning_zone
-                || child.resolution != p.resolution
+                || child.resolution != SpellResolution::Instructions
                 || child.instructions.is_empty()
             {
                 return Err("nested, empty, or inconsistent modal program".into());
@@ -4512,6 +4546,7 @@ fn validate_instruction_program(p: &SpellProgram) -> Result<(), String> {
     for instruction in &p.instructions {
         let binding = match instruction {
             Instruction::MoveSet { .. }
+            | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
@@ -5155,6 +5190,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         if akromas_will_program(program) {
             set.insert(Capability::CommanderModalKeywordGrantV1);
         }
+        if program.resolution == SpellResolution::OneOrMoreModes {
+            set.insert(Capability::NonemptyModeSubsetV1);
+        }
         for mode in &program.modes {
             add_program_requirements(set, &mode.program);
         }
@@ -5265,6 +5303,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         set.insert(match instruction {
+            Instruction::RemoveOpponentNonlandIndestructible { .. } => {
+                Capability::RemoveIndestructibleV1
+            }
             Instruction::Cascade { .. } => Capability::CascadeV1,
             Instruction::GrantKeywordsSet {
                 set: ObjectSet::ControllerPermanents,
@@ -5885,7 +5926,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
         "then":{"properties":{
             "targets":{"maxItems":0},"instructions":{"maxItems":0},
-            "resolution":{"const":"instructions"},
+            "resolution":{"enum":[SpellResolution::Instructions, SpellResolution::OneOrMoreModes]},
             "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{
                 "modes":{"maxItems":0},"instructions":{"minItems":1},
                 "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
@@ -6802,6 +6843,7 @@ pub fn catalog_schema() -> serde_json::Value {
     announced_x_draw::extend_schema(&mut schema);
     targeted_counted_draw::extend_schema(&mut schema);
     targeted_discard::extend_schema(&mut schema);
+    set_exile::extend_schema(&mut schema);
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
@@ -6815,6 +6857,7 @@ pub fn catalog_schema() -> serde_json::Value {
     graveyard_battlefield_return::extend_schema(&mut schema);
     nonland_exile_life::extend_schema(&mut schema);
     self_spell_protection::extend_schema(&mut schema);
+    keyword_removal_wipe::extend_schema(&mut schema);
     opponent_nonland_destroy::extend_schema(&mut schema);
     source_dies_nonland_destroy::extend_schema(&mut schema);
     cycling::schema(&mut schema);
@@ -7039,6 +7082,7 @@ mod tests {
             DiscardSourceCostV1,
             AnyDamageTargetV1,
             PlayerOrPlaneswalkerTargetV1,
+            RemoveIndestructibleV1,
             AnyPlayerTargetV1,
             NoncombatDamageV1,
             LifeGainV1,
@@ -7061,6 +7105,7 @@ mod tests {
             InterveningIfV1,
             ModalChoiceV1,
             CommanderModalKeywordGrantV1,
+            NonemptyModeSubsetV1,
             DefenderV1,
             FlyingV1,
             ReachV1,
@@ -7206,6 +7251,52 @@ mod tests {
             token.toughness = 7.into();
         }
         creator.capabilities = creator.requirements();
+        let mut menu = definitions
+            .iter()
+            .find(|d| {
+                d.characteristics.kind == CardKind::Sorcery
+                    && !d.x_mana_cost
+                    && d.keywords.is_empty()
+                    && d.triggered.is_empty()
+                    && d.static_abilities.is_empty()
+                    && d.characteristics.subtypes.is_empty()
+            })
+            .unwrap()
+            .clone();
+        let record: serde_json::Value = strict_read(include_str!(
+            "../../../tests/fixtures/synthetic-open-mode-catalog.json"
+        ))
+        .unwrap();
+        let source = &record["source"];
+        menu.source_labels = None;
+        assert_eq!(source["mana_cost"], "{0}");
+        menu.characteristics.mana_cost = ManaCost {
+            generic: 0.into(),
+            colored: vec![],
+        };
+        menu.name = source["name"].as_str().unwrap().into();
+        menu.oracle_id = source["oracle_id"].as_str().unwrap().into();
+        menu.provenance.printing_id = source["id"].as_str().unwrap().into();
+        menu.provenance.source_json = canonical(source).unwrap();
+        menu.provenance.source_sha256 = sha256(menu.provenance.source_json.as_bytes());
+        menu.provenance.abilities_json =
+            canonical(&record["faces"][0]["result"]["abilities"]).unwrap();
+        menu.provenance.ast_sha256 =
+            sha256(format!("[{}]", menu.provenance.abilities_json).as_bytes());
+        let timing = if source["type_line"] == "Sorcery" {
+            menu.characteristics.kind = CardKind::Sorcery;
+            SpellTiming::MainPhase
+        } else {
+            menu.characteristics.kind = CardKind::Instant;
+            SpellTiming::Instant
+        };
+        menu.spell = Some(
+            set_exile_modes(source["oracle_text"].as_str().unwrap(), timing)
+                .unwrap()
+                .2,
+        );
+        menu.capabilities = menu.requirements();
+        definitions.push(menu);
         definitions.push(creator);
         // Synthetic complete typed control; exact frozen source is compiled
         // independently in compiler::ramos_m4e_tests.
@@ -7720,6 +7811,12 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(self_spell_protection::witness(protected_wipe));
+        let sweep = definitions
+            .iter()
+            .find(|d| d.name == "Planar Cleansing")
+            .unwrap()
+            .clone();
+        definitions.push(keyword_removal_wipe::witness(sweep));
         for cap in vocabulary {
             assert!(
                 definitions.iter().any(|d| d.capabilities.contains(&cap)

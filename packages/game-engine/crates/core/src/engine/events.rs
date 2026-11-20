@@ -98,6 +98,8 @@ pub enum EventGroup {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectBefore {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1005,7 +1007,8 @@ impl Game {
                         stack.insert(effect.origin.stack_id);
                     }
                     match &effect.kind {
-                        ResolvedEffectKind::PumpSet { targets, .. }
+                        ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
+                        | ResolvedEffectKind::PumpSet { targets, .. }
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
@@ -1293,6 +1296,7 @@ impl Game {
             .map(|object| {
                 let o = self.current(object)?;
                 Ok(ObjectBefore {
+                    keyword_timestamp: o.keyword_timestamp,
                     keywords: { self.current_keywords(object) },
                     deathtouch_damage: o.deathtouch_damage,
                     object,
@@ -1939,6 +1943,8 @@ impl Game {
             Object {
                 attached_to: None,
                 attachment_timestamp: None,
+                keyword_timestamp: (*destination == Zone::Battlefield)
+                    .then_some(self.state.rules.next_batch_id),
                 plus_one_counters: Quantity::zero(),
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
@@ -2177,6 +2183,9 @@ impl Game {
                 if previous != *target {
                     o.attached_to = *target;
                     o.attachment_timestamp = allocation.map(|(timestamp, _)| timestamp);
+                    if target.is_some() {
+                        o.keyword_timestamp = Some(self.state.rules.next_batch_id);
+                    }
                     if let Some((_, next)) = allocation {
                         self.state.rules.next_attachment_timestamp = next;
                     }
