@@ -60,7 +60,9 @@ pub fn accepted_manifest(manifest: &str) -> Result<&'static AcceptedArchive, Str
         .ok_or("unsupported archive version, source identity, or rules edition")?;
     if m["recordType"] != "manifest"
         || m["artifactKind"] != "oracle-ast-archive"
-        || m["schemaVersion"] != 3
+        // Schema 4 (archive R4) adds each record's authoritative resolution;
+        // the accepted schema-3 archives remain the frozen fixture evidence.
+        || !matches!(m["schemaVersion"].as_u64(), Some(3 | 4))
         || m["executable"] != false
         || m["parser"]["revision"] != a.parser_revision
         || m["parser"]["sourceSha256"] != a.parser_source_sha256

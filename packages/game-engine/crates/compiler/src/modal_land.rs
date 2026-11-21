@@ -232,8 +232,8 @@ fn bind_face(graph: &mut bindings::Bindings<'_>, face: &str, definition: &Defini
 
 #[test]
 fn both_modal_land_ast_and_graph_faces_are_required() {
-    const HEAD: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
-    const ROW: &str = include_str!("../../../tests/fixtures/phase1-r3/branchloft-pathway.json");
+    const HEAD: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    const ROW: &str = include_str!("../../../tests/fixtures/phase1-r4/branchloft-pathway.json");
     let result = compile(HEAD, ROW);
     let CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")

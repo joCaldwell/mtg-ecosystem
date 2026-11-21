@@ -116,25 +116,34 @@ transitive feature behavior still requires review. Focused guards are
 
 `compiler/src/lib.rs` tries whole-card families first. A record whose shape no
 family supports falls back to `compiler/src/compose.rs`, which repeats the
-archive integrity checks, requires a completely bound reference graph that
-covers the AST, and lowers each block through small tables: `compose/costs.rs`,
-`compose/events.rs`, `compose/keywords.rs`, `compose/steps.rs` and the shared
-typed step lowerer. Unknown kinds, fields, operands and unconsumed references
-reject. A family that recognised the source and refused its reference graph
-(path `binding`) has given an integrity verdict, which is final: only shape
-rejections fall back. A family rejection that composition does not recover
-keeps its original reason, so coverage reasons stay comparable.
+archive integrity checks, decodes the complete AST through the generated
+`mtg-oracle-ast` types and verifies the record's archive R4 resolution
+(`compiler/src/resolution.rs`, contract in the [parser guide](oracle_parser.md#ast-archive)):
+it must be complete; each reference's closed `Ref` role must be one the shared
+lowerer reads ("you" and implicit payers the block's controller, printed targets
+announced targets, other pronouns targets or results of the block's own steps);
+the step map must be exactly the AST's steps; and each block's span certificate
+must tile its text, give every sentence its own span and print every top-level
+field. Composition never reads the diagnostic graph. Lowering then uses small
+tables: `compose/costs.rs`, `compose/events.rs`, `compose/keywords.rs`,
+`compose/steps.rs` and the shared typed step lowerer. Unknown kinds, fields,
+operands and unconsumed references reject; a shape outside the lowering mirror
+is named by its verb. A family that recognised the source and refused its
+reference graph (path `binding`) has given an integrity verdict, which is final:
+only shape rejections fall back. A family rejection that composition does not
+recover keeps its original reason, so coverage reasons stay comparable.
 
-The fallback also rejects a block whose printed text and AST disagree: the
-sentence count; "may", "up to" and "if"/"unless" against `optional`, `upTo` and
-a condition; a printed number absent from the block's AST; a cost term; an
-ability word the block does not print; and an evergreen keyword present in only
-one of the source keyword list and the AST. Legacy family tests therefore keep
-strict rejection for malformed mutations, and assert `composed` with the exact
-changed operands for self-consistent near misses (`tests::composed_near_miss`). `--example composition_gaps ARCHIVE` lists the
+The fallback also rejects "may", "up to" and "if"/"unless" against `optional`,
+`upTo` and a condition; a printed number absent from the block's AST; a cost
+term; an ability word the block does not print; and an evergreen keyword present
+in only one of the source keyword list and the AST. Hand-built test rows with
+placeholder text cannot carry a resolution: `tests::synthetic_compile` lowers them
+through the block tables only (`cfg(test)`), and `tests::composed_near_miss`
+asserts `composed` with the exact changed operands. `--example composition_gaps ARCHIVE` lists the
 table row each remaining card lacks. Lowering still rejects at the first card-wide
-binding check; the report defers those checks, so `reason` is the first blocker
+resolution check; the report defers those checks, so `reason` is the first blocker
 after them, `binding` the card-wide rejection and `block` the failing printed block.
+`--example ast_decode ARCHIVE` decodes every face and resolution through the generated types.
 `--example inspect ARCHIVE NAME` prints one compile result. New lowerers start IR
 structs from `PermanentFilter::any()`, `TargetSpec::new` and `SpellProgram::instructions`
 (`contracts/src/builders.rs`), so a new field touches one constructor.

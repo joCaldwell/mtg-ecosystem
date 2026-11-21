@@ -1008,8 +1008,8 @@ fn paid_bestow_ordinary_attachment_detachment_and_illegal_target_fallback() {
 fn paid_fixed_saga_chapters_create_select_and_sacrifice_after_resolution() {
     let mut p = prepared(false, false);
     let compiled = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
-        include_str!("../../../../tests/fixtures/phase1-r3/origin-of-the-hulk.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!("../../../../tests/fixtures/phase1-r4/origin-of-the-hulk.json"),
     );
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");
@@ -1142,8 +1142,8 @@ fn paid_fixed_saga_chapters_create_select_and_sacrifice_after_resolution() {
 #[test]
 fn paid_four_chapter_saga_filters_removal_and_resolves_shared_mana_twice() {
     let compiled = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
-        include_str!("../../../../tests/fixtures/phase1-r3/burn-burn-tree-and-fern.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!("../../../../tests/fixtures/phase1-r4/burn-burn-tree-and-fern.json"),
     );
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");
@@ -1257,8 +1257,8 @@ fn paid_four_chapter_saga_filters_removal_and_resolves_shared_mana_twice() {
 #[test]
 fn paid_fixed_saga_showdown_delays_cast_triggers_past_final_sacrifice() {
     let compiled = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
-        include_str!("../../../../tests/fixtures/phase1-r3/showdown-of-the-skalds.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!("../../../../tests/fixtures/phase1-r4/showdown-of-the-skalds.json"),
     );
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");

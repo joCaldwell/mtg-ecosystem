@@ -123,9 +123,54 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
             }
             serde_json::from_value::<Sentence>(sentence.clone())
                 .map(Part::Typed)
-                .map_err(|e| unsupported("compose.step", e.to_string()))
+                .map_err(|e| mirror_gap(sentence, &e))
         })
         .collect()
+}
+
+/// The complete typed AST (`crate::ast`) has already decoded this sentence;
+/// the lowerer's narrower mirror does not hold one of its shapes. Name the
+/// step verb (or the sentence) instead of an untagged-enum serde message.
+fn mirror_gap(sentence: &serde_json::Value, error: &serde_json::Error) -> Failure {
+    if !opaque(error) {
+        return unsupported("compose.step", error.to_string());
+    }
+    let step = sentence["steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|step| serde_json::from_value::<Step>((*step).clone()).is_err());
+    match step.and_then(|s| s["effect"].as_str()) {
+        Some(effect) => unsupported(
+            "compose.step",
+            format!("{effect} shape outside the lowering mirror"),
+        ),
+        None => unsupported("compose.step", "sentence shape outside the lowering mirror"),
+    }
+}
+
+/// A serde failure that names no shape: an untagged-enum mismatch or a
+/// field the mirror requires in another variant.
+fn opaque(error: &serde_json::Error) -> bool {
+    let message = error.to_string();
+    message.contains("untagged enum") || message.starts_with("missing field")
+}
+
+/// The block decoded as the complete typed AST but not as the lowering
+/// mirror: name its kind and discriminant (CR 113.1 ability kinds).
+fn block_mirror_gap(raw: &str, error: &serde_json::Error) -> Failure {
+    if !opaque(error) {
+        return unsupported("compose.block", error.to_string());
+    }
+    let block: serde_json::Value = serde_json::from_str(raw).unwrap_or_default();
+    let tag = ["/effect/static", "/trigger/trigger", "/kind"]
+        .iter()
+        .find_map(|p| block.pointer(p).and_then(|v| v.as_str()))
+        .unwrap_or("block");
+    unsupported(
+        "compose.block",
+        format!("{tag} shape outside the lowering mirror"),
+    )
 }
 
 /// Sentence conditions and X bindings belong to reviewed families; the shared
@@ -284,145 +329,25 @@ fn trigger(
     })
 }
 
-/// The reference binder's own certificate that every reference, number and
-/// scope in the AST resolved without a diagnostic. Its `engineFeatures` list
-/// names semantics a path needs from the runtime; that is decided node by
-/// node below, where each step, static and event either lowers to an existing
-/// runtime operation or rejects.
-fn references_bound(binding: &serde_json::Value) -> bool {
-    binding["referencesBound"] == true
-        && binding["diagnostics"] == serde_json::json!([])
-        && binding["counts"]["unresolved"] == 0
-}
-
-/// The lowerer reads each reference the ordinary way: "you" is the ability's
-/// own controller (CR 109.5), "this" is the source (CR 201.5), a target is one
-/// of the block's announced targets (CR 601.2c), and an "its controller" or
-/// "its power" operand is the program's one announced target (CR 608.2h).
-/// Any other pronoun is consumed only inside an exact multi-step sequence
-/// (search then put, look then choose). Require the archived reference graph
-/// to say the same: every reference is bound to an existing node; direct
-/// references resolve to those ordinary antecedents; an operand-of reference
-/// resolves to a target of its own block; and any other derived reference
-/// resolves to such a target or to an earlier step of the same block. A
-/// damage-source pronoun is the one exception; its antecedent is proven
-/// separately.
-fn references_resolve_in_block(
-    binding: &serde_json::Value,
-    identity: &str,
-    abilities: &serde_json::Value,
-) -> Result<(), Failure> {
-    let unbound = || unsupported("binding", "reference leaves its ordinary antecedent");
-    let mut nodes = BTreeMap::new();
-    for node in binding["nodes"].as_array().ok_or_else(unbound)? {
-        // A repeated node identity would make every edge to it ambiguous.
-        if nodes
-            .insert(node["id"].as_str().ok_or_else(unbound)?, node)
-            .is_some()
-        {
-            return Err(unbound());
-        }
-    }
-    for reference in binding["references"].as_array().ok_or_else(unbound)? {
-        let target = reference["target"].as_str().ok_or_else(unbound)?;
-        let Some(node) = nodes.get(target) else {
-            return Err(unbound());
-        };
-        if reference["binding"] != "bound" {
-            return Err(unbound());
-        }
-        let path = reference["path"].as_str().ok_or_else(unbound)?;
-        // A reference outside the ability list is not an operand of any block.
-        let Some(block) = path
-            .strip_prefix("/faces/0/abilities/")
-            .and_then(|rest| rest.split('/').next())
-        else {
-            continue;
-        };
-        let ability = format!("card:{identity}/faces/0/abilities/{block}");
-        let names_target = target.starts_with(&format!("{ability}#ability/targets/"));
-        let expression = &reference["expression"];
-        if *expression == serde_json::json!({"player":"you"}) {
-            // CR 109.5: "you" is whoever controls this kind of ability.
-            let role = match abilities
-                .get(block.parse::<usize>().map_err(|_| unbound())?)
-                .and_then(|a| a["kind"].as_str())
-            {
-                Some("spell") => "spell-controller",
-                Some("activated") => "activator",
-                Some("triggered") => "trigger-controller",
-                Some("static") => "static-source-controller",
-                _ => return Err(unbound()),
-            };
-            if !(target.starts_with(&ability)
-                && target.ends_with("#you")
-                && node["node"] == "runtime-player"
-                && node["role"] == role)
-            {
-                return Err(unbound());
-            }
-            continue;
-        }
-        let Some(kind) = expression["ref"].as_str() else {
-            continue;
-        };
-        let ordinary = match kind {
-            "this" => target == format!("card:{identity}/source#object"),
-            "target" => names_target,
-            // The resolving object itself, and sets and filters, are consumed
-            // operand by operand.
-            "self" | "filter" | "each" | "all" => true,
-            _ if path.ends_with("/source") => true,
-            _ => {
-                names_target
-                    || (target.starts_with(&format!("{ability}/effects/"))
-                        && !path.ends_with("/of"))
-            }
-        };
-        if !ordinary {
-            return Err(unbound());
-        }
-    }
-    Ok(())
-}
-
-/// Every printed sentence of a block must be an AST sentence. The parser
-/// spells a timing restriction and a regeneration prohibition as fields of
-/// the preceding clause; everything else is one `effects` entry per printed
-/// sentence. Reminder text and quoted abilities are not sentences of the
-/// block. A row whose text carries a clause the AST lacks is rejected rather
-/// than lowered without it.
-fn sentences_accounted(
-    line: &str,
-    effects: &[serde_json::Value],
-    restricted: bool,
-) -> Result<(), Failure> {
-    let mut printed = 0usize;
+/// A printed choice, limit or condition must be carried by the AST, and an
+/// AST choice must be printed. The parser spells "may" as `optional`, "up
+/// to" as `upTo` and "if"/"unless" as a condition; a block whose text and AST
+/// disagree would otherwise lower as mandatory, optional, exact or
+/// unconditional against its printed text. Reminder text and quoted
+/// abilities are not the block's own words. Which printed clause produced
+/// which AST sentence is the resolution's span certificate.
+fn choices_printed(line: &str, effects: &[serde_json::Value]) -> Result<(), Failure> {
     let mut rules_text = String::new();
     let (mut reminder, mut quoted) = (0usize, false);
-    let mut characters = line.chars().peekable();
-    while let Some(c) = characters.next() {
+    for c in line.chars() {
         match c {
             '(' if !quoted => reminder += 1,
             ')' if !quoted => reminder = reminder.saturating_sub(1),
             '"' if reminder == 0 => quoted = !quoted,
-            '.' | '!' | '?'
-                if reminder == 0
-                    && !quoted
-                    && characters.peek().is_none_or(|next| next.is_whitespace()) =>
-            {
-                printed += 1;
-                rules_text.push(' ');
-            }
             _ if reminder == 0 && !quoted => rules_text.extend(c.to_lowercase()),
             _ => {}
         }
     }
-    // A printed choice, limit or condition must be carried by the AST, and an
-    // AST choice must be printed. The parser spells "may" as `optional`, "up
-    // to" as `upTo` and "if"/"unless" as a condition; a block whose text and
-    // AST disagree would otherwise lower as mandatory, optional, exact or
-    // unconditional against its printed text.
     let words: Vec<&str> = rules_text
         .split(|c: char| !c.is_alphabetic())
         .filter(|w| !w.is_empty())
@@ -436,17 +361,6 @@ fn sentences_accounted(
         return Err(unsupported(
             "compose.effects",
             "printed choice, limit or condition disagrees with the AST",
-        ));
-    }
-    let prohibitions = effects
-        .iter()
-        .flat_map(|e| e["steps"].as_array().into_iter().flatten())
-        .filter(|step| step["regenerationForbidden"] == true)
-        .count();
-    if printed != effects.len() + prohibitions + usize::from(restricted) {
-        return Err(unsupported(
-            "compose.effects",
-            "printed sentences differ from the AST sentences",
         ));
     }
     Ok(())
@@ -491,86 +405,25 @@ fn numbers_printed(line: &str, ast: &str) -> Result<(), Failure> {
     Ok(())
 }
 
-/// The archived reference graph and the AST must describe the same clauses.
-/// Every bound reference and node addresses an existing AST location (or an
-/// implicit operand of one); a reference to an operand object carries that
-/// exact operand; and every printed step carries the binder's own event node
-/// for the same operation. A clause or operand removed, added or changed
-/// after binding leaves a dangling, missing or unequal entry, so the record
-/// is rejected instead of lowering something other than what was bound.
-fn binding_covers_ast(
-    binding: &serde_json::Value,
-    abilities: &serde_json::Value,
-) -> Result<(), Failure> {
-    const ROOT: &str = "/faces/0/abilities";
-    let mismatch = || unsupported("binding", "reference graph does not cover the AST");
-    let nodes = binding["nodes"].as_array().ok_or_else(mismatch)?;
-    let references = binding["references"].as_array().ok_or_else(mismatch)?;
-    let mut events = BTreeSet::new();
-    for (item, is_node) in nodes
-        .iter()
-        .map(|n| (n, true))
-        .chain(references.iter().map(|r| (r, false)))
-    {
-        let path = item["path"].as_str().ok_or_else(mismatch)?;
-        if is_node && item["node"] == "event" {
-            events.insert((path, item["operation"].as_str().ok_or_else(mismatch)?));
-        }
-        let Some(pointer) = path.strip_prefix(ROOT) else {
-            if matches!(path, "/source" | "/faces/0") {
-                continue;
-            }
-            return Err(mismatch());
-        };
-        let parent = pointer.rsplit_once('/').map_or("", |(parent, _)| parent);
-        match abilities.pointer(pointer) {
-            // A string operand ("you", "your") is bound in normalized form,
-            // an implicit relation has no spelled operand, and an any-target
-            // destination is spelled as a destination rather than a reference.
-            Some(operand)
-                if !is_node
-                    && operand.is_object()
-                    && item["expression"].get("implicit").is_none()
-                    && item["expression"]["ref"] != "any-target" =>
-            {
-                if *operand != item["expression"] {
-                    return Err(mismatch());
-                }
-            }
-            Some(_) => {}
-            // An implicit operand hangs off an existing object, never off a
-            // missing element of a list.
-            None if abilities.pointer(parent).is_some_and(|v| v.is_object()) => {}
-            None => return Err(mismatch()),
-        }
-    }
-    for (block, ability) in abilities
-        .as_array()
-        .ok_or_else(mismatch)?
-        .iter()
-        .enumerate()
-    {
-        let Some(effects) = ability.get("effects").and_then(|e| e.as_array()) else {
-            continue;
-        };
-        for (sentence, effect) in effects.iter().enumerate() {
-            let Some(steps) = effect.get("steps").and_then(|s| s.as_array()) else {
-                continue;
-            };
-            for (index, step) in steps.iter().enumerate() {
-                let operation = step["effect"].as_str().ok_or_else(mismatch)?;
-                // Grouping steps are bound through their member steps.
-                if matches!(operation, "modal" | "simultaneous" | "optional-group") {
-                    continue;
-                }
-                let path = format!("{ROOT}/{block}/effects/{sentence}/steps/{index}");
-                if !events.contains(&(path.as_str(), operation)) {
-                    return Err(mismatch());
-                }
-            }
-        }
-    }
-    Ok(())
+// Unit tests of the block tables lower hand-built rows whose text is a
+// placeholder; no parser resolution can certify them. Only `cfg(test)` code
+// can select this, and the resolution checks have their own tests.
+#[cfg(test)]
+thread_local! {
+    static SYNTHETIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+#[cfg(test)]
+pub(super) fn synthetic<T>(run: impl FnOnce() -> T) -> T {
+    SYNTHETIC.set(true);
+    let result = run();
+    SYNTHETIC.set(false);
+    result
+}
+fn synthetic_rows() -> bool {
+    #[cfg(test)]
+    return SYNTHETIC.get();
+    #[cfg(not(test))]
+    false
 }
 
 /// What keeps one record out of composition, for the gap report.
@@ -670,24 +523,25 @@ fn compose(
     if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
         return Err(invalid("astSha256", "successful AST hash mismatch"));
     }
-    let binding: serde_json::Value = decode(r.binding.get(), "binding")?;
-    binding_gate(
-        if references_bound(&binding) {
-            Ok(())
-        } else {
-            Err(unsupported(
-                "binding",
-                "composition requires a completely bound reference graph",
-            ))
-        },
-        &mut deferred,
-    )?;
+    // Archive R4: the parser's resolution, not the diagnostic graph, says how
+    // every reference, step and printed token of each block is accounted for.
+    let resolution = if synthetic_rows() {
+        None
+    } else {
+        Some(resolution::Resolution::read(
+            r.resolution.as_deref(),
+            r.resolution_sha256.as_deref(),
+        )?)
+    };
+    // The complete typed AST: an unknown shape is named, never an opaque
+    // untagged-enum failure further down.
+    decode::<Vec<ast::Ability>>(result.abilities.get(), "abilities")?;
     let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
-    binding_gate(
-        references_resolve_in_block(&binding, &r.oracle_identity, &printed),
-        &mut deferred,
-    )?;
-    binding_gate(binding_covers_ast(&binding, &printed), &mut deferred)?;
+    if let Some(resolution) = &resolution {
+        binding_gate(resolution.complete(), &mut deferred)?;
+        binding_gate(resolution.ordinary_antecedents(&printed), &mut deferred)?;
+        binding_gate(resolution.covers(&printed), &mut deferred)?;
+    }
     let types = type_line::parse_source(&source.type_line, &source.layout)?;
     let kind = types.kind;
     let noun = match kind {
@@ -697,13 +551,10 @@ fn compose(
         CardKind::Land => "land",
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
-    let canonical = self_reference::canonicalize(
-        result.abilities.get(),
-        &binding,
-        &r.oracle_identity,
-        noun,
-        "/faces/0/abilities",
-    )?;
+    let canonical = match &resolution {
+        Some(resolution) => resolution.canonical_abilities(result.abilities.get(), noun)?,
+        None => resolution::synthetic_canonical(result.abilities.get(), noun),
+    };
     // The normalized source must be exactly the parsed blocks, and each line
     // must carry the same AST as the aggregate; nothing may be unaccounted.
     if source_lines(&source.oracle_text, &source.name, &source.type_line)?
@@ -820,9 +671,12 @@ fn compose(
         if let Some(found) = deferred.as_deref_mut() {
             found.block = Some(block);
         }
-        let ability: Block = serde_json::from_str(raw.get())
-            .map_err(|e| unsupported("compose.block", e.to_string()))?;
+        let ability: Block =
+            serde_json::from_str(raw.get()).map_err(|e| block_mirror_gap(raw.get(), &e))?;
         let label = source_block(block)?;
+        if let Some(resolution) = &resolution {
+            resolution.spans(block, &result.lines[block].text, &printed[block])?;
+        }
         numbers_printed(&result.lines[block].text, raw.get())?;
         match ability {
             Block::Keywords {
@@ -849,7 +703,7 @@ fn compose(
                 effects,
             } if spell_kind => {
                 ability_word(&word, &result.lines[block].text)?;
-                sentences_accounted(&result.lines[block].text, &effects, false)?;
+                choices_printed(&result.lines[block].text, &effects)?;
                 slots.clear();
                 append_effects(
                     definition.spell.as_mut().expect("spell program"),
@@ -866,7 +720,7 @@ fn compose(
                 effects,
             } if !spell_kind => {
                 ability_word(&word, &result.lines[block].text)?;
-                sentences_accounted(&result.lines[block].text, &effects, restriction.is_some())?;
+                choices_printed(&result.lines[block].text, &effects)?;
                 let (timing, restriction) = timing(restriction)?;
                 let parts = parts(&effects)?;
                 // CR 605.1a: a mana ability is recognised from its complete
@@ -917,7 +771,7 @@ fn compose(
                 effects,
             } if !spell_kind => {
                 ability_word(&word, &result.lines[block].text)?;
-                sentences_accounted(&result.lines[block].text, &effects, false)?;
+                choices_printed(&result.lines[block].text, &effects)?;
                 labels.triggered.push(label);
                 definition.triggered.push(trigger(
                     &card,

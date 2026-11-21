@@ -66,9 +66,9 @@ pub(super) fn lower(
 #[cfg(test)]
 #[test]
 fn slice6d_source_damage_counter_graph_and_intrinsic_siblings_are_exact() {
-    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
     let record =
-        include_str!("../../../tests/fixtures/phase1-r3/f819b134-24cd-4863-a46a-0a068e34ca9e.json");
+        include_str!("../../../tests/fixtures/phase1-r4/f819b134-24cd-4863-a46a-0a068e34ca9e.json");
     let result = compile(header, record);
     let CompileResult::Lowered { mut definition } = result else {
         panic!("{result:?}");

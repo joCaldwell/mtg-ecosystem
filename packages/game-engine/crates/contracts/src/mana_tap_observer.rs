@@ -183,7 +183,7 @@ pub(super) fn extend_schema(s: &mut Value) {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     let row: Value = strict_read(include_str!(
-        "../../../tests/fixtures/phase1-r3/0f1afedd-c60f-454f-b84a-c8117aec0128.json"
+        "../../../tests/fixtures/phase1-r4/0f1afedd-c60f-454f-b84a-c8117aec0128.json"
     ))
     .unwrap();
     let mut d = Catalog::read(include_str!(

@@ -13,7 +13,8 @@ CRATES = 'packages/game-engine/crates'
 # crate, so mtg-core test builds never compile or wait on mtg-compiler.
 ALLOWED = {
     'mtg-contracts': {'serde', 'serde_json', 'schemars', 'num-bigint', 'num-traits', 'sha2'},
-    'mtg-compiler': {'mtg-contracts', 'serde', 'serde_json', 'sha2', 'regex', 'serde_path_to_error'},
+    'mtg-oracle-ast': {'serde', 'serde_json'},
+    'mtg-compiler': {'mtg-contracts', 'mtg-oracle-ast', 'serde', 'serde_json', 'sha2', 'regex', 'serde_path_to_error'},
     'mtg-core': {'mtg-contracts', 'serde', 'serde_json', 'schemars', 'rand_chacha', 'rand_core'},
 }
 

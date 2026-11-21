@@ -11,6 +11,7 @@ import { buildCardNameCatalog } from "../packages/oracle-parser/src/card-names.t
 import type { ParseCardResult } from "../packages/oracle-parser/src/ast.ts";
 import { analyzeCardBindings } from "../packages/oracle-parser/src/semantic/bindings.ts";
 import type { CardBindingAnalysis } from "../packages/oracle-parser/src/semantic/types.ts";
+import { resolveCard, type CardResolution } from "../packages/oracle-parser/src/semantic/resolution.ts";
 import { readCards, type ScryfallCard } from "./lib/scryfall.ts";
 import { SCOPE, identity, sha256, sourceIdentity, emptyBindingSummary, addBindingSummary } from "./validate-parser.ts";
 import { loadPaperEvidence, paperExclusion, readPaperEvidence, type PaperEvidence } from "./lib/paper-evidence.ts";
@@ -33,15 +34,19 @@ interface RecordSource {
    * by the parser's narrow Scryfall adapter. No characteristics are projected. */
   source: ScryfallCard;
 }
+/** `resolution` is the authoritative reference/step/span contract (schema 4).
+ * `binding` is the diagnostic graph it is derived from; only whole-card
+ * family lowerers still read it, until they retire. */
+type Analyzed = { binding: CardBindingAnalysis; bindingSha256: string; resolution: CardResolution; resolutionSha256: string };
 export type ArchiveRecord = RecordSource & (
   | { status: "excluded"; reason: string }
-  | { status: "parsed"; faces: ArchivedFace[]; astSha256: string; binding: CardBindingAnalysis; bindingSha256: string }
-  | { status: "unsupported"; faces: ArchivedFace[]; binding: CardBindingAnalysis; bindingSha256: string }
+  | ({ status: "parsed"; faces: ArchivedFace[]; astSha256: string } & Analyzed)
+  | ({ status: "unsupported"; faces: ArchivedFace[] } & Analyzed)
 );
 export interface ArchiveManifest {
   recordType: "manifest";
   artifactKind: "oracle-ast-archive";
-  schemaVersion: 3;
+  schemaVersion: 4;
   executable: false;
   corpus: { sha256: string; bytes: number; canonicalRecordsSha256: string; snapshotFile: string };
   paperEvidence: PaperEvidence["fingerprint"];
@@ -55,6 +60,7 @@ export interface ArchiveManifest {
   linesChecked: number;
   linesOk: number;
   bindingSummary: ReturnType<typeof emptyBindingSummary>;
+  resolutionSummary: ReturnType<typeof emptyResolutionSummary>;
 }
 export interface ParserArchive {
   manifest: ArchiveManifest;
@@ -81,6 +87,21 @@ function requireSnapshot(expected: Fingerprint, fingerprint: Fingerprinter): voi
   }
 }
 
+export function emptyResolutionSummary() {
+  return { cardsComplete: 0, blocks: 0, blocksComplete: 0, residuals: {} as Record<string, number> };
+}
+/** Cards and blocks by completeness; residual reasons count blocks (or cards
+ * for card-level reasons) that carry them. */
+export function addResolutionSummary(summary: ReturnType<typeof emptyResolutionSummary>, resolution: CardResolution): void {
+  if (resolution.complete) summary.cardsComplete++;
+  for (const reason of resolution.residuals) summary.residuals[reason] = (summary.residuals[reason] ?? 0) + 1;
+  for (const block of resolution.faces.flatMap(face => face.blocks ?? [])) {
+    summary.blocks++;
+    if (!block.residuals.length) summary.blocksComplete++;
+    for (const reason of block.residuals) summary.residuals[reason] = (summary.residuals[reason] ?? 0) + 1;
+  }
+}
+
 function successfulAstHash(faces: ArchivedFace[]): string {
   const abilities = faces.map(face => {
     if (face.status !== "attempted" || !face.result.ok) throw new Error("Unsupported face cannot have a complete-card AST hash");
@@ -102,7 +123,7 @@ export function buildArchive(options: { cacheFile?: string; fingerprint?: Finger
   const sourceRecordsHash = createHash("sha256");
   const corpusSha256 = sha256(corpus);
   const manifest: ArchiveManifest = {
-    recordType: "manifest", artifactKind: "oracle-ast-archive", schemaVersion: 3, executable: false,
+    recordType: "manifest", artifactKind: "oracle-ast-archive", schemaVersion: 4, executable: false,
     corpus: { sha256: corpusSha256, bytes: corpus.length, canonicalRecordsSha256: "", snapshotFile: `oracle-source-${corpusSha256}.json` },
     paperEvidence: evidence.fingerprint,
     parser,
@@ -110,6 +131,7 @@ export function buildArchive(options: { cacheFile?: string; fingerprint?: Finger
     scope: SCOPE, inputRecords: cards.length, excluded: {},
     cardsChecked: 0, cardsOk: 0, linesChecked: 0, linesOk: 0,
     bindingSummary: emptyBindingSummary(),
+    resolutionSummary: emptyResolutionSummary(),
   };
   const seen = new Set<string>();
   const records = cards.map((source, sourceIndex): ArchiveRecord => {
@@ -138,16 +160,19 @@ export function buildArchive(options: { cacheFile?: string; fingerprint?: Finger
       requireFiniteJson(result);
       return { sourceFaceIndex, status: "attempted", result };
     });
-    const binding = analyzeCardBindings({ identity: oracleIdentity, source, faces: faces.map(face => ({
+    const input = { identity: oracleIdentity, source, faces: faces.map(face => ({
       sourceFaceIndex: face.sourceFaceIndex, ...(face.status === "attempted" ? { result: face.result } : {}),
-    })) });
+    })) };
+    const binding = analyzeCardBindings(input);
     addBindingSummary(manifest.bindingSummary, binding);
-    const bindingSha256 = sha256(JSON.stringify(binding));
+    const resolution = resolveCard(input, binding);
+    addResolutionSummary(manifest.resolutionSummary, resolution);
+    const analyzed: Analyzed = { binding, bindingSha256: sha256(JSON.stringify(binding)), resolution, resolutionSha256: sha256(JSON.stringify(resolution)) };
     if (faces.every(face => face.status === "attempted" && face.result.ok)) {
       manifest.cardsOk++;
-      return { ...base, status: "parsed", faces, astSha256: successfulAstHash(faces), binding, bindingSha256 };
+      return { ...base, status: "parsed", faces, astSha256: successfulAstHash(faces), ...analyzed };
     }
-    return { ...base, status: "unsupported", faces, binding, bindingSha256 };
+    return { ...base, status: "unsupported", faces, ...analyzed };
   });
   manifest.corpus.canonicalRecordsSha256 = sourceRecordsHash.digest("hex");
   requireSnapshot(parser, fingerprint);
@@ -223,6 +248,8 @@ export async function verifyArchiveFile(file: string, archive: ParserArchive): P
         }
         if (record.status !== "excluded" && sha256(JSON.stringify(record.binding)) !== record.bindingSha256)
           throw new Error("Archived reference binding hash mismatch");
+        if (record.status !== "excluded" && sha256(JSON.stringify(record.resolution)) !== record.resolutionSha256)
+          throw new Error("Archived resolution hash mismatch");
       }
       lineIndex++;
     }
@@ -267,16 +294,17 @@ export async function publishArchive(archive: ParserArchive, outputFile = DEFAUL
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  let cacheFile = DEFAULT_INPUT, outputFile = DEFAULT_OUTPUT;
+  let cacheFile = DEFAULT_INPUT, outputFile = DEFAULT_OUTPUT, evidenceFile: string | undefined;
   for (let i = 0; i < args.length; i += 2) {
-    if (!args[i + 1] || (args[i] !== "--input" && args[i] !== "--output")) {
-      throw new Error("Usage: npm run archive-parser -- [--input path] [--output path]");
+    if (!args[i + 1] || !["--input", "--output", "--paper-evidence"].includes(args[i])) {
+      throw new Error("Usage: npm run archive-parser -- [--input path] [--output path] [--paper-evidence path]");
     }
     if (args[i] === "--input") cacheFile = path.resolve(args[i + 1]);
-    else outputFile = path.resolve(args[i + 1]);
+    else if (args[i] === "--output") outputFile = path.resolve(args[i + 1]);
+    else evidenceFile = path.resolve(args[i + 1]);
   }
   if (path.resolve(cacheFile) === path.resolve(outputFile)) throw new Error("Archive output must not overwrite its source corpus");
-  const archive = buildArchive({ cacheFile });
+  const archive = buildArchive({ cacheFile, ...(evidenceFile ? { paperEvidence: loadPaperEvidence(evidenceFile) } : {}) });
   await publishArchive(archive, outputFile);
   console.log(`Archived ${archive.records.length} complete source records to ${outputFile}`);
   console.log(`Accepted parsing: ${archive.manifest.cardsOk}/${archive.manifest.cardsChecked}; executable: false`);

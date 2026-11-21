@@ -187,7 +187,7 @@ fn tap_source_consumes_complete_target_and_rejects_optional_or_qualified_steps()
             r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"] =
                 filter
         });
-        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
         let spell = d.spell.as_ref().unwrap();
         assert_eq!(tests::sole_target(spell), expected);
         assert_eq!(tests::ops(spell), ["tap_permanent", "draw_cards"]);
@@ -282,7 +282,7 @@ fn tap_then_two_draws_is_an_ordinary_composed_sequence() {
         r["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["amount"]["value"] =
             2.into()
     });
-    let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+    let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
     let spell = d.spell.as_ref().unwrap();
     assert_eq!(
         tests::sole_target(spell),

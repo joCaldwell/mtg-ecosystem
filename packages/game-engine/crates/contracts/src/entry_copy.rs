@@ -17,17 +17,12 @@ const AST_SHA: &str = "9a612ea960f4fde1be15bcb8f4d8f002d87b1fa4455ecc50fe5731583
 const BINDING_SHA: &str = "cb81af11a8cdfa40429327e2413fbe861b9c15397d94fa0359571a61302e9c30";
 // The full archives carry the same reviewed source, AST, and ordered graph at
 // their original source index. The compiler also checks the exact archive row.
-const ORIGINS: [(u32, &str, &str); 3] = [
+const ORIGINS: [(u32, &str, &str); 2] = [
     (0, MANIFEST_SHA, PARSER_SHA),
     (
         31211,
-        "991099ef8df0cb4ef7e50949aa601c0f6f928388047f72b2c0d7845bcf6e9e4f",
-        "785737e69f80d6c2b34ae7ae10175aa9190b3f33d02a13c620abf7730b13e48c",
-    ),
-    (
-        31211,
-        "75dae29e996cd652f37331fbfe9e5bcb5ec4fbb53e97e5b1ac804e3bab6dc335",
-        "8216191595b4382b42db81ded8e84698bcedaca66428b7425c58e6eb4fbc4de9",
+        "deddab796868f3fb492dc4bdac00eed8844227a632de17b86f06bd28fe307b06",
+        "74eae67f96b7437840bbed4095856f8cab8c5b82a594404fa4763b9bd48983e0",
     ),
 ];
 const EFFECT: StaticEffect = StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn;

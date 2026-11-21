@@ -12,8 +12,11 @@ import type { CardNameCatalog } from "./card-names.ts";
 export type Punct = "." | "," | ":" | ";" | "—" | "•" | '"' | "'" | "+" | "-" | "/" | "!" | "|" | "[" | "]";
 
 /** Location within one normalized source line, retained when parsers slice or
- * clone tokens. The index counts tokens, including punctuation and symbols. */
-export interface TokenProvenance { sourceId: string; index: number }
+ * clone tokens. The index counts tokens, including punctuation and symbols.
+ * `start`/`end` are the token's UTF-16 offsets in that line (a possessive
+ * suffix belongs to its word); quotation settling may reorder tokens, so
+ * offsets, not indices, give text order. */
+export interface TokenProvenance { sourceId: string; index: number; start: number; end: number }
 
 export type Token = { provenance?: TokenProvenance } & (
   /** possessiveSuffix is the printed ending of a possessive ("'s" or the bare
@@ -51,9 +54,18 @@ function isLetter(c: string): boolean {
 
 export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog): Token[] {
   const tokens: Token[] = [];
+  // Every loop iteration pushes at most one token; its offsets are the
+  // iteration's start and the cursor after it.
+  const offsets: [number, number][] = [];
   let i = 0;
+  let from = 0;
+  const settle = () => {
+    if (tokens.length > offsets.length) offsets.push([from, i]);
+    from = i;
+  };
 
   while (i < line.length) {
+    settle();
     const c = line[i];
 
     if (c === " " || c === "\t") {
@@ -176,9 +188,11 @@ export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog):
     throw new LexError(`unexpected character ${JSON.stringify(c)}`, i);
   }
 
-  settleQuotedPunctuation(tokens);
+  settle();
+  if (offsets.length !== tokens.length) throw new Error("lexer emitted more than one token in one step");
+  settleQuotedPunctuation(tokens, offsets);
   return sourceId === undefined ? tokens : tokens.map((token, index) => ({
-    ...token, provenance: { sourceId, index },
+    ...token, provenance: { sourceId, index, start: offsets[index][0], end: offsets[index][1] },
   }));
 }
 
@@ -190,7 +204,8 @@ export function lex(line: string, sourceId?: string, catalog?: CardNameCatalog):
  * lowercase, or with its own punctuation), and before "Then", which the
  * effect grammar already reads as a continuation of the quoted instruction.
  * Literal names are card-name tokens, so ability quotation marks alternate. */
-function settleQuotedPunctuation(tokens: Token[]): void {
+function settleQuotedPunctuation(tokens: Token[], offsets: [number, number][]): void {
+  const swap = (a: number, b: number) => { [offsets[a], offsets[b]] = [offsets[b], offsets[a]]; };
   let open = false;
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
@@ -202,6 +217,7 @@ function settleQuotedPunctuation(tokens: Token[]): void {
     if (open && previous?.kind === "punct" && (previous.value === "," || (previous.value === "." && !continues))) {
       tokens[index - 1] = token;
       tokens[index] = previous;
+      swap(index - 1, index);
     }
     // The same mark typeset inside a nested closing quotation: ...target.'"
     const inner = tokens[index - 2];
@@ -210,6 +226,8 @@ function settleQuotedPunctuation(tokens: Token[]): void {
       tokens[index - 2] = previous;
       tokens[index - 1] = token;
       tokens[index] = inner;
+      swap(index - 2, index - 1);
+      swap(index - 1, index);
     }
     open = !open;
   }

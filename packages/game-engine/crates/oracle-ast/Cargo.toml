@@ -1,0 +1,16 @@
+[package]
+name = "mtg-oracle-ast"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The parser's archived AST and R4 resolution as typed Rust, generated from
+# packages/oracle-parser by scripts/generate-rust-ast.ts. A leaf crate, so
+# compiler edits never recompile the generated serde code.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
