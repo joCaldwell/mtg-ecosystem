@@ -30,8 +30,10 @@ describe("lossless nonexecutable parser archives", () => {
     await writeFile(cacheFile, JSON.stringify(cards));
     const archive = buildArchive({ cacheFile, fingerprint });
     const report = evaluateCorpus(cards);
-    assert.equal(archive.manifest.schemaVersion, 3);
+    assert.equal(archive.manifest.schemaVersion, 4);
     assert.equal(archive.manifest.cardsOk, 2);
+    assert.deepEqual(archive.manifest.resolutionSummary, { cardsComplete: 1, blocks: 2, blocksComplete: 1,
+      residuals: { "diagnostic:missing-antecedent": 1, "ref:missing-antecedent": 1 } });
     assert.deepEqual(archive.manifest.bindingSummary, report.bindingSummary);
     for (const record of archive.records) {
       assert.equal(record.status, "parsed");
@@ -46,6 +48,18 @@ describe("lossless nonexecutable parser archives", () => {
     assert.equal(selectors.length, 1);
     const selector = selectors[0];
     assert.ok(selector.node === "selection" && "selectionId" in selector.expression && selector.expression.selectionId === "line:0:0");
+    // R4: the target is the block's first announced target, its step is
+    // evented under its AST discriminant, and every token is attributed.
+    assert.equal(target.resolutionSha256, sha256(JSON.stringify(target.resolution)));
+    assert.deepEqual(target.resolution, { artifactKind: "oracle-resolution", schemaVersion: 1, residuals: [], complete: true,
+      faces: [{ sourceFaceIndex: 0, blocks: [{
+        refs: [{ path: "/effects/0/steps/0/what", ref: { ref: "target", slot: 0 } }],
+        steps: [{ path: "/effects/0/steps/0", astEffect: "pump", event: "pump" }],
+        spans: { certificate: { bytes: 45, segments: [{ start: 0, end: 45, fields: ["/effects/0"] }] } },
+        engineFeatures: [], residuals: [] }] }] });
+    assert.equal(unbound.resolution.complete, false);
+    assert.deepEqual(unbound.resolution.faces[0].blocks?.[0].refs, [{ path: "/effects/0/steps/0/amount", unresolved: "missing-antecedent" },
+      { path: "/effects/0/steps/0/who", ref: { ref: "controller", role: "spell-controller" } }]);
     assert.equal(unbound.binding.fullyBound, false);
     assert.ok(unbound.binding.counts.unresolved > 0);
     assert.ok(unbound.binding.references.some(ref => ref.binding === "unresolved" && "amount" in ref.expression && ref.expression.amount === "that-much"));

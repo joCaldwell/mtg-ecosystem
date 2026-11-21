@@ -81,9 +81,9 @@ pub(super) fn lower(
 #[cfg(test)]
 #[test]
 fn slice6c_mana_tap_activator_is_exact_and_untargeted() {
-    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
     let row =
-        include_str!("../../../tests/fixtures/phase1-r3/0f1afedd-c60f-454f-b84a-c8117aec0128.json");
+        include_str!("../../../tests/fixtures/phase1-r4/0f1afedd-c60f-454f-b84a-c8117aec0128.json");
     let result = compile(header, row);
     let CompileResult::Lowered { mut definition } = result else {
         panic!("{result:?}");

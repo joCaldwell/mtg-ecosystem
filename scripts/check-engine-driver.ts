@@ -106,6 +106,8 @@ const harnessSelfTests: CheckPhase[] = [
 const liveGuards: CheckPhase[] = [
   { label: "structure-guard", command: "python3", args: ["-B", "scripts/engine-structure-check.py"] },
   { label: "documentation-guard", command: "python3", args: ["-B", "scripts/check-docs.py"] },
+  // The compiler's typed archive AST is generated from the parser's TypeScript.
+  { label: "generated-ast-guard", command: "node", args: ["scripts/generate-rust-ast.ts", "--check"] },
 ];
 export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"] };
 

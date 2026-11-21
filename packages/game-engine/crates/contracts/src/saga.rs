@@ -381,10 +381,10 @@ pub(super) fn witness() -> Definition {
 #[cfg(test)]
 pub(super) fn spell_cast_witness() -> Definition {
     let mut definition = witness_from(include_str!(
-        "../../../tests/fixtures/phase1-r3/showdown-of-the-skalds.json"
+        "../../../tests/fixtures/phase1-r4/showdown-of-the-skalds.json"
     ));
     let origin = accepted_manifest(include_str!(
-        "../../../tests/fixtures/archive-manifest-phase1-r3.json"
+        "../../../tests/fixtures/archive-manifest-phase1-r4.json"
     ))
     .unwrap();
     definition.provenance.archive_manifest_sha256 = origin.manifest_sha256.clone();

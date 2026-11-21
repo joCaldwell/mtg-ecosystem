@@ -248,7 +248,8 @@ mod tests {
         // The same two clauses on an instant are an ordinary card: the block
         // pipeline lowers them, marked composed, at instant timing.
         let instant = changed_source(&raw, |r| r["source"]["type_line"] = json!("Instant"));
-        let d = crate::tests::composed_near_miss(compile(MANIFEST, &instant));
+        let d =
+            crate::tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &instant));
         let original = check(&raw, Some(3));
         let (p, q) = (d.spell.as_ref().unwrap(), original.spell.as_ref().unwrap());
         assert_eq!(d.characteristics.kind, CardKind::Instant);

@@ -290,7 +290,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     from_archive(modal_land::witness_provenance(include_str!(
-        "../../../tests/fixtures/phase1-r3/thraben-gargoyle.json"
+        "../../../tests/fixtures/phase1-r4/thraben-gargoyle.json"
     )))
     .unwrap()
 }

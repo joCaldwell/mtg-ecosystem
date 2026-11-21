@@ -38,6 +38,7 @@ import { parseValueChoice } from "./choices.ts";
 import { parseSelfReplacement, withSelfReplacement } from "./self-replacement.ts";
 import { foldCounterDestination } from "./counter-destination.ts";
 import { parseModalEffect } from "./modal.ts";
+import { SentenceRecorder, recordWhole } from "./sentence-spans.ts";
 import { parseProhibitionEffect } from "./prohibitions.ts";
 import { parseUntargetable } from "./untargetable.ts";
 import { parsePlayerRuleEffect } from "./player-rules.ts";
@@ -156,6 +157,7 @@ function containsEffect(value: unknown, kind: Effect["effect"]): boolean {
 export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null {
   const previousSubject = ctx.lastSubject;
   const previousPlayer = ctx.lastPlayer;
+  const start = c.pos;
   const result = c.attempt((c): Sentence[] | null => {
     const addedStep = ctx.triggerScope === "first-upkeep" && parseUpkeepInsertion(c);
     if (addedStep) return [{ steps: [addedStep] }];
@@ -168,7 +170,9 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
     const topMana = parseLibraryTopMana(c);
     if (topMana) return [{ steps: [topMana] }];
     const sentences: Sentence[] = [];
+    const recorder = new SentenceRecorder(c, sentences);
     while (!c.done()) {
+      recorder.step();
       const lastSentence = sentences.at(-1);
       // Outcome clauses of a coin flip (CR 705.2) belong to that flip.
       const totalLimit = foldCounterTotalLimit(c, lastSentence);
@@ -373,9 +377,10 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
     if (!castCopiesAreCreated(sentences)) return c.fail("card copy made before 'the copy' is cast");
     markConditionalContinuations(sentences);
     if (grantsSuspendAfterCounterFilter(sentences)) return c.fail("exile with counters, not a counter filter, before a suspend grant");
-    return sentences.length ? sentences : null;
+    return sentences.length ? recorder.finish(sentences) : null;
   });
   if (result === null) { ctx.lastSubject = previousSubject; ctx.lastPlayer = previousPlayer; }
+  else recordWhole(c, start, result);
   return result;
 }
 

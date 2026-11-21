@@ -116,7 +116,7 @@ whole-archive measurements. Do not scan the whole archive, compare archive
 revisions or run `check:engine:fast` at intermediate checkpoints.
 
 Run `final` once, on the commit you publish. It runs `check:engine:fast`, one
-whole-archive R3 scan, selected/full deck-report parity and, with
+whole-archive R4 scan, selected/full deck-report parity and, with
 `--base-records`, whole-archive regressions against base receipts. Report it as
 the PR gate. Delegate at most one coding child per independent mechanic family.
 Children run the inner loop; the publisher runs the final gate.

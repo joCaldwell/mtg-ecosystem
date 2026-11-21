@@ -1,7 +1,7 @@
 //! Runtime witnesses for definitions admitted by the composition matrix.
 //!
 //! Each test exercises one newly opened cell (stack-object kind, cost,
-//! announcement route, source type, instruction) with an exact frozen R3
+//! announcement route, source type, instruction) with an exact frozen R4
 //! archive row, through announcement, payment, resolution, snapshot restore
 //! and journal replay. Card names identify witnesses, never mechanics.
 //!
@@ -12,32 +12,32 @@ use super::*;
 use mtg_witness::aura::prepared_with_sources;
 use mtg_witness::equipped::{answer, both, object, recover, request};
 
-const R3: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json");
+const R4: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
 const CHALICE: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-marble-chalice.json");
-const PORT: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-rishadan-port.json");
-const STRIP: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-strip-mine.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-marble-chalice.json");
+const PORT: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-rishadan-port.json");
+const STRIP: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-strip-mine.json");
 const SEAL: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-seal-of-primordium.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-seal-of-primordium.json");
 const KAMAHL: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-kamahl-pit-fighter.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-kamahl-pit-fighter.json");
 const PRIEST: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-icatian-priest.json");
-const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-piranha-marsh.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-icatian-priest.json");
+const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-piranha-marsh.json");
 const DRAGON: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-destructor-dragon.json");
-const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-bake-into-a-pie.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-destructor-dragon.json");
+const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-bake-into-a-pie.json");
 
 /// `(name, owner, controller, in hand)`; card IDs follow row order.
 type Row = (&'static str, u8, u8, bool);
 
-/// The shared paid-scenario catalog plus composed R3 rows, each compiled in
+/// The shared paid-scenario catalog plus composed R4 rows, each compiled in
 /// its own accepted archive context.
 fn prepared(rows: &[Row], sources: &[&str]) -> Prepared {
     let mut p = prepared_with_sources(&[], &[]);
     let mut catalog = (*p.catalog).clone();
     for raw in sources {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(R3, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(R4, raw)
         else {
             panic!("composed frozen source must lower")
         };

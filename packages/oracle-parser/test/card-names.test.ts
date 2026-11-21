@@ -158,7 +158,7 @@ describe("literal source-name catalog", () => {
   it("retains stable token provenance for targets around literal names", () => {
     const line = normalizeOracleText("Exile target creature named Llanowar Elves. Tap target creature.", undefined, catalog)[0];
     const tokens = lex(line, "line:0", catalog);
-    assert.deepEqual(tokens.find(token => token.kind === "card-name"), { kind: "card-name", value: "Llanowar Elves", provenance: { sourceId: "line:0", index: 4 } });
+    assert.deepEqual(tokens.find(token => token.kind === "card-name"), { kind: "card-name", value: "Llanowar Elves", provenance: { sourceId: "line:0", index: 4, start: 28, end: 44 } });
     const result = parseOracleText("Exile target creature named Llanowar Elves. Tap target creature.", undefined, { cardNames: catalog, includeSourceProvenance: true });
     assert.ok(result.ok);
     const parsed = result.abilities[0]; assert.ok(parsed.kind === "spell");

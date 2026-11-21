@@ -3,7 +3,7 @@ use mtg_witness::aura::prepared_with_sources;
 use mtg_witness::equipped::{answer, both, object, pay_to_priority, recover, request};
 
 const MARAUDERS: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/f819b134-24cd-4863-a46a-0a068e34ca9e.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/f819b134-24cd-4863-a46a-0a068e34ca9e.json");
 
 fn prepared() -> Prepared {
     let mut p = prepared_with_sources(
@@ -15,7 +15,7 @@ fn prepared() -> Prepared {
         &[],
     );
     let result = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
         MARAUDERS,
     );
     let mtg_compiler::CompileResult::Lowered { definition } = result else {

@@ -110,7 +110,7 @@ fn library_order_rejects_qualified_null_partial_and_wrong_binding_source() {
             // A fixed draw of two after the same ordering is an ordinary
             // sequence: the block pipeline lowers it, marked composed, as two
             // single draws (CR 121.2) with every other instruction unchanged.
-            let d = tests::composed_near_miss(compile(HEADER, &changed));
+            let d = tests::composed_near_miss(crate::tests::synthetic_compile(HEADER, &changed));
             let draw = Instruction::DrawCards {
                 recipient: None,
                 count: 1.into(),

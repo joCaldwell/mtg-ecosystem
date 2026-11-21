@@ -583,8 +583,6 @@ export type Trigger = {
   | { trigger: "draws"; who: PlayerRef; except?: "first-in-each-draw-step" }
   | { trigger: "discards"; who: PlayerRef; what?: ObjectRef }
   | { trigger: "sacrifices"; who: PlayerRef; what: ObjectFilter | ObjectRef }
-  /** The player stops controlling the object (CR 603.10d: looks back in time). */
-  | { trigger: "loses-control"; who: PlayerRef; what: ObjectRef }
   | { trigger: "scries" | "surveils"; who: PlayerRef }
   /** The player performs the named keyword action or special action:
    * foretelling a card (CR 702.143c), discovering (701.57b), manifesting
