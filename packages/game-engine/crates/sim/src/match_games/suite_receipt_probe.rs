@@ -65,7 +65,7 @@ fn production_receipts_match_legacy_suite_assembly() {
     fs::write(directory.join("receipt-evidence.json"), &reused_bytes).unwrap();
     let result = serde_json::json!({
         "scope":"one production foundations batch and one old-then-new suite-assembly pair; shared batch excluded from assembly comparison; not full acceptance",
-        "build_id":BUILD_ID,
+        "build_id":BUILD.id,
         "profile":profile,
         "games":18,
         "receipt_source":"production batch_impl; no fabricated or deserialized receipt",

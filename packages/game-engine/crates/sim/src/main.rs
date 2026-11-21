@@ -19,14 +19,6 @@ use std::{
 /// it. Unit tests leave core at `BuildIdentity::TEST`, and nothing here compares
 /// that test identity with this compiled one.
 pub(crate) const BUILD: mtg_core::BuildIdentity = mtg_core::compiled_build_identity!();
-pub(crate) const BUILD_ID: &str = BUILD.id;
-pub(crate) const BUILD_PROFILE: &str = BUILD.profile;
-pub(crate) const BUILD_OPT_LEVEL: &str = BUILD.opt_level;
-pub(crate) const BUILD_DEBUG: &str = BUILD.debug;
-pub(crate) const BUILD_DEBUG_ASSERTIONS: &str = BUILD.debug_assertions;
-pub(crate) const BUILD_TARGET: &str = BUILD.target;
-pub(crate) const BUILD_RUSTFLAGS: &str = BUILD.rustflags;
-pub(crate) const BUILD_RUSTC: &str = BUILD.rustc;
 
 mod actions_payments_games;
 mod bulk_input;
@@ -765,18 +757,18 @@ fn source_files() -> Result<Vec<SourceFile>, String> {
 }
 fn verified_current_source_files() -> Result<Vec<SourceFile>, String> {
     let files = source_files()?;
-    let rustc = format!("{BUILD_RUSTC}\n");
+    let rustc = format!("{}\n", BUILD.rustc);
     verify_native_source_bytes(
         &files,
-        BUILD_ID,
+        BUILD.id,
         [
             rustc.as_str(),
-            BUILD_PROFILE,
-            BUILD_TARGET,
-            BUILD_RUSTFLAGS,
-            BUILD_OPT_LEVEL,
-            BUILD_DEBUG,
-            BUILD_DEBUG_ASSERTIONS,
+            BUILD.profile,
+            BUILD.target,
+            BUILD.rustflags,
+            BUILD.opt_level,
+            BUILD.debug,
+            BUILD.debug_assertions,
         ],
     )?;
     Ok(files)
@@ -784,7 +776,7 @@ fn verified_current_source_files() -> Result<Vec<SourceFile>, String> {
 fn current_source_manifest() -> Result<serde_json::Value, String> {
     let files = verified_current_source_files()?;
     Ok(serde_json::json!({
-        "status":"compiled-source-closure-verified", "build_id":BUILD_ID,
+        "status":"compiled-source-closure-verified", "build_id":BUILD.id,
         "files":files.iter().map(|file|serde_json::json!({
             "path":file.path,"sha256":file.sha256,"bytes":file.contents.len()
         })).collect::<Vec<_>>()
@@ -916,7 +908,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         "snapshot_bytes":game.snapshot()?.len(),"representative_commander_benchmark":false});
     std::hint::black_box(&retained);
     drop(retained);
-    let rustc = format!("{BUILD_RUSTC}\n");
+    let rustc = format!("{}\n", BUILD.rustc);
     let (departure, departure_report) = departure_demo(catalog.clone())?;
     let departure_game = Game::restore(
         Prepared::admit(catalog.clone(), departure.config.clone())?,
@@ -1127,7 +1119,7 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         matches,
         draw_failure,
         bundle_version: 20,
-        build_id: BUILD_ID.into(),
+        build_id: BUILD.id.into(),
         catalog,
         config: prepared.config().clone(),
         profile_digest: prepared.profile_digest().into(),
@@ -1139,15 +1131,15 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         final_snapshot: game.snapshot()?,
         source_files: source_files()?,
         rustc,
-        build_profile: BUILD_PROFILE.into(),
-        opt_level: BUILD_OPT_LEVEL.into(),
-        debug: BUILD_DEBUG.into(),
-        debug_assertions: BUILD_DEBUG_ASSERTIONS.into(),
-        target: BUILD_TARGET.into(),
-        rustflags: BUILD_RUSTFLAGS.into(),
+        build_profile: BUILD.profile.into(),
+        opt_level: BUILD.opt_level.into(),
+        debug: BUILD.debug.into(),
+        debug_assertions: BUILD.debug_assertions.into(),
+        target: BUILD.target.into(),
+        rustflags: BUILD.rustflags.into(),
         query_sidecar,
     };
-    let mut report = serde_json::json!({"status":"scenario_verified","choices":choice_report,"choices_trace_equivalence":choice_trace_report,"effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD_ID,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let mut report = serde_json::json!({"status":"scenario_verified","choices":choice_report,"choices_trace_equivalence":choice_trace_report,"effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD.id,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
@@ -1296,16 +1288,16 @@ fn verify_native_source_bytes(
     build_id: &str,
     metadata: [&str; 7],
 ) -> Result<(), String> {
-    let rustc = format!("{BUILD_RUSTC}\n");
+    let rustc = format!("{}\n", BUILD.rustc);
     if metadata
         != [
             rustc.as_str(),
-            BUILD_PROFILE,
-            BUILD_TARGET,
-            BUILD_RUSTFLAGS,
-            BUILD_OPT_LEVEL,
-            BUILD_DEBUG,
-            BUILD_DEBUG_ASSERTIONS,
+            BUILD.profile,
+            BUILD.target,
+            BUILD.rustflags,
+            BUILD.opt_level,
+            BUILD.debug,
+            BUILD.debug_assertions,
         ]
     {
         return Err("retained toolchain metadata differs from this executable".into());
@@ -1357,7 +1349,7 @@ fn verify_native_source_bytes(
 
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 20 || b.build_id != BUILD_ID {
+    if b.bundle_version != 20 || b.build_id != BUILD.id {
         return Err("unsupported bundle version/build".into());
     }
     if b.archive_manifest != fixtures::MANIFEST {
@@ -1640,7 +1632,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     serde_json::to_value(mtg_compiler::coverage::coverage_selected(&cli.archive, &cli.out, only.as_ref())?)?
                 }
                 Some("build-ir") if args.len() == 5 && args[3] == "--out" => {
-                    serde_json::to_value(mtg_compiler::bulk::build_ir(Path::new(&args[2]), Path::new(&args[4]), BUILD_ID)?)?
+                    serde_json::to_value(mtg_compiler::bulk::build_ir(Path::new(&args[2]), Path::new(&args[4]), BUILD.id)?)?
                 }
                 Some("build") if args.len() >= 3 => {
                     let mut write = false;
@@ -1730,7 +1722,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 canonical(&serde_json::json!({
                     "status": "trusted_fixture_report",
                     "workload": search_roots::WORKLOAD,
-                    "build_id": BUILD_ID,
+                    "build_id": BUILD.id,
                     "roots": reports,
                 }))?
             );
@@ -2138,22 +2130,22 @@ mod tests {
     }
     #[test]
     fn recorded_debug_assertions_match_the_target_configuration() {
-        assert_eq!(BUILD_DEBUG_ASSERTIONS, cfg!(debug_assertions).to_string());
+        assert_eq!(BUILD.debug_assertions, cfg!(debug_assertions).to_string());
     }
     #[test]
     fn code_identity_excludes_catalog_data_but_keeps_source_and_hash_checks() {
         let metadata = [
-            BUILD_RUSTC.to_owned() + "\n",
-            BUILD_PROFILE.into(),
-            BUILD_TARGET.into(),
-            BUILD_RUSTFLAGS.into(),
-            BUILD_OPT_LEVEL.into(),
-            BUILD_DEBUG.into(),
-            BUILD_DEBUG_ASSERTIONS.into(),
+            BUILD.rustc.to_owned() + "\n",
+            BUILD.profile.into(),
+            BUILD.target.into(),
+            BUILD.rustflags.into(),
+            BUILD.opt_level.into(),
+            BUILD.debug.into(),
+            BUILD.debug_assertions.into(),
         ];
         let metadata = metadata.each_ref().map(String::as_str);
         let original = source_files().unwrap();
-        verify_native_source_bytes(&original, BUILD_ID, metadata).unwrap();
+        verify_native_source_bytes(&original, BUILD.id, metadata).unwrap();
         let mut files = original.clone();
         let data = files
             .iter_mut()
@@ -2162,7 +2154,7 @@ mod tests {
         data.contents.push(' ');
         // Separate per-file integrity remains enforced for data too.
         assert!(
-            verify_native_source_bytes(&files, BUILD_ID, metadata)
+            verify_native_source_bytes(&files, BUILD.id, metadata)
                 .unwrap_err()
                 .contains("source hash mismatch")
         );
@@ -2171,14 +2163,14 @@ mod tests {
             .find(|f| f.path.ends_with("fixtures/provenance.json"))
             .unwrap();
         data.sha256 = sha256(data.contents.as_bytes());
-        verify_native_source_bytes(&files, BUILD_ID, metadata).unwrap();
+        verify_native_source_bytes(&files, BUILD.id, metadata).unwrap();
         let host = files
             .iter_mut()
             .find(|f| f.path.starts_with("packages/game-server/src/"))
             .unwrap();
         host.contents.push(' ');
         host.sha256 = sha256(host.contents.as_bytes());
-        verify_native_source_bytes(&files, BUILD_ID, metadata).unwrap();
+        verify_native_source_bytes(&files, BUILD.id, metadata).unwrap();
         // Test-only engine sources never enter an executable or its identity.
         for suffix in [
             "_tests.rs",
@@ -2193,7 +2185,7 @@ mod tests {
                 .unwrap();
             test.contents.push(' ');
             test.sha256 = sha256(test.contents.as_bytes());
-            verify_native_source_bytes(&files, BUILD_ID, metadata).unwrap();
+            verify_native_source_bytes(&files, BUILD.id, metadata).unwrap();
         }
         let code = files
             .iter_mut()
@@ -2202,7 +2194,7 @@ mod tests {
         code.contents.push(' ');
         code.sha256 = sha256(code.contents.as_bytes());
         assert!(
-            verify_native_source_bytes(&files, BUILD_ID, metadata)
+            verify_native_source_bytes(&files, BUILD.id, metadata)
                 .unwrap_err()
                 .contains("does not reproduce the build identity")
         );
@@ -2212,17 +2204,17 @@ mod tests {
         fn metadata(rustc: &str) -> [&str; 7] {
             [
                 rustc,
-                BUILD_PROFILE,
-                BUILD_TARGET,
-                BUILD_RUSTFLAGS,
-                BUILD_OPT_LEVEL,
-                BUILD_DEBUG,
-                BUILD_DEBUG_ASSERTIONS,
+                BUILD.profile,
+                BUILD.target,
+                BUILD.rustflags,
+                BUILD.opt_level,
+                BUILD.debug,
+                BUILD.debug_assertions,
             ]
         }
         let mut files = source_files().unwrap();
-        let mut rustc = format!("{BUILD_RUSTC}\n");
-        verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).unwrap();
+        let mut rustc = format!("{}\n", BUILD.rustc);
+        verify_native_source_bytes(&files, BUILD.id, metadata(&rustc)).unwrap();
         let original_path = files[0].path.clone();
         for unsafe_path in [
             "/escape",
@@ -2235,26 +2227,26 @@ mod tests {
         ] {
             files[0].path = unsafe_path.into();
             assert!(
-                verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc))
+                verify_native_source_bytes(&files, BUILD.id, metadata(&rustc))
                     .unwrap_err()
                     .contains("unsafe native source path")
             );
         }
         files[0].path = original_path;
-        verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).unwrap();
+        verify_native_source_bytes(&files, BUILD.id, metadata(&rustc)).unwrap();
         // A final file can otherwise be absorbed into rustc while preserving
         // the same separator stream. Metadata must match compiled constants.
         let last = files.pop().unwrap();
         let original_rustc = std::mem::take(&mut rustc);
         rustc = format!("{}\0{}\0{}", last.path, last.contents, original_rustc);
         assert!(
-            verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc))
+            verify_native_source_bytes(&files, BUILD.id, metadata(&rustc))
                 .unwrap_err()
                 .contains("toolchain metadata")
         );
         rustc = original_rustc;
         files.push(last);
-        verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).unwrap();
+        verify_native_source_bytes(&files, BUILD.id, metadata(&rustc)).unwrap();
         // Merging adjacent records preserves the old delimiter byte stream.
         // Explicit separator guards must reject the now-ambiguous file table.
         let second = files.remove(1);
@@ -2264,9 +2256,9 @@ mod tests {
         first.contents.push('\0');
         first.contents.push_str(&second.contents);
         first.sha256 = sha256(first.contents.as_bytes());
-        assert!(verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).is_err());
+        assert!(verify_native_source_bytes(&files, BUILD.id, metadata(&rustc)).is_err());
         files.clear();
-        assert!(verify_native_source_bytes(&files, BUILD_ID, metadata(&rustc)).is_err());
+        assert!(verify_native_source_bytes(&files, BUILD.id, metadata(&rustc)).is_err());
     }
     #[test]
     fn bundle_contains_replayable_source_to_runtime_evidence() {
@@ -2298,7 +2290,10 @@ mod tests {
         assert_eq!(report["matches"]["games"].as_array().unwrap().len(), 18);
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
-        assert_eq!(final_snapshot["snapshot_version"], 75);
+        assert_eq!(
+            final_snapshot["snapshot_version"],
+            mtg_core::formats::SNAPSHOT_VERSION
+        );
         let json = canonical(&bundle).unwrap();
         assert_eq!(
             verify_bundle(&json).unwrap(),

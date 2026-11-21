@@ -37,9 +37,6 @@ impl BuildIdentity {
         rustflags: "",
         rustc: "test",
     };
-    pub fn is_test(&self) -> bool {
-        *self == Self::TEST
-    }
 }
 
 /// The identity a build script that runs `crates/build_identity.rs` emitted for
@@ -96,7 +93,6 @@ mod tests {
             BuildIdentity::TEST.debug_assertions,
             cfg!(debug_assertions).to_string()
         );
-        assert!(BuildIdentity::TEST.is_test());
         assert_ne!(BuildIdentity::TEST.id.len(), 64);
     }
     #[test]

@@ -671,7 +671,7 @@ pub(crate) fn write(
     let json = serde_json::to_vec_pretty(&json!({
         "schema": "deck-analytics-v1",
         "profile": profile.name,
-        "build_id": crate::BUILD_ID,
+        "build_id": crate::BUILD.id,
         "catalog_sha256": profile.catalog_sha256,
         "seed_start": seed_start, "rotate_seats": rotation, "decision_limit": decision_limit,
         "pods": games, "verified_terminal_replays": completed, "analytics_workers": workers,

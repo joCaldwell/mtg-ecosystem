@@ -756,7 +756,7 @@ fn fixed_work_diagnostic_row() {
     let reference_digest = reference.semantics.digest().unwrap();
     let mut report = serde_json::json!({"schema":"foundations-fixed-search-row-v1","status":"running",
         "classification":"fixed-work diagnostic, not the deadline-limited product benchmark",
-        "engine_build_id":crate::BUILD_ID,"root_index":root,"frozen_work":work,
+        "engine_build_id":crate::BUILD.id,"root_index":root,"frozen_work":work,
         "frozen_work_sha256":work.digest().unwrap(),"horizon":HORIZON,"workers":cpu_ids.len(),
         "worker_cpu_ids":cpu_ids,"available_physical_cpu_ids":available,"preparation_micros":preparation_micros,
         "reference_semantics":reference.semantics,"reference_semantics_sha256":reference_digest,

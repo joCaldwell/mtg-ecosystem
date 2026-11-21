@@ -1,5 +1,5 @@
 //! Offline artifact loading, batch inspection and bounded replay evidence.
-use crate::BUILD_ID;
+use crate::BUILD;
 use mtg_contracts::{
     JsonByteProof,
     bulk_catalog::{BulkArtifact, BulkManifest, MANIFEST_MAX_BYTES, is_sha256},
@@ -53,10 +53,10 @@ pub(super) fn load(directory: &Path, pin: &str) -> Result<BulkArtifact, String> 
     if manifest.1.sha256 != pin {
         return Err("bulk manifest pin mismatch".into());
     }
-    manifest.0.validate(BUILD_ID)?;
+    manifest.0.validate(BUILD.id)?;
     let catalog = read_file(&directory.join("catalog.json"), manifest.0.catalog.bytes)?;
     let index = read_file(&directory.join("index.json"), manifest.0.index.bytes)?;
-    BulkArtifact::verify(manifest, pin, BUILD_ID, catalog, index)
+    BulkArtifact::verify(manifest, pin, BUILD.id, catalog, index)
 }
 
 #[derive(Deserialize)]
@@ -182,7 +182,7 @@ struct ReplayEvidence {
 
 fn replay(artifact: &BulkArtifact, evidence: &ReplayEvidence) -> Result<String, String> {
     if evidence.format_version != 1
-        || evidence.runtime_build_id != BUILD_ID
+        || evidence.runtime_build_id != BUILD.id
         || evidence.identity.bulk_manifest_sha256 != artifact.manifest_sha256()
         || !(1..=OPENING_MAX_DECISIONS).contains(&evidence.journal.decisions.len())
         || !evidence.journal.concessions.is_empty()
@@ -296,7 +296,7 @@ fn foundations_witness(artifact: &BulkArtifact) -> Result<ReplayEvidence, String
     }
     let evidence = ReplayEvidence {
         format_version: 1,
-        runtime_build_id: BUILD_ID.into(),
+        runtime_build_id: BUILD.id.into(),
         identity: first.identity,
         config,
         journal_sha256: digest(&journal)?,

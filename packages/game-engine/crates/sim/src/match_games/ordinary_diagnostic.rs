@@ -772,7 +772,7 @@ fn ordinary_legal_pod_diagnostic() {
         .mode(0o600)
         .open(output)
         .unwrap();
-    let mut report = json!({"schema":"ordinary-legal-pod-diagnostic-v1","status":"running","build_id":BUILD_ID,
+    let mut report = json!({"schema":"ordinary-legal-pod-diagnostic-v1","status":"running","build_id":BUILD.id,
         "classification":"legal four100card pod; fixed1024input prefix, not necessarily a completed game",
         "policy":"IR-driven Develop Strategy; chooser permitted Observation only",
         "seed_index":1,"starting_player":1,"mulligans":[0,0,0,0],"trace_mode":"off","quantum":QUANTUM,
@@ -947,7 +947,7 @@ fn ordinary_artifact_batch_diagnostic() {
         .mode(0o600)
         .open(output)
         .unwrap();
-    let mut report = json!({"schema":"ordinary-artifact-batch-v1","status":"running","build_id":BUILD_ID,
+    let mut report = json!({"schema":"ordinary-artifact-batch-v1","status":"running","build_id":BUILD.id,
         "scope":"Twelve unchanged legal-pod root fixtures, including declared pre-setup departures. Query/copy/JSON batches1/64/1024 repeat the same root; not independent pods or a network/FFI consumer. Snapshot serialize and normal replay-validating restore measured separately.",
         "trace_mode":"off","warmups":1,"measured_repeats":REPEATS,"roots":[]});
     publish(&mut file, &report).unwrap();
@@ -1094,7 +1094,7 @@ fn ordinary_core_profile_diagnostic() {
         .mode(0o600)
         .open(output)
         .unwrap();
-    let mut report = json!({"schema":"ordinary-core-profile-v1","status":"running","build_id":BUILD_ID,
+    let mut report = json!({"schema":"ordinary-core-profile-v1","status":"running","build_id":BUILD.id,
         "scope":"External collector starts paused. Reference fixture/policy/oracle and initial advance precede resume. The raw_core_prefix attribution root consumes precloned owned native inputs, validates and runs automatic rules, without policy/Observation/serialization. Total phase allocations also include signal-bookend overhead; no guessed subtraction or pure-core total claim.",
         "attribution_function":"match_games::ordinary_diagnostic::raw_core_prefix",
         "control":"external gprofng -y USR2, starts paused; two documented signals; host must pin collector and kill tool identities and retain actual profiler warnings"});
@@ -1161,7 +1161,7 @@ fn ordinary_core_allocation_diagnostic() {
         .open(output)
         .unwrap();
     let mut report = json!({
-        "schema":"ordinary-core-allocation-v1", "status":"running", "build_id":BUILD_ID,
+        "schema":"ordinary-core-allocation-v1", "status":"running", "build_id":BUILD.id,
         "instrumentation":{"id":allocation::ID,"crate":"stats_alloc","version":allocation::CRATE_VERSION,
             "required_SIM_features":["diagnostic-allocations"],"allocator":"StatsAlloc<System>",
             "cfg":"test AND feature diagnostic-allocations","scope":"process-global Rust global-allocator requests; alloc+alloc_zeroed combined, realloc and dealloc separate; not successful allocations or all C/System calls"},

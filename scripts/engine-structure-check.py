@@ -49,7 +49,7 @@ PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"]+)"\]')
 
 
 def test_only(name):
-    """Mirror of contracts `test_only_source` for one path component."""
+    """Mirror of `test_only_source` in contracts `build_input.rs`, per path component."""
     stem = name.removesuffix('.rs')
     return stem == 'tests' or stem.endswith('_tests')
 

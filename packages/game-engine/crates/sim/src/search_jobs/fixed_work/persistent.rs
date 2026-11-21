@@ -546,7 +546,7 @@ fn fixed_work_persistent_diagnostic_row() {
         assert_eq!(row.strategy_operations, reference.strategy_operations);
     }
     let report = canonical(&serde_json::json!({
-        "schema":"fixed-persistent-pool-diagnostic-v1","build_id":crate::BUILD_ID,
+        "schema":"fixed-persistent-pool-diagnostic-v1","build_id":crate::BUILD.id,
         "root":root,"frozen_work":work,"reference":reference.semantics,
         "worker_cpu_ids":cpu_ids,"available_physical_cpu_ids":available,
         "warmups":1,"measured_repeats":5,"rows":rows,

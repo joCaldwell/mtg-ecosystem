@@ -203,7 +203,7 @@ pub(super) fn propose(
             .collect();
     }
     Ok(WorldProposal {
-        proposal_version: 1,
+        proposal_version: mtg_core::formats::PROPOSAL_VERSION,
         context_id: capture.context_id().into(),
         sampler_version: SEARCH_SAMPLER.into(),
         world_index,

@@ -84,7 +84,7 @@ pub use fetched_land_untap::{fetched_land_reference, fetched_land_untap_clause};
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 mod build_input;
-pub use build_input::{engine_build_input, test_only_source};
+pub use build_input::engine_build_input;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
 pub mod activated_creature_tap;

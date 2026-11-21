@@ -130,7 +130,7 @@ fn page(number: u64, expiry: u64) -> StreamPage {
     serde_json::from_value(json!({
         "protocol_version":1,
         "entries":[{"cursor":u64::MAX.to_string(),"publication":{"kind":"view_replaced","observation":{
-            "observation_version":15,
+            "observation_version":mtg_core::formats::OBSERVATION_VERSION,
             "view":{
                 "combat":[],"viewer":0,"active":0,"turn_owner":0,
                 "turn":{"number":number,"step":"precombat_main","lands_played":0},

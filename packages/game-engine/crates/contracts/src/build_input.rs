@@ -29,7 +29,7 @@ pub fn engine_build_input(path: &str) -> bool {
 }
 
 /// Test-only module naming: a `tests`/`*_tests` file or directory component.
-pub fn test_only_source(path: &str) -> bool {
+fn test_only_source(path: &str) -> bool {
     path.split('/').any(|part| {
         let stem = part.strip_suffix(".rs").unwrap_or(part);
         stem == "tests" || stem.ends_with("_tests")

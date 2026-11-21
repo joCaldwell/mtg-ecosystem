@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn parsing_keeps_legacy_spelling_errors() {
+    fn noncanonical_spellings_are_rejected_with_exact_errors() {
         for decimal in ["01", "-0", "+1", " 1", "1_0", "+9223372036854775808"] {
             let expected = match decimal.parse::<BigInt>() {
                 Ok(_) => "quantity must use canonical decimal spelling",
@@ -295,14 +295,14 @@ mod tests {
             "123456789012345678901234567890",
             "-123456789012345678901234567890",
         ] {
-            let legacy = Quantity(decimal.parse().unwrap());
+            let reference = Quantity(decimal.parse().unwrap());
             let actual: super::Quantity = decimal.parse().unwrap();
-            assert_eq!(format!("{actual}"), format!("{}", legacy.0));
-            assert_eq!(format!("{actual:+030}"), format!("{:+030}", legacy.0));
-            assert_eq!(format!("{actual:*^32}"), format!("{:*^32}", legacy.0));
-            assert_eq!(format!("{actual:?}"), format!("{legacy:?}"));
-            assert_eq!(format!("{actual:#?}"), format!("{legacy:#?}"));
-            assert_eq!(format!("{actual:x?}"), format!("{legacy:x?}"));
+            assert_eq!(format!("{actual}"), format!("{}", reference.0));
+            assert_eq!(format!("{actual:+030}"), format!("{:+030}", reference.0));
+            assert_eq!(format!("{actual:*^32}"), format!("{:*^32}", reference.0));
+            assert_eq!(format!("{actual:?}"), format!("{reference:?}"));
+            assert_eq!(format!("{actual:#?}"), format!("{reference:#?}"));
+            assert_eq!(format!("{actual:x?}"), format!("{reference:x?}"));
         }
     }
 }
