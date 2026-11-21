@@ -294,16 +294,17 @@ export async function publishArchive(archive: ParserArchive, outputFile = DEFAUL
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  let cacheFile = DEFAULT_INPUT, outputFile = DEFAULT_OUTPUT;
+  let cacheFile = DEFAULT_INPUT, outputFile = DEFAULT_OUTPUT, evidenceFile: string | undefined;
   for (let i = 0; i < args.length; i += 2) {
-    if (!args[i + 1] || (args[i] !== "--input" && args[i] !== "--output")) {
-      throw new Error("Usage: npm run archive-parser -- [--input path] [--output path]");
+    if (!args[i + 1] || !["--input", "--output", "--paper-evidence"].includes(args[i])) {
+      throw new Error("Usage: npm run archive-parser -- [--input path] [--output path] [--paper-evidence path]");
     }
     if (args[i] === "--input") cacheFile = path.resolve(args[i + 1]);
-    else outputFile = path.resolve(args[i + 1]);
+    else if (args[i] === "--output") outputFile = path.resolve(args[i + 1]);
+    else evidenceFile = path.resolve(args[i + 1]);
   }
   if (path.resolve(cacheFile) === path.resolve(outputFile)) throw new Error("Archive output must not overwrite its source corpus");
-  const archive = buildArchive({ cacheFile });
+  const archive = buildArchive({ cacheFile, ...(evidenceFile ? { paperEvidence: loadPaperEvidence(evidenceFile) } : {}) });
   await publishArchive(archive, outputFile);
   console.log(`Archived ${archive.records.length} complete source records to ${outputFile}`);
   console.log(`Accepted parsing: ${archive.manifest.cardsOk}/${archive.manifest.cardsChecked}; executable: false`);
