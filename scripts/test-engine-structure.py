@@ -40,6 +40,19 @@ class StructureTests(unittest.TestCase):
             path.write_text('[package]\nname="mtg-core"\n[dev-dependencies]\nmtg-compiler = {path="../compiler"}\n')
             self.assertEqual([], structure.dependency_errors(root))
 
+    def test_test_named_modules_must_be_cfg_test(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / structure.CRATES / 'x/src'
+            src.mkdir(parents=True)
+            (src / 'lib.rs').write_text('mod a_tests;\n#[cfg(test)]\nmod b_tests;\n#[path = "c_tests.rs"]\nmod c;\n'
+                                        '#[cfg(all(test, feature = "x"))]\nmod d_tests;\nmod prod;\n')
+            (src / 'b_tests.rs').write_text('mod nested_tests;\n')
+            errors = structure.test_module_errors(root)
+            self.assertEqual(2, len(errors))
+            self.assertIn('a_tests.rs', errors[0])
+            self.assertIn('c_tests.rs', errors[1])
+
 
 if __name__ == '__main__':
     unittest.main()
