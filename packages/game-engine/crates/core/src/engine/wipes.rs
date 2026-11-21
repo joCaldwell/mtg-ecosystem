@@ -9,7 +9,7 @@ use mtg_contracts::{ObjectSet, SetMove, WipeAmount};
 
 impl Game {
     // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
-    pub(super) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
+    pub(crate) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
             .objects
@@ -20,7 +20,7 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    pub(super) fn wipe_cause(frame: &Resolving, source_block: u32) -> BatchCause {
+    pub(crate) fn wipe_cause(frame: &Resolving, source_block: u32) -> BatchCause {
         BatchCause::Instruction {
             stack_id: frame.spell.id,
             player: frame.spell.controller,
@@ -29,7 +29,7 @@ impl Game {
             source_block,
         }
     }
-    pub(super) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
+    pub(crate) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
         let mut q = self
             .copiable_definition(entry.source)?
             .characteristics
@@ -352,7 +352,7 @@ impl Game {
             },
         )
     }
-    pub(super) fn execute_wipes_instruction(
+    pub(crate) fn execute_wipes_instruction(
         &mut self,
         mut frame: Resolving,
         i: Instruction,
@@ -569,7 +569,7 @@ impl Game {
 }
 
 impl Game {
-    pub(super) fn valid_set_effect_targets(
+    pub(crate) fn valid_set_effect_targets(
         &self,
         e: &ResolvedEffect,
         targets: &[ObjectId],

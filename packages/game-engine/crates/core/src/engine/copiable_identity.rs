@@ -9,7 +9,7 @@ use super::*;
 // to govern ownership, Commander designation and token status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct EntryCopy {
+pub struct EntryCopy {
     donor: ObjectId,
     definition_card: CardId,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -28,7 +28,7 @@ impl Game {
 
     /// Chosen donor incarnation and immutable physical definition root for
     /// the specified battlefield incarnation, including after its departure.
-    pub(super) fn entry_copy_origin(&self, object: ObjectId) -> Option<(ObjectId, CardId)> {
+    pub(crate) fn entry_copy_origin(&self, object: ObjectId) -> Option<(ObjectId, CardId)> {
         self.entry_copy(object)
             .map(|row| (row.donor, row.definition_card))
     }
@@ -38,7 +38,7 @@ impl Game {
             .map_or(object.card, |(_, root)| root)
     }
 
-    pub(super) fn back_face_sequence(&self, object: ObjectId) -> Option<u64> {
+    pub(crate) fn back_face_sequence(&self, object: ObjectId) -> Option<u64> {
         self.state
             .rules
             .back_face_objects
@@ -114,7 +114,7 @@ impl Game {
     /// Base characteristics and intrinsic abilities of this exact incarnation,
     /// including after departure. This lookup alone does not establish presence
     /// or authorize an action. The observer/stack/event owns its ObjectId.
-    pub(super) fn copiable_definition(
+    pub(crate) fn copiable_definition(
         &self,
         object: impl std::borrow::Borrow<ObjectId>,
     ) -> Result<&Definition, String> {
@@ -156,7 +156,7 @@ impl Game {
 
     /// The actual transforming object keeps the front face's mana value.
     /// An ordinary card or token copying only the back face has value zero.
-    pub(super) fn physical_transform_mana_value(&self, object: ObjectId) -> Option<Quantity> {
+    pub(crate) fn physical_transform_mana_value(&self, object: ObjectId) -> Option<Quantity> {
         let definition = self.definition(object.card).ok()?;
         (definition.transform_faces.is_some() && self.entry_copy(object).is_none())
             .then(|| definition.characteristics.printed_mana_value())
@@ -165,7 +165,7 @@ impl Game {
     /// Inside the staged entry leaf, before installing its battlefield
     /// successor. The entry transaction owns effect, turn and choice authority.
     /// Every later incarnation automatically reads its own physical definition.
-    pub(super) fn record_entry_copy(
+    pub(crate) fn record_entry_copy(
         &mut self,
         entering: ObjectId,
         donor: ObjectId,
@@ -250,7 +250,7 @@ impl Game {
     // Replay authenticates the chosen donor, its eligibility and the exact
     // entry boundary. Check the compact lineage independently without recursive
     // traversal of snapshot data: every link must precede the row it explains.
-    pub(super) fn validate_entry_copy_identities(&self) -> Result<(), String> {
+    pub(crate) fn validate_entry_copy_identities(&self) -> Result<(), String> {
         for (card, rows) in &self.state.rules.entry_copies {
             if rows.is_empty() {
                 return Err("invalid entry copy owner".into());
@@ -287,7 +287,3 @@ impl Game {
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "modal_land_tests.rs"]
-mod modal_land_tests;

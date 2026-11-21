@@ -7,14 +7,14 @@
 use super::*;
 use std::io::{BufWriter, Write};
 
-const HASH_BUFFER_BYTES: usize = 64 * 1024;
-#[cfg(test)]
-type ObjectBytes = BTreeMap<String, (visibility::VisibleObject, Vec<u8>)>;
+pub const HASH_BUFFER_BYTES: usize = 64 * 1024;
+#[cfg(feature = "testkit")]
+pub type ObjectBytes = BTreeMap<String, (visibility::VisibleObject, Vec<u8>)>;
 
 fn json<W: Write, T: Serialize>(writer: &mut W, value: &T) -> Result<(), String> {
     serde_json::to_writer(writer, value).map_err(|e| e.to_string())
 }
-fn raw<W: Write>(writer: &mut W, bytes: &[u8]) -> Result<(), String> {
+pub fn raw<W: Write>(writer: &mut W, bytes: &[u8]) -> Result<(), String> {
     writer.write_all(bytes).map_err(|e| e.to_string())
 }
 fn object_entries(value: &serde_json::Value) -> Result<Vec<(&String, &serde_json::Value)>, String> {
@@ -28,8 +28,8 @@ fn object_entries(value: &serde_json::Value) -> Result<Vec<(&String, &serde_json
 }
 // Retain the earlier typed-row encoder as a test oracle alongside generic
 // canonical serialization; production uses shared row/metadata segments.
-#[cfg(test)]
-fn write_view<W: Write>(
+#[cfg(feature = "testkit")]
+pub fn write_view<W: Write>(
     writer: &mut W,
     view: &visibility::PermittedView,
     previous: &mut ObjectBytes,
@@ -125,7 +125,7 @@ fn write_knowledge<W: Write>(
     }
     Ok(())
 }
-pub(super) fn write_state<W: Write>(state: &State, writer: &mut W) -> Result<(), String> {
+pub fn write_state<W: Write>(state: &State, writer: &mut W) -> Result<(), String> {
     // History clones share immutable chunks. Clear only these cloned histories
     // before Value conversion; the real histories and their caches are untouched.
     let mut skeleton = state.clone();
@@ -170,22 +170,18 @@ pub(super) fn write_state<W: Write>(state: &State, writer: &mut W) -> Result<(),
     }
     Ok(())
 }
-fn write_buffered_state<W: Write>(state: &State, sink: &mut W) -> Result<(), String> {
+pub fn write_buffered_state<W: Write>(state: &State, sink: &mut W) -> Result<(), String> {
     // Serializer fragments are often single bytes. Buffer only the byte
     // sink, preserving every canonical byte while batching SHA updates.
     let mut writer = BufWriter::with_capacity(HASH_BUFFER_BYTES, sink);
     write_state(state, &mut writer)?;
     writer.flush().map_err(|e| e.to_string())
 }
-pub(super) fn state_digest(state: &State) -> Result<String, String> {
+pub fn state_digest(state: &State) -> Result<String, String> {
     let mut sink = Sha256Sink::new();
     write_buffered_state(state, &mut sink)?;
     Ok(sink.finalize_hex())
 }
-
-#[cfg(test)]
-#[path = "state_digest_cache_tests.rs"]
-mod cache_tests;
 
 #[cfg(test)]
 mod tests {

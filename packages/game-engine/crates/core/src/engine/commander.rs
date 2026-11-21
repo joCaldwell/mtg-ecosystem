@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum CommanderContinuation {
+pub enum CommanderContinuation {
     CascadeBottom {
         progress: Box<CascadeProgress>,
     },
@@ -113,7 +113,7 @@ impl Game {
     // CR 903.8 / 601.2f: use completed prior command-origin casts of this
     // physical commander by this caster. Pinned official rules:
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn casting_cost(
+    pub(crate) fn casting_cost(
         &self,
         card: CardId,
         caster: PlayerId,
@@ -146,7 +146,7 @@ impl Game {
     // SBA opportunity even if declined. Historical pools permit at most one.
     // Match pods preserve every simultaneous fresh opportunity and process
     // owner choices APNAP before one simultaneous move wave and trigger placement.
-    pub(super) fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String> {
+    pub(crate) fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String> {
         let eligible = self
             .state
             .rules

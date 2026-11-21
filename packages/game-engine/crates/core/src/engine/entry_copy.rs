@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct EntryCopySelection {
+pub struct EntryCopySelection {
     // Only the most recent model supplies copiable values. A model whose own
     // text offers a fresh replacement may be copied, then declined or replaced.
     model: Option<ObjectId>,

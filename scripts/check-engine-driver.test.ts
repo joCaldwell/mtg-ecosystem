@@ -17,7 +17,12 @@ test("default coverage is bounded and deeper runtime work is explicit", () => {
   ]);
   assert.match(quick.omitted, /compilation of binaries \(including mtg-sim and mtg-server\)/);
   const fast = engineCheckPlans.fast.phases;
-  assert.deepEqual(fast.find(phase => phase.label === "compiler-tests")?.args, ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "--lib"]);
+  assert.deepEqual(fast.find(phase => phase.label === "lib-tests")?.args, ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "-p", "mtg-core", "--lib"]);
+  const core = engineCheckPlans.core.phases;
+  assert.deepEqual(core.find(phase => phase.label === "core-integration")?.args, ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-core", "-p", "mtg-witness", "--features", "mtg-core/testkit", "--test", "*"]);
+  assert.deepEqual(core.find(phase => phase.label === "lib-tests"), fast.find(phase => phase.label === "lib-tests"));
+  // `--tests` after `--lib` reruns every unit binary; integration binaries use `--test '*'`.
+  for (const plan of Object.values(engineCheckPlans)) assert.ok(!plan.phases.some(phase => phase.args.includes("--tests")));
   assert.deepEqual(fast.find(phase => phase.label === "rust-check")?.args, ["check", "--workspace", "--all-targets", "--locked"]);
   assert.ok(fast.some(phase => phase.label === "archive-parser"));
   assert.ok(!fast.some(phase => ["clippy", "rust-tests", "node-tests", "contract-preflight"].includes(phase.label)));
@@ -27,7 +32,7 @@ test("default coverage is bounded and deeper runtime work is explicit", () => {
   assert.deepEqual(full.find(phase => phase.label === "rust-tests")?.args, ["test", "--workspace", "--locked"]);
   assert.equal(full.filter(phase => phase.args.includes("packages/game-engine/tests/contracts.test.ts")).length, 1);
   assert.equal("preflight" in full.find(phase => phase.label === "node-tests")!, false);
-  assert.match(engineCheckPlans.fast.omitted, /Core\/simulator\/server runtime tests/);
+  assert.match(engineCheckPlans.fast.omitted, /Core\/witness integration binaries \(run --core\); simulator\/server runtime tests/);
 });
 
 test("routine plans retain live guards and behavior; tooling/full retain every harness suite", () => {
@@ -38,10 +43,11 @@ test("routine plans retain live guards and behavior; tooling/full retain every h
     ["worktree-safety", "python3", ["-B", "scripts/test-engine-worktrees.py"]],
     ["structure-tests", "python3", ["-B", "scripts/test-engine-structure.py"]],
     ["cache-tests", "python3", ["-B", "scripts/test-engine-cache.py"]],
+    ["test-binary-tests", "python3", ["-B", "scripts/test-engine-test-binaries.py"]],
     ["documentation-tests", "python3", ["-B", "scripts/test-check-docs.py"]],
   ];
   for (const [mode, plan] of Object.entries(engineCheckPlans)) {
-    const native = ["quick", "fast", "contracts", "full"].includes(mode);
+    const native = ["quick", "fast", "core", "contracts", "full"].includes(mode);
     const selfTests = ["tooling", "full"].includes(mode);
     assert.equal(plan.needsCargo, native);
     assert.equal(plan.phases.filter(phase => phase.label === "cache-preflight").length, native ? 1 : 0);
@@ -54,7 +60,8 @@ test("routine plans retain live guards and behavior; tooling/full retain every h
   const labels = (mode: keyof typeof engineCheckPlans) => engineCheckPlans[mode].phases.map(phase => phase.label);
   assert.deepEqual(labels("quick"), ["cache-preflight", "structure-guard", "documentation-guard", "format", "rust-lib-check"]);
   assert.deepEqual(labels("source"), ["structure-guard", "documentation-guard", "archive-parser"]);
-  assert.deepEqual(labels("fast"), ["cache-preflight", "structure-guard", "documentation-guard", "archive-parser", "format", "rust-check", "compiler-tests"]);
+  assert.deepEqual(labels("fast"), ["cache-preflight", "structure-guard", "documentation-guard", "archive-parser", "format", "rust-check", "lib-tests"]);
+  assert.deepEqual(labels("core"), ["cache-preflight", "structure-guard", "documentation-guard", "lib-tests", "core-integration"]);
   assert.deepEqual(labels("contracts"), ["cache-preflight", "structure-guard", "documentation-guard", "contract-preflight"]);
   assert.deepEqual(labels("tooling"), [...suites.map(([label]) => label), "structure-guard", "documentation-guard"]);
   assert.deepEqual(labels("full"), ["cache-preflight", "format", ...suites.map(([label]) => label), "structure-guard", "documentation-guard", "clippy", "rust-tests", "node-tests"]);
@@ -64,6 +71,7 @@ test("routine plans retain live guards and behavior; tooling/full retain every h
   const scripts = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
   assert.equal(scripts["check:engine"], "sh scripts/engine-env.sh node scripts/check-engine.ts");
   assert.equal(scripts["check:engine:fast"], "sh scripts/engine-env.sh node scripts/check-engine.ts --fast");
+  assert.equal(scripts["check:engine:core"], "sh scripts/engine-env.sh node scripts/check-engine.ts --core");
   assert.equal(scripts["check:engine:tooling"], "sh scripts/engine-env.sh node scripts/check-engine.ts --tooling");
 });
 

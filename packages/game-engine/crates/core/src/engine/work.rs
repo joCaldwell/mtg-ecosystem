@@ -11,7 +11,7 @@ impl Budget {
     pub fn unlimited() -> Self {
         Self::new(u64::MAX)
     }
-    pub(super) fn consume(&mut self) -> bool {
+    pub(crate) fn consume(&mut self) -> bool {
         if self.remaining == 0 {
             false
         } else {
@@ -41,15 +41,17 @@ pub enum QueryResult {
     Rejected(QueryRejection),
     Incomplete { work: Work, required_minimum: u64 },
 }
-pub struct Work {
-    executor: Arc<()>,
-    state_token: Arc<()>,
-    data: WorkData,
-    cache: Box<WorkCache>,
+testkit_fields! {
+    pub struct Work {
+        executor: Arc<()>,
+        state_token: Arc<()>,
+        data: WorkData,
+        cache: Box<WorkCache>,
+    }
 }
 
 impl Work {
-    pub(super) fn belongs_to_viewer(&self, viewer: PlayerId) -> bool {
+    pub(crate) fn belongs_to_viewer(&self, viewer: PlayerId) -> bool {
         let (Query::Observe { viewer: owner }
         | Query::Decision { viewer: owner }
         | Query::Check { viewer: owner, .. }
@@ -63,10 +65,10 @@ impl Work {
 // Budget0 does not enumerate anything. The first existing unit computes each
 // domain exactly as before; later units reuse it without changing row counts.
 #[derive(Default)]
-struct WorkCache {
-    projection: Option<visibility::ProjectionIndex>,
-    last_object: Option<CardId>,
-    effects: Option<Vec<EffectKey>>,
+pub struct WorkCache {
+    pub projection: Option<visibility::ProjectionIndex>,
+    pub last_object: Option<CardId>,
+    pub effects: Option<Vec<EffectKey>>,
     triggers: Option<Vec<TriggerId>>,
     modes: Option<Option<Vec<u32>>>,
     counter_placement: Option<Vec<CounterPlacementEffectKey>>,
@@ -178,7 +180,7 @@ impl WorkCache {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "query", rename_all = "snake_case", deny_unknown_fields)]
-enum Query {
+pub enum Query {
     Observe {
         viewer: PlayerId,
     },
@@ -197,14 +199,14 @@ enum Query {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ObservationWork {
-    cursor: u32,
-    view: PermittedView,
-    decision: Option<PlayerRequest>,
+pub struct ObservationWork {
+    pub cursor: u32,
+    pub view: PermittedView,
+    pub decision: Option<PlayerRequest>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
-enum Task {
+pub enum Task {
     // Sidecar v37 includes copied spells in public stack observations.
     // Projection/request headers remain explicit work, never hidden work
     // performed even when the caller grants no budget.
@@ -234,19 +236,19 @@ enum Task {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WorkData {
-    query: Query,
-    task: Task,
-    units_done: u64,
+pub struct WorkData {
+    pub query: Query,
+    pub task: Task,
+    pub units_done: u64,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SavedWork {
-    work_version: u32,
-    build_id: String,
-    catalog_digest: String,
-    state_sha256: String,
-    data: WorkData,
+pub struct SavedWork {
+    pub work_version: u32,
+    pub build_id: String,
+    pub catalog_digest: String,
+    pub state_sha256: String,
+    pub data: WorkData,
 }
 
 impl Game {
@@ -286,7 +288,7 @@ impl Game {
             budget,
         )
     }
-    fn start_work(&self, query: Query) -> Result<Work, QueryRejection> {
+    pub(crate) fn start_work(&self, query: Query) -> Result<Work, QueryRejection> {
         let viewer = match &query {
             Query::Observe { viewer }
             | Query::Decision { viewer }
@@ -322,7 +324,7 @@ impl Game {
             cache: Box::default(),
         })
     }
-    fn initial_query_task(&self, query: &Query) -> Result<Task, QueryRejection> {
+    pub(crate) fn initial_query_task(&self, query: &Query) -> Result<Task, QueryRejection> {
         let viewer = match query {
             Query::Observe { viewer }
             | Query::Decision { viewer }
@@ -1501,7 +1503,7 @@ impl Game {
             _ => vec![],
         })
     }
-    fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
+    pub(crate) fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
         4u64.checked_add(self.state.rules.objects.len() as u64)
             .and_then(|n| n.checked_add(self.state.rules.stack.len() as u64))
             .and_then(|n| n.checked_add(self.live_effect_keys().len() as u64))
@@ -1510,7 +1512,7 @@ impl Game {
     }
     // A saved prefix must fit this exact task's row/conversion count. History
     // cannot stand in for effect, decision-candidate or response-entry work.
-    fn query_work_units(&self, query: &Query) -> Result<u64, String> {
+    pub(crate) fn query_work_units(&self, query: &Query) -> Result<u64, String> {
         let body_units: Result<u64, String> = match query {
             Query::Observe { viewer } => self.observation_work_units(*viewer),
             Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
@@ -1585,11 +1587,3 @@ impl Game {
             .ok_or_else(|| "query initialization work resource limit".into())
     }
 }
-
-#[cfg(test)]
-#[path = "work_optimization_tests.rs"]
-pub(super) mod optimization_tests;
-
-#[cfg(test)]
-#[path = "work_initialization_tests.rs"]
-mod initialization_tests;

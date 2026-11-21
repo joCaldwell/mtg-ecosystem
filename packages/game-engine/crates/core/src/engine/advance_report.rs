@@ -136,7 +136,3 @@ impl StepInputCapture {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "advance_report_tests.rs"]
-mod tests;

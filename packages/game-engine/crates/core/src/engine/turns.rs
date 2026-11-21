@@ -72,7 +72,7 @@ impl Game {
         &self.state.rules.turn
     }
 
-    pub(super) fn main_phase_action(&self, player: PlayerId) -> bool {
+    pub(crate) fn main_phase_action(&self, player: PlayerId) -> bool {
         self.is_live(player)
             && self.state.rules.active == Some(player)
             && self.state.rules.priority == player
@@ -86,7 +86,7 @@ impl Game {
     // CR 305.2: compare the total allowance with lands already played. The
     // controller and turn were frozen when each continuous effect resolved.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn has_land_play_allowance(&self, player: PlayerId) -> bool {
+    pub(crate) fn has_land_play_allowance(&self, player: PlayerId) -> bool {
         let turn = &self.state.rules.turn;
         let mut allowance = Quantity::from(1);
         for effect in &self.state.rules.effects {
@@ -103,7 +103,7 @@ impl Game {
     // CR 305.1-3: playing a land is a special action during the active
     // player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
+    pub(crate) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
         self.validate_land_face(player, card, false)
     }
     pub(super) fn validate_land_face(
@@ -190,7 +190,7 @@ impl Game {
     // A departed active player's turn continues (800.4j), without its personal
     // turn actions, until cleanup advances to the next living seat.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn transition_turn_step(&mut self) -> Result<(), String> {
+    pub(crate) fn transition_turn_step(&mut self) -> Result<(), String> {
         if !self.state.rules.stack.is_empty() || self.state.rules.pending.is_some() {
             return Err("unsupported phase transition boundary".into());
         }
@@ -214,7 +214,7 @@ impl Game {
         self.state.rules.frame = Frame::EnterStep;
         Ok(())
     }
-    pub(super) fn next_turn_state(&self) -> Result<(TurnState, PlayerId), String> {
+    pub(crate) fn next_turn_state(&self) -> Result<(TurnState, PlayerId), String> {
         let mut next = self.state.rules.turn.clone();
         next.step = if self.state.rules.turn.step == TurnStep::DeclareAttackers
             && (!self.state.rules.combat_declared)
@@ -298,7 +298,7 @@ impl Game {
         Ok(hand_size.saturating_sub(limit))
     }
 
-    pub(super) fn enter_turn_step(&mut self) -> Result<(), String> {
+    pub(crate) fn enter_turn_step(&mut self) -> Result<(), String> {
         if !self.state.rules.stack.is_empty() || self.state.rules.pending.is_some() {
             return Err("unsupported turn entry boundary".into());
         }

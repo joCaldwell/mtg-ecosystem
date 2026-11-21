@@ -195,7 +195,7 @@ pub struct ActualDamage {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct DamageTransaction {
+pub struct DamageTransaction {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allocation_groups: Vec<DamageAllocationRecord>,
     pub id: DamageTransactionId,
@@ -207,7 +207,7 @@ pub(super) struct DamageTransaction {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum DamageContinuation {
+pub enum DamageContinuation {
     Combat,
     Instruction {
         frame: Box<Resolving>,
@@ -305,7 +305,7 @@ impl Game {
     }
     // CR 105.2, 611.3, 613.1b/e: battlefield membership and control
     // have already been reconciled before the color layer is evaluated.
-    pub(super) fn color_layer(
+    pub(crate) fn color_layer(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
@@ -381,7 +381,7 @@ impl Game {
         Ok(latest)
     }
 
-    pub(super) fn permanent_colors(
+    pub(crate) fn permanent_colors(
         &self,
         scope: PermanentColorScope,
         controller: PlayerId,
@@ -406,8 +406,8 @@ impl Game {
         Ok(colors)
     }
 
-    #[cfg(test)]
-    pub(super) fn derived_characteristics(
+    #[cfg(feature = "testkit")]
+    pub(crate) fn derived_characteristics(
         &self,
         object: ObjectId,
     ) -> Result<Characteristics, String> {
@@ -553,7 +553,7 @@ impl Game {
         }
         Ok(c)
     }
-    pub(super) fn static_damage_effects(&self) -> Vec<EffectKey> {
+    pub(crate) fn static_damage_effects(&self) -> Vec<EffectKey> {
         self.state
             .rules
             .objects
@@ -579,10 +579,10 @@ impl Game {
             })
             .collect()
     }
-    pub(super) fn live_effect_keys(&self) -> Vec<EffectKey> {
+    pub(crate) fn live_effect_keys(&self) -> Vec<EffectKey> {
         self.state.rules.effects.iter().filter(|e|!matches!(&e.kind,ResolvedEffectKind::PreventNextDamage{remaining,..} if *remaining<=Quantity::zero())).map(|e|EffectKey::Resolved{id:e.id}).chain(self.static_damage_effects()).collect()
     }
-    pub(super) fn execute_effect_instruction(
+    pub(crate) fn execute_effect_instruction(
         &mut self,
         frame: Resolving,
         instruction: Instruction,
@@ -946,7 +946,7 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn prepare_combat_damage(
+    pub(crate) fn prepare_combat_damage(
         &mut self,
         damage: Vec<DamageOccurrence>,
     ) -> Result<(), String> {
@@ -989,7 +989,7 @@ impl Game {
             DamageContinuation::Combat,
         )
     }
-    pub(super) fn prepare_noncombat_damage(
+    pub(crate) fn prepare_noncombat_damage(
         &mut self,
         frame: Resolving,
         damage: NoncombatDamageOccurrence,
@@ -1130,7 +1130,7 @@ impl Game {
         };
         Ok(())
     }
-    pub(super) fn damage_transaction(&self) -> Result<&DamageTransaction, String> {
+    pub(crate) fn damage_transaction(&self) -> Result<&DamageTransaction, String> {
         if let Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } =
             &self.state.rules.frame
         {
@@ -1171,14 +1171,14 @@ impl Game {
         }
         Ok(appearance)
     }
-    pub(super) fn player_protected(&self, player: PlayerId) -> bool {
+    pub(crate) fn player_protected(&self, player: PlayerId) -> bool {
         self.state
             .rules
             .effects
             .iter()
             .any(|e| e.lasts_until_controller_turn() && e.origin.controller == player)
     }
-    pub(super) fn targetable_player(&self, player: PlayerId) -> bool {
+    pub(crate) fn targetable_player(&self, player: PlayerId) -> bool {
         self.is_live(player) && !self.player_protected(player)
     }
     pub(super) fn expire_player_protection(&mut self, player: PlayerId) {
@@ -1358,7 +1358,7 @@ impl Game {
             budget_after,
         })
     }
-    pub(super) fn damage_effect_group(
+    pub(crate) fn damage_effect_group(
         &self,
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String> {
         let Frame::DamageEffects { transaction: tx } = &self.state.rules.frame else {
@@ -1427,7 +1427,7 @@ impl Game {
             || (pairs.iter().all(|p| p.effect == pairs[0].effect)
                 && !matches!(&pairs[0].effect,EffectKey::Resolved{id} if self.state.rules.effects.iter().any(|e|e.id==*id&&matches!(e.kind,ResolvedEffectKind::PreventNextDamage{..}))))
     }
-    pub(super) fn damage_effect_request(&self) -> Result<Option<Request>, String> {
+    pub(crate) fn damage_effect_request(&self) -> Result<Option<Request>, String> {
         let Some((player, recipient, candidates)) = self.damage_effect_group()? else {
             return Ok(None);
         };
@@ -1465,7 +1465,7 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn damage_effect_step(&mut self) -> Result<(), String> {
+    pub(crate) fn damage_effect_step(&mut self) -> Result<(), String> {
         if let Some((_, _, pairs)) = self.damage_effect_group()? {
             let pair = if self.automatic_pair(&pairs) {
                 self.state.rules.pending = None;
@@ -2138,7 +2138,7 @@ impl Game {
             cancelled,
         })
     }
-    pub(super) fn validate_effect_state(&self) -> Result<(), String> {
+    pub(crate) fn validate_effect_state(&self) -> Result<(), String> {
         let mut ids = BTreeSet::new();
         if self.state.rules.effects.len() > self.effect_limit() {
             return Err("effect capacity".into());
@@ -2700,7 +2700,7 @@ pub enum VisibleEffect {
 impl Game {
     /// Returns the live keys it published handles for. They depend on rules
     /// state alone, so one publication reuses them for every viewer.
-    pub(super) fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String> {
+    pub(crate) fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String> {
         let keys = self.live_effect_keys();
         // A printed keyword is already on the public creature. Only a pending
         // damage occurrence needs a command handle for the affected controller.
@@ -2760,7 +2760,7 @@ impl Game {
         }
         Ok(keys)
     }
-    pub(super) fn effect_handle(
+    pub(crate) fn effect_handle(
         &self,
         viewer: PlayerId,
         key: &EffectKey,
@@ -2828,7 +2828,7 @@ impl Game {
             controller,
         })
     }
-    pub(super) fn visible_effect(
+    pub(crate) fn visible_effect(
         &self,
         viewer: PlayerId,
         key: &EffectKey,
@@ -3030,8 +3030,8 @@ impl Game {
             }
         })
     }
-    #[cfg(test)]
-    pub(super) fn visible_effects(&self, viewer: PlayerId) -> Result<Vec<VisibleEffect>, String> {
+    #[cfg(feature = "testkit")]
+    pub(crate) fn visible_effects(&self, viewer: PlayerId) -> Result<Vec<VisibleEffect>, String> {
         self.visible_effects_from(viewer, &self.live_effect_keys())
     }
     /// `keys` are `live_effect_keys()` of this unchanged rules state.
@@ -3073,7 +3073,7 @@ impl Game {
             expires_in_cleanup_of_turn: row.turn,
         })
     }
-    pub(super) fn visible_damage_effect_candidate(
+    pub(crate) fn visible_damage_effect_candidate(
         &self,
         viewer: PlayerId,
         pair: &DamageEffectCandidate,
@@ -3184,7 +3184,7 @@ impl Game {
             budget_remaining: a.budget_before,
         })
     }
-    pub(super) fn resolve_damage_effect_pair(
+    pub(crate) fn resolve_damage_effect_pair(
         &self,
         viewer: PlayerId,
         effect: &EffectHandle,
@@ -3217,7 +3217,7 @@ impl Game {
 impl Game {
     // Copiable identity is immutable within each incarnation. Historical P/T is derived at its
     // capture boundary; independent replay proves those past additive effects.
-    pub(super) fn validate_characteristic_identity(
+    pub(crate) fn validate_characteristic_identity(
         &self,
         source: ObjectId,
         zone: Zone,
@@ -3347,7 +3347,7 @@ impl Game {
                 && self.frozen_damage_source_matches(latest, current)
         })
     }
-    pub(super) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
+    pub(crate) fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
         let existing_limit = self
             .damage_limit()
             .saturating_mul(self.effect_limit().saturating_add(2));

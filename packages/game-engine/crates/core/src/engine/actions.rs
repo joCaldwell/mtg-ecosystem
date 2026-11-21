@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "entry", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum StackKind {
+pub enum StackKind {
     #[default]
     Spell,
     Triggered {
@@ -28,7 +28,7 @@ impl StackKind {
             _ => None,
         }
     }
-    pub(super) fn event_player(&self) -> Result<Option<PlayerId>, String> {
+    pub fn event_player(&self) -> Result<Option<PlayerId>, String> {
         match self {
             Self::Triggered {
                 witness:
@@ -39,13 +39,13 @@ impl StackKind {
             _ => Err("unbound event-player recipient".into()),
         }
     }
-    pub(super) fn is_spell(&self) -> bool {
+    pub fn is_spell(&self) -> bool {
         matches!(self, Self::Spell)
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum ResolutionChoice {
+pub enum ResolutionChoice {
     Demonstrate {
         source_block: u32,
         first: Option<spell_copy::CopyIdentity>,
@@ -169,7 +169,7 @@ impl Game {
         ))
     }
 
-    pub(super) fn has_target_domain(
+    pub(crate) fn has_target_domain(
         &self,
         program: &SpellProgram,
         player: PlayerId,
@@ -250,7 +250,7 @@ impl Game {
             }),
         }
     }
-    pub(super) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
+    pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
         if entry.mode_subset.is_some() {
             let Ok(program) = self.program_for(entry) else {
                 return vec![];
@@ -343,7 +343,7 @@ impl Game {
                 .collect()
         }
     }
-    pub(super) fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
+    pub(crate) fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
             .objects
@@ -432,7 +432,7 @@ impl Game {
             _ => Err("expected discard instruction".into()),
         }
     }
-    pub(super) fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
+    pub(crate) fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
             .objects
@@ -441,7 +441,7 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    pub(super) fn validate_activation(
+    pub(crate) fn validate_activation(
         &self,
         player: PlayerId,
         object: ObjectId,
@@ -510,7 +510,7 @@ impl Game {
         self.validate_activation(player, object, ability)?;
         self.announce_ability(player, decision_id, object, ability)
     }
-    pub(super) fn actions_request(&self) -> Result<Option<Request>, String> {
+    pub(crate) fn actions_request(&self) -> Result<Option<Request>, String> {
         let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
             return Ok(None);
         };
@@ -649,7 +649,7 @@ impl Game {
             _ => None,
         })
     }
-    pub(super) fn validate_actions_response(
+    pub(crate) fn validate_actions_response(
         &self,
         player: PlayerId,
         response: &Response,
@@ -2242,7 +2242,7 @@ impl Game {
             self.is_live(entry.controller)
         }
     }
-    pub(super) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
+    pub(crate) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
         self.validate_resolving_children(frame, &self.resolution_copy_children(frame)?)
     }
     pub(super) fn validate_resolving_owned(
@@ -2376,7 +2376,7 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn validate_actions_state(&self) -> Result<(), String> {
+    pub(crate) fn validate_actions_state(&self) -> Result<(), String> {
         for entry in &self.state.rules.stack {
             let StackKind::Activated {
                 ability,

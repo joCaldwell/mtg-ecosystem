@@ -1,0 +1,1641 @@
+//! Private source-backed witness configurations exercise rules without broadening
+//! public admission. Every natural witness proves restore/replay in all traces.
+//! CR citations refer to the pinned 2026-09-25 rules:
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::*;
+fn catalog() -> Catalog {
+    Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-keywords-ir.json"
+    ))
+    .unwrap()
+}
+fn prepared(rows: &[(&str, u8, bool)], haste_healer: bool) -> Prepared {
+    let mut c = catalog();
+    // No admitted source combines haste and a tap ability. This private domain
+    // fixture tests CR702.10c composition without adding a card to the pool.
+    if haste_healer {
+        let d = c
+            .definitions
+            .iter_mut()
+            .find(|d| d.oracle_id == HEALER)
+            .unwrap();
+        d.keywords.push(KeywordAbility::Haste);
+        d.capabilities = d.requirements();
+    }
+    let mut cards = rows
+        .iter()
+        .enumerate()
+        .map(|(i, (name, p, hand))| CardSetup {
+            id: CardId(i as u32),
+            oracle_id: c
+                .definitions
+                .iter()
+                .find(|d| d.name == *name)
+                .unwrap()
+                .oracle_id
+                .clone(),
+            owner: PlayerId(*p),
+            controller: PlayerId(*p),
+            zone: if *hand {
+                Zone::Hand {
+                    owner: PlayerId(*p),
+                }
+            } else {
+                Zone::Battlefield
+            },
+        })
+        .collect::<Vec<_>>();
+    for p in 0..4 {
+        for _ in 0..4 {
+            cards.push(CardSetup {
+                id: CardId(cards.len() as u32),
+                oracle_id: FOREST.into(),
+                owner: PlayerId(p),
+                controller: PlayerId(p),
+                zone: Zone::Library { owner: PlayerId(p) },
+            });
+        }
+    }
+    let config = ScenarioConfig {
+        initial: ScenarioInitial {
+            turn_step: TurnStep::Untap,
+            ..ScenarioInitial::default()
+        },
+        mode: Mode::CommanderMatch,
+        players: 4,
+        profile: "commander-keywords-v1".into(),
+        commanders: vec![],
+        cards,
+    };
+    Prepared {
+        catalog_digest: digest(&c).unwrap(),
+        profile_digest: digest(&config).unwrap(),
+        catalog: Arc::new(c),
+        config,
+        match_config: None,
+    }
+}
+fn object(g: &Game, id: u32) -> ObjectId {
+    g.object_id(CardId(id)).unwrap()
+}
+fn request(g: &mut Game) -> Request {
+    match g.advance(Budget::unlimited()) {
+        Advance::AwaitingDecision(r) => r,
+        x => panic!("{x:?}"),
+    }
+}
+fn answer(g: &mut Game, response: Response) {
+    let r = request(g);
+    g.respond(r.player(), r.decision_id(), response).unwrap();
+}
+fn reach(g: &mut Game, step: TurnStep) {
+    for _ in 0..200 {
+        let r = request(g);
+        if g.turn().step == step && matches!(r, Request::Priority { .. }) {
+            return;
+        }
+        let response = match r {
+            Request::Priority { .. } => Response::Pass,
+            Request::CommanderReturn { .. } => Response::CommanderReturn { to_command: false },
+            x => panic!("unexpected {x:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    panic!("step not reached")
+}
+fn attackers(g: &mut Game) -> Vec<ObjectId> {
+    for _ in 0..100 {
+        let r = request(g);
+        if let Request::Attackers { candidates, .. } = r {
+            return candidates;
+        }
+        g.respond(r.player(), r.decision_id(), Response::Pass)
+            .unwrap();
+    }
+    panic!("attackers not reached")
+}
+fn check(g: &Game) {
+    let p = g.prepared.as_ref().clone();
+    let restored = Game::restore(p.clone(), &g.snapshot().unwrap()).unwrap();
+    assert_eq!(restored.state, g.state);
+    assert_eq!(restored.trace(), g.trace());
+    let replayed = Game::replay_with_trace(p, &g.replay_journal(), g.trace.mode).unwrap();
+    assert_eq!(replayed.state, g.state);
+    assert_eq!(replayed.trace(), g.trace());
+    assert!(
+        g.state
+            .rules
+            .objects
+            .values()
+            .all(|o| o.zone != Zone::Battlefield || !o.deathtouch_damage)
+    );
+}
+fn traces(p: Prepared, run: impl Fn(&mut Game)) {
+    let mut digest0 = None;
+    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        let mut g = Game::with_trace(p.clone(), mode);
+        run(&mut g);
+        check(&g);
+        let d = g.state_digest().unwrap();
+        if let Some(old) = &digest0 {
+            assert_eq!(&d, old)
+        } else {
+            digest0 = Some(d)
+        }
+    }
+}
+fn cast(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
+    let obj = object(g, id);
+    answer(g, Response::Cast { card: obj.card });
+    loop {
+        let r = request(g);
+        let response = match &r {
+            Request::EntityTargets { .. } => Response::EntityTargets {
+                entities: targets.clone(),
+            },
+            Request::Targets { .. } => Response::Targets {
+                objects: targets
+                    .iter()
+                    .map(|t| match t {
+                        TargetEntity::Object { object } => *object,
+                        _ => panic!("object target"),
+                    })
+                    .collect(),
+            },
+            Request::Mana { cost, .. } => {
+                let enough = g.payment_pool(r.player(), cost).is_ok();
+                if enough {
+                    Response::FinishMana { undo_mana: false }
+                } else {
+                    let land = g
+                        .state
+                        .rules
+                        .objects
+                        .values()
+                        .find(|o| {
+                            o.controller == r.player()
+                                && o.zone == Zone::Battlefield
+                                && !o.tapped
+                                && g.definition(o.id.card).unwrap().characteristics.kind
+                                    == CardKind::Land
+                        })
+                        .unwrap();
+                    Response::ActivateMana { object: land.id }
+                }
+            }
+            Request::ManaColor { colors, .. } if colors.contains(&Color::R) => {
+                Response::ManaColor { color: Color::R }
+            }
+            Request::ChooseManaAbility { choices, .. }
+                if choices.contains(&ManaAbilityIdentity::Intrinsic { color: Color::R }) =>
+            {
+                Response::ChooseManaAbility {
+                    ability: ManaAbilityIdentity::Intrinsic { color: Color::R },
+                }
+            }
+            Request::SpendMana {
+                cost, available, ..
+            } => {
+                let mut rest = available.clone();
+                let mut spending = BTreeMap::<Color, Quantity>::new();
+                for c in &cost.colored {
+                    rest.get_mut(c).unwrap().subtract(&1.into());
+                    spending.entry(*c).or_default().add(&1.into());
+                }
+                let mut generic = cost.generic.clone();
+                for (c, n) in rest {
+                    let used = n.min(generic.clone());
+                    generic.subtract(&used);
+                    if used > Quantity::zero() {
+                        spending.entry(c).or_default().add(&used);
+                    }
+                }
+                assert_eq!(generic, Quantity::zero());
+                Response::SpendMana { spending }
+            }
+            Request::Priority { .. } => break,
+            x => panic!("cast request {x:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    while !g.state.rules.stack.is_empty() {
+        answer(g, Response::Pass);
+        request(g);
+    }
+}
+#[test]
+fn flying_reach_defender_and_vigilance_declarations() {
+    // CR509.1b/702.9b/702.17b: legality per pair, defender may block.
+    // CR702.20b/508.1f: the vigilance attacker remains untapped.
+    for blocker in [
+        "Grizzly Bears",
+        "Giant Spider",
+        "Angelic Wall",
+        "Wall of Vines",
+    ] {
+        let legal = blocker != "Grizzly Bears";
+        traces(
+            prepared(&[("Serra Angel", 0, false), (blocker, 1, false)], false),
+            |g| {
+                assert_eq!(attackers(g), vec![object(g, 0)]);
+                answer(
+                    g,
+                    Response::Attackers {
+                        attacks: vec![(object(g, 0), PlayerId(1))],
+                    },
+                );
+                loop {
+                    let r = request(g);
+                    if matches!(r, Request::Blockers { .. }) {
+                        break;
+                    }
+                    g.respond(r.player(), r.decision_id(), Response::Pass)
+                        .unwrap();
+                }
+                assert!(!g.current(object(g, 0)).unwrap().tapped);
+                let a = object(g, 0);
+                let b = object(g, 1);
+                let QueryResult::Complete(QueryValue::Observation(obs)) =
+                    g.observe(PlayerId(1), Budget::unlimited())
+                else {
+                    panic!("observe")
+                };
+                let Some(PlayerRequest::Blockers {
+                    legal_attackers, ..
+                }) = obs.decision
+                else {
+                    panic!("block hints")
+                };
+                assert_eq!(legal_attackers.len(), 1);
+                assert_eq!(legal_attackers[0].attackers.len(), usize::from(legal));
+                let r = request(g);
+                let result = g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::Blockers {
+                        blocks: vec![(b, a)],
+                    },
+                );
+                assert_eq!(result.is_ok(), legal);
+                if !legal {
+                    answer(g, Response::Blockers { blocks: vec![] });
+                }
+                reach(g, TurnStep::CombatDamage);
+                assert_eq!(
+                    g.state.rules.players[1].life,
+                    Quantity::from(if legal { 40 } else { 36 })
+                );
+            },
+        );
+    }
+    for wall in ["Angelic Wall", "Wall of Vines"] {
+        traces(prepared(&[(wall, 0, false)], false), |g| {
+            assert!(attackers(g).is_empty());
+            answer(g, Response::Attackers { attacks: vec![] });
+            reach(g, TurnStep::PostcombatMain);
+        });
+    }
+}
+#[test]
+fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
+    // Use the exact archived attacker and a synthetic nonbasic Forest.
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Wall of Wood", 1, false),
+            ("Wall of Wood", 2, false),
+            ("Forest", 1, false),
+            ("Forest", 2, true),
+            ("Island", 2, false),
+        ],
+        false,
+    );
+    p.config.cards[4].owner = PlayerId(2);
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let mtg_compiler::CompileResult::Lowered {
+        definition: attacker,
+    } = mtg_witness::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/basic-landwalk-zendikar-farguide.json"),
+    )
+    else {
+        panic!("archived landwalk attacker");
+    };
+    for entry in &mut p.config.cards[..2] {
+        entry.oracle_id = attacker.oracle_id.clone();
+    }
+    let mut land = catalog.definition_by_oracle_id(FOREST).unwrap().clone();
+    land.oracle_id = "synthetic-nonbasic-forest".into();
+    land.name = "Synthetic Nonbasic Forest".into();
+    land.source_labels = None;
+    land.characteristics.basic = false;
+    land.capabilities = land.requirements();
+    p.config.cards[4].oracle_id = land.oracle_id.clone();
+    catalog.definitions.extend([land, *attacker]);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p.clone(), |g| {
+        let first_attacker = object(g, 0);
+        let second_attacker = object(g, 1);
+        let first_blocker = object(g, 2);
+        let second_blocker = object(g, 3);
+        assert_eq!(attackers(g), [first_attacker, second_attacker]);
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![
+                    (first_attacker, PlayerId(1)),
+                    (second_attacker, PlayerId(2)),
+                ],
+            },
+        );
+        loop {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                break;
+            }
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        let mut phased = g.fork();
+        phased
+            .phase_out_permanents(phasing::PhaseSelection::Target(object(g, 4)))
+            .unwrap();
+        assert!(phased.can_block(first_blocker, first_attacker));
+
+        let QueryResult::Complete(QueryValue::Observation(obs)) =
+            g.observe(PlayerId(1), Budget::unlimited())
+        else {
+            panic!("blocker observation");
+        };
+        let Some(PlayerRequest::Blockers {
+            legal_attackers, ..
+        }) = obs.decision
+        else {
+            panic!("block hints");
+        };
+        assert_eq!(legal_attackers.len(), 1);
+        assert!(legal_attackers[0].attackers.is_empty());
+        let r = request(g);
+        assert!(
+            g.respond(
+                r.player(),
+                r.decision_id(),
+                Response::Blockers {
+                    blocks: vec![(first_blocker, first_attacker)]
+                },
+            )
+            .is_err()
+        );
+        answer(g, Response::Blockers { blocks: vec![] });
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(second_blocker, second_attacker)],
+            },
+        );
+        reach(g, TurnStep::CombatDamage);
+        assert_eq!(g.state.rules.players[1].life, 37.into());
+        assert_eq!(g.state.rules.players[2].life, 40.into());
+    });
+
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let mtg_compiler::CompileResult::Lowered { definition: grant } = mtg_witness::compile(
+        mtg_compiler::fixtures::MANIFEST,
+        include_str!("../../../../tests/fixtures/synthetic-controller-land-types.json"),
+    ) else {
+        panic!("land-type grant witness");
+    };
+    p.config.cards.push(CardSetup {
+        id: CardId(p.config.cards.len() as u32),
+        oracle_id: grant.oracle_id.clone(),
+        controller: PlayerId(2),
+        owner: PlayerId(2),
+        zone: Zone::Battlefield,
+    });
+    catalog.definitions.push(*grant);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::with_trace(p, TraceMode::Off);
+    let attacker = object(&g, 0);
+    let blocker = object(&g, 3);
+    assert_eq!(attackers(&mut g), [attacker, object(&g, 1)]);
+    answer(
+        &mut g,
+        Response::Attackers {
+            attacks: vec![(attacker, PlayerId(2))],
+        },
+    );
+    request(&mut g);
+    assert!(!g.can_block(blocker, attacker));
+}
+
+#[test]
+fn source_combat_restrictions_use_current_flying_at_declaration() {
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Giant Spider", 0, false),
+            ("Serra Angel", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 1, false),
+            ("Giant Spider", 1, false),
+            ("Giant Growth", 0, true),
+            ("Island", 0, false),
+        ],
+        false,
+    );
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    for (index, row, restriction) in [
+        (
+            3,
+            include_str!("../../../../tests/fixtures/source-combat-restriction-tidal-kraken.json"),
+            Some(CreatureRestriction::CantBeBlocked),
+        ),
+        (
+            4,
+            include_str!("../../../../tests/fixtures/source-combat-restriction-welkin-tern.json"),
+            Some(CreatureRestriction::CanBlockOnlyFlying),
+        ),
+        (
+            6,
+            include_str!("../../../../tests/fixtures/f7518456-45ed-41d4-bd3c-5aacea28eb35.json"),
+            None,
+        ),
+    ] {
+        let compiled = mtg_witness::compile(manifest, row);
+        let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+            panic!("complete combat witness at card {index}: {compiled:?}");
+        };
+        if let Some(restriction) = restriction {
+            assert_eq!(
+                definition.static_abilities,
+                [mtg_contracts::source_combat_restrictions::static_ability(
+                    restriction
+                )]
+            );
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::SourceCombatRestrictionsV1)
+            );
+            let mut omitted = (*definition).clone();
+            omitted.static_abilities.clear();
+            omitted.source_labels = None;
+            omitted.capabilities = omitted.requirements();
+            assert!(omitted.validate().is_err());
+        }
+        p.config.cards[index].oracle_id = definition.oracle_id.clone();
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+    traces(p, |g| {
+        let bear = object(g, 0);
+        let attacking_reach = object(g, 1);
+        let flying = object(g, 2);
+        let kraken = object(g, 3);
+        let tern = object(g, 4);
+        let defending_reach = object(g, 5);
+        let attacking = attackers(g);
+        assert_eq!(attacking, [bear, attacking_reach, flying, kraken]);
+        answer(
+            g,
+            Response::Attackers {
+                attacks: attacking.into_iter().map(|id| (id, PlayerId(1))).collect(),
+            },
+        );
+        assert!(!g.can_block(tern, bear));
+        assert!(!g.can_block(tern, attacking_reach));
+        assert!(!g.can_block(defending_reach, kraken));
+        cast(g, 6, vec![TargetEntity::Object { object: bear }]);
+        loop {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                break;
+            }
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+        }
+
+        let seat = PlayerId(1);
+        let QueryResult::Complete(QueryValue::Observation(obs)) =
+            g.observe(seat, Budget::unlimited())
+        else {
+            panic!("blocker observation");
+        };
+        let Some(PlayerRequest::Blockers {
+            legal_attackers, ..
+        }) = obs.decision
+        else {
+            panic!("block hints");
+        };
+        let tern_handle = g.handle_for(seat, tern).unwrap();
+        let legal = legal_attackers
+            .iter()
+            .find(|row| row.blocker == tern_handle)
+            .unwrap();
+        assert_eq!(
+            legal.attackers,
+            [
+                g.handle_for(seat, bear).unwrap(),
+                g.handle_for(seat, flying).unwrap(),
+            ]
+        );
+
+        let r = request(g);
+        for prohibited in [(tern, attacking_reach), (defending_reach, kraken)] {
+            assert!(
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::Blockers {
+                        blocks: vec![prohibited]
+                    },
+                )
+                .is_err()
+            );
+        }
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(tern, bear), (defending_reach, flying)],
+            },
+        );
+        reach(g, TurnStep::CombatDamage);
+        assert_eq!(g.state.rules.players[1].life, 32.into());
+    });
+}
+
+#[test]
+fn mana_self_keyword_grant_captures_only_the_present_source() {
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 0, false),
+            ("Swamp", 0, false),
+            ("Unsummon", 1, true),
+            ("Island", 1, false),
+        ],
+        false,
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/activated-source-keyword-battlefly-swarm.json"),
+    ) else {
+        panic!("exact self keyword source");
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::ActivatedSourceKeywordGrantV1)
+    );
+    assert_eq!(definition.keywords, [KeywordAbility::Flying]);
+    assert_eq!(
+        definition.activated[0].program.instructions,
+        [Instruction::GrantSourceKeywords {
+            keywords: vec![KeywordAbility::Deathtouch],
+            source_block: 1,
+        },]
+    );
+    let mut omitted = (*definition).clone();
+    omitted.activated.clear();
+    omitted.source_labels = None;
+    omitted.capabilities = omitted.requirements();
+    assert!(omitted.validate().is_err());
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p, |g| {
+        reach(g, TurnStep::PrecombatMain);
+        let source = object(g, 0);
+        answer(
+            g,
+            Response::ActivateAbility {
+                object: source,
+                ability: 0,
+            },
+        );
+        assert!(matches!(request(g), Request::Mana { .. }));
+        answer(
+            g,
+            Response::ActivateMana {
+                object: object(g, 2),
+            },
+        );
+        answer(g, Response::FinishMana { undo_mana: false });
+        answer(
+            g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::B, 1.into())]),
+            },
+        );
+        assert!(matches!(request(g), Request::Priority { .. }));
+        let mut departed = g.fork();
+        answer(&mut departed, Response::Pass);
+        assert_eq!(request(&mut departed).player(), PlayerId(1));
+        cast(
+            &mut departed,
+            3,
+            vec![TargetEntity::Object { object: source }],
+        );
+        assert!(departed.current(source).is_err());
+        assert!(departed.state.rules.effects.is_empty());
+        let successor = object(&departed, 0);
+        assert_ne!(source, successor);
+        assert!(!departed.has_keyword(successor, KeywordAbility::Deathtouch));
+        check(&departed);
+
+        while !g.state.rules.stack.is_empty() {
+            answer(g, Response::Pass);
+            request(g);
+        }
+        assert_eq!(
+            g.current_keywords(source),
+            [KeywordAbility::Flying, KeywordAbility::Deathtouch]
+        );
+        assert!(!g.has_keyword(object(g, 1), KeywordAbility::Deathtouch));
+        assert!(matches!(g.state.rules.effects.as_slice(), [effect]
+            if effect.origin.source == source
+                && matches!(effect.kind, ResolvedEffectKind::GrantKeywords { target, modifier: None, .. }
+                    if target == source)));
+    });
+}
+
+#[test]
+fn printed_color_protection_orders_derived_color_prevention() {
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Grizzly Bears", 1, false),
+            ("Furnace of Rath", 0, true),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Grizzly Bears", 0, false),
+        ],
+        false,
+    );
+    let catalog = Arc::make_mut(&mut p.catalog);
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    for (index, raw) in [
+        (
+            1,
+            include_str!(
+                "../../../../tests/fixtures/fixed-color-protection-sabertooth-nishoba.json"
+            ),
+        ),
+        (
+            7,
+            include_str!(
+                "../../../../tests/fixtures/ramos/6b2e6a51-b9e6-4848-b7d7-98f02f2b897f.json"
+            ),
+        ),
+    ] {
+        let compiled = mtg_witness::compile(manifest, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+            panic!("exact protection source: {compiled:?}");
+        };
+        if index == 1 {
+            assert_eq!(
+                definition.keywords,
+                [
+                    KeywordAbility::Trample,
+                    KeywordAbility::ProtectionFromBlue,
+                    KeywordAbility::ProtectionFromRed,
+                ]
+            );
+            assert!(
+                definition
+                    .capabilities
+                    .contains(&Capability::FixedColorProtectionV1)
+            );
+        }
+        p.config.cards[index].oracle_id = definition.oracle_id.clone();
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p, |g| {
+        reach(g, TurnStep::PrecombatMain);
+        let attacker = object(g, 0);
+        let protected = object(g, 1);
+        let recipient = DamageRecipient::Creature { object: protected };
+        assert_eq!(
+            g.copiable_definition(attacker)
+                .unwrap()
+                .characteristics
+                .colors,
+            [Color::G]
+        );
+        assert!(
+            g.characteristics(attacker)
+                .unwrap()
+                .colors
+                .contains(&Color::R)
+        );
+        assert!(!g.can_block(attacker, protected));
+        assert!(g.can_block(protected, attacker));
+        cast(g, 2, vec![]);
+
+        assert!(attackers(g).contains(&attacker));
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(attacker, PlayerId(1))],
+            },
+        );
+        let blockers = (0..32).any(|_| {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                return true;
+            }
+            g.respond(r.player(), r.decision_id(), Response::Pass)
+                .unwrap();
+            false
+        });
+        assert!(blockers);
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(protected, attacker)],
+            },
+        );
+
+        let chooser = PlayerId(1);
+        let (damage, double) = (0..64)
+            .find_map(|_| {
+                let r = request(g);
+                if let Request::DamageEffect {
+                    player, candidates, ..
+                } = &r
+                {
+                    assert_eq!(*player, chooser);
+                    assert_eq!(candidates.len(), 3);
+                    let selected = candidates
+                        .iter()
+                        .find(|candidate| matches!(candidate.effect, EffectKey::Static { .. }))
+                        .unwrap();
+                    return Some((selected.damage, selected.effect.clone()));
+                }
+                g.respond(r.player(), r.decision_id(), Response::Pass)
+                    .unwrap();
+                None
+            })
+            .expect("protected defender orders simultaneous damage");
+        answer(
+            g,
+            Response::DamageEffect {
+                effect: double,
+                damage,
+            },
+        );
+        let Request::DamageEffect {
+            player, candidates, ..
+        } = request(g)
+        else {
+            panic!("two matching printed protection choices");
+        };
+        assert_eq!(player, chooser);
+        let red = EffectKey::IntrinsicProtectionFromColor {
+            source: protected,
+            color: Color::R,
+        };
+        let blue = EffectKey::IntrinsicProtectionFromColor {
+            source: protected,
+            color: Color::U,
+        };
+        for effect in [&blue, &red] {
+            let candidate = candidates.iter().find(|c| &c.effect == effect).unwrap();
+            let visible = g
+                .visible_damage_effect_candidate(chooser, candidate)
+                .unwrap();
+            assert_eq!(candidate.damage, damage);
+            assert_eq!(visible.kind, DamageEffectKind::ProtectionFromColor);
+            assert_eq!(visible.amount_before, 4.into());
+            assert_eq!(visible.amount_after, Quantity::zero());
+            assert!(g.effect_handle(PlayerId(0), effect).is_err());
+        }
+        answer(
+            g,
+            Response::DamageEffect {
+                effect: red.clone(),
+                damage,
+            },
+        );
+        for _ in 0..32 {
+            if g.damage_transaction()
+                .ok()
+                .is_some_and(|tx| tx.applications.iter().any(|a| a.effect == red))
+            {
+                break;
+            }
+            assert!(matches!(
+                g.advance(Budget::new(1)),
+                Advance::Suspended { .. }
+            ));
+        }
+        let tx = g.damage_transaction().unwrap();
+        let applied = tx.applications.iter().find(|a| a.effect == red).unwrap();
+        assert_eq!(tx.entries[damage.0 as usize].recipient, recipient);
+        let evidence = applied.qualification.as_ref().unwrap();
+        assert_eq!(evidence.damage_source.object, attacker);
+        assert!(
+            evidence
+                .damage_source
+                .characteristics
+                .colors
+                .contains(&Color::R)
+        );
+        let mut forged = tx.clone();
+        let applied = forged
+            .applications
+            .iter_mut()
+            .find(|a| a.effect == red)
+            .unwrap();
+        applied
+            .qualification
+            .as_mut()
+            .unwrap()
+            .damage_source
+            .characteristics
+            .colors = vec![Color::G];
+        assert!(g.validate_damage_transaction(&forged).is_err());
+        // The journal replays to the next decision. A snapshot must additionally
+        // preserve this private boundary between decisions.
+        let mut restored =
+            Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+        assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+
+        reach(g, TurnStep::EndCombat);
+        reach(&mut restored, TurnStep::EndCombat);
+        assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+        assert_eq!(restored.trace(), g.trace());
+        assert_eq!(
+            g.current(protected).unwrap().marked_damage,
+            Quantity::zero()
+        );
+    });
+}
+
+#[test]
+fn signed_self_attack_pump_resolves_on_the_declared_incarnation() {
+    let mut p = prepared(
+        &[("Grizzly Bears", 0, false), ("Grizzly Bears", 0, false)],
+        false,
+    );
+    let compiled = mtg_witness::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/source-attack-pump-flowstone-charger.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("exact self-attack pump source: {compiled:?}");
+    };
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::AttackTriggerV1)
+    );
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::TemporaryPowerToughnessV1)
+    );
+    assert!(!definition.capabilities.contains(&Capability::SacrificeV1));
+    let mut altered = (*definition).clone();
+    altered.triggered[0].program.instructions[0] = Instruction::ModifySourcePowerToughness {
+        power: 4.into(),
+        toughness: (-3).into(),
+        duration: Duration::UntilEndOfTurn,
+        source_block: 0,
+    };
+    assert!(altered.validate().is_err());
+    p.config.cards[0].oracle_id = definition.oracle_id.clone();
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    traces(p, |g| {
+        let source = object(g, 0);
+        let sibling = object(g, 1);
+        let source_stats = |game: &Game| {
+            let facts = game.characteristics(source).unwrap();
+            (facts.power, facts.toughness)
+        };
+        assert_eq!(source_stats(g), (Some(2.into()), Some(5.into())));
+        assert!(attackers(g).contains(&source));
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(source, PlayerId(1))],
+            },
+        );
+        assert!(matches!(request(g), Request::Priority { .. }));
+        let stack = g.top().expect("the source's attack produced one trigger");
+        assert_eq!(stack.source, source);
+        assert!(matches!(
+            stack.kind, StackKind::Triggered { witness: TriggerEventWitness::CreatureAttacked { ref attacker, .. }, .. }
+            if attacker.object == source
+        ));
+        assert!(stack.targets.is_empty() && stack.entity_targets.is_empty());
+        assert_eq!(source_stats(g), (Some(2.into()), Some(5.into())));
+        check(g);
+
+        for _ in 0..4 {
+            answer(g, Response::Pass);
+        }
+        assert!(matches!(request(g), Request::Priority { .. }));
+        assert!(g.state.rules.stack.is_empty());
+        assert_eq!(source_stats(g), (Some(5.into()), Some(2.into())));
+        assert_eq!(g.characteristics(sibling).unwrap().power, Some(2.into()));
+        assert!(matches!(g.state.rules.effects.as_slice(), [effect]
+            if effect.origin.source == source
+                && matches!(effect.kind, ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                    if target == source)));
+    });
+}
+
+#[test]
+fn freshly_cast_haste_attacks_but_other_creature_waits() {
+    // CR302.6/702.10b: only haste bypasses continuous control.
+    traces(
+        prepared(
+            &[
+                ("Banehound", 0, true),
+                ("Typhoid Rats", 0, true),
+                ("Swamp", 0, false),
+                ("Swamp", 0, false),
+            ],
+            false,
+        ),
+        |g| {
+            reach(g, TurnStep::PrecombatMain);
+            cast(g, 0, vec![]);
+            cast(g, 1, vec![]);
+            let a = object(g, 0);
+            let b = object(g, 1);
+            assert!(!g.current(a).unwrap().attack_ready);
+            assert!(!g.current(b).unwrap().attack_ready);
+            assert_eq!(attackers(g), vec![a]);
+            let r = request(g);
+            assert!(
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::Attackers {
+                        attacks: vec![(b, PlayerId(1))]
+                    }
+                )
+                .is_err()
+            );
+            answer(
+                g,
+                Response::Attackers {
+                    attacks: vec![(a, PlayerId(1))],
+                },
+            );
+            loop {
+                let r = request(g);
+                if matches!(r, Request::Blockers { .. }) {
+                    answer(g, Response::Blockers { blocks: vec![] });
+                    break;
+                }
+                answer(g, Response::Pass);
+            }
+            reach(g, TurnStep::CombatDamage);
+            assert_eq!(g.state.rules.players[0].life, 41.into());
+            assert_eq!(g.state.rules.players[1].life, 39.into());
+        },
+    );
+}
+#[test]
+fn deathtouch_and_lifelink_use_actual_damage_after_fog_and_healer() {
+    // CR702.2b/704.5h: two damage destroys a six-toughness Yargle.
+    // CR120.3f/702.15b/510.2: gain only final positive damage, in same event.
+    for (prevent, expected_gain, dead) in [(0, 2, true), (1, 1, true), (2, 0, false)] {
+        traces(
+            prepared(
+                &[
+                    ("Yargle and Multani", 0, false),
+                    ("Vampire Nighthawk", 1, false),
+                    ("Samite Healer", 0, false),
+                    ("Fog", 0, true),
+                    ("Forest", 0, false),
+                ],
+                false,
+            ),
+            |g| {
+                reach(g, TurnStep::PrecombatMain);
+                if prevent == 2 {
+                    cast(g, 3, vec![]);
+                }
+                if prevent == 1 {
+                    answer(
+                        g,
+                        Response::ActivateAbility {
+                            object: object(g, 2),
+                            ability: 0,
+                        },
+                    );
+                    answer(
+                        g,
+                        Response::EntityTargets {
+                            entities: vec![TargetEntity::Object {
+                                object: object(g, 0),
+                            }],
+                        },
+                    );
+                    while !g.state.rules.stack.is_empty() {
+                        answer(g, Response::Pass);
+                        request(g);
+                    }
+                }
+                let a = object(g, 0);
+                let b = object(g, 1);
+                attackers(g);
+                answer(
+                    g,
+                    Response::Attackers {
+                        attacks: vec![(a, PlayerId(1))],
+                    },
+                );
+                loop {
+                    let r = request(g);
+                    if matches!(r, Request::Blockers { .. }) {
+                        break;
+                    }
+                    answer(g, Response::Pass);
+                }
+                answer(
+                    g,
+                    Response::Blockers {
+                        blocks: vec![(b, a)],
+                    },
+                );
+                reach(g, TurnStep::CombatDamage);
+                assert_eq!(
+                    g.state.rules.players[1].life,
+                    Quantity::from(40 + expected_gain)
+                );
+                assert_eq!(
+                    g.zone(object(g, 0)),
+                    Some(if dead {
+                        Zone::Graveyard { owner: PlayerId(0) }
+                    } else {
+                        Zone::Battlefield
+                    })
+                );
+                assert_eq!(
+                    g.zone(object(g, 1)),
+                    Some(if prevent == 2 {
+                        Zone::Battlefield
+                    } else {
+                        Zone::Graveyard { owner: PlayerId(1) }
+                    })
+                );
+                if g.trace.mode == TraceMode::Detailed {
+                    let gains = g
+                        .events()
+                        .iter()
+                        .filter_map(|e| match e {
+                            Event::Committed {
+                                actual: EventOutcome::DamageCommitted { life_gains, .. },
+                                ..
+                            } => Some(life_gains),
+                            _ => None,
+                        })
+                        .flatten()
+                        .collect::<Vec<_>>();
+                    assert_eq!(gains.len(), usize::from(expected_gain > 0));
+                    if expected_gain > 0 {
+                        assert_eq!(gains[0].amount, Quantity::from(expected_gain));
+                    }
+                }
+            },
+        );
+    }
+}
+#[test]
+fn lifelink_sources_gain_separately_and_deathtouch_blocker_destroys_attacker() {
+    traces(
+        prepared(
+            &[
+                ("Healer's Hawk", 0, false),
+                ("Ajani's Sunstriker", 0, false),
+                ("Typhoid Rats", 1, false),
+                ("Yoked Ox", 0, false),
+            ],
+            false,
+        ),
+        |g| {
+            let a = object(g, 0);
+            let b = object(g, 1);
+            attackers(g);
+            answer(
+                g,
+                Response::Attackers {
+                    attacks: vec![(a, PlayerId(1)), (b, PlayerId(1))],
+                },
+            );
+            loop {
+                let r = request(g);
+                if matches!(r, Request::Blockers { .. }) {
+                    break;
+                }
+                answer(g, Response::Pass);
+            }
+            answer(
+                g,
+                Response::Blockers {
+                    blocks: vec![(object(g, 2), b)],
+                },
+            );
+            reach(g, TurnStep::CombatDamage);
+            assert_eq!(g.state.rules.players[0].life, 43.into());
+            assert_eq!(g.state.rules.players[1].life, 39.into());
+            assert_eq!(
+                g.zone(object(g, 1)),
+                Some(Zone::Graveyard { owner: PlayerId(0) })
+            );
+            if g.trace.mode == TraceMode::Detailed {
+                let gains = g
+                    .events()
+                    .iter()
+                    .find_map(|e| match e {
+                        Event::Committed {
+                            actual: EventOutcome::DamageCommitted { life_gains, .. },
+                            ..
+                        } => Some(life_gains),
+                        _ => None,
+                    })
+                    .unwrap();
+                assert_eq!(gains.len(), 2);
+                assert_eq!(
+                    gains
+                        .iter()
+                        .map(|g| g.amount.to_string())
+                        .collect::<Vec<_>>(),
+                    ["1", "2"]
+                );
+            }
+        },
+    );
+}
+#[test]
+fn fresh_tap_cost_requires_continuous_control_or_haste() {
+    // CR702.10c/302.6 also governs payment after targets are chosen.
+    for haste in [false, true] {
+        traces(
+            prepared(
+                &[
+                    ("Samite Healer", 0, true),
+                    ("Plains", 0, false),
+                    ("Plains", 0, false),
+                ],
+                haste,
+            ),
+            |g| {
+                reach(g, TurnStep::PrecombatMain);
+                cast(g, 0, vec![]);
+                let h = object(g, 0);
+                assert!(!g.current(h).unwrap().attack_ready);
+                let r = request(g);
+                let result = g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::ActivateAbility {
+                        object: h,
+                        ability: 0,
+                    },
+                );
+                assert_eq!(result.is_ok(), haste);
+                if haste {
+                    answer(
+                        g,
+                        Response::EntityTargets {
+                            entities: vec![TargetEntity::Player {
+                                player: PlayerId(0),
+                            }],
+                        },
+                    );
+                    request(g);
+                    assert!(g.current(h).unwrap().tapped);
+                    while !g.state.rules.stack.is_empty() {
+                        answer(g, Response::Pass);
+                        request(g);
+                    }
+                    assert!(
+                        g.state.rules.effects.iter().any(|e| matches!(
+                            e.kind,
+                            ResolvedEffectKind::PreventNextDamage { .. }
+                        ))
+                    );
+                }
+            },
+        );
+    }
+}
+#[test]
+fn lifelink_and_commander_damage_remain_distinct_in_both_combat_paths() {
+    // CR120.3f/510.2/903.10a: Yargle deals18 Commander damage while the
+    // defending Sunstriker deals2 to Bears. Life40 -18 +2 =24; history18.
+    for effects in [false, true] {
+        let mut p = prepared(
+            &[
+                ("Yargle and Multani", 0, false),
+                ("Grizzly Bears", 0, false),
+                ("Ajani's Sunstriker", 1, false),
+            ],
+            false,
+        );
+        p.config.commanders.push(CardId(0));
+        if !effects {
+            p.config.mode = Mode::Scenario;
+            p.config.profile = "four-seat-commander-damage-v1".into();
+        }
+        p.profile_digest = digest(&p.config).unwrap();
+        traces(p, |g| {
+            attackers(g);
+            let commander = object(g, 0);
+            let bears = object(g, 1);
+            answer(
+                g,
+                Response::Attackers {
+                    attacks: vec![(commander, PlayerId(1)), (bears, PlayerId(1))],
+                },
+            );
+            loop {
+                let r = request(g);
+                if matches!(r, Request::Blockers { .. }) {
+                    break;
+                }
+                answer(g, Response::Pass);
+            }
+            answer(
+                g,
+                Response::Blockers {
+                    blocks: vec![(object(g, 2), bears)],
+                },
+            );
+            reach(g, TurnStep::CombatDamage);
+            assert_eq!(g.state.rules.players[1].life, 24.into());
+            assert_eq!(
+                g.state
+                    .rules
+                    .commanders
+                    .history(commander.card)
+                    .unwrap()
+                    .combat_damage[&PlayerId(1)],
+                18.into()
+            );
+        });
+    }
+}
+#[test]
+fn healer_fully_prevented_deathtouch_never_marks_or_destroys() {
+    // CR615.6/702.2b: the Rats deal no damage after a one-point shield.
+    traces(
+        prepared(
+            &[
+                ("Ajani's Sunstriker", 0, false),
+                ("Typhoid Rats", 1, false),
+                ("Samite Healer", 0, false),
+            ],
+            false,
+        ),
+        |g| {
+            reach(g, TurnStep::PrecombatMain);
+            answer(
+                g,
+                Response::ActivateAbility {
+                    object: object(g, 2),
+                    ability: 0,
+                },
+            );
+            answer(
+                g,
+                Response::EntityTargets {
+                    entities: vec![TargetEntity::Object {
+                        object: object(g, 0),
+                    }],
+                },
+            );
+            while !g.state.rules.stack.is_empty() {
+                answer(g, Response::Pass);
+                request(g);
+            }
+            attackers(g);
+            let a = object(g, 0);
+            answer(
+                g,
+                Response::Attackers {
+                    attacks: vec![(a, PlayerId(1))],
+                },
+            );
+            loop {
+                let r = request(g);
+                if matches!(r, Request::Blockers { .. }) {
+                    break;
+                }
+                answer(g, Response::Pass);
+            }
+            answer(
+                g,
+                Response::Blockers {
+                    blocks: vec![(object(g, 1), a)],
+                },
+            );
+            reach(g, TurnStep::CombatDamage);
+            assert_eq!(g.zone(a), Some(Zone::Battlefield));
+            assert_eq!(g.current(a).unwrap().marked_damage, 0.into());
+            assert_eq!(g.state.rules.players[0].life, 42.into());
+        },
+    );
+}
+#[test]
+fn keyword_profile_admission_policy_and_historical_identity_are_separate() {
+    let c = catalog();
+    let config = MatchConfig::for_profile("commander-keywords-v1", [5; 32], PlayerId(2)).unwrap();
+    let p = Prepared::admit_pod(c.clone(), config.clone()).unwrap();
+    assert_eq!(p.config.cards.len(), 400);
+    assert_eq!(p.catalog.schema_version, mtg_contracts::CURRENT_IR_VERSION);
+    for deck in &config.decks {
+        assert_eq!(deck.cards.iter().map(|r| r.count).sum::<u32>(), 100);
+    }
+    for deck in [
+        match_profile("commander-keywords-v1").unwrap().decks[0].clone(),
+        match_profile("commander-keywords-v1").unwrap().decks[1].clone(),
+    ] {
+        let mut x = config.clone();
+        x.decks = std::array::from_fn(|_| deck.clone());
+        assert!(Prepared::admit_pod(c.clone(), x).is_ok());
+    }
+    let old = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-match-ir.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        digest(&old).unwrap(),
+        match_profile("commander-foundations-v1")
+            .unwrap()
+            .catalog_sha256
+            .as_str()
+    );
+    assert!(Prepared::admit_pod(old, config).is_err());
+    assert!(
+        Prepared::admit_pod(
+            c,
+            MatchConfig::for_profile("commander-foundations-v1", [5; 32], PlayerId(2)).unwrap()
+        )
+        .is_err()
+    );
+    let profile = match_profile("commander-keywords-v1").unwrap();
+    assert_eq!(
+        profile.catalog().definitions.len(),
+        super::match_admission::reviewed_catalog_size(&profile.catalog_sha256).unwrap()
+    );
+}
+#[test]
+fn two_life_defender_survives_simultaneous_three_damage_and_two_lifelink() {
+    // CR510.2/120.3f/704.5a: after an earlier unblocked Bears hit, player1
+    // is at2. Next combat deals3 to that player and2 from their Sunstriker:
+    // life2 -3 +2 =1, before any SBA. Neither damage nor gain is a trigger.
+    let mut p = prepared(
+        &[
+            ("Grizzly Bears", 0, false),
+            ("Slaughterhouse Bouncer", 0, false),
+            ("Ajani's Sunstriker", 1, false),
+        ],
+        false,
+    );
+    p.config.mode = Mode::Scenario;
+    p.config.profile = "four-seat-effects-low-v1".into();
+    p.config.initial.life = std::array::from_fn(|_| 4.into());
+    p.profile_digest = digest(&p.config).unwrap();
+    traces(p, |g| {
+        attackers(g);
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(object(g, 0), PlayerId(1))],
+            },
+        );
+        loop {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                break;
+            }
+            answer(g, Response::Pass);
+        }
+        answer(g, Response::Blockers { blocks: vec![] });
+        reach(g, TurnStep::CombatDamage);
+        assert_eq!(g.state.rules.players[1].life, 2.into());
+        for _ in 0..300 {
+            let r = request(g);
+            if matches!(r, Request::Attackers { .. }) && g.state.rules.active == Some(PlayerId(0)) {
+                break;
+            }
+            let response = match r {
+                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                Request::Priority { .. } => Response::Pass,
+                x => panic!("{x:?}"),
+            };
+            g.respond(r.player(), r.decision_id(), response).unwrap();
+        }
+        assert_eq!(g.state.rules.active, Some(PlayerId(0)));
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(object(g, 0), PlayerId(1)), (object(g, 1), PlayerId(1))],
+            },
+        );
+        loop {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                break;
+            }
+            answer(g, Response::Pass);
+        }
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(object(g, 2), object(g, 0))],
+            },
+        );
+        reach(g, TurnStep::CombatDamage);
+        assert_eq!(g.state.rules.players[1].life, 1.into());
+        assert!(g.is_live(PlayerId(1)));
+    });
+}
+#[test]
+fn assigned_departed_combat_source_uses_keyword_lki() {
+    // CR702.2e/702.15c/510.2: a frozen source retains its keywords after
+    // its owner leaves. The borrowed source's living controller still gains.
+    let mut p = prepared(
+        &[("Vampire Nighthawk", 0, false), ("Giant Spider", 1, false)],
+        false,
+    );
+    p.config.cards[0].owner = PlayerId(2);
+    p.profile_digest = digest(&p.config).unwrap();
+    traces(p, |g| {
+        attackers(g);
+        let a = object(g, 0);
+        let b = object(g, 1);
+        answer(
+            g,
+            Response::Attackers {
+                attacks: vec![(a, PlayerId(1))],
+            },
+        );
+        loop {
+            let r = request(g);
+            if matches!(r, Request::Blockers { .. }) {
+                break;
+            }
+            answer(g, Response::Pass);
+        }
+        answer(
+            g,
+            Response::Blockers {
+                blocks: vec![(b, a)],
+            },
+        );
+        // Stop at the actual assignment boundary, not at a fabricated ledger.
+        for _ in 0..100 {
+            if matches!(g.state.rules.frame, Frame::DamageEffects { .. }) {
+                break;
+            }
+            match g.advance(Budget::new(1)) {
+                Advance::AwaitingDecision(r) => g
+                    .respond(r.player(), r.decision_id(), Response::Pass)
+                    .unwrap(),
+                Advance::Suspended { .. } => {}
+                x => panic!("{x:?}"),
+            }
+        }
+        assert!(matches!(g.state.rules.frame, Frame::DamageEffects { .. }));
+        g.concede(PlayerId(2)).unwrap();
+        reach(g, TurnStep::CombatDamage);
+        assert!(g.object_id(CardId(0)).is_none());
+        assert_eq!(g.state.rules.players[0].life, 42.into());
+        assert_eq!(
+            g.zone(object(g, 1)),
+            Some(Zone::Graveyard { owner: PlayerId(1) })
+        );
+    });
+}
+#[test]
+fn noncombat_departed_source_lifelink_and_deathtouch_both_damage_paths() {
+    // No source in this finite pool naturally combines these keywords and a
+    // damage activation. A private Sorcerer domain checks CR702.2d-e/15c-d,
+    // 113.7a/608.2h without broadening compiler or match admission.
+    for effects in [false, true] {
+        let mut p = prepared(
+            &[("Prodigal Sorcerer", 0, false), ("Yoked Ox", 1, false)],
+            false,
+        );
+        let c = Arc::make_mut(&mut p.catalog);
+        let d = c
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Prodigal Sorcerer")
+            .unwrap();
+        d.keywords = vec![KeywordAbility::Lifelink, KeywordAbility::Deathtouch];
+        d.capabilities = d.requirements();
+        p.catalog_digest = digest(p.catalog.as_ref()).unwrap();
+        p.config.cards[0].owner = PlayerId(2);
+        if !effects {
+            p.config.mode = Mode::Scenario;
+            p.config.profile = "four-seat-damage-life-v1".into();
+        }
+        p.profile_digest = digest(&p.config).unwrap();
+        traces(p, |g| {
+            reach(g, TurnStep::PrecombatMain);
+            answer(
+                g,
+                Response::ActivateAbility {
+                    object: object(g, 0),
+                    ability: 0,
+                },
+            );
+            answer(
+                g,
+                Response::EntityTargets {
+                    entities: vec![TargetEntity::Object {
+                        object: object(g, 1),
+                    }],
+                },
+            );
+            request(g);
+            assert!(g.current(object(g, 0)).unwrap().tapped);
+            g.concede(PlayerId(2)).unwrap();
+            request(g);
+            while !g.state.rules.stack.is_empty() {
+                answer(g, Response::Pass);
+                request(g);
+            }
+            assert!(g.object_id(CardId(0)).is_none());
+            assert_eq!(g.state.rules.players[0].life, 41.into());
+            assert_eq!(
+                g.zone(object(g, 1)),
+                Some(Zone::Graveyard { owner: PlayerId(1) })
+            );
+        });
+    }
+}
+#[test]
+fn lifelink_beneficiary_is_the_source_controller_not_invocation_controller() {
+    // CR702.15b: "you" in a damage program and the source's lifelink
+    // beneficiary are distinct identities. Isolate that private quantity rule.
+    let mut g = Game::new(prepared(&[("Vampire Nighthawk", 0, false)], false));
+    let source = g.object_before(object(&g, 0)).unwrap();
+    let gains = g
+        .damage_keywords(
+            &[ActualDamage {
+                id: DamageId(0),
+                source,
+                controller: PlayerId(1),
+                recipient: DamageRecipient::Player {
+                    player: PlayerId(2),
+                },
+                amount: 2.into(),
+            }],
+            None,
+        )
+        .unwrap();
+    assert_eq!(gains.len(), 1);
+    assert_eq!(gains[0].player, PlayerId(0));
+    assert_eq!(g.state.rules.players[0].life, 42.into());
+    assert_eq!(g.state.rules.players[1].life, 40.into());
+}

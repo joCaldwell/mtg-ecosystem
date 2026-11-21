@@ -55,7 +55,7 @@ impl Game {
                 frame::HeldMut::Invocation { hold: _, entry: _ } => {}
             });
     }
-    pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
+    pub(crate) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
         Ok(ObjectBefore {
             battlefield_entry_turn: o.battlefield_entry_turn,
@@ -82,7 +82,7 @@ impl Game {
     // CR 608.2h/113.7a: retain the exact last-known incarnation before it
     // leaves, including paid tap state; a successor cannot become this source.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String> {
+    pub(crate) fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String> {
         // This exile incarnation has no printed or activated source characteristics.
         if self.current(object)?.hideaway.is_some() {
             return Ok(());
@@ -95,7 +95,7 @@ impl Game {
     // copy the suspended frame holds receive a departure's last-known facts.
     // A rule step works on its own copy of that frame; `Game::commit_frame`
     // reconciles whatever the step installs, so no stale copy is written back.
-    pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
+    pub(crate) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         for trigger in &mut self.state.rules.pending_triggers {
             update_entrant(&mut trigger.witness, fact);
@@ -118,7 +118,7 @@ impl Game {
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
             });
     }
-    pub(super) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
+    pub(crate) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         if self
             .current(entry.source)
             .is_ok_and(|o| o.phased_out.is_some())
@@ -135,7 +135,7 @@ impl Game {
                 .ok_or("missing last-known damage source".into())
         })
     }
-    pub(super) fn eligible_players(
+    pub(crate) fn eligible_players(
         &self,
         domain: TargetDomain,
         controller: PlayerId,
@@ -170,7 +170,7 @@ impl Game {
             })
         })
     }
-    pub(super) fn entity_legal(&self, target: TargetEntity) -> bool {
+    pub(crate) fn entity_legal(&self, target: TargetEntity) -> bool {
         match target {
             TargetEntity::Player { player } => self.targetable_player(player),
             TargetEntity::Object { object } => self.is_battlefield_creature(object),
@@ -597,7 +597,7 @@ impl Game {
     // CR 608.2b-c/704.4: execute the ordered program without an intervening
     // SBA check. A self-targeted Soul Feast may reach zero then recover before
     // the next priority checkpoint; an all-target-illegal spell never starts.
-    pub(super) fn execute_damage_life_instruction(
+    pub(crate) fn execute_damage_life_instruction(
         &mut self,
         frame: Resolving,
         instruction: Instruction,
@@ -769,7 +769,7 @@ impl Game {
     // creature damage but never records Commander combat history. CR 119.3
     // life changes use their separate events; damage does not destroy (120.5).
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn apply_noncombat_damage(
+    pub(crate) fn apply_noncombat_damage(
         &mut self,
         damage: &NoncombatDamageOccurrence,
     ) -> Result<EventOutcome, String> {

@@ -8,9 +8,9 @@ pub enum PlayerStatus {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PlayerLastKnown {
-    pub(super) life: Quantity,
-    pub(super) mana: BTreeMap<Color, Quantity>,
+pub struct PlayerLastKnown {
+    pub life: Quantity,
+    pub mana: BTreeMap<Color, Quantity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) restricted_mana: Vec<RestrictedMana>,
 }
@@ -29,17 +29,17 @@ pub struct ReplayJournal {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum ControlSource {
+pub enum ControlSource {
     Persistent,
     Static { object: ObjectId },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ControlEffect {
-    pub(super) id: u32,
-    pub(super) object: ObjectId,
-    pub(super) controller: PlayerId,
-    pub(super) source: ControlSource,
+pub struct ControlEffect {
+    pub id: u32,
+    pub object: ObjectId,
+    pub controller: PlayerId,
+    pub source: ControlSource,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -92,10 +92,12 @@ where
     deserializer.deserialize_map(PlayerQuantities)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CommanderLedger {
-    pub(super) records: BTreeMap<CardId, CommanderHistory>,
+testkit_fields! {
+    #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct CommanderLedger {
+        pub(super) records: BTreeMap<CardId, CommanderHistory>,
+    }
 }
 impl CommanderLedger {
     // CR 903.3, 903.8, 903.10a: physical designation, per-caster command
@@ -118,7 +120,7 @@ impl CommanderLedger {
         Ok(amount)
     }
     // Only completed casting calls this hook; reversal never advances tax.
-    pub(super) fn record_cast(
+    pub(crate) fn record_cast(
         &mut self,
         card: CardId,
         caster: PlayerId,
@@ -140,7 +142,7 @@ impl CommanderLedger {
     }
     // Only the typed actual combat-damage path records production history.
     // The boolean also lets private domain tests prove noncombat exclusion.
-    pub(super) fn record_damage(
+    pub(crate) fn record_damage(
         &mut self,
         card: CardId,
         recipient: PlayerId,
@@ -214,7 +216,7 @@ impl Game {
             concessions: self.state.audit.external_inputs.iter().cloned().collect(),
         }
     }
-    pub(super) fn is_live(&self, player: PlayerId) -> bool {
+    pub(crate) fn is_live(&self, player: PlayerId) -> bool {
         self.state
             .rules
             .players
@@ -365,7 +367,7 @@ impl Game {
         }
         Ok(removed)
     }
-    pub(super) fn apply_departure(&mut self, player: PlayerId) -> Result<(), String> {
+    pub(crate) fn apply_departure(&mut self, player: PlayerId) -> Result<(), String> {
         let removed = self.begin_departure(player)?;
         self.finish_departure(player, &removed)
     }
@@ -649,7 +651,7 @@ impl Game {
     }
     /// CR 104.5/800.4a: derive departures from actual loss occurrences. Only
     /// the players marked by the completed batch may leave for these losses.
-    pub(super) fn finish_committed_player_losses(
+    pub(crate) fn finish_committed_player_losses(
         &mut self,
         batch: &CommittedBatch,
     ) -> Result<bool, String> {
@@ -696,7 +698,7 @@ impl Game {
         self.state.rules.losing_players.clear();
         Ok(())
     }
-    pub(super) fn replay_to(
+    pub(crate) fn replay_to(
         prepared: Prepared,
         journal: &ReplayJournal,
         boundary: Option<u64>,

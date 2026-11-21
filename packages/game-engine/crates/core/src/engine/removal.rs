@@ -12,7 +12,7 @@ use mtg_contracts::{EffectRecipient, PermanentFilter, TargetAmount, TargetAttrib
 /// zone, then survive as its last appearance. A successor never supplies them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TargetFacts {
+pub struct TargetFacts {
     controller: PlayerId,
     power: Option<Quantity>,
     mana_value: Quantity,
@@ -108,7 +108,7 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn matches_permanent_filter(
+    pub(crate) fn matches_permanent_filter(
         &self,
         object: ObjectId,
         controller: PlayerId,
@@ -118,7 +118,7 @@ impl Game {
             crate::query::matches_permanent_filter(&self.object_facts(o), controller, f).is_yes()
         })
     }
-    pub(super) fn permanent_target_legal(
+    pub(crate) fn permanent_target_legal(
         &self,
         object: ObjectId,
         controller: PlayerId,
@@ -134,7 +134,7 @@ impl Game {
                 .as_ref()
                 .is_some_and(|f| self.matches_permanent_filter(object, controller, f))
     }
-    pub(super) fn eligible_stack_targets_for(
+    pub(crate) fn eligible_stack_targets_for(
         &self,
         spec: &TargetSpec,
         controller: PlayerId,

@@ -6,7 +6,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "completion", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum GroupFinish {
+pub enum GroupFinish {
     Instruction {
         frame: Resolving,
         result: GroupResult,
@@ -24,7 +24,7 @@ pub(super) enum GroupFinish {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum GroupResult {
+pub enum GroupResult {
     Effect,
     ActualEffect,
     DestroySet,
@@ -62,7 +62,7 @@ struct Randomization {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct GraveyardGroup {
+pub struct GraveyardGroup {
     pub(super) finish: GroupFinish,
     cause: BatchCause,
     group: EventGroup,

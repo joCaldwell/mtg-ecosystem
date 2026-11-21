@@ -45,7 +45,7 @@ pub struct DecisionContext {
     pub modes: Vec<DecisionMode>,
 }
 impl Game {
-    pub(super) fn trigger_source_label(
+    pub(crate) fn trigger_source_label(
         &self,
         source: ObjectId,
         ability: EffectiveTriggerAbility,
@@ -186,7 +186,7 @@ impl Game {
         };
         self.described_source(viewer, entry.source, kind, ability)
     }
-    pub(super) fn permitted_decision_context(
+    pub(crate) fn permitted_decision_context(
         &self,
         viewer: PlayerId,
         request: Option<&PlayerRequest>,
@@ -352,7 +352,7 @@ impl Game {
 }
 
 impl Game {
-    pub(super) fn effect_decision_context(
+    pub(crate) fn effect_decision_context(
         &self,
         viewer: PlayerId,
         effect: &EffectKey,

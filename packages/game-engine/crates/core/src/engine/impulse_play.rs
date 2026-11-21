@@ -3,7 +3,7 @@
 use super::*;
 
 impl Game {
-    pub(super) fn may_play_exile(&self, player: PlayerId, object: ObjectId) -> bool {
+    pub(crate) fn may_play_exile(&self, player: PlayerId, object: ObjectId) -> bool {
         self.current(object)
             .is_ok_and(|o| o.zone == Zone::Exile && o.hideaway.is_none())
             && self.has_exile_play_grant(player, object)

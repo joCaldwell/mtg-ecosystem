@@ -18,7 +18,7 @@ use super::*;
 
 /// How a frame holds an invocation copy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Hold {
+pub enum Hold {
     /// The frame is resolving this invocation, possibly beneath state-based
     /// actions, a legend-rule choice or trigger placement that will resume it.
     Resolving,
@@ -29,7 +29,7 @@ pub(super) enum Hold {
 
 /// One thing a frame holds: an invocation copy, or the prepared entries of a
 /// damage transaction, which keep source appearances.
-pub(super) enum Held<Invocation, Damage> {
+pub enum Held<Invocation, Damage> {
     Invocation { hold: Hold, entry: Invocation },
     Damage(Damage),
 }
@@ -45,7 +45,7 @@ pub(super) type HeldMut<'a> = Held<&'a mut StackInstance, &'a mut Vec<effects::P
 /// when one is dropped, and direct writes to `rules.frame` remain possible:
 /// the guarantee is the commit in `Game::step`, not this token.
 #[must_use = "commit the lease so the installed frame carries its owners' last-known facts"]
-pub(super) struct FrameLease(());
+pub struct FrameLease(());
 
 // The shared and exclusive traversals are one body, so they cannot diverge.
 macro_rules! frame_walk {
@@ -360,7 +360,7 @@ frame_walk!(walk_mut, walk_cast_mut, walk_damage_mut, HeldMut, mut);
 impl Frame {
     /// Visits every invocation copy and damage transaction this frame holds,
     /// outermost first, through every resumed and suspended frame.
-    pub(super) fn for_each_held<'a>(&'a self, visit: &mut dyn FnMut(HeldRef<'a>)) {
+    pub fn for_each_held<'a>(&'a self, visit: &mut dyn FnMut(HeldRef<'a>)) {
         walk(self, Hold::Resolving, visit)
     }
 
@@ -370,7 +370,7 @@ impl Frame {
 
     /// The invocation this frame is resolving. An owner suspended beneath its
     /// child announcement or a mana ability is not resolving.
-    pub(super) fn resolving_invocation(&self) -> Option<&StackInstance> {
+    pub fn resolving_invocation(&self) -> Option<&StackInstance> {
         let mut resolving = None;
         self.for_each_held(&mut |held| {
             if let Held::Invocation {
@@ -415,12 +415,12 @@ pub(super) fn issued_by(issued: &StackInstance, owner: &StackInstance) -> bool {
 
 impl Game {
     /// Leases the suspended frame to one rule step.
-    pub(super) fn lease_frame(&self) -> (Frame, FrameLease) {
+    pub(crate) fn lease_frame(&self) -> (Frame, FrameLease) {
         (self.state.rules.frame.clone(), FrameLease(()))
     }
 
     /// Discharges a step's lease on the frame it installed.
-    pub(super) fn commit_frame(&mut self, lease: FrameLease) {
+    pub(crate) fn commit_frame(&mut self, lease: FrameLease) {
         let FrameLease(()) = lease;
         self.reconcile_frame();
     }

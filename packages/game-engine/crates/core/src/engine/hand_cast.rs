@@ -3,7 +3,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct HandCastPermission {
+pub struct HandCastPermission {
     issuer: Box<StackInstance>,
     original: ObjectId,
     caster: PlayerId,

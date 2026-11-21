@@ -4,13 +4,13 @@ use super::*;
 use crate::query::{ObjectFacts, Tri};
 use std::borrow::Cow;
 
-pub(super) struct DerivedObject<'a> {
+pub struct DerivedObject<'a> {
     game: &'a Game,
     object: &'a Object,
 }
 
 impl Game {
-    pub(super) fn object_facts<'a>(&'a self, object: &'a Object) -> DerivedObject<'a> {
+    pub(crate) fn object_facts<'a>(&'a self, object: &'a Object) -> DerivedObject<'a> {
         DerivedObject { game: self, object }
     }
 }

@@ -440,10 +440,6 @@ fn action_rejection(reason: QueryRejection) -> ActionQueryResult {
     }
 }
 
-#[cfg(test)]
-#[path = "action_query_tests.rs"]
-mod tests;
-
 impl Game {
     fn action_label(&self, viewer: PlayerId, action: &ActionInitiation) -> ActionLabel {
         let (text, source) = match action {

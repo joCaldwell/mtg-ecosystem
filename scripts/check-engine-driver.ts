@@ -100,6 +100,7 @@ const harnessSelfTests: CheckPhase[] = [
   { label: "worktree-safety", command: "python3", args: ["-B", "scripts/test-engine-worktrees.py"] },
   { label: "structure-tests", command: "python3", args: ["-B", "scripts/test-engine-structure.py"] },
   { label: "cache-tests", command: "python3", args: ["-B", "scripts/test-engine-cache.py"] },
+  { label: "test-binary-tests", command: "python3", args: ["-B", "scripts/test-engine-test-binaries.py"] },
   { label: "documentation-tests", command: "python3", args: ["-B", "scripts/test-check-docs.py"] },
 ];
 const liveGuards: CheckPhase[] = [
@@ -143,6 +144,11 @@ export function smokePhases(args: string[]): CheckPhase[] {
 const archive: CheckPhase = { label: "archive-parser", command: "node", args: ["scripts/run-selected-tests.ts", "--name", "^retained archive hashes agree with JavaScript and source parser$", "packages/game-engine/tests/contracts.test.ts"], preflight: true };
 const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "--all", "--", "--check"] };
 const omittedSelfTests = "Verifier harness self-tests (run --tooling or --full).";
+// Unit tests only; `--tests` would also rerun every `--lib` unit binary.
+const libTests: CheckPhase = { label: "lib-tests", command: "cargo", args: ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "-p", "mtg-core", "--lib"] };
+// Integration binaries only (`--test '*'`), built once and run concurrently:
+// `cargo test` would run the shards of the former core monolith one by one.
+const coreIntegration: CheckPhase = { label: "core-integration", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-core", "-p", "mtg-witness", "--features", "mtg-core/testkit", "--test", "*"] };
 
 // Development coverage is deliberately smaller than historical acceptance.
 // No default phase launches the simulator, release build, demo or profile matrix.
@@ -170,9 +176,15 @@ export const engineCheckPlans = {
     needsCargo: true,
     phases: [cachePreflight, ...liveGuards, archive, format,
       { label: "rust-check", command: "cargo", args: ["check", "--workspace", "--all-targets", "--locked"] },
-      { label: "compiler-tests", command: "cargo", args: ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "--lib"] }],
-    coverage: "Live structure/documentation guards and cache preflight, archived-source parser agreement, Rust formatting, all-target compilation, contracts/compiler unit tests.",
-    omitted: `${omittedSelfTests} Core/simulator/server runtime tests; Clippy; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
+      libTests],
+    coverage: "Live structure/documentation guards and cache preflight, archived-source parser agreement, Rust formatting, all-target compilation, contracts/compiler/core unit tests.",
+    omitted: `${omittedSelfTests} Core/witness integration binaries (run --core); simulator/server runtime tests; Clippy; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
+  },
+  core: {
+    needsCargo: true,
+    phases: [cachePreflight, ...liveGuards, libTests, coreIntegration],
+    coverage: "Live guards/cache preflight, contracts/compiler/core unit tests, every mtg-core testkit scenario binary and every mtg-witness binary.",
+    omitted: `${omittedSelfTests} Archived-source parser agreement; formatting; Clippy; simulator/server tests; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
   },
   contracts: {
     needsCargo: true,

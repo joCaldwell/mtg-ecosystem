@@ -10,7 +10,7 @@ pub struct LifelinkGain {
     pub previous: Quantity,
     pub current: Quantity,
 }
-pub(super) enum KeywordSource<'a> {
+pub enum KeywordSource<'a> {
     Current(ObjectId),
     Historical(&'a ObjectBefore),
 }
@@ -27,7 +27,7 @@ impl<'a> From<&'a ObjectBefore> for KeywordSource<'a> {
 impl Game {
     /// Current checks include continuous grants (CR 613.1f); saved
     /// ObjectBefore keywords bind damage LKI to the exact source (702.15c/2e).
-    pub(super) fn has_keyword<'a>(
+    pub(crate) fn has_keyword<'a>(
         &self,
         object: impl Into<KeywordSource<'a>>,
         keyword: KeywordAbility,
@@ -39,7 +39,7 @@ impl Game {
     }
     // CR 105.1/702.16b–h. Evaluate the source colors at their applicable boundary, including
     // instantiated token colors. C denotes colorless and is not a sixth color.
-    pub(super) fn has_color(source: &Characteristics) -> bool {
+    pub(crate) fn has_color(source: &Characteristics) -> bool {
         source.colors.iter().any(|color| *color != Color::C)
     }
 
@@ -59,7 +59,7 @@ impl Game {
             .filter_map(KeywordAbility::fixed_protection_color)
     }
 
-    pub(super) fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
+    pub(crate) fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
         // CR 702.16b–f,j. Printed protection from everything functions on
         // the battlefield. Only the separate each-color grant tests color.
         self.current(target)
@@ -75,7 +75,7 @@ impl Game {
 
     // CR 608.2b: when the exact ability source has left, use its LKI,
     // even if the same physical card has since returned.
-    pub(super) fn targeting_characteristics<'a>(
+    pub(crate) fn targeting_characteristics<'a>(
         &'a self,
         entry: &'a StackInstance,
     ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
@@ -91,7 +91,7 @@ impl Game {
         }
     }
 
-    pub(super) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
+    pub(crate) fn can_block(&self, blocker: ObjectId, attacker: ObjectId) -> bool {
         let keywords = self.current_keywords(attacker);
         let attacker_flies = keywords.contains(&KeywordAbility::Flying);
         self.color_layer(blocker)
@@ -148,7 +148,7 @@ impl Game {
     /// prevention. No SBA or trigger placement can occur between damage/gains.
     /// CR 702.15e: aggregate one gain per source, distinct simultaneous sources
     /// remain separate gains (including when a source damages several objects).
-    pub(super) fn damage_keywords(
+    pub(crate) fn damage_keywords(
         &mut self,
         actual: &[ActualDamage],
         // Transactional assignment facts may predate control or grant changes.

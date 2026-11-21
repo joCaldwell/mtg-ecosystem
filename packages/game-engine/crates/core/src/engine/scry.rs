@@ -23,7 +23,7 @@ impl Game {
             _ => None,
         }
     }
-    pub(super) fn library_prefix(
+    pub(crate) fn library_prefix(
         &self,
         player: PlayerId,
         amount: &Quantity,

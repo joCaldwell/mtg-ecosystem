@@ -61,7 +61,7 @@ fn trigger_grant_charge(
         .saturating_add(grant.map_or(0, stored_history::payload_charge))
         .saturating_add(temporary_origin)
 }
-pub(super) fn entry_grant_charge(entry: &StackInstance) -> usize {
+pub fn entry_grant_charge(entry: &StackInstance) -> usize {
     match &entry.kind {
         StackKind::Triggered {
             ability,
@@ -76,7 +76,7 @@ pub(super) fn entry_grant_charge(entry: &StackInstance) -> usize {
     }
 }
 impl Game {
-    pub(super) fn grant_payload_charge(&self) -> usize {
+    pub(crate) fn grant_payload_charge(&self) -> usize {
         let mut charge = 0usize;
         for registration in &self.state.rules.delayed_chapters {
             charge = charge.saturating_add(stored_history::payload_charge(registration));
@@ -346,7 +346,7 @@ pub(super) fn eligible(
 }
 
 /// Unwrap owning continuations without copying or mutating them.
-pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
+pub fn retained_effect_frame(mut frame: &Frame) -> &Frame {
     loop {
         frame = match frame {
             Frame::ManaAbility { activation } => &activation.resume,
@@ -368,7 +368,7 @@ pub(super) fn retained_effect_frame(mut frame: &Frame) -> &Frame {
         };
     }
 }
-pub(super) fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> {
+pub fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> {
     match retained_effect_frame(frame) {
         Frame::LandEntry {
             origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },

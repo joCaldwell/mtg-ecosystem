@@ -12,7 +12,7 @@ use mana_life_gain::ManaLifeUndo;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ManaSourceScope {
+pub enum ManaSourceScope {
     Intrinsic,
     Disjoint,
     Mixed,
@@ -21,7 +21,7 @@ pub(super) enum ManaSourceScope {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ManaBranch {
+pub struct ManaBranch {
     index: u32,
     color: Color,
 }
@@ -56,7 +56,7 @@ impl ManaSourceChoice {
 // Four Healers plus eight once-only sacrifice-draw artifact activations.
 // Mana activations add no stack entries (605.3b). No recursion returns artifacts.
 
-pub(super) fn zero_mana_cost() -> ManaCost {
+pub fn zero_mana_cost() -> ManaCost {
     ManaCost {
         generic: Quantity::zero(),
         colored: vec![],
@@ -64,7 +64,7 @@ pub(super) fn zero_mana_cost() -> ManaCost {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ManaStage {
+pub enum ManaStage {
     FilterInput,
     Payment,
     Spend,
@@ -73,9 +73,9 @@ pub(super) enum ManaStage {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ManaActivation {
+pub struct ManaActivation {
     pub(super) player: PlayerId,
-    pub(super) source: ObjectId,
+    pub source: ObjectId,
     ability: ManaAbility,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     printed_index: Option<u32>,
@@ -84,7 +84,7 @@ pub(super) struct ManaActivation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     branch: Option<ManaBranch>,
     decision_id: u64,
-    pub(super) stage: ManaStage,
+    pub stage: ManaStage,
     pub(super) resume: Box<Frame>,
     receipts: Vec<ManaActivationUndo>,
     paid: Option<Box<PermanentManaUndo>>,
@@ -121,41 +121,43 @@ pub struct ManaAbilityUse {
     pub index: u32,
     pub turn: u64,
 }
-/// A receipt describes only this activation's production, spending and source
-/// costs. Reverse in LIFO order so a Signet refunds its input before the land
-/// receipt subtracts that mana. Existing zero entries keep their exact shape.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PermanentManaUndo {
-    pub player: PlayerId,
-    pub source: ObjectBefore,
-    pub counters: Quantity,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ability_use: Option<ManaAbilityUse>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub previously_used: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) combination_total: Option<Quantity>,
-    pub produced: BTreeMap<Color, Quantity>,
-    pub spent: BTreeMap<Color, Quantity>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub spent_restricted: Vec<RestrictedMana>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub produced_restricted: Vec<RestrictedMana>,
-    pub absent: BTreeSet<Color>,
-    pub sacrificed: bool,
-    pub cost_triggers: Vec<TriggerId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) branch: Option<ManaBranch>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) damage: Option<Box<ManaDamageUndo>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) life_gain: Option<ManaLifeUndo>,
+testkit_fields! {
+    /// A receipt describes only this activation's production, spending and source
+    /// costs. Reverse in LIFO order so a Signet refunds its input before the land
+    /// receipt subtracts that mana. Existing zero entries keep their exact shape.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct PermanentManaUndo {
+        pub player: PlayerId,
+        pub source: ObjectBefore,
+        pub counters: Quantity,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub ability_use: Option<ManaAbilityUse>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pub previously_used: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub(super) combination_total: Option<Quantity>,
+        pub produced: BTreeMap<Color, Quantity>,
+        pub spent: BTreeMap<Color, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub spent_restricted: Vec<RestrictedMana>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub produced_restricted: Vec<RestrictedMana>,
+        pub absent: BTreeSet<Color>,
+        pub sacrificed: bool,
+        pub cost_triggers: Vec<TriggerId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub(super) branch: Option<ManaBranch>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub(super) damage: Option<Box<ManaDamageUndo>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub(super) life_gain: Option<ManaLifeUndo>,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ManaDamageUndo {
+pub struct ManaDamageUndo {
     pub(super) life: Vec<ManaDamageLife>,
     pub(super) shields: Vec<ManaDamageShield>,
     triggers: Vec<(TriggerId, PlayerId)>,
@@ -186,7 +188,7 @@ impl Game {
             turn: self.state.rules.turn.number,
         }
     }
-    pub(super) fn mana_ability_used(&self, source: ObjectId) -> bool {
+    pub(crate) fn mana_ability_used(&self, source: ObjectId) -> bool {
         self.state
             .rules
             .mana_ability_uses
@@ -260,7 +262,7 @@ impl Game {
             }
         })
     }
-    pub(super) fn mana_continuation_charge(&self) -> usize {
+    pub(crate) fn mana_continuation_charge(&self) -> usize {
         let mut frame = &self.state.rules.frame;
         let mut charge = 0usize;
         loop {
@@ -426,7 +428,7 @@ impl Game {
         }
         false
     }
-    pub(super) fn validate_permanent_mana_activation(
+    pub(crate) fn validate_permanent_mana_activation(
         &self,
         player: PlayerId,
         source: ObjectId,
@@ -478,7 +480,7 @@ impl Game {
         Ok(())
     }
 
-    pub(super) fn mixed_mana_choices(
+    pub(crate) fn mixed_mana_choices(
         &self,
         player: PlayerId,
         source: ObjectId,
@@ -1517,7 +1519,7 @@ impl Game {
         }
         self.revalidate_resolution_payment_departure()
     }
-    pub(super) fn validate_nested_mana_frame(&self, frame: &Frame) -> Result<(), String> {
+    pub(crate) fn validate_nested_mana_frame(&self, frame: &Frame) -> Result<(), String> {
         let mut f = frame;
         let mut sources = BTreeSet::new();
         if let Frame::ManaSourceChoice {

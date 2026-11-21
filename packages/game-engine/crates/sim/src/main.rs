@@ -2176,6 +2176,11 @@ mod tests {
             "_tests.rs",
             "/tests.rs",
             "crates/core/tests/combat_adversarial.rs",
+            "crates/core/tests/search_work/work/optimization_tests/search_reference_spool.rs",
+            "crates/core/src/testkit.rs",
+            "crates/witness/Cargo.toml",
+            "crates/witness/src/lib.rs",
+            "crates/witness/tests/cascade/main.rs",
         ] {
             let test = files
                 .iter_mut()

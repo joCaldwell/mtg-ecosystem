@@ -87,7 +87,7 @@ impl Game {
         self.allocation_options(tx, effect)
             .is_ok_and(|(_, _, remaining, _, c)| remaining > Quantity::from(1) && c.len() > 1)
     }
-    pub(super) fn damage_allocation_request(&self) -> Result<Option<Request>, String> {
+    pub(crate) fn damage_allocation_request(&self) -> Result<Option<Request>, String> {
         let Frame::DamageAllocation {
             transaction,
             effect,
@@ -275,7 +275,7 @@ impl Game {
             applications,
         })
     }
-    pub(super) fn visible_allocation_candidate(
+    pub(crate) fn visible_allocation_candidate(
         &self,
         viewer: PlayerId,
         c: &DamageAllocationCandidate,
@@ -339,7 +339,7 @@ impl Game {
             })
             .ok_or_else(|| "unknown damage handle".into())
     }
-    pub(super) fn resolve_damage_handle(
+    pub(crate) fn resolve_damage_handle(
         &self,
         viewer: PlayerId,
         handle: &DamageHandle,

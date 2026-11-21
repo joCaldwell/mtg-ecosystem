@@ -7,7 +7,7 @@ impl Game {
         }
     }
 
-    pub(super) fn update_library_position_memory(
+    pub(crate) fn update_library_position_memory(
         &mut self,
         event: &ProposedEvent,
         actual: &EventOutcome,
@@ -103,7 +103,7 @@ impl Game {
         }
     }
 
-    pub(super) fn known_library_positions(
+    pub(crate) fn known_library_positions(
         &self,
         viewer: PlayerId,
     ) -> Result<Vec<KnownLibraryPosition>, String> {

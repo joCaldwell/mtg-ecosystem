@@ -34,20 +34,16 @@ impl PermittedHistory {
     }
     // This borrow is private: capture's per-object cursor must not invoke the
     // owned getter and repeatedly expand all rows in the current history view.
-    pub(super) fn stored(&self, index: usize) -> Option<&StoredPermittedView> {
+    pub(crate) fn stored(&self, index: usize) -> Option<&StoredPermittedView> {
         (index < self.len()).then(|| &self.0[index])
     }
     // Exactly one stored entry for the original Task::Search history unit.
     // No whole-history prefill, bulk cursor advance or omitted public rows.
-    pub(super) fn push_stored(&mut self, view: StoredPermittedView) {
+    pub(crate) fn push_stored(&mut self, view: StoredPermittedView) {
         self.0.push(view);
     }
-    #[cfg(test)]
-    pub(super) fn push_public(&mut self, view: PermittedView) {
+    #[cfg(feature = "testkit")]
+    pub(crate) fn push_public(&mut self, view: PermittedView) {
         self.0.push_public(view);
     }
 }
-
-#[cfg(test)]
-#[path = "permitted_history_tests.rs"]
-mod tests;

@@ -4,26 +4,26 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TriggerId(pub u64);
-pub(super) fn is_zero(value: &u64) -> bool {
+pub fn is_zero(value: &u64) -> bool {
     *value == 0
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PendingTrigger {
+pub struct PendingTrigger {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     death_controller: Option<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) match_condition: Option<InterveningCheck>,
-    pub(super) id: TriggerId,
-    pub(super) source: ObjectId,
-    pub(super) controller: PlayerId,
-    pub(super) ability: EffectiveTriggerAbility,
+    pub match_condition: Option<InterveningCheck>,
+    pub id: TriggerId,
+    pub source: ObjectId,
+    pub controller: PlayerId,
+    pub ability: EffectiveTriggerAbility,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) grant: Option<CascadeGrantProvenance>,
-    pub(super) source_facts: ObjectBefore,
+    pub grant: Option<CascadeGrantProvenance>,
+    pub source_facts: ObjectBefore,
     pub(super) source_handles: Vec<ObjectHandle>,
     event: TriggerOccurrenceId,
-    pub(super) witness: TriggerEventWitness,
+    pub witness: TriggerEventWitness,
 }
 enum MatchedCascadeGrant {
     Static(ObjectBefore),
@@ -31,7 +31,7 @@ enum MatchedCascadeGrant {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TriggerPlacement {
+pub struct TriggerPlacement {
     pub(super) resume: Box<Frame>,
     cleanup: bool,
     changed: bool,
@@ -56,10 +56,10 @@ pub struct CastOccurrenceId {
 /// Original physical seats never compact on departure (CR 601.2i/800.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TurnCastHistory {
-    pub(super) any_cast: bool,
-    pub(super) exile_cast: bool,
-    pub(super) mana_value: Quantity,
+pub struct TurnCastHistory {
+    pub any_cast: bool,
+    pub exile_cast: bool,
+    pub mana_value: Quantity,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,18 +68,20 @@ pub struct CastHistoryFacts {
     pub first_overall: bool,
     pub first_from_exile: bool,
 }
-/// Frozen CR 601.2i event facts. The caster is not the active player.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CastOccurrence {
-    pub history: CastHistoryFacts,
-    pub x: Option<Quantity>,
-    pub stack_id: StackId,
-    pub caster: PlayerId,
-    pub cast_from: Zone,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) priority_paid_exile: bool,
-    pub spell: ObjectBefore,
+testkit_fields! {
+    /// Frozen CR 601.2i event facts. The caster is not the active player.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct CastOccurrence {
+        pub history: CastHistoryFacts,
+        pub x: Option<Quantity>,
+        pub stack_id: StackId,
+        pub caster: PlayerId,
+        pub cast_from: Zone,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pub(crate) priority_paid_exile: bool,
+        pub spell: ObjectBefore,
+    }
 }
 /// One positive actual damage member and its separate ordinary trigger-time
 /// battlefield appearance. Assigned source LKI is never replaced by this fact.
@@ -214,7 +216,7 @@ impl TriggerEventWitness {
 // invocation and of assignment-time source facts. Restore uses that frozen
 // trigger controller, never a later controller or current recipient liveness.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub(super) fn damage_matches(
+pub fn damage_matches(
     condition: &TriggerCondition,
     source: ObjectId,
     controller: PlayerId,
@@ -417,7 +419,7 @@ impl Game {
             && appearance.controller == controller
             && matches!((&appearance.characteristics.power, base), (Some(power), Some(base)) if power > base))
     }
-    pub(super) fn stack_limit(&self) -> usize {
+    pub(crate) fn stack_limit(&self) -> usize {
         capacities::STACK_LIMIT
     }
     // CR 603.2c/603.10/701.26a: observe the source after a committed tap.
@@ -444,7 +446,7 @@ impl Game {
     // atomic simultaneous group shares one observer view, including sources
     // that die together. LeaveGame/exile/replaced command moves are not dies.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn collect_triggers(
+    pub(crate) fn collect_triggers(
         &mut self,
         cause: &BatchCause,
         before: &Game,
@@ -703,7 +705,7 @@ impl Game {
     // CR 601.2i/603.2g/603.3: only the complete successful casting path calls
     // this, after every cost and the real SpellCast event, before priority/SBAs.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn collect_cast_triggers(&mut self, entry: &StackInstance) -> Result<(), String> {
+    pub(crate) fn collect_cast_triggers(&mut self, entry: &StackInstance) -> Result<(), String> {
         let completed = self.top()?;
         if completed.id != entry.id || !completed.kind.is_spell() || completed.paid.is_none() {
             return Err("cast occurrence requires a completed paid spell".into());
@@ -1282,7 +1284,7 @@ impl Game {
         self.check_history_capacity()?;
         Ok(())
     }
-    pub(super) fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String> {
+    pub(crate) fn preflight_trigger_emission(&mut self, additional: usize) -> Result<(), String> {
         self.check_stack_capacity(additional)?;
         let additional = u64::try_from(additional).map_err(|_| "trigger ID resource limit")?;
         if self
@@ -1324,7 +1326,7 @@ impl Game {
     pub(super) fn apnap_players(&self) -> Vec<PlayerId> {
         self.apnap_seats().filter(|p| self.is_live(*p)).collect()
     }
-    pub(super) fn begin_trigger_placement(
+    pub(crate) fn begin_trigger_placement(
         &mut self,
         resume: Frame,
         cleanup: bool,
@@ -1364,7 +1366,7 @@ impl Game {
             .map(|t| t.id)
             .collect()
     }
-    pub(super) fn trigger_order_ids(&self) -> Vec<TriggerId> {
+    pub(crate) fn trigger_order_ids(&self) -> Vec<TriggerId> {
         if let Frame::TriggerOrder { placement } = &self.state.rules.frame {
             if placement.order.is_empty() {
                 self.group_ids(placement)
@@ -2262,7 +2264,7 @@ impl Game {
             _ => false,
         }
     }
-    pub(super) fn validate_trigger_entry(
+    pub(crate) fn validate_trigger_entry(
         &self,
         entry: &StackInstance,
     ) -> Result<Option<TriggerId>, String> {
@@ -2341,7 +2343,7 @@ impl Game {
         }
         Ok(Some(*trigger_id))
     }
-    pub(super) fn validate_trigger_state(&self) -> Result<(), String> {
+    pub(crate) fn validate_trigger_state(&self) -> Result<(), String> {
         self.validate_delayed_chapters()?;
         if self.state.rules.pending_triggers.len() + self.state.rules.stack.len()
             > self.stack_limit()
