@@ -630,3 +630,152 @@ fn query_matches_the_retired_core_evaluators_on_derived_and_permitted_facts() {
         Tri::No
     );
 }
+
+/// Every closed legacy set and its kernel predicate set name the same
+/// objects, to every reader: the core's derived facts and each seat's view.
+#[test]
+fn kernel_sets_answer_exactly_as_the_closed_sets_they_replace() {
+    let Board { game: g, .. } = board();
+    let views = views(&g);
+    let sets = [
+        ObjectSet::ControllerCreatures,
+        ObjectSet::ControllerPermanents,
+        ObjectSet::Creatures,
+        ObjectSet::NonlandPermanents,
+        ObjectSet::OpponentNonlandPermanents,
+        ObjectSet::Enchantments,
+        ObjectSet::Artifacts,
+        ObjectSet::GraveyardCards,
+        ObjectSet::AttackingCreatures,
+        ObjectSet::OpponentCreatures,
+        ObjectSet::FlyingCreatures,
+        ObjectSet::NonflyingCreatures,
+    ];
+    let mut members = 0usize;
+    for o in g.state.rules.objects.values() {
+        let derived = g.object_facts(o);
+        for you in (0..4).map(PlayerId) {
+            for set in &sets {
+                for context in [Context::Spell, Context::Activated, Context::Triggered] {
+                    let SetExpr::Matching { zone, filter } = set.kernel(context) else {
+                        panic!("closed sets are zone sets");
+                    };
+                    let legacy = query::matches_object_set(&derived, you, set);
+                    let kernel = query::matches_zone_pred(&derived, you, &zone, &filter);
+                    assert_eq!(kernel, legacy, "{set:?} for {:?} as {you:?}", o.id);
+                    assert_ne!(kernel, Tri::Unknown, "the core knows every fact");
+                    members += usize::from(kernel.is_yes());
+                    for view in &views {
+                        let Ok(handle) = g.handle_for(view.viewer, o.id) else {
+                            continue;
+                        };
+                        let Some(visible) = view.objects.iter().find(|v| v.handle == handle) else {
+                            continue;
+                        };
+                        let seen = query::in_view(view, visible);
+                        assert_eq!(
+                            query::matches_zone_pred(&seen, you, &zone, &filter),
+                            query::matches_object_set(&seen, you, set),
+                            "{set:?} in {:?}'s view of {:?}",
+                            view.viewer,
+                            o.id
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert!(members > 100, "the board inhabits the sets: {members}");
+}
+
+/// General filter atoms read the same derived facts the rules read.
+#[test]
+fn kernel_filter_atoms_follow_derived_characteristics() {
+    use mtg_contracts::kir::{Amount, Atom, Cmp, Pred, ZoneExpr};
+    let Board { game: g, .. } = board();
+    let you = PlayerId(0);
+    let battlefield = ZoneExpr::Battlefield;
+    let matches = |o: &Object, atoms: Vec<Atom>| {
+        query::matches_zone_pred(&g.object_facts(o), you, &battlefield, &Pred(atoms)).is_yes()
+    };
+    let mut seen = [0usize; 8];
+    for o in g.state.rules.objects.values() {
+        let present = o.zone == Zone::Battlefield && o.phased_out.is_none();
+        let c = g.characteristics(o.id).unwrap();
+        let creature = c.has_type(CardKind::Creature);
+        let power = |n: i64| c.power.as_ref().is_some_and(|p| *p >= Quantity::from(n));
+        let cases: [(Vec<Atom>, bool); 8] = [
+            // CR 208.1: only creatures have power.
+            (
+                vec![Atom::Power {
+                    cmp: Cmp::AtLeast,
+                    value: Amount::fixed(3),
+                }],
+                creature && power(3),
+            ),
+            (
+                vec![Atom::Toughness {
+                    cmp: Cmp::AtMost,
+                    value: Amount::fixed(2),
+                }],
+                creature
+                    && c.toughness
+                        .as_ref()
+                        .is_some_and(|t| *t <= Quantity::from(2)),
+            ),
+            (
+                vec![Atom::ManaValue {
+                    cmp: Cmp::Exactly,
+                    value: Amount::fixed(1),
+                }],
+                c.printed_mana_value() == Quantity::from(1),
+            ),
+            (
+                vec![Atom::Color { color: Color::G }],
+                c.colors.contains(&Color::G),
+            ),
+            (
+                vec![Atom::AnyType {
+                    kinds: vec![CardKind::Artifact, CardKind::Land],
+                }],
+                c.has_type(CardKind::Artifact) || c.has_type(CardKind::Land),
+            ),
+            (
+                vec![
+                    Atom::Type {
+                        kind: CardKind::Creature,
+                    },
+                    Atom::NotType {
+                        kind: CardKind::Land,
+                    },
+                    Atom::Untapped,
+                ],
+                creature && !c.has_type(CardKind::Land) && !o.tapped,
+            ),
+            (
+                vec![Atom::Subtype {
+                    subtype: "Bear".into(),
+                }],
+                c.subtypes.iter().any(|s| s == "Bear"),
+            ),
+            (
+                vec![
+                    Atom::NotToken,
+                    Atom::ControlledBy {
+                        player: PlayerExpr::EachOpponent,
+                    },
+                ],
+                o.controller != you,
+            ),
+        ];
+        for (index, (atoms, expected)) in cases.into_iter().enumerate() {
+            let expected = present && expected;
+            assert_eq!(matches(o, atoms), expected, "case {index} for {:?}", o.id);
+            seen[index] += usize::from(expected);
+        }
+    }
+    assert!(
+        seen.iter().all(|n| *n > 0),
+        "every atom has a member: {seen:?}"
+    );
+}

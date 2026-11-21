@@ -252,7 +252,14 @@ pub(super) fn append(
     // Preserve whole-block recognition for ordinary multi-sentence families.
     // Only a declared kicker program needs the linked conditional split below.
     if program.optional_additional_costs.is_empty() {
-        return append_spell_effects(program, effects, block, slots, PlayerBinding::Unbound);
+        return append_spell_effects(
+            program,
+            effects,
+            block,
+            slots,
+            PlayerBinding::Unbound,
+            Context::Spell,
+        );
     }
     // Each condition was proven complete against its exact source keyword above.
     // Ordinary instructions still use the unchanged shared target binder.
@@ -293,6 +300,7 @@ pub(super) fn append(
                 block,
                 slots,
                 PlayerBinding::Unbound,
+                Context::Spell,
             )?;
         }
     }

@@ -16,7 +16,7 @@ pub(super) fn present(definition: &Definition) -> bool {
                     .program
                     .instructions
                     .iter()
-                    .any(|instruction| matches!(instruction, Instruction::GainLife { .. }))
+                    .any(|instruction| matches!(instruction, kernel!(GainLife { .. })))
         })
 }
 
@@ -45,13 +45,8 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     };
     let block = u32::from(tapped);
     let program = &trigger.program;
-    let [
-        Instruction::GainLife {
-            recipient: LifeRecipient::Controller,
-            amount,
-            source_block,
-        },
-    ] = program.instructions.as_slice()
+    let [kernel!(GainLife { player: you!(), amount: fixed!(amount) } @ source_block)] =
+        program.instructions.as_slice()
     else {
         return Err(INVALID.into());
     };
@@ -192,7 +187,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "properties":{
             "condition":{"const":"self_enters_battlefield"},
             "program":{"required":["instructions"],"properties":{
-                "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"gain_life"}}}}
+                "instructions":{"contains":instruction_schema::kernel_verb("gain_life")}
             }}
         }
     });
@@ -233,10 +228,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
             "targets":{"maxItems":0},"modes":{"maxItems":0},
             "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"gain_life"},"recipient":{"const":"controller"},
-                "amount":{"pattern":"^[1-9][0-9]*$"}
-            }}}
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::kernel_verb("gain_life")}
         }}
     }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
@@ -305,11 +297,13 @@ pub(super) fn witness() -> Definition {
             optional_additional_costs: vec![],
             additional_sacrifice: None,
             targets: vec![],
-            instructions: vec![Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 1.into(),
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Triggered),
+                    amount: Amount::fixed(1),
+                },
+                1,
+            )],
             modes: vec![],
         },
     }];

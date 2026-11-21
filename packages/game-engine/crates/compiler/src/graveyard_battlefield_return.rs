@@ -176,11 +176,13 @@ mod tests {
             Capability::GraveyardBattlefieldReturnV1,
         ]);
         if let Some(value) = gain {
-            instructions.push(Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: i64::from(value).into(),
-                source_block: 0,
-            });
+            instructions.push(Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(i64::from(value)),
+                },
+                0,
+            ));
             caps.insert(Capability::LifeGainV1);
         }
         assert_eq!(p.instructions, instructions);

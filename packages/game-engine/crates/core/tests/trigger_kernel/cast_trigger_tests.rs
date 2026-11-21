@@ -382,11 +382,13 @@ fn d2cc_synthetic_nonactive_flash_caster_apnap_order_and_actor_binding_all_trace
         );
         synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
         edit(&mut p, STUDENT, |d| {
-            d.triggered[0].program.instructions = vec![Instruction::GainLife {
-                recipient: LifeRecipient::EventPlayer,
-                amount: 2.into(),
-                source_block: 0,
-            }]
+            d.triggered[0].program.instructions = vec![Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::event(EventPlayerRole::Caster),
+                    amount: Amount::fixed(2),
+                },
+                0,
+            )]
         });
         edit(&mut p, MINE, |d| {
             d.keywords.push(KeywordAbility::Flash);
@@ -994,11 +996,13 @@ fn d2cc_actor_commander_draw_suspension_departure_and_decline_all_traces() {
                         count: 1.into(),
                         source_block: 0,
                     },
-                    Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: 3.into(),
-                        source_block: 0,
-                    },
+                    Instruction::act(
+                        Verb::GainLife {
+                            player: PlayerExpr::you(Context::Triggered),
+                            amount: Amount::fixed(3),
+                        },
+                        0,
+                    ),
                 ]
             });
             let first = p

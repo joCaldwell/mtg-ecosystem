@@ -156,11 +156,13 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
             toughness: Quantity::zero(),
             source_block: 0,
         },
-        Instruction::MoveSet {
-            set: ObjectSet::ControllerCreatures,
-            action: SetMove::Destroy,
-            source_block: 0,
-        },
+        Instruction::act(
+            Verb::Destroy {
+                what: ObjectSet::ControllerCreatures.kernel(Context::Spell),
+                regeneration_forbidden: false,
+            },
+            0,
+        ),
         Instruction::DamageSet {
             sets: vec![ObjectSet::ControllerCreatures],
             each_player: false,

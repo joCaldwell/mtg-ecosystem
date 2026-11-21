@@ -119,11 +119,11 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
                 duration: Duration::UntilEndOfTurn,
                 source_block: 0,
             } if !grant && !life && supported_temporary_keywords(keywords) => grant = true,
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount,
-                source_block: 0,
-            } if grant && !life && !amount.is_negative() => life = true,
+            kernel!(GainLife { player: you!(), amount: fixed!(amount) } @ 0)
+                if grant && !life && !amount.is_negative() =>
+            {
+                life = true
+            }
             Instruction::PhaseOutTargetPermanent {
                 target_slot: 0,
                 source_block: 0,
@@ -295,11 +295,13 @@ fn lower_step(step: &Value, clause: &str) -> Option<Instruction> {
             {
                 return None;
             }
-            Some(Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: n.into(),
-                source_block: 0,
-            })
+            Some(Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::Fixed { value: n.into() },
+                },
+                0,
+            ))
         }
         _ => None,
     }
@@ -433,8 +435,7 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         "source_block":{"const":0}}});
     let phase = json!({"properties":{
         "op":{"const":"phase_out_target_permanent"}, "target_slot":{"const":0}, "source_block":{"const":0}}});
-    let life = json!({"properties":{
-        "op":{"const":"gain_life"}, "recipient":{"const":LifeRecipient::Controller}, "source_block":{"const":0}}});
+    let life = instruction_schema::kernel_verb_at("gain_life", 0);
     schema["$defs"]["ComposedOrdinarySpellProgram"] = json!({"type":"object","required":["targets","instructions"],
     "properties":{
         "optional_additional_costs":{"maxItems":0}, "additional_sacrifice":{"type":"null"},

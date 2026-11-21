@@ -3,6 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::PredefinedToken;
+use mtg_contracts::kir::{Amount, Context, PlayerExpr, Verb};
 
 pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken) -> Definition {
     let mut d = source.clone();
@@ -60,11 +61,13 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
                 count: 1.into(),
                 source_block: 0,
             },
-            PredefinedToken::Food => Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 3.into(),
-                source_block: 0,
-            },
+            PredefinedToken::Food => Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Activated),
+                    amount: Amount::fixed(3),
+                },
+                0,
+            ),
             PredefinedToken::Treasure => unreachable!(),
         };
         d.activated.push(ActivatedAbility {

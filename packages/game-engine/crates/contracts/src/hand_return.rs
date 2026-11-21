@@ -105,7 +105,7 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     defs.push(json!({"if":{"allOf":[has.clone(),{"not":{"properties":{"spell":{"$ref":ordinary_sequence::SCHEMA}}}}]},
         "then":{"properties":{"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1,Capability::LifeLossV1]}}}}}));
     // LifeLoss is an independent required capability only for the exact tail.
-    let loses_life = json!({"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"lose_life"}}}}}}}});
+    let loses_life = json!({"properties":{"spell":{"properties":{"instructions":{"contains":instruction_schema::kernel_verb("lose_life")}}}}});
     defs.push(json!({
         "if":has,
         "then":{

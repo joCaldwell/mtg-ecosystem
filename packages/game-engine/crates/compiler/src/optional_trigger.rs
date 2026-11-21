@@ -93,7 +93,7 @@ fn slice6a_optional_trigger_lowers_same_choice_for_two_trigger_conditions() {
         assert_eq!(trigger.condition, condition);
         assert!(matches!(trigger.program.instructions.as_slice(),
             [Instruction::ChooseOptional { chooser: EffectRecipient::Controller, following: 1, .. },
-                Instruction::GainLife { recipient: LifeRecipient::Controller, amount, .. }]
+                kernel!(GainLife { player: you!(), amount: fixed!(amount) })]
                 if *amount == Quantity::from(1)));
         trigger.program.instructions.remove(0);
         definition.capabilities = definition.requirements();

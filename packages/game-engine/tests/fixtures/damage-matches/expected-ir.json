@@ -1461,9 +1461,23 @@
             "source_block": 0
           },
           {
-            "amount": "2",
-            "op": "lose_life",
-            "recipient": "controller",
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "2"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "verb": "lose_life"
+              }
+            },
+            "op": "kernel",
             "source_block": 0
           }
         ],
@@ -1909,13 +1923,23 @@
             "source_block": 0
           },
           {
-            "amount": "2",
-            "op": "lose_life",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "2"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "lose_life"
               }
             },
+            "op": "kernel",
             "source_block": 0
           }
         ],

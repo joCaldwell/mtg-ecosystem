@@ -3,7 +3,16 @@
 //! 603.2c/10a, 608.2c/h, 611.2c, 614.1a/6, 701.8a, 903.9a/b, 514.2.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::{ObjectSet, SetMove, WipeAmount};
+use mtg_contracts::kir::{Destination, SetExpr};
+use mtg_contracts::{ObjectSet, WipeAmount};
+
+/// What a board-wide movement does with each member (CR 701.8, 400.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SetMove {
+    Destroy,
+    Exile,
+    Hand,
+}
 // Set semantics: docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
 // Shared resource bounds: docs/game-engine-capacity-policy.md.
 
@@ -84,14 +93,15 @@ impl Game {
     pub(super) fn anger_replaces_death(&self, object: ObjectId, destination: Zone) -> bool {
         matches!(destination,Zone::Graveyard { .. }) && self.current(object).is_ok_and(|o|o.zone==Zone::Battlefield) && self.state.rules.effects.iter().any(|e|matches!(&e.kind,ResolvedEffectKind::ExileDamaged {targets} if targets.contains(&object)))
     }
-    pub(super) fn move_board_set(
+    // CR 608.2h: `objects` is the set as read when the instruction is performed.
+    pub(super) fn move_board_objects(
         &mut self,
         frame: Resolving,
-        set: ObjectSet,
+        objects: Vec<ObjectId>,
         action: SetMove,
         block: u32,
+        from_graveyards: bool,
     ) -> Result<(), String> {
-        let objects = self.objects_in_set(&set, frame.spell.controller);
         if action == SetMove::Hand {
             let mut remaining = vec![];
             for n in 0..4 {
@@ -103,14 +113,7 @@ impl Game {
             }
             return self.continue_board_return(frame, objects, remaining, vec![], block);
         }
-        self.commit_board_moves(
-            frame,
-            objects,
-            action,
-            vec![],
-            block,
-            set == ObjectSet::GraveyardCards,
-        )
+        self.commit_board_moves(frame, objects, action, vec![], block, from_graveyards)
     }
     fn commit_board_moves(
         &mut self,
@@ -230,7 +233,7 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        if !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize),Some(Instruction::MoveSet {action:SetMove::Hand,source_block,..}) if *source_block==block)
+        if !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize),Some(kernel!(Move {what: SetExpr::Matching {..}, to: Destination::OwnerHand} @ source_block)) if *source_block==block)
             || objects.len() > self.event_group_limit()
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || remaining.iter().any(|o| !objects.contains(o))
@@ -412,23 +415,6 @@ impl Game {
                 }
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
-            Instruction::MoveSet {
-                set,
-                action,
-                source_block,
-            } => self.move_board_set(frame, set, action, source_block),
-            Instruction::DestroySet {
-                set,
-                regeneration_forbidden,
-                source_block,
-            } => match (&set, regeneration_forbidden) {
-                (ObjectSet::OpponentNonlandPermanents | ObjectSet::NonlandPermanents, false)
-                | (ObjectSet::NonlandPermanents, true) => {
-                    // The graveyard wave reads the resolving instruction's regeneration policy.
-                    self.move_board_set(frame, set, SetMove::Destroy, source_block)
-                }
-                _ => Err("unsupported set destruction or regeneration policy".into()),
-            },
             Instruction::RemoveOpponentNonlandIndestructible { source_block } => {
                 let targets = self.objects_in_set(
                     &ObjectSet::OpponentNonlandPermanents,

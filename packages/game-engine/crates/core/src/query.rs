@@ -14,9 +14,10 @@
 //! state. Target legality additionally needs hexproof, shroud, protection, a
 //! required filter and per-ability restrictions, which stay with the core.
 use crate::{PermittedView, PlayerId, PlayerStatus, VisibleObject, Zone};
+use mtg_contracts::kir::{Amount, Atom, Cmp, PlayerExpr, Pred, Ref, ZoneExpr};
 use mtg_contracts::{
     CardKind, Characteristics, CreaturePowerFilter, KeywordAbility, ObjectSet, PermanentFilter,
-    SacrificeFilter, TargetDomain,
+    Quantity, SacrificeFilter, TargetDomain,
 };
 use std::borrow::Cow;
 
@@ -166,6 +167,137 @@ pub fn matches_object_set(object: &impl ObjectFacts, you: PlayerId, set: &Object
         ObjectSet::NonflyingCreatures => {
             creature(object).and(object.has_keyword(KeywordAbility::Flying).negate())
         }
+    }
+}
+
+/// The players a kernel predicate may name without reading an invocation.
+fn controlled_by(object: &impl ObjectFacts, you: PlayerId, player: &PlayerExpr) -> Tri {
+    match player {
+        PlayerExpr::Is {
+            who: Ref::Controller { .. },
+        } => (object.controller() == you).into(),
+        // CR 102.2-102.3, 800.4a: an opponent who has left controls nothing.
+        PlayerExpr::EachOpponent => {
+            Tri::from(object.controller() != you).and(object.controller_is_live())
+        }
+        PlayerExpr::EachPlayer => object.controller_is_live(),
+        _ => Tri::Unknown,
+    }
+}
+
+fn compare(actual: Option<&Quantity>, cmp: Cmp, value: &Amount) -> bool {
+    let (Some(actual), Amount::Fixed { value }) = (actual, value) else {
+        return false;
+    };
+    match cmp {
+        Cmp::AtLeast => actual >= value,
+        Cmp::AtMost => actual <= value,
+        Cmp::Exactly => actual == value,
+    }
+}
+
+/// One conjunct of a kernel predicate. Card types and supertypes are the
+/// object's current structural ones (CR 205, 613.1d), colors its current
+/// colors (CR 613.1e), power, toughness and keywords fully derived
+/// (CR 613.1f, 613.4). An operand this reader cannot evaluate is `Unknown`.
+fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tri {
+    match atom {
+        Atom::Type { kind } => known(object.structural(), |c| c.has_type(*kind)),
+        Atom::NotType { kind } => known(object.structural(), |c| !c.has_type(*kind)),
+        Atom::AnyType { kinds } => known(object.structural(), |c| {
+            kinds.iter().any(|kind| c.has_type(*kind))
+        }),
+        Atom::Subtype { subtype } => known(object.derived(), |c| {
+            c.subtypes.iter().any(|s| s == subtype)
+        }),
+        Atom::NotSubtype { subtype } => known(object.derived(), |c| {
+            !c.subtypes.iter().any(|s| s == subtype)
+        }),
+        Atom::Legendary => known(object.structural(), |c| c.legendary),
+        Atom::NotLegendary => known(object.structural(), |c| !c.legendary),
+        Atom::Basic => known(object.structural(), |c| c.basic),
+        Atom::NotBasic => known(object.structural(), |c| !c.basic),
+        Atom::Color { color } => known(object.current(), |c| c.colors.contains(color)),
+        Atom::NotColor { color } => known(object.current(), |c| !c.colors.contains(color)),
+        Atom::ControlledBy { player } => controlled_by(object, you, player),
+        Atom::OwnedBy { player } => match (object.owner(), player) {
+            (
+                Some(owner),
+                PlayerExpr::Is {
+                    who: Ref::Controller { .. },
+                },
+            ) => (owner == you).into(),
+            (Some(owner), PlayerExpr::EachOpponent) => (owner != you).into(),
+            _ => Tri::Unknown,
+        },
+        Atom::Tapped => object.tapped().into(),
+        Atom::Untapped => (!object.tapped()).into(),
+        Atom::Attacking => object.attacking(),
+        Atom::Blocking => object.blocking(),
+        Atom::Token => object.is_token().into(),
+        Atom::NotToken => (!object.is_token()).into(),
+        Atom::Keyword { keyword } => object.has_keyword(*keyword),
+        Atom::NotKeyword { keyword } => object.has_keyword(*keyword).negate(),
+        // CR 208.1: only a creature has power and toughness.
+        Atom::Power { cmp, value } => known(object.derived(), |c| {
+            c.has_type(CardKind::Creature) && compare(c.power.as_ref(), *cmp, value)
+        }),
+        Atom::Toughness { cmp, value } => known(object.derived(), |c| {
+            c.has_type(CardKind::Creature) && compare(c.toughness.as_ref(), *cmp, value)
+        }),
+        Atom::ManaValue { cmp, value } => known(object.copiable(), |c| {
+            compare(Some(&c.printed_mana_value()), *cmp, value)
+        }),
+        // Identity against an invocation's reference is the caller's fact.
+        Atom::IsNot { .. } => Tri::Unknown,
+        Atom::AnyOf { alternatives } => alternatives.iter().fold(Tri::No, |found, pred| {
+            match (found, matches_pred(object, you, pred)) {
+                (Tri::Yes, _) | (_, Tri::Yes) => Tri::Yes,
+                (Tri::No, Tri::No) => Tri::No,
+                _ => Tri::Unknown,
+            }
+        }),
+    }
+}
+
+/// CR 608.2h: whether an object satisfies every conjunct of a kernel
+/// predicate, relative to `you`. Zone membership is the caller's question.
+pub fn matches_pred(object: &impl ObjectFacts, you: PlayerId, pred: &Pred) -> Tri {
+    pred.0.iter().fold(Tri::Yes, |all, atom| {
+        all.and(matches_atom(object, you, atom))
+    })
+}
+
+/// CR 110.1, 702.26b, 608.2h: whether a phased-in battlefield permanent
+/// satisfies a kernel predicate.
+pub fn matches_battlefield_pred(object: &impl ObjectFacts, you: PlayerId, pred: &Pred) -> Tri {
+    if !present(object) {
+        return Tri::No;
+    }
+    if object.copiable().is_none() {
+        return Tri::Unknown;
+    }
+    matches_pred(object, you, pred)
+}
+
+/// CR 608.2h: whether an object belongs to a kernel set of one public zone.
+/// CR 404.1, 111.8: a token is never a graveyard card.
+pub fn matches_zone_pred(
+    object: &impl ObjectFacts,
+    you: PlayerId,
+    zone: &ZoneExpr,
+    pred: &Pred,
+) -> Tri {
+    match zone {
+        ZoneExpr::Battlefield => matches_battlefield_pred(object, you, pred),
+        ZoneExpr::Graveyards => {
+            if matches!(object.zone(), Zone::Graveyard { .. }) && !object.is_token() {
+                matches_pred(object, you, pred)
+            } else {
+                Tri::No
+            }
+        }
+        _ => Tri::Unknown,
     }
 }
 

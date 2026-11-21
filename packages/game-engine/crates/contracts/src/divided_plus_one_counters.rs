@@ -52,11 +52,13 @@ pub fn divided_plus_one_counters_modal_program() -> SpellProgram {
         vec![
             draw.clone(),
             draw,
-            Instruction::LoseLife {
-                recipient: LifeRecipient::Controller,
-                amount: 2.into(),
-                source_block: 0,
-            },
+            Instruction::act(
+                Verb::LoseLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(2),
+                },
+                0,
+            ),
         ],
     );
     let distribute = program(
@@ -195,11 +197,13 @@ fn divided_plus_one_counters_closed_definition_and_capabilities() {
             p.modes[1].program.instructions.remove(0);
         },
         |p| {
-            p.modes[1].program.instructions[2] = Instruction::LoseLife {
-                recipient: LifeRecipient::EachOpponent,
-                amount: 2.into(),
-                source_block: 0,
-            }
+            p.modes[1].program.instructions[2] = Instruction::act(
+                Verb::LoseLife {
+                    player: PlayerExpr::EachOpponent,
+                    amount: Amount::fixed(2),
+                },
+                0,
+            )
         },
         |p| p.modes[2].program.targets[0].slot = 1,
         |p| p.modes[2].program.targets[0].domain = TargetDomain::ControlledBattlefieldCreature,

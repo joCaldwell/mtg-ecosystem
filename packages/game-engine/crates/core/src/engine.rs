@@ -249,6 +249,7 @@ pub const TRIGGER_EXTRA: [(&str, &str); 3] = [
     ),
 ];
 pub mod damage_life;
+mod kir;
 pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
 pub mod spell_cascade_grants;
 pub use spell_cascade_grants::{CascadeGrantProvenance, EffectiveTriggerAbility};

@@ -109,22 +109,26 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
                 .and_then(|s| s.strip_suffix(" life"))
                 .and_then(equipped_trigger::count)
             {
-                program.instructions.push(Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: i64::from(n).into(),
-                    source_block: block,
-                });
+                program.instructions.push(Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Triggered),
+                        amount: Amount::fixed(i64::from(n)),
+                    },
+                    block,
+                ));
                 json!({"effect":"gain-life","who":you,"amount":fixed(n)})
             } else if let Some(n) = clause
                 .strip_prefix("you lose ")
                 .and_then(|s| s.strip_suffix(" life"))
                 .and_then(equipped_trigger::count)
             {
-                program.instructions.push(Instruction::LoseLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: i64::from(n).into(),
-                    source_block: block,
-                });
+                program.instructions.push(Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::you(Context::Triggered),
+                        amount: Amount::fixed(i64::from(n)),
+                    },
+                    block,
+                ));
                 json!({"effect":"lose-life","who":you,"amount":fixed(n)})
             } else if let Some(n) = clause
                 .strip_prefix("it deals ")

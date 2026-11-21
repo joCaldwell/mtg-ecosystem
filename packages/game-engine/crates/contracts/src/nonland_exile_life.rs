@@ -15,7 +15,7 @@ fn contains_pair(program: &SpellProgram) -> bool {
         && program
             .instructions
             .iter()
-            .any(|i| matches!(i, Instruction::LoseLife { .. }))
+            .any(|i| matches!(i, kernel!(LoseLife { .. })))
         || program
             .modes
             .iter()
@@ -52,11 +52,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
             target_slot: 0,
             source_block: 0,
         },
-        Instruction::LoseLife {
-            recipient: LifeRecipient::Controller,
-            amount,
-            source_block: 0,
-        },
+        kernel!(LoseLife { player: you!(), amount: fixed!(amount) } @ 0),
     ] = p.instructions.as_slice()
     else {
         return Err(fail());
@@ -116,7 +112,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let contains_op = |op| json!({"contains":{"required":["op"],"properties":{"op":{"const":op}}}});
     let free = json!({"$ref":"#/$defs/NonlandExileLifeFreeProgram"});
     schema["$defs"]["NonlandExileLifeFreeProgram"] = json!({"properties":{
-        "instructions":{"not":{"allOf":[contains_op("exile_permanent"),contains_op("lose_life")]}},
+        "instructions":{"not":{"allOf":[contains_op("exile_permanent"),{"contains":instruction_schema::kernel_verb("lose_life")}]}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     let family = json!({"$ref":"#/$defs/NonlandExileLifeProgram"});
@@ -136,8 +132,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "instructions":{"minItems":2,"maxItems":2,"prefixItems":[
                 {"properties":{"op":{"const":"exile_permanent"},"target_slot":{"const":0},
                                "source_block":{"const":0}}},
-                {"properties":{"op":{"const":"lose_life"},"recipient":{"const":"controller"},
-                               "amount":{"pattern":"^[1-9][0-9]*$"},"source_block":{"const":0}}}
+                instruction_schema::kernel_verb_at("lose_life", 0)
             ],"items":false}
         }
     });

@@ -219,11 +219,13 @@ fn d2cd_synthetic_unknown_qualifiers_grouping_history_zones_and_recipients_rejec
         assert!(serde_json::from_value::<AttackSubject>(raw).is_err());
     }
     let mut d = lower(CAUSE);
-    d.triggered[0].program.instructions[0] = Instruction::GainLife {
-        recipient: LifeRecipient::EventPlayer,
-        amount: 1.into(),
-        source_block: 0,
-    };
+    d.triggered[0].program.instructions[0] = Instruction::act(
+        Verb::GainLife {
+            player: PlayerExpr::event(kir::EventPlayerRole::Caster),
+            amount: Amount::fixed(1),
+        },
+        0,
+    );
     d.capabilities = d.requirements();
     assert!(d.validate().is_err());
 }

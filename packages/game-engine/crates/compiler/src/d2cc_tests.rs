@@ -61,11 +61,11 @@ fn d2cc_archived_whole_programs_capability_closure() {
         .unwrap();
     }
     assert!(
-        matches!(lower(STUDENT).triggered[0].program.instructions.as_slice(), [Instruction::GainLife { recipient:LifeRecipient::Controller,amount,.. }] if *amount == 2.into())
+        matches!(lower(STUDENT).triggered[0].program.instructions.as_slice(), [kernel!(GainLife { player: you!(), amount: fixed!(amount) })] if *amount == 2.into())
     );
     assert!(matches!(
         lower(SYTHIS).triggered[0].program.instructions.as_slice(),
-        [Instruction::GainLife { .. }, Instruction::DrawCards { .. }]
+        [kernel!(GainLife { .. }), Instruction::DrawCards { .. }]
     ));
     assert!(matches!(
         lower(ARCHER).triggered[0].program.instructions.as_slice(),

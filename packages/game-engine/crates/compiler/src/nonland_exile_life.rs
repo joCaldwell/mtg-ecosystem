@@ -118,7 +118,7 @@ mod tests {
         assert!(matches!(
             program.instructions.as_slice(),
             [Instruction::ExilePermanent { target_slot: 0, .. },
-             Instruction::LoseLife { recipient: LifeRecipient::Controller, amount, .. }]
+             kernel!(LoseLife { player: you!(), amount: fixed!(amount) })]
                 if *amount == 5.into()
         ));
         program.instructions.pop();

@@ -70,11 +70,13 @@ fn setup() -> Prepared {
                 target_slot: 0,
                 source_block: 0,
             },
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 3.into(),
-                source_block: 0,
-            },
+            Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(3),
+                },
+                0,
+            ),
         ];
         spell.capabilities = spell.requirements();
         prepared.config.cards[0].oracle_id = spell.oracle_id.clone();

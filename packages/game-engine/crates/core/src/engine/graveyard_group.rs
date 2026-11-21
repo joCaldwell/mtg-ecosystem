@@ -418,14 +418,14 @@ impl GraveyardGroup {
                 let kind = match result {
                     GroupResult::Effect => matches!(i, Instruction::DestroyTargetCreature {..} | Instruction::DiscardPlayerSet {..} | Instruction::EachPlayerSacrifice {..} | Instruction::EachOpponentSacrifice {..}),
                     GroupResult::ActualEffect => matches!(i, Instruction::DestroyPermanent {..}),
-                    GroupResult::DestroySet => matches!(i, Instruction::MoveSet {action:SetMove::Destroy,..} | Instruction::DestroySet {..} | Instruction::DestroyAllCreatures {..}),
+                    GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}) | Instruction::DestroyAllCreatures {..}),
                     GroupResult::Discard {..} => matches!(i, Instruction::DiscardCards {..} | Instruction::DiscardTargetPlayer {..} | Instruction::DiscardTargetPlayerAtRandom {..}),
                     GroupResult::Sacrifice {..} => matches!(i, Instruction::SacrificeCreature {..} | Instruction::TargetPlayerSacrificeCreature {..}),
                 };
                 kind && self.cause == Game::staple_cause(frame,i.source_block()) && leaves.iter().all(|e| match (i,e) {
                     (Instruction::DestroyPermanent {target_slot,..},ProposedEvent::DestroyPermanent {object}) => game.bound_object_target(&frame.spell,*target_slot as usize) == Some(object) && frame.legal_targets.get(*target_slot as usize) == Some(&true),
                     (Instruction::DestroyTargetCreature {target_slot,..},ProposedEvent::DestroyCreature {object}) => frame.spell.targets.get(*target_slot as usize) == Some(object) && frame.legal_targets.get(*target_slot as usize) == Some(&true),
-                    (Instruction::MoveSet {..}|Instruction::DestroySet {..}|Instruction::DestroyAllCreatures {..},ProposedEvent::DestroyPermanent {..}) => true,
+                    (kernel!(Destroy {..})|Instruction::DestroyAllCreatures {..},ProposedEvent::DestroyPermanent {..}) => true,
                     (Instruction::DiscardPlayerSet {..},ProposedEvent::DiscardCard {..}) => true,
                     (_,ProposedEvent::DiscardCard {player,..}) => matches!(result, GroupResult::Discard {player:p} if p == player),
                     (Instruction::EachOpponentSacrifice {..}|Instruction::EachPlayerSacrifice {..},ProposedEvent::Sacrifice {..}) => true,
