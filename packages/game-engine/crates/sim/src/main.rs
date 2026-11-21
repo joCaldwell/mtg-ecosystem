@@ -19,6 +19,7 @@ mod bulk_input;
 mod choices_games;
 mod combat_games;
 mod commander_games;
+mod coverage_cli;
 mod damage_library_games;
 mod damage_life_games;
 mod deck_analytics;
@@ -1618,9 +1619,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some("catalog") => {
             let report = match args.get(1).map(String::as_str) {
-                Some("coverage") if args.len() == 3 || (args.len() == 5 && args[3] == "--out") => {
-                    let out = args.get(4).map_or(Path::new("generated/cards-as-data-coverage"), Path::new);
-                    serde_json::to_value(mtg_compiler::coverage::coverage(Path::new(&args[2]), out)?)?
+                Some("coverage") => {
+                    let cli = coverage_cli::parse(&args[2..])?;
+                    let only = cli.selection.as_ref().map(coverage_cli::Selection::load).transpose()?;
+                    serde_json::to_value(mtg_compiler::coverage::coverage_selected(&cli.archive, &cli.out, only.as_ref())?)?
                 }
                 Some("build-ir") if args.len() == 5 && args[3] == "--out" => {
                     serde_json::to_value(mtg_compiler::bulk::build_ir(Path::new(&args[2]), Path::new(&args[4]), BUILD_ID)?)?
@@ -1650,7 +1652,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some("extract") if args.len() >= 5 => {
                     mtg_compiler::extract_records(Path::new(&args[2]), Path::new(&args[3]), &args[4..])?
                 }
-                _ => return Err("usage: catalog coverage ARCHIVE [--out DIR] | catalog build-ir ARCHIVE --out NEW_DIR | catalog build MANIFEST [--write] [--json-errors] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID... | catalog verify ARCHIVE PROVENANCE".into()),
+                _ => return Err("usage: catalog coverage ARCHIVE [--out DIR] [--only-oracle-ids FILE | --only-deck-snapshot FILE] | catalog build-ir ARCHIVE --out NEW_DIR | catalog build MANIFEST [--write] [--json-errors] | catalog extract ARCHIVE PROVENANCE EXACT_NAME_OR_ORACLE_ID... | catalog verify ARCHIVE PROVENANCE".into()),
             };
             println!("{}", canonical(&report)?);
         }

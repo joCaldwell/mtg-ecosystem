@@ -97,6 +97,30 @@ with a concrete retained coverage replacement or documented obsolete contract;
 unexplained failures remain visible. Add permanent rules for demonstrated misses
 with a diff trigger, check and regression reference; prune obsolete rules.
 
+### Inner loop and single final gate
+
+While coding, run only the checks the edit touches:
+
+```sh
+python3 scripts/phase1-fast-loop.py test -p mtg-compiler --lib FILTER
+python3 scripts/phase1-fast-loop.py coverage --save-baseline  # once, before edits
+python3 scripts/phase1-fast-loop.py coverage                  # after compiler edits
+```
+
+`coverage` builds release `mtg-sim`, then runs `catalog coverage ARCHIVE
+--only-deck-snapshot DECKS`. That lowers only the snapshot's distinct Oracle IDs
+(934 for Target Pool A) and still hashes the whole archive against its accepted
+manifest. `phase1-deck-coverage.py --compare` then prints compiled-slot, card and
+top-20 blocker deltas. Selected receipts carry `selection`; they are not
+whole-archive measurements. Do not scan the whole archive, compare archive
+revisions or run `check:engine:fast` at intermediate checkpoints.
+
+Run `final` once, on the commit you publish. It runs `check:engine:fast`, one
+whole-archive R3 scan, selected/full deck-report parity and, with
+`--base-records`, whole-archive regressions against base receipts. Report it as
+the PR gate. Delegate at most one coding child per independent mechanic family.
+Children run the inner loop; the publisher runs the final gate.
+
 Engine commands (prefix with `sh scripts/engine-env.sh`):
 
 | Command | Executes | Omits |

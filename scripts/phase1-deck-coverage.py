@@ -4,6 +4,12 @@
 Pass the compiler example's stdout JSON or summary.json to --coverage. For the
 stdout filename whole-archive-coverage.json, the example's records.tsv lives in
 the sibling directory whole-archive. A coverage output directory also works.
+
+Selected receipts from `mtg-sim catalog coverage ARCHIVE --only-deck-snapshot
+DECKS` cover exactly the snapshot's Oracle IDs. The whole archive is still
+hashed, and only selected rows are parsed. --mtg-sim produces those receipts
+into a fresh --coverage directory first. --compare prints count, card and
+blocker deltas against an earlier deck-gap-report.json.
 """
 import argparse
 from collections import Counter, defaultdict
@@ -12,6 +18,8 @@ from itertools import zip_longest
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 
 
@@ -105,12 +113,31 @@ def escape_tsv(text):
     return text.replace("\\", "\\\\").replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
 
 
+IDENTITY_KEY = re.compile(rb'"oracleIdentity"\s*:\s*"([^"\\]*)"')
+
+
+def selection_sha256(ids):
+    return hashlib.sha256("".join(f"{oracle_id}\n" for oracle_id in sorted(ids)).encode()).hexdigest()
+
+
+def row_identity(raw):
+    # JSON escapes quotes inside strings, so this byte pattern only matches a key.
+    # A row whose first match is not its top-level key fails the receipt checks.
+    match = IDENTITY_KEY.search(raw)
+    return match and match[1].decode("utf-8")
+
+
 def read_outcomes(archive, coverage, target_ids):
     summary_path, records_path = receipt_paths(coverage)
     summary_bytes = summary_path.read_bytes()
     summary = json.loads(summary_bytes)
     require(summary["report_version"] == 1 and summary["ir_version"] == 1,
             "expected coverage report version 1 and Card IR version 1")
+    selection = summary.get("selection")
+    if selection is not None:
+        require(selection["oracle_ids_sha256"] == selection_sha256(target_ids)
+                and selection["requested"] == len(target_ids),
+                "selected coverage receipt does not cover exactly the deck snapshot Oracle IDs")
     archive_hash = hashlib.sha256()
     records_hash = hashlib.sha256()
     statuses = Counter(dict.fromkeys(STATUSES, 0))
@@ -127,9 +154,17 @@ def read_outcomes(archive, coverage, target_ids):
         tsv_header = records.readline()
         records_hash.update(tsv_header)
         require(tsv_header == b"oracle_id\tname\tstatus\treason\n", "invalid coverage records.tsv header")
-        for line_number, (raw, tsv) in enumerate(zip_longest(source, records), start=2):
-            require(raw is not None and tsv is not None, f"archive or coverage row missing at line {line_number}")
-            archive_hash.update(raw)
+        rows = enumerate(source, start=2)
+        if selection is None:
+            pairs = zip_longest(rows, records)
+        else:
+            pairs = select_rows(rows, records, archive_hash, target_ids)
+        for numbered, tsv in pairs:
+            require(numbered is not None and tsv is not None, "archive or coverage row missing at line "
+                    f"{numbered[0] if numbered else 'end'}")
+            line_number, raw = numbered
+            if selection is None:
+                archive_hash.update(raw)
             records_hash.update(tsv)
             row = json.loads(raw)
             oracle_id = row["oracleIdentity"]
@@ -159,6 +194,9 @@ def read_outcomes(archive, coverage, target_ids):
                     "reasonCode": reason or None,
                 }
     require(archive_hash.hexdigest() == summary["archive_sha256"], "coverage archive SHA-256 mismatch")
+    if selection is not None:
+        require(selection["matched"] == len(seen) and sorted(selection["missing"]) == sorted(target_ids - seen),
+                "selected coverage matches differ from the archive")
     require(len(seen) == summary["total"] and statuses == summary["statuses"]
             and sum(statuses.values()) == summary["commander_legal"]
             and statuses["lowered_validated"] == summary["lowered_validated"],
@@ -169,9 +207,22 @@ def read_outcomes(archive, coverage, target_ids):
     identity = {key: summary[key] for key in (
         "archive_sha256", "archive_manifest_sha256", "parser_revision", "report_version", "ir_version",
     )}
+    if selection is not None:
+        identity["selection"] = selection
     identity["summary_sha256"] = hashlib.sha256(summary_bytes).hexdigest()
     identity["records_sha256"] = records_hash.hexdigest()
     return outcomes, identity
+
+
+def select_rows(rows, records, archive_hash, target_ids):
+    """Pair selected archive rows with receipt rows; hash every archive row."""
+    for numbered in rows:
+        archive_hash.update(numbered[1])
+        if row_identity(numbered[1]) in target_ids:
+            yield numbered, records.readline() or None
+    extra = records.readline()
+    if extra:
+        yield None, extra
 
 
 def mechanic_family(status, code):
@@ -372,6 +423,89 @@ def render_markdown(report):
     return "\n".join(lines)
 
 
+def signed(after, before):
+    return f"{after - before:+d}" if after != before else "0"
+
+
+def unique_cards(report):
+    return {card["oracleId"]: card for deck in report["decks"] for card in deck["cards"]}
+
+
+def card_label(card):
+    return f'{markdown_text(card["name"])} (`{card["oracleId"]}`)'
+
+
+def render_delta(before, after, top=20):
+    """Markdown delta between two reports from the same or a revised archive."""
+    def source(report):
+        identity = report["inputIdentity"]["coverage"]
+        kind = "selected" if "selection" in identity else "whole archive"
+        return f'archive `{identity["archive_sha256"][:12]}` ({kind})'
+
+    lines = ["# Deck coverage delta", "", f"Before: {source(before)}. After: {source(after)}.", ""]
+    if before["inputIdentity"]["decksSha256"] != after["inputIdentity"]["decksSha256"]:
+        lines += ["**Deck snapshots differ; per-deck and card deltas mix deck and compiler changes.**", ""]
+    lines += ["| Cohort | Compiled slots | Δ | Blocked slots | Δ | Compiled unique | Δ | Complete decks | Δ |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for key, label in (("all", "All"), ("paper", "Paper")):
+        b, a = before[key], after[key]
+        cells = []
+        for old, new in ((b["slotCounts"]["compiled"], a["slotCounts"]["compiled"]),
+                         (b["slotCounts"]["blocked"], a["slotCounts"]["blocked"]),
+                         (b["uniqueCounts"]["compiled"], a["uniqueCounts"]["compiled"]),
+                         (b["compilerCompleteDecks"], a["compilerCompleteDecks"])):
+            cells += [f"{old} → {new}", signed(new, old)]
+        lines.append(f"| {label} ({a['decks']} decks) | " + " | ".join(cells) + " |")
+
+    lines += ["", "## Decks", "", "| Deck | Compiled slots | Δ | Blocked after |", "| --- | ---: | ---: | ---: |"]
+    old_decks = {deck["id"]: deck for deck in before["decks"]}
+    for deck in after["decks"]:
+        new = deck["slotCounts"]
+        old = old_decks.get(deck["id"], {"slotCounts": {"compiled": 0}})["slotCounts"]
+        lines.append(f'| {markdown_text(deck["name"])} (#{deck["id"]}) | {old["compiled"]} → {new["compiled"]} '
+                     f'| {signed(new["compiled"], old["compiled"])} | {new["blocked"]} |')
+
+    old_cards, new_cards = unique_cards(before), unique_cards(after)
+    shared = sorted(old_cards.keys() & new_cards.keys(), key=lambda i: (new_cards[i]["name"].casefold(), i))
+    compiled = "lowered_validated"
+    gained = [i for i in shared if old_cards[i]["coverageStatus"] != compiled == new_cards[i]["coverageStatus"]]
+    lost = [i for i in shared if old_cards[i]["coverageStatus"] == compiled != new_cards[i]["coverageStatus"]]
+    moved = [i for i in shared if compiled not in (old_cards[i]["coverageStatus"], new_cards[i]["coverageStatus"])
+             and old_cards[i]["reasonCode"] != new_cards[i]["reasonCode"]]
+    sections = (
+        ("Newly compiled cards", gained, lambda i: f'was {markdown_text(old_cards[i]["reasonCode"])}'),
+        ("Regressed cards", lost, lambda i: f'now {markdown_text(new_cards[i]["reasonCode"])}'),
+        ("Still blocked with a changed reason", moved, lambda i: (
+            f'{markdown_text(old_cards[i]["reasonCode"])} → {markdown_text(new_cards[i]["reasonCode"])}')),
+    )
+    for title, ids, detail in sections:
+        lines += ["", f"## {title} ({len(ids)})", ""]
+        lines += [f"- {card_label(new_cards[i])}: {detail(i)}" for i in ids] or ["None."]
+
+    old_rank = {r["reasonCode"]: r for r in before["reasonRankings"]["byDeckSlotsUnlocked"]}
+    lines += ["", f"## Top {top} compiler rejections by deck slots unlocked", "",
+              "| Reason code | Slots | Δ | Decks unlocked | Δ | Decks affected |",
+              "| --- | ---: | ---: | ---: | ---: | ---: |"]
+    for entry in after["reasonRankings"]["byDeckSlotsUnlocked"][:top]:
+        old = old_rank.get(entry["reasonCode"], {"deckSlotsUnlocked": 0, "decksUnlocked": 0})
+        lines.append(f'| {markdown_text(entry["reasonCode"])} | {entry["deckSlotsUnlocked"]} '
+                     f'| {signed(entry["deckSlotsUnlocked"], old["deckSlotsUnlocked"])} | {entry["decksUnlocked"]} '
+                     f'| {signed(entry["decksUnlocked"], old["decksUnlocked"])} | {entry["decksAffected"]} |')
+    new_codes = {r["reasonCode"] for r in after["reasonRankings"]["byDeckSlotsUnlocked"]}
+    cleared = [code for code in old_rank if code not in new_codes]
+    if cleared:
+        lines += ["", "Cleared reason codes: " + ", ".join(f"`{code}`" for code in sorted(cleared)) + "."]
+    return "\n".join(lines) + "\n"
+
+
+def run_selected_coverage(mtg_sim, archive, decks, coverage):
+    """Write selected compiler receipts for the snapshot's Oracle IDs."""
+    command = [str(mtg_sim), "catalog", "coverage", str(archive), "--only-deck-snapshot", str(decks),
+               "--out", str(coverage)]
+    result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    require(result.returncode == 0, f"{' '.join(command)} failed: {result.stderr.strip()}")
+
+
 def write_reports(report, directory):
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=directory) as workspace:
@@ -389,11 +523,22 @@ def main(argv=None, output_dir=None):
     parser.add_argument("--decks", required=True, type=Path, help="production deck snapshot JSON")
     parser.add_argument("--archive", required=True, type=Path, help="exact Oracle AST archive JSONL")
     parser.add_argument("--coverage", required=True, type=Path, help="coverage summary JSON or receipt directory")
+    parser.add_argument("--out", type=Path, help="report directory (default generated/phase1-coverage)")
+    parser.add_argument("--mtg-sim", type=Path,
+                        help="first write selected receipts for the snapshot to a fresh --coverage directory")
+    parser.add_argument("--compare", type=Path, help="earlier deck-gap-report.json; prints a Markdown delta")
+    parser.add_argument("--top", type=int, default=20, help="blockers listed in the delta (default 20)")
     args = parser.parse_args(argv)
     if output_dir is None:
-        output_dir = Path(__file__).resolve().parents[1] / "generated" / "phase1-coverage"
+        output_dir = args.out or Path(__file__).resolve().parents[1] / "generated" / "phase1-coverage"
     try:
-        write_reports(build_report(args.decks, args.archive, args.coverage), output_dir)
+        before = json.loads(args.compare.read_bytes()) if args.compare else None
+        if args.mtg_sim:
+            run_selected_coverage(args.mtg_sim, args.archive, args.decks, args.coverage)
+        report = build_report(args.decks, args.archive, args.coverage)
+        write_reports(report, output_dir)
+        if before is not None:
+            sys.stdout.write(render_delta(before, report, args.top))
     except (OSError, ValueError, TypeError, KeyError) as error:
         parser.exit(1, f"phase1-deck-coverage: {error}\n")
 
