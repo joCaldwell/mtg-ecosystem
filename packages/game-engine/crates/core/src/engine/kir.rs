@@ -15,7 +15,9 @@
 //! nothing. CR 608.2h: everything else is read as the verb is performed.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::kir::{Amount, Context, Node, PlayerExpr, Ref, Verb};
+use mtg_contracts::kir::{
+    Amount, Context, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
+};
 
 /// The kernel context of a resolving invocation (CR 113.3).
 fn context(frame: &Resolving) -> Context {
@@ -75,8 +77,63 @@ impl Game {
             Verb::LoseLife { player, amount } => {
                 self.kernel_life(frame, false, &player, &amount, source_block)
             }
+            // CR 701.8, 400.3, 608.2h: read the set now, then move every
+            // member in one simultaneous event.
+            Verb::Destroy {
+                what: SetExpr::Matching { zone, filter },
+                ..
+            } => {
+                let (objects, graveyards) = self.kernel_set(&frame, &zone, &filter)?;
+                self.move_board_objects(
+                    frame,
+                    objects,
+                    wipes::SetMove::Destroy,
+                    source_block,
+                    graveyards,
+                )
+            }
+            Verb::Move {
+                what: SetExpr::Matching { zone, filter },
+                to,
+            } => {
+                let action = match to {
+                    Destination::Exile => wipes::SetMove::Exile,
+                    Destination::OwnerHand => wipes::SetMove::Hand,
+                    _ => return Err("kernel set destination has no audited executor".into()),
+                };
+                let (objects, graveyards) = self.kernel_set(&frame, &zone, &filter)?;
+                self.move_board_objects(frame, objects, action, source_block, graveyards)
+            }
             _ => Err("kernel verb has no audited executor".into()),
         }
+    }
+
+    /// CR 608.2h, 109.5: the members of a board-wide or graveyard-wide set,
+    /// relative to the invocation's controller, in object order.
+    fn kernel_set(
+        &self,
+        frame: &Resolving,
+        zone: &ZoneExpr,
+        filter: &Pred,
+    ) -> Result<(Vec<ObjectId>, bool), String> {
+        let graveyards = match zone {
+            ZoneExpr::Battlefield => false,
+            ZoneExpr::Graveyards => true,
+            _ => return Err("kernel set zone has no audited evaluation".into()),
+        };
+        let you = frame.spell.controller;
+        let objects = self
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|object| {
+                crate::query::matches_zone_pred(&self.object_facts(object), you, zone, filter)
+                    .is_yes()
+            })
+            .map(|object| object.id)
+            .collect();
+        Ok((objects, graveyards))
     }
 
     fn kernel_players(&self, frame: &Resolving, player: &PlayerExpr) -> Result<Players, String> {

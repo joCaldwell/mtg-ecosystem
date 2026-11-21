@@ -893,7 +893,38 @@ impl PlayerExpr {
     }
 }
 
+impl Pred {
+    /// "Nonland permanent" (CR 110.1, 205.2a).
+    pub fn nonland_permanents() -> Self {
+        Self(vec![Atom::NotType {
+            kind: CardKind::Land,
+        }])
+    }
+    /// True when some conjunct names the invocation's controller.
+    pub fn names_you(&self) -> bool {
+        self.0.iter().any(|atom| match atom {
+            Atom::ControlledBy { player } | Atom::OwnedBy { player } => player.is_you(),
+            Atom::AnyOf { alternatives } => alternatives.iter().any(Self::names_you),
+            _ => false,
+        })
+    }
+}
+
 impl SetExpr {
+    /// Every card in every graveyard (CR 404).
+    pub fn graveyards() -> Self {
+        Self::Matching {
+            zone: ZoneExpr::Graveyards,
+            filter: Pred::default(),
+        }
+    }
+    /// The filter of a board-wide or graveyard-wide set.
+    pub fn filter(&self) -> Option<&Pred> {
+        match self {
+            Self::Matching { filter, .. } => Some(filter),
+            _ => None,
+        }
+    }
     pub fn target(slot: u32) -> Self {
         Self::One {
             object: Ref::Target { slot },
@@ -1641,8 +1672,90 @@ impl Walk<'_, '_> {
                     _ => unaudited("life recipient"),
                 }
             }
+            // CR 701.8, 608.2h: destroy every battlefield permanent that
+            // satisfies the filter as the instruction is performed.
+            // CR 701.19c: forbidding regeneration is audited for the nonland
+            // permanent wave only.
+            Verb::Destroy {
+                what:
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Battlefield,
+                        filter,
+                    },
+                regeneration_forbidden,
+            } => {
+                Self::audited_filter(filter)?;
+                if *regeneration_forbidden && *filter != Pred::nonland_permanents() {
+                    return unaudited("regeneration prohibition for this set");
+                }
+                Ok(())
+            }
+            // CR 400.3, 400.7: exile, or return to owners' hands, every
+            // matching battlefield permanent; or exile every graveyard card.
+            Verb::Move {
+                what:
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Battlefield,
+                        filter,
+                    },
+                to: Destination::Exile | Destination::OwnerHand,
+            } => Self::audited_filter(filter),
+            Verb::Move {
+                what:
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Graveyards,
+                        filter,
+                    },
+                to: Destination::Exile,
+            } if filter.0.is_empty() => Ok(()),
             _ => unaudited("verb"),
         }
+    }
+
+    /// The atoms the core evaluates for a board-wide set (CR 608.2h). Every
+    /// one reads only the object and the invocation's controller.
+    fn audited_filter(filter: &Pred) -> Result<(), KirError> {
+        for atom in &filter.0 {
+            match atom {
+                Atom::Type { .. }
+                | Atom::NotType { .. }
+                | Atom::AnyType { .. }
+                | Atom::Subtype { .. }
+                | Atom::NotSubtype { .. }
+                | Atom::Legendary
+                | Atom::NotLegendary
+                | Atom::Basic
+                | Atom::NotBasic
+                | Atom::Color { .. }
+                | Atom::NotColor { .. }
+                | Atom::Tapped
+                | Atom::Untapped
+                | Atom::Attacking
+                | Atom::Token
+                | Atom::NotToken
+                | Atom::Keyword { .. }
+                | Atom::NotKeyword { .. } => {}
+                Atom::ControlledBy { player } => {
+                    if !player.is_you() && *player != PlayerExpr::EachOpponent {
+                        return unaudited("set controller");
+                    }
+                }
+                Atom::Power { value, .. }
+                | Atom::Toughness { value, .. }
+                | Atom::ManaValue { value, .. } => {
+                    if value.as_fixed().is_none() {
+                        return unaudited("computed set comparison");
+                    }
+                }
+                Atom::AnyOf { alternatives } => {
+                    alternatives.iter().try_for_each(Self::audited_filter)?
+                }
+                Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } => {
+                    return unaudited("set filter atom");
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1671,6 +1784,17 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
             if *player == PlayerExpr::EachOpponent {
                 out.insert(Capability::SacrificeV1);
             }
+        }
+        // Board-wide destruction and movement share the reviewed wipe surface.
+        Verb::Destroy {
+            what: SetExpr::Matching { .. },
+            ..
+        }
+        | Verb::Move {
+            what: SetExpr::Matching { .. },
+            ..
+        } => {
+            out.insert(Capability::BoardWipesV1);
         }
         _ => {}
     }
@@ -2133,6 +2257,114 @@ mod tests {
             check(&gain(PlayerExpr::EachPlayer, Amount::fixed(1)), &env),
             Err(KirError::Unaudited(_))
         ));
+    }
+
+    #[test]
+    fn board_wide_cells_audit_the_zone_destination_and_every_filter_atom() {
+        let creatures = Pred(vec![Atom::Type {
+            kind: CardKind::Creature,
+        }]);
+        let destroy = |filter: Pred, regeneration_forbidden| {
+            Node::Do(Verb::Destroy {
+                what: SetExpr::battlefield(filter),
+                regeneration_forbidden,
+            })
+        };
+        let moved = |what, to| Node::Do(Verb::Move { what, to });
+        let env = spell(&[]);
+        let requirements = check(&destroy(creatures.clone(), false), &env).unwrap();
+        assert_eq!(
+            requirements.capabilities,
+            BTreeSet::from([Capability::BoardWipesV1])
+        );
+        for to in [Destination::Exile, Destination::OwnerHand] {
+            check(&moved(SetExpr::battlefield(creatures.clone()), to), &env).unwrap();
+        }
+        check(&moved(SetExpr::graveyards(), Destination::Exile), &env).unwrap();
+        // CR 701.19c: the prohibition is audited for the nonland wave only.
+        check(&destroy(Pred::nonland_permanents(), true), &env).unwrap();
+        for node in [
+            destroy(creatures.clone(), true),
+            moved(
+                SetExpr::battlefield(creatures.clone()),
+                Destination::OwnerLibraryTop,
+            ),
+            moved(SetExpr::graveyards(), Destination::OwnerHand),
+            moved(
+                SetExpr::Matching {
+                    zone: ZoneExpr::Graveyards,
+                    filter: creatures.clone(),
+                },
+                Destination::Exile,
+            ),
+            moved(
+                SetExpr::Matching {
+                    zone: ZoneExpr::Exile,
+                    filter: Pred::default(),
+                },
+                Destination::OwnerHand,
+            ),
+            // Atoms the board evaluator does not read.
+            destroy(Pred(vec![Atom::Blocking]), false),
+            destroy(
+                Pred(vec![Atom::IsNot {
+                    object: Ref::Source,
+                }]),
+                false,
+            ),
+            destroy(
+                Pred(vec![Atom::ControlledBy {
+                    player: PlayerExpr::EachPlayer,
+                }]),
+                false,
+            ),
+            destroy(
+                Pred(vec![Atom::AnyOf {
+                    alternatives: vec![Pred(vec![Atom::Blocking])],
+                }]),
+                false,
+            ),
+        ] {
+            assert!(
+                matches!(check(&node, &env), Err(KirError::Unaudited(_))),
+                "{node:?}"
+            );
+        }
+        // A computed comparison is in scope only with X, and unaudited then.
+        let by_x = destroy(
+            Pred(vec![Atom::ManaValue {
+                cmp: Cmp::AtMost,
+                value: Amount::Var {
+                    of: Ref::AnnouncedX,
+                },
+            }]),
+            false,
+        );
+        assert!(matches!(check(&by_x, &env), Err(KirError::Scope(_))));
+        let mut with_x = spell(&[]);
+        with_x.announced_x = true;
+        assert!(matches!(check(&by_x, &with_x), Err(KirError::Unaudited(_))));
+        // "You control" in a filter obeys the same controller-role rule.
+        let yours = |context| {
+            destroy(
+                Pred(vec![Atom::ControlledBy {
+                    player: PlayerExpr::you(context),
+                }]),
+                false,
+            )
+        };
+        check(&yours(Context::Spell), &env).unwrap();
+        assert!(matches!(
+            check(&yours(Context::Triggered), &env),
+            Err(KirError::Scope(_))
+        ));
+        assert!(
+            Pred(vec![Atom::ControlledBy {
+                player: PlayerExpr::you(Context::Spell)
+            }])
+            .names_you()
+        );
+        assert!(!creatures.names_you());
     }
 
     #[test]

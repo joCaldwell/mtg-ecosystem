@@ -1432,8 +1432,6 @@ impl Game {
             }
             i @ (Instruction::UntapControllerLands { .. }
             | Instruction::ExileTargetGraveyard { .. }
-            | Instruction::MoveSet { .. }
-            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::GrantKeywordsSet { .. }

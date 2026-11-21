@@ -1,5 +1,7 @@
 //! Offline archive-3 adapter and the first complete-card lowering subset.
-use mtg_contracts::kir::{Amount, Context, PlayerExpr, Verb};
+use mtg_contracts::kir::{
+    Amount, Atom, Cmp, Context, Destination, PlayerExpr, Pred, SetExpr, Verb,
+};
 use mtg_contracts::*;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -23,6 +25,8 @@ mod basic_land_fetch;
 mod basic_landwalk;
 mod bestow;
 mod bindings;
+#[cfg(test)]
+mod board_filter_tests;
 pub mod bulk;
 mod cascade_land_entry;
 mod cast_entry;
@@ -4173,6 +4177,7 @@ fn append_spell_effects(
                 counted,
                 source_block,
                 player_binding == PlayerBinding::DeathController,
+                context,
             )? {
                 program.instructions.push(i);
                 continue;
@@ -4862,11 +4867,236 @@ fn lower_object_set(v: &serde_json::Value) -> Result<ObjectSet, Failure> {
     };
     Ok(set)
 }
+/// CR 608.2h: an "all"/"each" operand of a destroy, exile or return step is
+/// the set of battlefield permanents that satisfy its whole filter when the
+/// instruction is performed. Every printed filter term becomes one predicate
+/// atom, in this fixed order; a term with no atom rejects the step.
+fn lower_board_set(v: &serde_json::Value, context: Context) -> Result<SetExpr, Failure> {
+    if v["ref"] != "each" && v["ref"] != "all" {
+        return Err(unsupported("set", "expected all/each set"));
+    }
+    if v.as_object().is_none_or(|o| o.len() != 2) {
+        return Err(unsupported("set", "extra set fields"));
+    }
+    Ok(SetExpr::battlefield(lower_board_filter(
+        &v["filter"],
+        context,
+    )?))
+}
+
+fn lower_board_filter(filter: &serde_json::Value, context: Context) -> Result<Pred, Failure> {
+    let unsupported_term = || unsupported("set", "unsupported complete filter");
+    let object = filter.as_object().ok_or_else(unsupported_term)?;
+    const TERMS: [&str; 15] = [
+        "cls",
+        "types",
+        "allOf",
+        "nonTypes",
+        "supertypes",
+        "nonSupertypes",
+        "subtypes",
+        "nonSubtypes",
+        "colors",
+        "nonColors",
+        "control",
+        "status",
+        "nonToken",
+        "withAbility",
+        "withoutAbility",
+    ];
+    if object
+        .keys()
+        .any(|key| !TERMS.contains(&key.as_str()) && key != "properties")
+    {
+        return Err(unsupported_term());
+    }
+    let list = |key: &str| -> Result<Vec<&serde_json::Value>, Failure> {
+        match object.get(key) {
+            None => Ok(vec![]),
+            Some(value) => value
+                .as_array()
+                .filter(|values| !values.is_empty())
+                .map(|values| values.iter().collect())
+                .ok_or_else(unsupported_term),
+        }
+    };
+    let kind = |value: &serde_json::Value| {
+        serde_json::from_value::<CardKind>(value.clone()).map_err(|_| unsupported_term())
+    };
+    let name = |value: &serde_json::Value| {
+        value
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(unsupported_term)
+    };
+    let color = |value: &serde_json::Value| match value.as_str() {
+        Some("white") => Ok(Color::W),
+        Some("blue") => Ok(Color::U),
+        Some("black") => Ok(Color::B),
+        Some("red") => Ok(Color::R),
+        Some("green") => Ok(Color::G),
+        _ => Err(unsupported_term()),
+    };
+    let mut atoms = vec![];
+    // CR 110.1: "permanent" names the zone, which the set already fixes.
+    match object.get("cls").map(|cls| cls.as_str()) {
+        None | Some(Some("permanent")) => {}
+        Some(Some("token")) => atoms.push(Atom::Token),
+        _ => return Err(unsupported_term()),
+    }
+    // CR 205.2: a list of card types requires every one of them.
+    for value in list("types")? {
+        atoms.push(Atom::Type { kind: kind(value)? });
+    }
+    // The parser spells "artifact or enchantment" as one group of alternatives.
+    if let Some(groups) = object.get("allOf") {
+        let [group] = groups.as_array().ok_or_else(unsupported_term)?.as_slice() else {
+            return Err(unsupported_term());
+        };
+        let alternatives = group
+            .as_object()
+            .filter(|o| o.len() == 1)
+            .and_then(|o| o.get("anyOf"))
+            .and_then(|a| a.as_array())
+            .filter(|a| a.len() >= 2)
+            .ok_or_else(unsupported_term)?;
+        let mut kinds = vec![];
+        for alternative in alternatives {
+            let types = alternative
+                .as_object()
+                .filter(|o| o.len() == 1)
+                .and_then(|o| o.get("types"))
+                .and_then(|t| t.as_array())
+                .ok_or_else(unsupported_term)?;
+            let [only] = types.as_slice() else {
+                return Err(unsupported_term());
+            };
+            kinds.push(kind(only)?);
+        }
+        atoms.push(Atom::AnyType { kinds });
+    }
+    for value in list("nonTypes")? {
+        atoms.push(Atom::NotType { kind: kind(value)? });
+    }
+    for (key, legendary, basic) in [
+        ("supertypes", Atom::Legendary, Atom::Basic),
+        ("nonSupertypes", Atom::NotLegendary, Atom::NotBasic),
+    ] {
+        for value in list(key)? {
+            atoms.push(match value.as_str() {
+                Some("legendary") => legendary.clone(),
+                Some("basic") => basic.clone(),
+                _ => return Err(unsupported_term()),
+            });
+        }
+    }
+    for value in list("subtypes")? {
+        atoms.push(Atom::Subtype {
+            subtype: name(value)?,
+        });
+    }
+    for value in list("nonSubtypes")? {
+        atoms.push(Atom::NotSubtype {
+            subtype: name(value)?,
+        });
+    }
+    for value in list("colors")? {
+        atoms.push(Atom::Color {
+            color: color(value)?,
+        });
+    }
+    for value in list("nonColors")? {
+        atoms.push(Atom::NotColor {
+            color: color(value)?,
+        });
+    }
+    match object.get("control").map(|c| c.as_str()) {
+        None => {}
+        // CR 109.5: "you control" is the controller of this stack object.
+        Some(Some("you")) => atoms.push(Atom::ControlledBy {
+            player: PlayerExpr::you(context),
+        }),
+        // CR 102.3: "your opponents control".
+        Some(Some("opponent")) => atoms.push(Atom::ControlledBy {
+            player: PlayerExpr::EachOpponent,
+        }),
+        _ => return Err(unsupported_term()),
+    }
+    for value in list("status")? {
+        atoms.push(match value.as_str() {
+            Some("tapped") => Atom::Tapped,
+            Some("untapped") => Atom::Untapped,
+            Some("attacking") => Atom::Attacking,
+            _ => return Err(unsupported_term()),
+        });
+    }
+    match object.get("nonToken") {
+        None => {}
+        Some(serde_json::Value::Bool(true)) => atoms.push(Atom::NotToken),
+        _ => return Err(unsupported_term()),
+    }
+    for (key, has) in [("withAbility", true), ("withoutAbility", false)] {
+        for value in list(key)? {
+            // CR 702.9: flying is the one keyword the set evaluator reviews.
+            if value != "flying" {
+                return Err(unsupported_term());
+            }
+            let keyword = KeywordAbility::Flying;
+            atoms.push(if has {
+                Atom::Keyword { keyword }
+            } else {
+                Atom::NotKeyword { keyword }
+            });
+        }
+    }
+    // CR 208.1, 202.3: a fixed comparison of power, toughness or mana value.
+    for value in list("properties")? {
+        let property = value
+            .as_object()
+            .filter(|o| o.len() == 2)
+            .ok_or_else(unsupported_term)?;
+        let comparison = property
+            .get("comparison")
+            .and_then(|c| c.as_object())
+            .filter(|c| c.len() == 2)
+            .ok_or_else(unsupported_term)?;
+        let bound = comparison
+            .get("value")
+            .filter(|v| v["amount"] == "fixed" && v.as_object().is_some_and(|o| o.len() == 2))
+            .and_then(|v| v["value"].as_i64())
+            .ok_or_else(unsupported_term)?;
+        // Integers: "less than N" is "at most N-1" (CR 107.1).
+        let (cmp, bound) = match comparison.get("op").and_then(|op| op.as_str()) {
+            Some("ge") => (Cmp::AtLeast, bound),
+            Some("gt") => (
+                Cmp::AtLeast,
+                bound.checked_add(1).ok_or_else(unsupported_term)?,
+            ),
+            Some("le") => (Cmp::AtMost, bound),
+            Some("lt") => (
+                Cmp::AtMost,
+                bound.checked_sub(1).ok_or_else(unsupported_term)?,
+            ),
+            Some("eq") => (Cmp::Exactly, bound),
+            _ => return Err(unsupported_term()),
+        };
+        let value = Amount::fixed(bound);
+        atoms.push(match property.get("property").and_then(|p| p.as_str()) {
+            Some("power") => Atom::Power { cmp, value },
+            Some("toughness") => Atom::Toughness { cmp, value },
+            Some("mana-value") => Atom::ManaValue { cmp, value },
+            _ => return Err(unsupported_term()),
+        });
+    }
+    Ok(Pred(atoms))
+}
 fn lower_wipes_step(
     step: &Step,
     counted: bool,
     source_block: u32,
     death_controller: bool,
+    context: Context,
 ) -> Result<Option<Instruction>, Failure> {
     use serde_json::json;
     Ok(Some(match step {
@@ -4892,13 +5122,13 @@ fn lower_wipes_step(
                 source_block,
             }
         }
-        Step::Exile { what } if what["ref"] == "all" || what["ref"] == "each" => {
-            Instruction::MoveSet {
-                set: lower_object_set(what)?,
-                action: SetMove::Exile,
-                source_block,
-            }
-        }
+        Step::Exile { what } if what["ref"] == "all" || what["ref"] == "each" => Instruction::act(
+            Verb::Move {
+                what: lower_board_set(what, context)?,
+                to: Destination::Exile,
+            },
+            source_block,
+        ),
         Step::Destroy {
             what,
             optional: None,
@@ -4906,23 +5136,25 @@ fn lower_wipes_step(
         } if (what["ref"] == "all" || what["ref"] == "each")
             && *what != json!({"ref":"all","filter":{"types":["creature"]}}) =>
         {
-            Instruction::MoveSet {
-                set: lower_object_set(what)?,
-                action: SetMove::Destroy,
+            Instruction::act(
+                Verb::Destroy {
+                    what: lower_board_set(what, context)?,
+                    regeneration_forbidden: false,
+                },
                 source_block,
-            }
+            )
         }
         Step::ReturnToHand {
             what,
             to,
             optional: None,
-        } if to == "owner" && (what["ref"] == "all" || what["ref"] == "each") => {
-            Instruction::MoveSet {
-                set: lower_object_set(what)?,
-                action: SetMove::Hand,
-                source_block,
-            }
-        }
+        } if to == "owner" && (what["ref"] == "all" || what["ref"] == "each") => Instruction::act(
+            Verb::Move {
+                what: lower_board_set(what, context)?,
+                to: Destination::OwnerHand,
+            },
+            source_block,
+        ),
         Step::Pump {
             what,
             power,

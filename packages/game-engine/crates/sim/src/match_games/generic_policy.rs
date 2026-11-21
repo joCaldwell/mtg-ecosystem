@@ -5,7 +5,9 @@ use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
     KeywordAbility, LifeRecipient, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
     SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount,
-    compound_indestructible_parameters, kernel, target_player,
+    compound_indestructible_parameters, kernel,
+    kir::{Context, SetExpr},
+    target_player,
 };
 use mtg_core::query::{self, Tri};
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
@@ -75,6 +77,33 @@ fn blocking_pump_program(p: &SpellProgram) -> bool {
                     && (*power > Quantity::zero() || *toughness > Quantity::zero()))
         })
 }
+/// The board-wide destruction or movement this policy weighs, with its set.
+///
+/// The policy has always weighed ordinary wipes and left three reviewed
+/// nonland-destruction programs unweighed: the opponents-only wipe, the wave
+/// that forbids regeneration, and the wave that first removes indestructible.
+/// Those are the same kernel verb now, so the exclusion is stated here; pod
+/// decisions stay exactly what they were. Widen it as a policy change.
+fn scored_wipe<'a>(p: &SpellProgram, i: &'a I) -> Option<&'a SetExpr> {
+    match i {
+        kernel!(Destroy {
+            what: what @ SetExpr::Matching { .. },
+            regeneration_forbidden: false,
+        }) if *what != ObjectSet::OpponentNonlandPermanents.kernel(Context::Spell)
+            && !p
+                .instructions
+                .iter()
+                .any(|i| matches!(i, I::RemoveOpponentNonlandIndestructible { .. })) =>
+        {
+            Some(what)
+        }
+        kernel!(Move {
+            what: what @ SetExpr::Matching { .. },
+            ..
+        }) => Some(what),
+        _ => None,
+    }
+}
 fn reactive_program(p: &SpellProgram) -> bool {
     blocking_pump_program(p)
         || p.additional_sacrifice.is_some()
@@ -82,13 +111,10 @@ fn reactive_program(p: &SpellProgram) -> bool {
             matches!(
                 i,
                 I::CounterStackObject { .. }
-                    | I::MoveSet {
-                        set: ObjectSet::AttackingCreatures,
-                        ..
-                    }
                     | I::PreventCombatDamage { .. }
                     | I::PreventNextDamage { .. }
-            )
+            ) || scored_wipe(p, i)
+                .is_some_and(|what| *what == ObjectSet::AttackingCreatures.kernel(Context::Spell))
         })
         || p.modes.iter().any(|m| reactive_program(&m.program))
 }
@@ -1001,7 +1027,9 @@ impl Strategy<'_> {
                         .get(*target_slot as usize)
                         .is_some_and(|t| t.current.as_ref() == Some(&o.handle)),
                     I::DestroyAllCreatures { .. } => self.in_set(v, o, &ObjectSet::Creatures),
-                    I::MoveSet { set, .. } => self.in_set(v, o, set),
+                    i if scored_wipe(p, i).is_some() => {
+                        scored_wipe(p, i).is_some_and(|what| self.in_kernel_set(v, o, what))
+                    }
                     I::PumpSet { set, toughness, .. } if toughness.is_negative() => {
                         self.in_set(v, o, set)
                             && o.characteristics
@@ -1239,6 +1267,15 @@ impl Strategy<'_> {
     fn in_set(&self, v: &PermittedView, o: &VisibleObject, set: &ObjectSet) -> bool {
         query::matches_object_set(&query::in_view(v, o), v.viewer, set).is_yes()
     }
+    /// CR 608.2h: membership of a kernel set, as far as the view shows it.
+    fn in_kernel_set(&self, v: &PermittedView, o: &VisibleObject, what: &SetExpr) -> bool {
+        match what {
+            SetExpr::Matching { zone, filter } => {
+                query::matches_zone_pred(&query::in_view(v, o), v.viewer, zone, filter).is_yes()
+            }
+            _ => false,
+        }
+    }
     fn wipe_amount(
         &self,
         v: &PermittedView,
@@ -1261,14 +1298,18 @@ impl Strategy<'_> {
         let mut found = false;
         let mut lost = std::collections::BTreeSet::new();
         let mut wins = false;
+        // The controller role never changes which permanents a set names.
+        let kernel = |set: &ObjectSet| set.kernel(Context::Spell);
         for i in &p.instructions {
-            let (sets, damage) = match i {
-                I::MoveSet { set, .. } => (vec![set.clone()], None),
-                I::DestroyAllCreatures { .. } => (vec![ObjectSet::Creatures], None),
+            let (sets, damage): (Vec<SetExpr>, _) = match i {
+                i if scored_wipe(p, i).is_some() => {
+                    (scored_wipe(p, i).into_iter().cloned().collect(), None)
+                }
+                I::DestroyAllCreatures { .. } => (vec![kernel(&ObjectSet::Creatures)], None),
                 I::PumpSet { set, toughness, .. } if toughness.is_negative() => {
                     let mut q = Quantity::zero();
                     q.subtract(toughness);
-                    (vec![set.clone()], Some(q))
+                    (vec![kernel(set)], Some(q))
                 }
                 I::DamageSet {
                     sets,
@@ -1292,7 +1333,7 @@ impl Strategy<'_> {
                             })
                             .all(|r| r.life <= damage);
                     }
-                    (sets.clone(), Some(damage))
+                    (sets.iter().map(kernel).collect(), Some(damage))
                 }
                 I::EachPlayerSacrifice { .. } => {
                     found = true;
@@ -1314,7 +1355,7 @@ impl Strategy<'_> {
             };
             found = true;
             for o in &v.objects {
-                if sets.iter().any(|s| self.in_set(v, o, s))
+                if sets.iter().any(|s| self.in_kernel_set(v, o, s))
                     && damage.as_ref().is_none_or(|n| {
                         o.characteristics
                             .as_ref()

@@ -45,11 +45,13 @@ pub fn keyword_removal_wipe_program() -> SpellProgram {
         modes: vec![],
         instructions: vec![
             Instruction::RemoveOpponentNonlandIndestructible { source_block: 0 },
-            Instruction::DestroySet {
-                set: ObjectSet::NonlandPermanents,
-                regeneration_forbidden: false,
-                source_block: 1,
-            },
+            Instruction::act(
+                Verb::Destroy {
+                    what: ObjectSet::NonlandPermanents.kernel(Context::Spell),
+                    regeneration_forbidden: false,
+                },
+                1,
+            ),
         ],
     }
 }
@@ -59,11 +61,6 @@ fn reserved(program: &SpellProgram) -> bool {
         matches!(
             instruction,
             Instruction::RemoveOpponentNonlandIndestructible { .. }
-                | Instruction::DestroySet {
-                    set: ObjectSet::NonlandPermanents,
-                    regeneration_forbidden: false,
-                    ..
-                }
         )
     }) || program.modes.iter().any(|mode| reserved(&mode.program))
 }
@@ -148,9 +145,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["KeywordRemovalFreeProgram"] = json!({
         "properties":{
             "instructions":{"items":{"not":{"anyOf":[
-                {"required":["op"],"properties":{"op":{"const":"remove_opponent_nonland_indestructible"}}},
-                {"required":["op","set"],"properties":{"op":{"const":"destroy_set"},
-                    "set":{"const":"nonland_permanents"},"regeneration_forbidden":{"const":false}}}
+                {"required":["op"],"properties":{"op":{"const":"remove_opponent_nonland_indestructible"}}}
             ]}}},
             "modes":{"items":{"properties":{"program":free}}}
         }

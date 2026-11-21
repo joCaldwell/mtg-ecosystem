@@ -180,7 +180,7 @@ pub use controller_library::{
     matches_fixed_amount, printed_cast_scry,
 };
 pub use fixed_mill::fixed_mill_program;
-use kir::{Amount, Context, PlayerExpr, Verb};
+use kir::{Amount, Context, Destination, PlayerExpr, SetExpr, Verb};
 pub use library_order::controller_library_order_program;
 pub use library_selection::controller_library_selection_program;
 use serde::{Deserialize, Serialize, de};
@@ -692,12 +692,43 @@ pub enum ObjectSet {
     FlyingCreatures,
     NonflyingCreatures,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SetMove {
-    Destroy,
-    Exile,
-    Hand,
+impl ObjectSet {
+    /// The kernel set this closed set denotes for "you" in `context`. Kernel
+    /// verbs take a general filter; the instructions that still carry an
+    /// `ObjectSet` name one of these.
+    pub fn kernel(&self, context: Context) -> SetExpr {
+        use kir::Atom;
+        let kind = |kind| Atom::Type { kind };
+        let controlled = |player| Atom::ControlledBy { player };
+        let you = || controlled(PlayerExpr::you(context));
+        let opponents = || controlled(PlayerExpr::EachOpponent);
+        let flying = KeywordAbility::Flying;
+        let atoms = match self {
+            Self::GraveyardCards => return SetExpr::graveyards(),
+            Self::ControllerCreatures => vec![kind(CardKind::Creature), you()],
+            Self::ControllerPermanents => vec![you()],
+            Self::Creatures => vec![kind(CardKind::Creature)],
+            Self::NonlandPermanents => return SetExpr::battlefield(kir::Pred::nonland_permanents()),
+            Self::OpponentNonlandPermanents => vec![
+                Atom::NotType {
+                    kind: CardKind::Land,
+                },
+                opponents(),
+            ],
+            Self::Enchantments => vec![kind(CardKind::Enchantment)],
+            Self::Artifacts => vec![kind(CardKind::Artifact)],
+            Self::AttackingCreatures => vec![kind(CardKind::Creature), Atom::Attacking],
+            Self::OpponentCreatures => vec![kind(CardKind::Creature), opponents()],
+            Self::FlyingCreatures => {
+                vec![kind(CardKind::Creature), Atom::Keyword { keyword: flying }]
+            }
+            Self::NonflyingCreatures => vec![
+                kind(CardKind::Creature),
+                Atom::NotKeyword { keyword: flying },
+            ],
+        };
+        SetExpr::battlefield(kir::Pred(atoms))
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
@@ -1023,20 +1054,7 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
-    MoveSet {
-        set: ObjectSet,
-        action: SetMove,
-        source_block: u32,
-    },
     RemoveOpponentNonlandIndestructible {
-        source_block: u32,
-    },
-    DestroySet {
-        set: ObjectSet,
-        /// CR 701.19c: a prohibition keeps regeneration replacement effects
-        /// from applying to this destruction.
-        #[serde(default, skip_serializing_if = "is_false")]
-        regeneration_forbidden: bool,
         source_block: u32,
     },
     PumpSet {
@@ -1523,10 +1541,8 @@ impl Instruction {
             | Self::ProtectControllerUntilNextTurn { source_block }
             | Self::FreezeControllerLifeUntilNextTurn { source_block }
             | Self::PhaseOutControllerPermanents { source_block }
-            | Self::PhaseOutTargetPermanent { source_block, .. }
-            | Self::MoveSet { source_block, .. } => *source_block,
+            | Self::PhaseOutTargetPermanent { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
-            Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
@@ -4564,7 +4580,10 @@ impl Definition {
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
-                            | Instruction::DestroySet { .. }
+                            | kernel!(Destroy {
+                                regeneration_forbidden: true,
+                                ..
+                            })
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::CreatePredefinedTokens { .. }
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
@@ -5382,12 +5401,15 @@ fn validate_instruction_program_with_chapter(
     // Controller selectors require complete ordinary temporary-effect families.
     fn controller_set(p: &SpellProgram) -> bool {
         p.instructions.iter().any(|i| match i {
-            Instruction::MoveSet { set, .. }
-            | Instruction::PumpSet { set, .. }
-            | Instruction::GrantKeywordsSet { set, .. } => matches!(
-                set,
-                ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
-            ),
+            kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => {
+                what.filter().is_some_and(kir::Pred::names_you)
+            }
+            Instruction::PumpSet { set, .. } | Instruction::GrantKeywordsSet { set, .. } => {
+                matches!(
+                    set,
+                    ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
+                )
+            }
             Instruction::DamageSet { sets, .. } => sets.iter().any(|set| {
                 matches!(
                     set,
@@ -5613,9 +5635,7 @@ fn validate_program_bindings(
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
-            | Instruction::MoveSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
-            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
@@ -5650,10 +5670,10 @@ fn validate_program_bindings(
                         matches!(
                             i,
                             Instruction::DestroyAllCreatures { .. }
-                                | Instruction::MoveSet {
-                                    action: SetMove::Destroy,
+                                | kernel!(Destroy {
+                                    what: SetExpr::Matching { .. },
                                     ..
-                                }
+                                })
                         )
                     })
                 {
@@ -6566,9 +6586,7 @@ fn add_program_requirements_for_source_pump(
                 ..
             } => Capability::TemporaryCreatureSetKeywordProgramV1,
             Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
-            Instruction::MoveSet { .. }
-            | Instruction::DestroySet { .. }
-            | Instruction::PumpSet { .. }
+            Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }

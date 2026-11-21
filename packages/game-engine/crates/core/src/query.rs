@@ -14,7 +14,7 @@
 //! state. Target legality additionally needs hexproof, shroud, protection, a
 //! required filter and per-ability restrictions, which stay with the core.
 use crate::{PermittedView, PlayerId, PlayerStatus, VisibleObject, Zone};
-use mtg_contracts::kir::{Amount, Atom, Cmp, PlayerExpr, Pred, Ref};
+use mtg_contracts::kir::{Amount, Atom, Cmp, PlayerExpr, Pred, Ref, ZoneExpr};
 use mtg_contracts::{
     CardKind, Characteristics, CreaturePowerFilter, KeywordAbility, ObjectSet, PermanentFilter,
     Quantity, SacrificeFilter, TargetDomain,
@@ -278,6 +278,27 @@ pub fn matches_battlefield_pred(object: &impl ObjectFacts, you: PlayerId, pred: 
         return Tri::Unknown;
     }
     matches_pred(object, you, pred)
+}
+
+/// CR 608.2h: whether an object belongs to a kernel set of one public zone.
+/// CR 404.1, 111.8: a token is never a graveyard card.
+pub fn matches_zone_pred(
+    object: &impl ObjectFacts,
+    you: PlayerId,
+    zone: &ZoneExpr,
+    pred: &Pred,
+) -> Tri {
+    match zone {
+        ZoneExpr::Battlefield => matches_battlefield_pred(object, you, pred),
+        ZoneExpr::Graveyards => {
+            if matches!(object.zone(), Zone::Graveyard { .. }) && !object.is_token() {
+                matches_pred(object, you, pred)
+            } else {
+                Tri::No
+            }
+        }
+        _ => Tri::Unknown,
+    }
 }
 
 /// CR 701.21a: whether `you` may sacrifice a permanent under a finite filter.

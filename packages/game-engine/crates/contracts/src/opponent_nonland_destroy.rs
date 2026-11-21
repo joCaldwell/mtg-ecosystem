@@ -7,13 +7,13 @@ const INVALID_FAMILY: &str = "opponent nonland destruction requires one complete
 
 fn contains_reserved_instruction(program: &SpellProgram) -> bool {
     let set = ObjectSet::OpponentNonlandPermanents;
+    let kernel_set = set.kernel(Context::Spell);
     program
         .instructions
         .iter()
         .any(|instruction| match instruction {
-            Instruction::DestroySet { set: operand, .. }
-            | Instruction::MoveSet { set: operand, .. }
-            | Instruction::PumpSet { set: operand, .. }
+            kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => *what == kernel_set,
+            Instruction::PumpSet { set: operand, .. }
             | Instruction::GrantKeywordsSet { set: operand, .. } => operand == &set,
             Instruction::DamageSet { sets, .. } => sets.contains(&set),
             _ => false,
@@ -22,6 +22,17 @@ fn contains_reserved_instruction(program: &SpellProgram) -> bool {
             .modes
             .iter()
             .any(|mode| contains_reserved_instruction(&mode.program))
+}
+
+/// CR 701.8, 102.3: destroy every nonland permanent an opponent controls.
+pub(crate) fn program_instruction() -> Instruction {
+    Instruction::act(
+        Verb::Destroy {
+            what: ObjectSet::OpponentNonlandPermanents.kernel(Context::Spell),
+            regeneration_forbidden: false,
+        },
+        0,
+    )
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
@@ -74,14 +85,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         || !p.modes.is_empty()
-        || !matches!(
-            p.instructions.as_slice(),
-            [Instruction::DestroySet {
-                set: ObjectSet::OpponentNonlandPermanents,
-                regeneration_forbidden: false,
-                source_block: 0,
-            }]
-        )
+        || p.instructions.as_slice() != [program_instruction()]
     {
         return Err(INVALID_FAMILY.into());
     }
@@ -94,7 +98,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
     schema["$defs"]["OpponentNonlandDestroyFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":{"anyOf":[
             {"required":["set"],"properties":{"set":{"const":set}}},
-            {"required":["sets"],"properties":{"sets":{"contains":{"const":set}}}}
+            {"required":["sets"],"properties":{"sets":{"contains":{"const":set}}}},
+            instruction_schema::kernel_set(&[set.kernel(Context::Spell)])
         ]}}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
@@ -118,11 +123,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
                     "resolution":{"const":"instructions"},"targets":{"maxItems":0},
                     "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
                     "modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"maxItems":1,"items":{
-                        "type":"object","required":["op","set","source_block"],"additionalProperties":false,
-                        "properties":{"op":{"const":"destroy_set"},"set":{"const":set},
-                            "source_block":{"const":0},"regeneration_forbidden":{"const":false}}
-                    }}
+                    "instructions":{"minItems":1,"maxItems":1,
+                        "items":instruction_schema::exact(&program_instruction())}
                 }},
                 "characteristics":{"properties":{
                     "kind":{"const":"sorcery"},"additional_types":{"maxItems":0},

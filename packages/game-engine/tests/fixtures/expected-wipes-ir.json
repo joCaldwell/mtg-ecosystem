@@ -5266,9 +5266,27 @@
         "targets": [],
         "instructions": [
           {
-            "op": "move_set",
-            "set": "creatures",
-            "action": "exile",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "creature"
+                    }
+                  ]
+                },
+                "to": {
+                  "to": "exile"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -6426,9 +6444,30 @@
         "targets": [],
         "instructions": [
           {
-            "op": "move_set",
-            "set": "attacking_creatures",
-            "action": "hand",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "creature"
+                    },
+                    {
+                      "atom": "attacking"
+                    }
+                  ]
+                },
+                "to": {
+                  "to": "owner_hand"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -9577,9 +9616,24 @@
         "targets": [],
         "instructions": [
           {
-            "op": "move_set",
-            "set": "nonland_permanents",
-            "action": "destroy",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "not_type",
+                      "kind": "land"
+                    }
+                  ]
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -13479,9 +13533,24 @@
         "targets": [],
         "instructions": [
           {
-            "op": "move_set",
-            "set": "enchantments",
-            "action": "destroy",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "enchantment"
+                    }
+                  ]
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -13984,9 +14053,27 @@
         "targets": [],
         "instructions": [
           {
-            "op": "move_set",
-            "set": "creatures",
-            "action": "hand",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "creature"
+                    }
+                  ]
+                },
+                "to": {
+                  "to": "owner_hand"
+                }
+              }
+            },
             "source_block": 0
           }
         ]

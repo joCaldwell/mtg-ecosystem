@@ -120,9 +120,7 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::CounterSpellAndMillController { .. }
         | I::CounterSpellUnlessPays { .. } => ANY,
         // CR 608.2h: non-targeted sets are read when the instruction is performed.
-        I::DestroySet { .. }
-        | I::DestroyAllCreatures { .. }
-        | I::MoveSet { .. }
+        I::DestroyAllCreatures { .. }
         | I::PumpSet { .. }
         | I::UntapControllerLands { .. } => ANY,
         I::DamageSet { amount, .. } => match amount {
@@ -234,6 +232,17 @@ fn kernel_contexts(node: &kir::Node) -> u8 {
                 ANY
             }
         }
+        // CR 608.2h: a board-wide set is read as the instruction is performed.
+        Some(
+            Verb::Destroy {
+                what: SetExpr::Matching { .. },
+                ..
+            }
+            | Verb::Move {
+                what: SetExpr::Matching { .. },
+                ..
+            },
+        ) => ANY,
         _ => FAMILY,
     }
 }
