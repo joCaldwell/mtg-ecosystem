@@ -358,7 +358,7 @@ fn permanent_target_kernel_one_effect_then_separate_frozen_controller_life_and_w
         .get_mut(&CardId(1))
         .unwrap()
         .controller = PlayerId(1);
-    g.execute_damage_life_instruction(frame(&g), instruction(&g))
+    g.execute_kernel_instruction(frame(&g), instruction(&g))
         .unwrap();
     assert_eq!(g.state.rules.players[0].life, 42.into());
     assert_eq!(g.state.rules.players[1].life, 40.into());
@@ -560,7 +560,7 @@ fn noncreature_damage(
     let (mut g, _, _) = kernel(keywords, 4);
     g.execute_effect_instruction(frame(&g), instruction(&g))
         .unwrap();
-    g.execute_damage_life_instruction(frame(&g), instruction(&g))
+    g.execute_kernel_instruction(frame(&g), instruction(&g))
         .unwrap();
     g.step().unwrap(); // finish synthetic spell; no fabricated paid field
     g.state
@@ -741,7 +741,7 @@ fn permanent_target_kernel_zero_tail_has_no_event_and_nonfamily_zero_stays_rejec
         .unwrap();
     let before = g.state.clone();
     let trace = g.trace.clone();
-    g.execute_damage_life_instruction(frame(&g), instruction(&g))
+    g.execute_kernel_instruction(frame(&g), instruction(&g))
         .unwrap();
     assert_eq!(frame(&g).cursor, 2);
     assert!(matches!(
@@ -771,7 +771,7 @@ fn permanent_target_kernel_zero_tail_has_no_event_and_nonfamily_zero_stays_rejec
     let before = bad.state.clone();
     let trace = bad.trace.clone();
     assert!(
-        bad.execute_damage_life_instruction(frame(&bad), instruction(&bad))
+        bad.execute_kernel_instruction(frame(&bad), instruction(&bad))
             .is_err()
     );
     assert_eq!(bad.state, before);

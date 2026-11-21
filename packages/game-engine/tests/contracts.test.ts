@@ -2115,8 +2115,8 @@ test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
   assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"d4a23a11f918f7a38827f9edb57ecd7dc41f76c9c0af0996b915b0220da96af8");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"16cdae39b42a26a4b7fa305482013ef7320c59962f4cd7e858ee636ca5f097bb");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"30886a2a41478249356703bf39a52153449cb66cc512084d3a1ff94da682a2a5");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2259,7 +2259,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"d4a23a11f918f7a38827f9edb57ecd7dc41f76c9c0af0996b915b0220da96af8");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}

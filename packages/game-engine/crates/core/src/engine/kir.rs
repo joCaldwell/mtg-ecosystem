@@ -61,7 +61,7 @@ enum Players {
 }
 
 impl Game {
-    pub(super) fn execute_kernel(
+    pub(crate) fn execute_kernel(
         &mut self,
         frame: Resolving,
         node: Node,
@@ -182,7 +182,6 @@ impl Game {
     // CR 119.3, 608.2b-c, 704.4: one life event per instruction, with no
     // state-based action check until the program finishes. A self-targeted
     // loss may reach zero and recover before the next priority checkpoint.
-    // CR 119.8: a change of zero is no life event.
     fn kernel_life(
         &mut self,
         frame: Resolving,
@@ -191,11 +190,27 @@ impl Game {
         amount: &Amount,
         source_block: u32,
     ) -> Result<(), String> {
+        let computed = !matches!(amount, Amount::Fixed { .. });
         let amount = self.kernel_amount(&frame, amount)?;
         let skipped = |game: &mut Self, frame| {
             game.finish_instruction(frame, InstructionOutcome::Life { actual: None })
         };
-        if amount == Quantity::zero() {
+        // CR 119.8, 107.1b: a change of zero is no life event. An announced X
+        // may be zero. A fixed zero is the tail of the complete
+        // permanent-grant family and nothing else: any other fixed zero
+        // reaches the life event, which rejects it.
+        if amount == Quantity::zero()
+            && (computed
+                || (gain
+                    && player.is_you()
+                    && source_block == 0
+                    && frame.cursor == 1
+                    && frame.spell.kind.is_spell()
+                    && self.program_for(&frame.spell).is_ok_and(|program| {
+                        temporary_permanent_keyword_program(program)
+                            .is_some_and(|family| family.controller_life == Some(&amount))
+                    })))
+        {
             return skipped(self, frame);
         }
         let player = match self.kernel_players(&frame, player)? {

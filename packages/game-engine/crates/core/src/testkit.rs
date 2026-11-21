@@ -251,6 +251,11 @@ pub trait GameTestkit {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String>;
+    fn execute_kernel_instruction(
+        &mut self,
+        frame: Resolving,
+        instruction: Instruction,
+    ) -> Result<(), String>;
     fn execute_effect_instruction(
         &mut self,
         frame: Resolving,
@@ -862,6 +867,16 @@ impl GameTestkit for Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         Game::execute_damage_life_instruction(self, frame, instruction)
+    }
+    fn execute_kernel_instruction(
+        &mut self,
+        frame: Resolving,
+        instruction: Instruction,
+    ) -> Result<(), String> {
+        let Instruction::Kernel { node, source_block } = instruction else {
+            return Err("expected a kernel instruction".into());
+        };
+        Game::execute_kernel(self, frame, node, source_block)
     }
     fn execute_effect_instruction(
         &mut self,

@@ -1658,7 +1658,9 @@ impl Walk<'_, '_> {
         match verb {
             // CR 119.3: the controller, each opponent, one announced player
             // or the trigger's event player gains or loses a fixed amount.
-            // Zero is a legal amount that changes nothing (CR 119.8, 107.1b).
+            // A fixed zero (CR 119.8) is executed only as the reviewed tail
+            // of the permanent-grant family; program validation keeps every
+            // other life amount positive.
             Verb::GainLife { player, amount } | Verb::LoseLife { player, amount } => {
                 Self::fixed_at_least(amount, 0, "life amount")?;
                 match player {
