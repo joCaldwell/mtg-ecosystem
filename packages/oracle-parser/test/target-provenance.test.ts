@@ -33,7 +33,9 @@ describe("optional token provenance", () => {
     const text = "{T}: Destroy target creature.";
     const raw = lex(text);
     const tokens = lex(text, "example");
-    assert.deepEqual(tokens, raw.map((token, index) => ({ ...token, provenance: { sourceId: "example", index } })));
+    const starts = [0, 3, 5, 13, 20, 28];
+    const ends = [3, 4, 12, 19, 28, 29];
+    assert.deepEqual(tokens, raw.map((token, index) => ({ ...token, provenance: { sourceId: "example", index, start: starts[index], end: ends[index] } })));
     const c = new Cursor(tokens.slice(3).map(token => ({ ...token })));
     assert.deepEqual(parseObjectRef(c), creature("example:3"));
     assert.equal(c.isPunct("."), true);

@@ -58,13 +58,13 @@ test("routine plans retain live guards and behavior; tooling/full retain every h
     if (!selfTests) assert.match(plan.omitted, /Verifier harness self-tests \(run --tooling or --full\)/);
   }
   const labels = (mode: keyof typeof engineCheckPlans) => engineCheckPlans[mode].phases.map(phase => phase.label);
-  assert.deepEqual(labels("quick"), ["cache-preflight", "structure-guard", "documentation-guard", "format", "rust-lib-check"]);
-  assert.deepEqual(labels("source"), ["structure-guard", "documentation-guard", "archive-parser"]);
-  assert.deepEqual(labels("fast"), ["cache-preflight", "structure-guard", "documentation-guard", "archive-parser", "format", "rust-check", "lib-tests"]);
-  assert.deepEqual(labels("core"), ["cache-preflight", "structure-guard", "documentation-guard", "lib-tests", "core-integration"]);
-  assert.deepEqual(labels("contracts"), ["cache-preflight", "structure-guard", "documentation-guard", "contract-preflight"]);
-  assert.deepEqual(labels("tooling"), [...suites.map(([label]) => label), "structure-guard", "documentation-guard"]);
-  assert.deepEqual(labels("full"), ["cache-preflight", "format", ...suites.map(([label]) => label), "structure-guard", "documentation-guard", "clippy", "rust-tests", "node-tests"]);
+  assert.deepEqual(labels("quick"), ["cache-preflight", "structure-guard", "documentation-guard", "generated-ast-guard", "format", "rust-lib-check"]);
+  assert.deepEqual(labels("source"), ["structure-guard", "documentation-guard", "generated-ast-guard", "archive-parser"]);
+  assert.deepEqual(labels("fast"), ["cache-preflight", "structure-guard", "documentation-guard", "generated-ast-guard", "archive-parser", "format", "rust-check", "lib-tests"]);
+  assert.deepEqual(labels("core"), ["cache-preflight", "structure-guard", "documentation-guard", "generated-ast-guard", "lib-tests", "core-integration"]);
+  assert.deepEqual(labels("contracts"), ["cache-preflight", "structure-guard", "documentation-guard", "generated-ast-guard", "contract-preflight"]);
+  assert.deepEqual(labels("tooling"), [...suites.map(([label]) => label), "structure-guard", "documentation-guard", "generated-ast-guard"]);
+  assert.deepEqual(labels("full"), ["cache-preflight", "format", ...suites.map(([label]) => label), "structure-guard", "documentation-guard", "generated-ast-guard", "clippy", "rust-tests", "node-tests"]);
   assert.deepEqual(engineCheckPlans.source.phases.at(-1), engineCheckPlans.fast.phases.find(phase => phase.label === "archive-parser"));
   assert.equal(engineCheckPlans.contracts.phases.at(-1)?.preflight, true);
   assert.equal(engineCheckPlans.source.phases.at(-1)?.preflight, true);

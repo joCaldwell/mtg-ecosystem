@@ -17,6 +17,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
+pub mod ast;
 mod attachment_modifiers;
 mod basic_land_fetch;
 mod basic_landwalk;
