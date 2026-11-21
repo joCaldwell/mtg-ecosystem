@@ -2534,27 +2534,25 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                                 if !spell.targets.is_empty() {
                                     return Err(unsupported("enchant", "duplicate enchant"));
                                 }
-                                spell.targets.push(TargetSpec {
-                                    slot: 0,
-                                    selection_id: format!("enchanted-{}", target.noun()),
-                                    chooser: Chooser::Controller,
-                                    stage: EvaluationStage::Announcement,
-                                    filter: (target != AuraControlTarget::Creature).then(|| {
-                                        PermanentFilter {
-                                            power: None,
-                                            types: target.kind().into_iter().collect(),
-                                            non_types: vec![],
-                                            non_colors: vec![],
-                                            opponent: false,
-                                            tapped: false,
-                                        }
-                                    }),
-                                    domain: if target == AuraControlTarget::Creature {
-                                        TargetDomain::BattlefieldCreature
+                                let selection = format!("enchanted-{}", target.noun());
+                                spell
+                                    .targets
+                                    .push(if target == AuraControlTarget::Creature {
+                                        TargetSpec::new(
+                                            0,
+                                            selection,
+                                            TargetDomain::BattlefieldCreature,
+                                        )
                                     } else {
-                                        TargetDomain::BattlefieldPermanent
-                                    },
-                                });
+                                        TargetSpec::new(
+                                            0,
+                                            selection,
+                                            TargetDomain::BattlefieldPermanent,
+                                        )
+                                        .with_filter(
+                                            PermanentFilter::any().with_types(target.kind()),
+                                        )
+                                    });
                                 continue;
                             }
                             if keyword.keyword == "affinity" {
@@ -3582,14 +3580,7 @@ fn bind_target(
     }
     let slot = u32::try_from(program.targets.len())
         .map_err(|_| invalid("targets", "structural slot limit"))?;
-    program.targets.push(TargetSpec {
-        slot,
-        selection_id: id.into(),
-        chooser: Chooser::Controller,
-        stage: EvaluationStage::Announcement,
-        domain,
-        filter: None,
-    });
+    program.targets.push(TargetSpec::new(slot, id, domain));
     slots.insert(id.into(), slot);
     Ok(slot)
 }
@@ -5987,14 +5978,7 @@ fn bind_temporary_permanent_target(
             "requires exact controlled permanent target",
         ));
     }
-    let filter = Some(PermanentFilter {
-        power: None,
-        types: vec![],
-        non_types: vec![],
-        non_colors: vec![],
-        opponent: false,
-        tapped: false,
-    });
+    let filter = Some(PermanentFilter::any());
     if let Some(slot) = slots.get(&target.selection_id)
         && program
             .targets

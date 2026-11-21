@@ -1,4 +1,5 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+mod builders;
 mod mana_combination;
 pub use mana_combination::{MANA_COMBINATION_COLORS, validate_mana_combination};
 pub mod commander_modal_keyword;

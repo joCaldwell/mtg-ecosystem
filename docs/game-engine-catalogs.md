@@ -107,8 +107,12 @@ ability word the block does not print; and an evergreen keyword present in only
 one of the source keyword list and the AST. Legacy family tests therefore keep
 strict rejection for malformed mutations, and assert `composed` with the exact
 changed operands for self-consistent near misses (`tests::composed_near_miss`). `--example composition_gaps ARCHIVE` lists the
-table row each remaining card lacks; `--example inspect ARCHIVE NAME` prints one
-compile result.
+table row each remaining card lacks. Lowering still rejects at the first card-wide
+binding check; the report defers those checks, so `reason` is the first blocker
+after them, `binding` the card-wide rejection and `block` the failing printed block.
+`--example inspect ARCHIVE NAME` prints one compile result. New lowerers start IR
+structs from `PermanentFilter::any()`, `TargetSpec::new` and `SpellProgram::instructions`
+(`contracts/src/builders.rs`), so a new field touches one constructor.
 
 Adding a primitive touches the row that owns it, not every family:
 

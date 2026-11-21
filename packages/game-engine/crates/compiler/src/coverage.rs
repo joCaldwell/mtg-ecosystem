@@ -227,14 +227,28 @@ pub(crate) fn assess_record(
     }
 }
 
+/// One record that neither a family nor the compositional pipeline lowers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompositionGap {
+    pub oracle_id: String,
+    pub name: String,
+    pub commander_legal: bool,
+    /// The first blocker once card-wide binding checks are deferred: the
+    /// block table row (cost, event, step, instruction or matrix cell) that is
+    /// missing, or the binding check itself when every block would lower.
+    pub reason: String,
+    /// The card-wide reference-graph rejection, when the archived binding
+    /// also fails. Lowering enforces it before any block.
+    pub binding: Option<String>,
+    /// The printed block `reason` names, when it is a per-block blocker.
+    pub block: Option<usize>,
+}
+
 /// Diagnostic only: for every record that neither a family nor the
-/// compositional pipeline lowers, the compositional pipeline's own first
-/// rejection. Family reasons name whole-card shapes; these name the block
-/// table row (cost, event, step, instruction or matrix cell) that is missing.
-/// Rows are `(oracle_id, name, commander_legal, reason)`.
-pub fn composition_gaps(
-    archive: &Path,
-) -> Result<Vec<(String, String, bool, String)>, CoverageError> {
+/// compositional pipeline lowers, every blocker composition names. Lowering
+/// still rejects at the first card-wide binding failure; this report defers
+/// those checks so a downstream block blocker is not hidden behind them.
+pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageError> {
     let bytes = fs::read(archive).map_err(io)?;
     let text = std::str::from_utf8(&bytes).map_err(|e| CoverageError::InvalidRecord {
         line: 1,
@@ -260,25 +274,32 @@ pub fn composition_gaps(
         if archive_exclusion(&row).is_some() || crate::lower_families(accepted, raw).is_ok() {
             continue;
         }
-        let Err(gap) = crate::compose::lower(accepted, raw) else {
+        let found = crate::compose::blockers(accepted, raw);
+        let abilities = &row["faces"][0]["result"]["abilities"];
+        let code = |f: &crate::Failure| reason_code(&f.path, &f.reason, abilities);
+        let binding = found.binding.as_ref().map(code);
+        let Some(reason) = found
+            .lowering
+            .as_ref()
+            .map(code)
+            .or_else(|| binding.clone())
+        else {
             continue;
         };
-        gaps.push((
-            row["oracleIdentity"]
+        gaps.push(CompositionGap {
+            oracle_id: row["oracleIdentity"]
                 .as_str()
                 .unwrap_or_default()
                 .to_owned(),
-            row["source"]["name"]
+            name: row["source"]["name"]
                 .as_str()
                 .unwrap_or_default()
                 .to_owned(),
-            row["source"]["legalities"]["commander"] == "legal",
-            reason_code(
-                &gap.path,
-                &gap.reason,
-                &row["faces"][0]["result"]["abilities"],
-            ),
-        ));
+            commander_legal: row["source"]["legalities"]["commander"] == "legal",
+            reason,
+            binding,
+            block: found.block,
+        });
     }
     Ok(gaps)
 }
