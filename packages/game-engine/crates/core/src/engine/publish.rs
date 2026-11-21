@@ -261,7 +261,7 @@ impl Game {
         }
         let decider = self.state.rules.frame.decider(self)?;
         if !self.republish_rows(decider)? {
-            self.publish_full(decider)?;
+            self.publish_full(decider, false)?;
         }
         self.published = Some(Arc::new(Published::of(&self.state)));
         Ok(())
@@ -324,7 +324,19 @@ impl Game {
         mut reference: Game,
         published: &Result<(), String>,
     ) {
-        let complete = reference.publish();
+        // The reference publishes nothing incrementally and builds each view
+        // row by row in table order.
+        let complete = if reference.setup_automatic() {
+            Ok(())
+        } else {
+            reference
+                .state
+                .rules
+                .frame
+                .decider(&reference)
+                .map_err(String::from)
+                .and_then(|decider| reference.publish_full(decider, true))
+        };
         assert_eq!(
             *published, complete,
             "incremental publication outcome differs from the complete projection"

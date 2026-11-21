@@ -379,6 +379,131 @@ impl From<PermittedView> for StoredPermittedView {
     }
 }
 impl StoredPermittedView {
+    /// Builds a view as it is stored, from rows already in view order.
+    /// `header` carries every field that is not a row collection. Each
+    /// collection, and each row, that equals `previous`'s is that allocation:
+    /// exactly the sharing `reuse_previous` gives a converted public view.
+    pub(super) fn from_rows(
+        header: PermittedView,
+        players: Vec<VisiblePlayer>,
+        objects: Vec<VisibleObject>,
+        stack: Vec<VisibleStackEntry>,
+        previous: Option<&Self>,
+    ) -> Self {
+        let PermittedView {
+            known_searched_hand,
+            known_library_positions,
+            sacrifice_choices,
+            setup,
+            effects,
+            combat,
+            viewer,
+            active,
+            turn_owner,
+            turn,
+            live_turn_order,
+            commanders,
+            priority,
+            players: _,
+            objects: _,
+            stack: _,
+        } = header;
+        let previous = previous.filter(|previous| previous.viewer == viewer);
+        // Object rows: both lists are ordered by handle.
+        let mut rows = Vec::with_capacity(objects.len());
+        let mut all_shared = previous.is_some_and(|p| p.objects.len() == objects.len());
+        let old_rows = previous.map_or(&[][..], |p| p.objects.as_slice());
+        let mut old = old_rows.iter().peekable();
+        for object in objects {
+            while old
+                .peek()
+                .is_some_and(|row| row.handle.0.as_str() < object.handle.0.as_str())
+            {
+                old.next();
+            }
+            match old.peek() {
+                Some(row) if row.handle == object.handle && row.0.value == object => {
+                    all_shared &=
+                        rows.len() < old_rows.len() && Arc::ptr_eq(&row.0, &old_rows[rows.len()].0);
+                    rows.push((*row).clone());
+                    old.next();
+                }
+                _ => {
+                    all_shared = false;
+                    rows.push(StoredObject::new(object));
+                }
+            }
+        }
+        let objects = match previous {
+            Some(previous) if all_shared => previous.data.objects.clone(),
+            _ => Arc::new(rows),
+        };
+        let players = match previous {
+            Some(previous)
+                if previous.players.len() == players.len()
+                    && previous
+                        .players
+                        .iter()
+                        .zip(&players)
+                        .all(|(old, new)| old.0.value == *new) =>
+            {
+                previous.data.players.clone()
+            }
+            _ => {
+                let mut old = previous
+                    .map(|p| {
+                        p.players
+                            .iter()
+                            .map(|row| (row.player, row))
+                            .collect::<BTreeMap<_, _>>()
+                    })
+                    .unwrap_or_default();
+                let mut stored = Vec::with_capacity(players.len());
+                for player in players {
+                    match old.remove(&player.player) {
+                        Some(row) if row.0.value == player => stored.push(row.clone()),
+                        _ => stored.push(StoredPlayer::new(player)),
+                    }
+                }
+                Arc::new(stored)
+            }
+        };
+        let (commanders, commanders_bytes) = match previous {
+            Some(previous) if *previous.data.commanders == commanders => (
+                previous.data.commanders.clone(),
+                previous.commanders_bytes.clone(),
+            ),
+            _ => (Arc::new(commanders), Arc::new(OnceLock::new())),
+        };
+        let stack = match previous {
+            Some(previous) if previous.data.stack.matches_public(&stack) => {
+                previous.data.stack.clone()
+            }
+            _ => StoredStack::from_rows(stack, previous.map(|p| &p.data.stack)),
+        };
+        Self {
+            data: StoredViewData {
+                known_searched_hand,
+                known_library_positions,
+                sacrifice_choices,
+                setup,
+                effects,
+                combat,
+                viewer,
+                active,
+                turn_owner,
+                turn,
+                live_turn_order,
+                commanders,
+                priority,
+                players,
+                objects,
+                stack,
+            },
+            segments: OnceLock::new(),
+            commanders_bytes,
+        }
+    }
     /// This view with its priority holder and turn replaced. Every shared
     /// row collection, and the canonical bytes that follow one, stays shared.
     pub(super) fn with_priority_and_turn(
