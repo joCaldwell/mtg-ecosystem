@@ -91,6 +91,8 @@ pub(super) fn can_create(source: &Definition, kind: PredefinedToken) -> bool {
             .iter()
             .any(|i| matches!(i,Instruction::CreatePredefinedTokens{kind:k,..} if *k==kind))
     };
+    // CR 111.10: a resolving spell may be the creating recipe as well.
     source.triggered.iter().any(|a| program(&a.program))
         || source.activated.iter().any(|a| program(&a.program))
+        || source.spell.as_ref().is_some_and(program)
 }

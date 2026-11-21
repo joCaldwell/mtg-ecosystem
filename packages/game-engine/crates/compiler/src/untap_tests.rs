@@ -135,10 +135,28 @@ fn untap_source_rejects_all_unrepresented_target_and_step_fields() {
             "{field}: {result:?}"
         );
     }
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    let raw = changed("Synthetic qualified untap target.", |a| {
+        a["effects"][0]["steps"][0]["what"]["filter"] = json!({"types":["creature"]})
+    });
+    let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+    let spell = d.spell.as_ref().unwrap();
+    assert_eq!(
+        tests::sole_target(spell),
+        (
+            TargetDomain::BattlefieldPermanent,
+            vec![CardKind::Creature],
+            vec![],
+            vec![],
+            false,
+            false
+        )
+    );
+    assert_eq!(tests::ops(spell), ["untap_permanent"]);
     for filter in [
         Value::Null,
         json!({}),
-        json!({"types":["creature"]}),
         json!({"cls":"permanent","control":"you"}),
         json!({"cls":"permanent","control":"opponent"}),
         json!({"cls":"permanent","owner":"you"}),
@@ -199,7 +217,7 @@ fn untap_rejects_extra_effects_and_modal_composition_as_whole_sources() {
 }
 
 #[test]
-fn untap_source_does_not_acquire_activated_or_triggered_support() {
+fn untap_behind_a_tap_cost_or_entry_trigger_is_an_ordinary_composed_ability() {
     for activated in [true, false] {
         let text = if activated {
             "{T}: Untap target permanent."
@@ -236,10 +254,33 @@ fn untap_source_does_not_acquire_activated_or_triggered_support() {
                 }
             }
         });
-        let result = compile(MANIFEST, &raw);
-        assert!(
-            matches!(result, CompileResult::Unsupported { .. }),
-            "{text}: {result:?}"
+        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let program = if activated {
+            let [ability] = d.activated.as_slice() else {
+                panic!("one activation")
+            };
+            assert_eq!(ability.cost, ActivationCost::TapSource);
+            assert!(d.triggered.is_empty());
+            &ability.program
+        } else {
+            let [ability] = d.triggered.as_slice() else {
+                panic!("one trigger")
+            };
+            assert_eq!(ability.condition, TriggerCondition::SelfEntersBattlefield);
+            assert!(d.activated.is_empty());
+            &ability.program
+        };
+        assert_eq!(
+            tests::sole_target(program),
+            (
+                TargetDomain::BattlefieldPermanent,
+                vec![],
+                vec![],
+                vec![],
+                false,
+                false
+            )
         );
+        assert_eq!(tests::ops(program), ["untap_permanent"]);
     }
 }

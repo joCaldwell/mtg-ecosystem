@@ -120,10 +120,6 @@ fn activated_counter_rejects_unrepresented_target_filters_and_occurrences() {
             "filter",
             json!({"cls":"spell","allOf":[{"types":["creature"]}]}),
         ),
-        (
-            "filter",
-            json!({"cls":"ability","anyOf":[{"abilityKind":"activated"},{"abilityKind":"triggered"}]}),
-        ),
         ("count", json!({"amount":"fixed","value":2})),
         ("ref", json!("all")),
         ("selectionId", json!("")),
@@ -135,6 +131,30 @@ fn activated_counter_rejects_unrepresented_target_filters_and_occurrences() {
             "{field}"
         );
     }
+}
+#[test]
+fn activated_counter_of_an_ability_is_an_ordinary_composed_activation() {
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    let raw = changed(|a| {
+        a["effects"][0]["steps"][0]["what"]["filter"] = json!({"cls":"ability","anyOf":[{"abilityKind":"activated"},{"abilityKind":"triggered"}]})
+    });
+    let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+    let [ability] = d.activated.as_slice() else {
+        panic!("one activation")
+    };
+    assert_eq!(
+        tests::sole_target(&ability.program),
+        (
+            TargetDomain::StackActivatedOrTriggeredAbility,
+            vec![],
+            vec![],
+            vec![],
+            false,
+            false
+        )
+    );
+    assert_eq!(tests::ops(&ability.program), ["counter_stack_object"]);
 }
 #[test]
 fn activated_counter_rejects_incomplete_costs_and_extra_effects() {

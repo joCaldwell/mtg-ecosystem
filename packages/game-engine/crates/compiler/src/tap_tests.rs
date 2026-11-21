@@ -152,16 +152,53 @@ fn tap_source_consumes_complete_target_and_rejects_optional_or_qualified_steps()
             "{field}: {result:?}"
         );
     }
+    use TargetDomain::BattlefieldPermanent;
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    for (filter, expected) in [
+        (
+            json!({"cls":"permanent"}),
+            (BattlefieldPermanent, vec![], vec![], vec![], false, false),
+        ),
+        (
+            json!({"types":["creature"],"control":"opponent"}),
+            (
+                BattlefieldPermanent,
+                vec![CardKind::Creature],
+                vec![],
+                vec![],
+                true,
+                false,
+            ),
+        ),
+        (
+            json!({"types":["creature"],"status":["tapped"]}),
+            (
+                BattlefieldPermanent,
+                vec![CardKind::Creature],
+                vec![],
+                vec![],
+                false,
+                true,
+            ),
+        ),
+    ] {
+        let raw = changed("Synthetic qualified tap target.\nDraw a card.", |r| {
+            r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"] =
+                filter
+        });
+        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let spell = d.spell.as_ref().unwrap();
+        assert_eq!(tests::sole_target(spell), expected);
+        assert_eq!(tests::ops(spell), ["tap_permanent", "draw_cards"]);
+    }
     for filter in [
         Value::Null,
         json!({}),
-        json!({"cls":"permanent"}),
         json!({"types":["artifact","creature"]}),
         json!({"types":["creature"],"control":"you"}),
-        json!({"types":["creature"],"control":"opponent"}),
         json!({"types":["creature"],"owner":"you"}),
         json!({"types":["creature"],"status":["untapped"]}),
-        json!({"types":["creature"],"status":["tapped"]}),
         json!({"types":["creature"],"subtypes":["Human"]}),
     ] {
         let raw = changed("Synthetic qualified tap target.\nDraw a card.", |r| {
@@ -209,13 +246,7 @@ fn tap_source_preserves_standalone_support_and_rejects_unreviewed_composition() 
             source_block: 0
         }]
     ));
-    for case in [
-        "draw-two",
-        "optional",
-        "other-player",
-        "extra-step",
-        "reversed",
-    ] {
+    for case in ["optional", "other-player", "extra-step", "reversed"] {
         let text = if case == "reversed" {
             "Draw a card.\nTap target creature."
         } else {
@@ -242,6 +273,47 @@ fn tap_source_preserves_standalone_support_and_rejects_unreviewed_composition() 
             "{case}: {result:?}"
         );
     }
+}
+
+#[test]
+fn tap_then_two_draws_is_an_ordinary_composed_sequence() {
+    // A fixed draw of two is two single draws after the tap (CR 121.2).
+    let raw = changed("Synthetic tap creature.\nSynthetic draw clause.", |r| {
+        r["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["amount"]["value"] =
+            2.into()
+    });
+    let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+    let spell = d.spell.as_ref().unwrap();
+    assert_eq!(
+        tests::sole_target(spell),
+        (
+            TargetDomain::BattlefieldCreature,
+            vec![],
+            vec![],
+            vec![],
+            false,
+            false
+        )
+    );
+    assert_eq!(
+        spell.instructions,
+        [
+            Instruction::TapPermanent {
+                target_slot: 0,
+                source_block: 0
+            },
+            Instruction::DrawCards {
+                count: 1.into(),
+                recipient: None,
+                source_block: 1
+            },
+            Instruction::DrawCards {
+                count: 1.into(),
+                recipient: None,
+                source_block: 1
+            }
+        ]
+    );
 }
 
 #[test]

@@ -110,16 +110,54 @@ fn complete_royal_assassin_preserves_source_tap_and_tapped_creature_destruction(
 }
 #[test]
 fn tap_source_destroy_rejects_unrepresented_target_qualifiers() {
+    use CardKind::{Artifact, Creature};
+    use TargetDomain::{BattlefieldCreature, BattlefieldPermanent};
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    for (filter, expected, op) in [
+        (
+            json!({"types":["creature"]}),
+            (BattlefieldCreature, vec![], vec![], vec![], false, false),
+            "destroy_target_creature",
+        ),
+        (
+            json!({"types":["artifact"],"status":["tapped"]}),
+            (
+                BattlefieldPermanent,
+                vec![Artifact],
+                vec![],
+                vec![],
+                false,
+                true,
+            ),
+            "destroy_permanent",
+        ),
+        (
+            json!({"types":["creature"],"status":["tapped"],"control":"opponent"}),
+            (
+                BattlefieldPermanent,
+                vec![Creature],
+                vec![],
+                vec![],
+                true,
+                true,
+            ),
+            "destroy_permanent",
+        ),
+    ] {
+        let raw = changed(|a| a["effects"][0]["steps"][0]["what"]["filter"] = filter);
+        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let [ability] = d.activated.as_slice() else {
+            panic!("one activation")
+        };
+        assert_eq!(ability.cost, ActivationCost::TapSource);
+        assert_eq!(tests::sole_target(&ability.program), expected);
+        assert_eq!(tests::ops(&ability.program), [op]);
+    }
     for (field, value) in [
-        ("filter", json!({"types":["creature"]})),
         (
             "filter",
             json!({"types":["creature"],"status":["untapped"]}),
-        ),
-        ("filter", json!({"types":["artifact"],"status":["tapped"]})),
-        (
-            "filter",
-            json!({"types":["creature"],"status":["tapped"],"control":"opponent"}),
         ),
         ("count", json!({"amount":"fixed","value":2})),
         ("ref", json!("all")),

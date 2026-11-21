@@ -162,15 +162,67 @@ fn permanent_bounce_rejects_unrepresented_selector_filter_and_destination_terms(
             "{field}: {result:?}"
         );
     }
+    use CardKind::{Artifact, Creature, Land};
+    use TargetDomain::BattlefieldPermanent;
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    for (filter, expected) in [
+        (
+            json!({"cls":"permanent","control":"opponent"}),
+            (BattlefieldPermanent, vec![], vec![], vec![], true, false),
+        ),
+        (
+            json!({"cls":"permanent","status":["tapped"]}),
+            (BattlefieldPermanent, vec![], vec![], vec![], false, true),
+        ),
+        (
+            json!({"cls":"permanent","nonTypes":["artifact"]}),
+            (
+                BattlefieldPermanent,
+                vec![],
+                vec![Artifact],
+                vec![],
+                false,
+                false,
+            ),
+        ),
+        (
+            json!({"cls":"permanent","nonTypes":["land","creature"]}),
+            (
+                BattlefieldPermanent,
+                vec![],
+                vec![Land, Creature],
+                vec![],
+                false,
+                false,
+            ),
+        ),
+        (
+            json!({"cls":"permanent","nonColors":["black"]}),
+            (
+                BattlefieldPermanent,
+                vec![],
+                vec![],
+                vec![Color::B],
+                false,
+                false,
+            ),
+        ),
+    ] {
+        let raw = changed("Synthetic qualified permanent-bounce target.", |r| {
+            r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"] =
+                filter
+        });
+        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let spell = d.spell.as_ref().unwrap();
+        assert_eq!(spell.timing, SpellTiming::Instant);
+        assert_eq!(tests::sole_target(spell), expected);
+        assert_eq!(tests::ops(spell), ["return_to_owner_hand"]);
+    }
     for filter in [
         json!({"cls":"permanent","owner":"you"}),
         json!({"cls":"permanent","control":"you"}),
-        json!({"cls":"permanent","control":"opponent"}),
-        json!({"cls":"permanent","status":["tapped"]}),
         json!({"cls":"permanent","types":["artifact"]}),
-        json!({"cls":"permanent","nonTypes":["artifact"]}),
-        json!({"cls":"permanent","nonTypes":["land","creature"]}),
-        json!({"cls":"permanent","nonColors":["black"]}),
         json!({"cls":"permanent","unknown":true}),
         Value::Null,
     ] {
@@ -210,6 +262,7 @@ fn permanent_bounce_rejects_unrepresented_selector_filter_and_destination_terms(
 #[test]
 fn permanent_bounce_rejects_extra_effects_and_nonordinary_program_contexts() {
     for context in ["draw", "modal", "additional-cost", "activated", "triggered"] {
+        let near_miss = context == "activated";
         let text = match context {
             "draw" => "Return target permanent to its owner's hand. Draw a card.",
             "modal" => "Choose one — return target permanent to its owner's hand; or draw a card.",
@@ -248,6 +301,28 @@ fn permanent_bounce_rejects_extra_effects_and_nonordinary_program_contexts() {
             }
         });
         let result = compile(MANIFEST, &raw);
+        if near_miss {
+            // The same instruction behind a tap cost is an ordinary activation.
+            let d = tests::composed_near_miss(result);
+            let [ability] = d.activated.as_slice() else {
+                panic!("one activation")
+            };
+            assert_eq!(ability.cost, ActivationCost::TapSource);
+            assert_eq!(
+                tests::sole_target(&ability.program),
+                (
+                    TargetDomain::BattlefieldPermanent,
+                    vec![],
+                    vec![],
+                    vec![],
+                    false,
+                    false
+                )
+            );
+            assert_eq!(tests::ops(&ability.program), ["return_to_owner_hand"]);
+            assert!(d.triggered.is_empty() && d.static_abilities.is_empty());
+            continue;
+        }
         assert!(
             matches!(result, CompileResult::Unsupported { .. }),
             "{context}: {result:?}"

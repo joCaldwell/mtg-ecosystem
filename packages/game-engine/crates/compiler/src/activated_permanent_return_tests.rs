@@ -128,11 +128,46 @@ fn complete_temporal_adept_preserves_paid_unqualified_owner_hand_activation() {
 }
 #[test]
 fn activated_permanent_return_rejects_qualified_or_incomplete_selectors() {
+    use CardKind::Land;
+    use TargetDomain::{BattlefieldCreature, BattlefieldPermanent};
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    let original = lowered(ADEPT);
+    for (filter, expected) in [
+        (
+            json!({"cls":"permanent","nonTypes":["land"]}),
+            (
+                BattlefieldPermanent,
+                vec![],
+                vec![Land],
+                vec![],
+                false,
+                false,
+            ),
+        ),
+        (
+            json!({"types":["creature"]}),
+            (BattlefieldCreature, vec![], vec![], vec![], false, false),
+        ),
+        (
+            json!({"cls":"permanent","control":"opponent"}),
+            (BattlefieldPermanent, vec![], vec![], vec![], true, false),
+        ),
+        (
+            json!({"cls":"permanent","status":["tapped"]}),
+            (BattlefieldPermanent, vec![], vec![], vec![], false, true),
+        ),
+    ] {
+        let raw = changed(|a| a["effects"][0]["steps"][0]["what"]["filter"] = filter);
+        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let [ability] = d.activated.as_slice() else {
+            panic!("one activation")
+        };
+        assert_eq!(ability.cost, original.activated[0].cost);
+        assert_eq!(tests::sole_target(&ability.program), expected);
+        assert_eq!(tests::ops(&ability.program), ["return_to_owner_hand"]);
+    }
     for (field, value) in [
-        ("filter", json!({"cls":"permanent","nonTypes":["land"]})),
-        ("filter", json!({"types":["creature"]})),
-        ("filter", json!({"cls":"permanent","control":"opponent"})),
-        ("filter", json!({"cls":"permanent","status":["tapped"]})),
         ("count", json!({"amount":"fixed","value":2})),
         ("ref", json!("all")),
         ("selectionId", json!("")),

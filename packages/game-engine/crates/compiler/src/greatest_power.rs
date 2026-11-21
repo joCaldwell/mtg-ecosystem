@@ -159,6 +159,7 @@ pub(super) fn lower(r: &Record, archive: &AcceptedArchive) -> Result<Option<Defi
         oracle_id: src.oracle_id,
         name: src.name,
         x_mana_cost: false,
+        composed: false,
         intrinsic_zone: None,
         activated: vec![],
         static_abilities: vec![],

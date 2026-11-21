@@ -35,6 +35,7 @@ mod colored_library_search;
 mod combat_hand_cast;
 mod combat_window;
 mod commander_modal_keyword;
+mod compose;
 mod composed_spell;
 #[cfg(test)]
 mod composition_wave_a_tests;
@@ -1531,7 +1532,24 @@ fn compile_result(result: Result<Definition, Failure>) -> CompileResult {
         },
     }
 }
+/// Whole-card families first; a record no family supports falls back to the
+/// block-by-block compositional pipeline. A family rejection that is not
+/// recovered keeps its original path and reason.
 fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
+    match lower_families(archive, record) {
+        // A family that recognised the source and rejected its reference
+        // graph has given an integrity verdict; only shape rejections fall back.
+        Err(family)
+            if family.unsupported
+                && family.path != "binding"
+                && !family.path.starts_with("binding.") =>
+        {
+            compose::lower(archive, record).map_err(|_| family)
+        }
+        other => other,
+    }
+}
+fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
     let r: Record = decode(record, "record")?;
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
@@ -2243,6 +2261,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             power,
             toughness,
         },
+        composed: false,
         intrinsic_zone: if kind == CardKind::Land {
             Some(FunctioningZone::Battlefield)
         } else {
@@ -8072,6 +8091,65 @@ mod tests {
         let abilities = serde_json::json!([r["faces"][0]["result"]["abilities"]]);
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
+    }
+    /// A changed source that no family supports but that is a complete,
+    /// self-consistent ordinary card: the block-by-block pipeline must lower
+    /// it, mark it composed, and admit it only through the composition matrix.
+    /// Callers assert the changed semantics on the returned definition.
+    pub(crate) fn composed_near_miss(result: CompileResult) -> Definition {
+        let CompileResult::Lowered { definition } = result else {
+            panic!("near miss must lower: {result:?}")
+        };
+        assert!(definition.composed);
+        assert!(
+            definition
+                .capabilities
+                .contains(&Capability::ComposedAbilityV1)
+        );
+        definition.validate().unwrap();
+        *definition
+    }
+    /// A program's sole target as `(domain, types, non_types, non_colors,
+    /// opponent, tapped)`, with an absent filter rendered as unrestricted.
+    pub(crate) type TargetShape = (
+        TargetDomain,
+        Vec<CardKind>,
+        Vec<CardKind>,
+        Vec<Color>,
+        bool,
+        bool,
+    );
+    pub(crate) fn sole_target(program: &SpellProgram) -> TargetShape {
+        let [target] = program.targets.as_slice() else {
+            panic!("one target: {:?}", program.targets)
+        };
+        match &target.filter {
+            None => (target.domain, vec![], vec![], vec![], false, false),
+            Some(f) => {
+                assert!(f.power.is_none());
+                (
+                    target.domain,
+                    f.types.clone(),
+                    f.non_types.clone(),
+                    f.non_colors.clone(),
+                    f.opponent,
+                    f.tapped,
+                )
+            }
+        }
+    }
+    /// The program's instruction operations, in order.
+    pub(crate) fn ops(program: &SpellProgram) -> Vec<String> {
+        program
+            .instructions
+            .iter()
+            .map(|i| {
+                serde_json::to_value(i).unwrap()["op"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect()
     }
     fn match_record(name: &str) -> &'static str {
         fixtures::MATCH_RECORDS

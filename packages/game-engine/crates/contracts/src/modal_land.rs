@@ -171,6 +171,7 @@ pub(super) fn plain_face(
             power: None,
             toughness: None,
         },
+        composed: false,
         intrinsic_zone: None,
         spell: None,
         activated: vec![],

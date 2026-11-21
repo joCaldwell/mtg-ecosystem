@@ -37,6 +37,7 @@ fn definition_from_row(row: ArchiveRow) -> Definition {
         oracle_id: row.oracle_identity,
         name: source["name"].as_str().unwrap().into(),
         characteristics: characteristics(),
+        composed: false,
         intrinsic_zone: None,
         spell: Some(permanent_spell()),
         activated: vec![],

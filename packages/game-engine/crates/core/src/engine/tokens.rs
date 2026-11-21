@@ -528,8 +528,11 @@ impl Game {
             let expected = match &t.spec {
                 TokenTemplate::Created(spec) => {
                     spec.validate()?;
+                    // CR 111.1: any of the source's spell, activated or
+                    // triggered programs may be the creating recipe.
                     if !source.spell.as_ref().is_some_and(|p| creates(p, spec))
                         && !source.triggered.iter().any(|a| creates(&a.program, spec))
+                        && !source.activated.iter().any(|a| creates(&a.program, spec))
                     {
                         return Err("snapshot token differs from creating instruction".into());
                     }
