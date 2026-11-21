@@ -50,6 +50,38 @@ impl Game {
             }
         }
     }
+    /// Accepts a validated answer: journals it and leaves it pending for the
+    /// next rule step. A receipt issued for another executor or an earlier
+    /// state is illegal input and changes nothing.
+    pub(in crate::engine) fn accept(
+        &mut self,
+        receipt: ValidatedResponse,
+    ) -> Result<(), RuleError> {
+        if !Arc::ptr_eq(&receipt.executor, &self.executor)
+            || !Arc::ptr_eq(&receipt.state_token, &self.state_token)
+            || receipt.revision != self.state.rules.revision
+            || self.state.rules.pending.is_some()
+        {
+            return Err(RuleError::illegal("stale or foreign validation receipt"));
+        }
+        let revision = self
+            .state
+            .rules
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| RuleError::resource("structural revision resource limit"))?;
+        let input = receipt.input;
+        self.transact_input(|tx| {
+            let rules = tx.rules_mut();
+            rules.retained_auxiliary_charge = rules
+                .retained_auxiliary_charge
+                .saturating_add(stored_history::payload_charge(&input));
+            rules.pending = Some(input.clone());
+            rules.revision = revision;
+            tx.state.audit.journal.push(input);
+            Ok(())
+        })
+    }
     /// Counts the rule step this transaction executed.
     fn count_rule_step(&mut self) -> Result<(), RuleError> {
         let rules = self.rules_mut();
