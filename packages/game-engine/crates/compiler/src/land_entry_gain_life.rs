@@ -62,11 +62,13 @@ pub(super) fn lower(
             optional_additional_costs: vec![],
             additional_sacrifice: None,
             targets: vec![],
-            instructions: vec![Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount,
-                source_block: source_block(block)?,
-            }],
+            instructions: vec![Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Triggered),
+                    amount: Amount::Fixed { value: amount },
+                },
+                source_block(block)?,
+            )],
             modes: vec![],
         },
     }))
@@ -155,11 +157,13 @@ mod tests {
         );
         assert_eq!(
             definition.triggered[0].program.instructions,
-            [Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 1.into(),
-                source_block: 1,
-            }]
+            [Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Triggered),
+                    amount: Amount::fixed(1)
+                },
+                1
+            )]
         );
 
         let wrong_amount = crate::tests::changed_source(SOURCE, |record| {

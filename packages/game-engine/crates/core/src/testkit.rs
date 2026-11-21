@@ -13,6 +13,7 @@ pub use crate::engine::{
     impulse_play, mana_tap_observer, optional_block, proliferate, resolution_mana, target_color,
 };
 pub use crate::{build_id, formats, query};
+pub use mtg_contracts::kir::{Amount, Context, EventPlayerRole, PlayerExpr, Ref, SetExpr, Verb};
 pub use mtg_contracts::*;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};

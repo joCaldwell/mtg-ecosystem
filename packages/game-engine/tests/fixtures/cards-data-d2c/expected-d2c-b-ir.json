@@ -67,9 +67,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "lose_life",
-                "recipient": "event_player",
-                "amount": "2",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "lose_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "active_player"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "2"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {

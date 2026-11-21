@@ -122,11 +122,13 @@ fn temporary_permanent_keyword_compiler_exact_tamiyo_archive_source_and_provenan
                 duration: Duration::UntilEndOfTurn,
                 source_block: 0
             },
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: Quantity::from(2),
-                source_block: 0
-            }
+            Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(2)
+                },
+                0
+            )
         ]
     );
     let descriptor = temporary_targeted_keyword_program(p).unwrap();

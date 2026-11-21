@@ -100,11 +100,13 @@ impl BoundArtifactMode {
                 let n = positive(n)?;
                 (
                     json!({"effect":"gain-life","who":{"player":"you"},"amount":{"amount":"fixed","value":n}}),
-                    Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: i64::from(n).into(),
-                        source_block: block,
-                    },
+                    Instruction::act(
+                        Verb::GainLife {
+                            player: PlayerExpr::you(Context::Activated),
+                            amount: Amount::fixed(i64::from(n)),
+                        },
+                        block,
+                    ),
                 )
             } else if let Some(rest) = text.strip_prefix("~ deals ") {
                 let (amount, recipient) = rest.split_once(" damage to ")?;
@@ -231,7 +233,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
                 m.program.instructions.iter().any(|i| {
                     matches!(
                         i,
-                        Instruction::GainLife { .. } | Instruction::ModifyPowerToughness { .. }
+                        kernel!(GainLife { .. }) | Instruction::ModifyPowerToughness { .. }
                     )
                 })
             })

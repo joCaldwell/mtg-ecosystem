@@ -56,15 +56,27 @@ impl LifeChapter {
                 death_filter: None,
                 program,
             };
-            let gain = |amount| Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: Quantity::from(i64::from(amount)),
-                source_block: block,
+            let gain = |amount| {
+                Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Triggered),
+                        amount: Amount::Fixed {
+                            value: Quantity::from(i64::from(amount)),
+                        },
+                    },
+                    block,
+                )
             };
-            let lose = |recipient, amount| Instruction::LoseLife {
-                recipient,
-                amount: Quantity::from(i64::from(amount)),
-                source_block: block,
+            let lose = |recipient, amount| {
+                Instruction::act(
+                    Verb::LoseLife {
+                        player: recipient,
+                        amount: Amount::Fixed {
+                            value: Quantity::from(i64::from(amount)),
+                        },
+                    },
+                    block,
+                )
             };
             let ops = match self.effect {
                 ChapterEffect::Gain { amount } => vec![gain(amount)],
@@ -77,7 +89,7 @@ impl LifeChapter {
                         };
                         draw as usize
                     ];
-                    steps.push(lose(LifeRecipient::Controller, loss));
+                    steps.push(lose(PlayerExpr::you(Context::Triggered), loss));
                     steps
                 }
                 ChapterEffect::Fixed(ref chapter) => chapter.instructions(block),
@@ -106,7 +118,7 @@ impl LifeChapter {
                     vec![Instruction::RegisterControllerCreatureEntryThisTurn {
                         source_block: block,
                         program: Box::new(program(vec![
-                            lose(LifeRecipient::EachOpponent, loss),
+                            lose(PlayerExpr::EachOpponent, loss),
                             gain(life),
                         ])),
                     }]
@@ -464,11 +476,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
         LibraryPlayWindowV1,
     ];
     let fixed = |op: &str, recipient: &str, field: &str| json!({"type":"object","required":["op","recipient",field],"properties":{"op":{"const":op},"recipient":{"const":recipient},(field):{"pattern":"^[1-9][0-9]*$"}}});
-    let gain = fixed("gain_life", "controller", "amount");
+    let gain = instruction_schema::kernel_verb("gain_life");
     let sequence =
         |ops: Vec<Value>| json!({"minItems":ops.len(),"maxItems":ops.len(),"prefixItems":ops});
     let child = sequence(vec![
-        fixed("lose_life", "each_opponent", "amount"),
+        instruction_schema::kernel_verb("lose_life"),
         gain.clone(),
     ]);
     let registration = json!({"required":["op","program"],"properties":{"op":{"const":"register_controller_creature_entry_this_turn"},"program":{"properties":{"resolution":{"const":"instructions"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"instructions":child,"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
@@ -477,7 +489,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     draw["properties"]["count"] = json!({"const":"1"});
     for n in 1..=3 {
         let mut steps = vec![draw.clone(); n];
-        steps.push(fixed("lose_life", "controller", "amount"));
+        steps.push(instruction_schema::kernel_verb("lose_life"));
         variants.push(sequence(steps));
     }
     variants.push(sequence(vec![

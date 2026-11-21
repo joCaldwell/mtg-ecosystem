@@ -170,23 +170,31 @@ pub fn fixed_player_modes(
         if selection.is_empty() || !ids.insert(selection.to_owned()) {
             return None;
         }
-        let recipient = LifeRecipient::Target { target_slot: 0 };
+        let recipient = PlayerExpr::target(0);
         let (operation, instruction) = match verb {
             "gains" => (
                 "gain-life",
-                Instruction::GainLife {
-                    recipient,
-                    amount: Quantity::from(i64::from(amount)),
-                    source_block: 0,
-                },
+                Instruction::act(
+                    Verb::GainLife {
+                        player: recipient,
+                        amount: Amount::Fixed {
+                            value: Quantity::from(i64::from(amount)),
+                        },
+                    },
+                    0,
+                ),
             ),
             "loses" => (
                 "lose-life",
-                Instruction::LoseLife {
-                    recipient,
-                    amount: Quantity::from(i64::from(amount)),
-                    source_block: 0,
-                },
+                Instruction::act(
+                    Verb::LoseLife {
+                        player: recipient,
+                        amount: Amount::Fixed {
+                            value: Quantity::from(i64::from(amount)),
+                        },
+                    },
+                    0,
+                ),
             ),
             _ => return None,
         };
@@ -353,7 +361,7 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
     let cap = json!({"contains":{"const":Capability::FixedTargetModesV1}});
     let free = json!({"$ref":"#/$defs/FixedTargetModesFree"});
     schema["$defs"]["FixedTargetModesFree"] = json!({"properties":{"resolution":{"not":marker},"modes":{"items":{"properties":{"program":free}}}}});
-    let child = json!({"properties":{"program":{"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"any_player"},"slot":{"const":0},"filter":{"type":"null"}}}},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"enum":["gain_life","lose_life"]},"recipient":{"const":{"target":{"target_slot":0}}},"source_block":{"const":0}}}},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
+    let child = json!({"properties":{"program":{"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":"any_player"},"slot":{"const":0},"filter":{"type":"null"}}}},"instructions":{"minItems":1,"maxItems":1,"items":{"allOf":[instruction_schema::kernel_verbs(&["gain_life","lose_life"]),{"properties":{"source_block":{"const":0}}}]}},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
     let child = json!({"anyOf":[child,{"properties":{"program":{"$ref":"#/$defs/UnionReturnChild"}}},{"properties":{"program":{"$ref":"#/$defs/GraveyardShuffleChild"}}},{"properties":{"program":{"$ref":"#/$defs/TypedCounterChild"}}},{"properties":{"program":{"$ref":"#/$defs/FixedCountersChild"}}}]});
     let basic = |domain: TargetDomain, filter: serde_json::Value, op: serde_json::Value| json!({"properties":{"resolution":{"const":"instructions"},"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"slot":{"const":0},"filter":filter}}},"instructions":{"minItems":1,"maxItems":1,"items":op},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}});
     let filter = PermanentFilter {

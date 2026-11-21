@@ -37,17 +37,13 @@ pub fn controller_counted_draw_program(p: &SpellProgram) -> bool {
                         count,
                         source_block: 0,
                     },
-                    Instruction::LoseLife {
-                        recipient: LifeRecipient::Controller,
-                        amount,
-                        source_block: 0,
-                    },
+                    kernel!(LoseLife { player: you!(), amount: fixed!(amount) } @ 0),
                 ] => !count.is_negative() && *amount > Quantity::zero(),
                 _ => false,
             })
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
-    s["$defs"]["ControllerCountedDrawProgram"] = serde_json::json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":1,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","recipient","amount","source_block"],"properties":{"op":{"const":"lose_life"},"recipient":{"const":"controller"},"amount":{"type":"string","pattern":"^[1-9][0-9]*$"},"source_block":{"const":0}}}],"items":false}}});
+    s["$defs"]["ControllerCountedDrawProgram"] = serde_json::json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":1,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},instruction_schema::kernel_verb_at("lose_life", 0)],"items":false}}});
 }
 #[cfg(test)]
 pub(crate) fn witness() -> Definition {
@@ -184,11 +180,15 @@ mod tests {
                         count: count.parse().unwrap(),
                         source_block: 0,
                     },
-                    Instruction::LoseLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: loss.parse().unwrap(),
-                        source_block: 0,
-                    },
+                    Instruction::act(
+                        Verb::LoseLife {
+                            player: PlayerExpr::you(Context::Spell),
+                            amount: Amount::Fixed {
+                                value: loss.parse().unwrap(),
+                            },
+                        },
+                        0,
+                    ),
                 ];
                 d.capabilities = d.requirements();
                 d.validate().unwrap();
@@ -226,51 +226,75 @@ mod tests {
                 .as_mut()
                 .unwrap()
                 .instructions
-                .push(Instruction::LoseLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 3.into(),
-                    source_block: 0,
-                });
+                .push(Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: Amount::fixed(3),
+                    },
+                    0,
+                ));
             let p = d.spell.as_mut().unwrap();
             match case {
                 0 => p.instructions.reverse(),
                 1 => p.instructions.push(p.instructions[1].clone()),
                 2 => {
-                    if let Instruction::LoseLife { amount, .. } = &mut p.instructions[1] {
+                    if let kernel!(LoseLife {
+                        amount: fixed!(amount),
+                        ..
+                    }) = &mut p.instructions[1]
+                    {
                         *amount = 0.into()
                     }
                 }
                 3 => {
-                    if let Instruction::LoseLife { amount, .. } = &mut p.instructions[1] {
+                    if let kernel!(LoseLife {
+                        amount: fixed!(amount),
+                        ..
+                    }) = &mut p.instructions[1]
+                    {
                         *amount = (-1).into()
                     }
                 }
                 4 => {
-                    if let Instruction::LoseLife { source_block, .. } = &mut p.instructions[1] {
+                    if let kernel!(LoseLife { .. } @ source_block) = &mut p.instructions[1] {
                         *source_block = 1
                     }
                 }
                 5 => {
-                    if let Instruction::LoseLife { recipient, .. } = &mut p.instructions[1] {
-                        *recipient = LifeRecipient::EachOpponent
+                    if let kernel!(LoseLife {
+                        player: recipient,
+                        ..
+                    }) = &mut p.instructions[1]
+                    {
+                        *recipient = PlayerExpr::EachOpponent
                     }
                 }
                 6 => {
-                    if let Instruction::LoseLife { recipient, .. } = &mut p.instructions[1] {
-                        *recipient = LifeRecipient::EventPlayer
+                    if let kernel!(LoseLife {
+                        player: recipient,
+                        ..
+                    }) = &mut p.instructions[1]
+                    {
+                        *recipient = PlayerExpr::event(kir::EventPlayerRole::Caster)
                     }
                 }
                 7 => {
-                    if let Instruction::LoseLife { recipient, .. } = &mut p.instructions[1] {
-                        *recipient = LifeRecipient::Target { target_slot: 0 }
+                    if let kernel!(LoseLife {
+                        player: recipient,
+                        ..
+                    }) = &mut p.instructions[1]
+                    {
+                        *recipient = PlayerExpr::target(0)
                     }
                 }
                 8 => {
-                    p.instructions[1] = Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: 3.into(),
-                        source_block: 0,
-                    }
+                    p.instructions[1] = Instruction::act(
+                        Verb::GainLife {
+                            player: PlayerExpr::you(Context::Spell),
+                            amount: Amount::fixed(3),
+                        },
+                        0,
+                    )
                 }
                 _ => {
                     p.instructions[0] = Instruction::DrawCards {

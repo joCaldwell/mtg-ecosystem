@@ -43,7 +43,7 @@ fn d2c_complete_sources_and_capability_closure() {
     );
     assert!(matches!(
         arena.triggered[0].program.instructions.as_slice(),
-        [Instruction::DrawCards { .. }, Instruction::LoseLife { .. }]
+        [Instruction::DrawCards { .. }, kernel!(LoseLife { .. })]
     ));
     for step in ["upkeep", "draw-step", "end-step"] {
         for whose in ["your", "each-player", "each-opponent"] {
@@ -101,7 +101,7 @@ fn d2c_whole_cards_reject_conditions_optionality_unknown_relations_and_zones() {
         definition.triggered[0].program.instructions.as_slice(),
         [
             Instruction::OptionalDrawCards { source_block: 0 },
-            Instruction::LoseLife { .. },
+            kernel!(LoseLife { .. }),
         ]
     ));
     assert!(

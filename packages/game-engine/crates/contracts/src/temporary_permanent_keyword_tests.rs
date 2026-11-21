@@ -16,11 +16,13 @@ pub(super) fn grant(life: bool) -> Definition {
         tapped: false,
     });
     if life {
-        p.instructions.push(Instruction::GainLife {
-            recipient: LifeRecipient::Controller,
-            amount: Quantity::from(2),
-            source_block: 0,
-        });
+        p.instructions.push(Instruction::act(
+            Verb::GainLife {
+                player: PlayerExpr::you(Context::Spell),
+                amount: Amount::fixed(2),
+            },
+            0,
+        ));
     }
     d.capabilities = d.requirements();
     d
@@ -93,8 +95,10 @@ fn temporary_permanent_keyword_contract_vectors_signed_stats_and_exact_life() {
     }
     for amount in ["0", "2", "99999999999999999999999999999999"] {
         let mut d = grant(true);
-        let Instruction::GainLife { amount: a, .. } =
-            &mut d.spell.as_mut().unwrap().instructions[1]
+        let kernel!(GainLife {
+            amount: fixed!(a),
+            ..
+        }) = &mut d.spell.as_mut().unwrap().instructions[1]
         else {
             unreachable!()
         };
@@ -103,8 +107,10 @@ fn temporary_permanent_keyword_contract_vectors_signed_stats_and_exact_life() {
     }
     for amount in [-1, -20] {
         let mut d = grant(true);
-        let Instruction::GainLife { amount: a, .. } =
-            &mut d.spell.as_mut().unwrap().instructions[1]
+        let kernel!(GainLife {
+            amount: fixed!(a),
+            ..
+        }) = &mut d.spell.as_mut().unwrap().instructions[1]
         else {
             unreachable!()
         };
@@ -170,13 +176,17 @@ fn temporary_permanent_keyword_contract_rejects_target_instruction_and_filter_mu
                 }
             }
             17 => {
-                if let Instruction::GainLife { source_block, .. } = &mut p.instructions[1] {
+                if let kernel!(GainLife { .. } @ source_block) = &mut p.instructions[1] {
                     *source_block = 1;
                 }
             }
             18 => {
-                if let Instruction::GainLife { recipient, .. } = &mut p.instructions[1] {
-                    *recipient = LifeRecipient::EachOpponent;
+                if let kernel!(GainLife {
+                    player: recipient,
+                    ..
+                }) = &mut p.instructions[1]
+                {
+                    *recipient = PlayerExpr::EachOpponent;
                 }
             }
             19 => p.functioning_zone = FunctioningZone::Battlefield,
@@ -297,15 +307,20 @@ fn temporary_permanent_keyword_zero_tail_exception_keeps_generic_life_strict() {
         for index in 0..original.spell.as_ref().unwrap().instructions.len() {
             if !matches!(
                 original.spell.as_ref().unwrap().instructions[index],
-                Instruction::GainLife { .. } | Instruction::LoseLife { .. }
+                kernel!(GainLife { .. }) | kernel!(LoseLife { .. })
             ) {
                 continue;
             }
             let mut d = original.clone();
             match &mut d.spell.as_mut().unwrap().instructions[index] {
-                Instruction::GainLife { amount, .. } | Instruction::LoseLife { amount, .. } => {
-                    *amount = Quantity::zero()
-                }
+                kernel!(GainLife {
+                    amount: fixed!(amount),
+                    ..
+                })
+                | kernel!(LoseLife {
+                    amount: fixed!(amount),
+                    ..
+                }) => *amount = Quantity::zero(),
                 _ => unreachable!(),
             }
             d.capabilities = d.requirements();

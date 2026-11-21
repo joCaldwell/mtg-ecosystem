@@ -151,7 +151,7 @@ fn modal_origin_selects_only_its_source_program_and_exact_budget() {
     assert!(root.instructions.is_empty());
     assert!(matches!(
         g.selected_program(root, Some(0)).unwrap().instructions[0],
-        Instruction::GainLife { .. }
+        kernel!(GainLife { .. })
     ));
     assert!(matches!(
         g.selected_program(root, Some(1)).unwrap().instructions[0],

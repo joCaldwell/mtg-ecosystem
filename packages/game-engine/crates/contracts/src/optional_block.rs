@@ -139,7 +139,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "modes":{"maxItems":0}, "targets":{"maxItems":0}, "optional_additional_costs":{"maxItems":0}, "additional_sacrifice":{"type":"null"},
             "instructions":{"minItems":2,"maxItems":2,"prefixItems":[
                 {"properties":{"op":{"const":"choose_optional"},"chooser":{"const":EffectRecipient::Controller},"following":{"const":1}}},
-                {"properties":{"op":{"const":"gain_life"},"recipient":{"const":LifeRecipient::Controller},"amount":{"pattern":"^[1-9][0-9]*$"}}}
+                instruction_schema::kernel_verb("gain_life")
             ]}
         }}
     }});

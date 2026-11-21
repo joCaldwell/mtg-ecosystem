@@ -705,10 +705,14 @@ fn permanent_target_kernel_source_tail_or_capability_shape_cannot_bless_unrelate
                 });
             }
             _ => {
-                let Instruction::GainLife { recipient, .. } = &mut p.instructions[1] else {
+                let kernel!(GainLife {
+                    player: recipient,
+                    ..
+                }) = &mut p.instructions[1]
+                else {
                     unreachable!()
                 };
-                *recipient = LifeRecipient::EachOpponent;
+                *recipient = PlayerExpr::EachOpponent;
             }
         });
         assert!(
@@ -724,7 +728,11 @@ fn permanent_target_kernel_source_tail_or_capability_shape_cannot_bless_unrelate
 fn permanent_target_kernel_zero_tail_has_no_event_and_nonfamily_zero_stays_rejected() {
     let (mut g, _, _) = kernel(PAIR, 1);
     edit_program(&mut g, |p| {
-        let Instruction::GainLife { amount, .. } = &mut p.instructions[1] else {
+        let kernel!(GainLife {
+            amount: fixed!(amount),
+            ..
+        }) = &mut p.instructions[1]
+        else {
             unreachable!()
         };
         *amount = 0.into();
@@ -747,7 +755,11 @@ fn permanent_target_kernel_zero_tail_has_no_event_and_nonfamily_zero_stays_rejec
     edit_program(&mut bad, |p| {
         p.targets[0].domain = TargetDomain::BattlefieldCreature;
         p.targets[0].filter = None;
-        let Instruction::GainLife { amount, .. } = &mut p.instructions[1] else {
+        let kernel!(GainLife {
+            amount: fixed!(amount),
+            ..
+        }) = &mut p.instructions[1]
+        else {
             unreachable!()
         };
         *amount = 0.into();

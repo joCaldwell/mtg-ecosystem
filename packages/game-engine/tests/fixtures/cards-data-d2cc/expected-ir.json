@@ -291,9 +291,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "gain_life",
-                "recipient": "controller",
-                "amount": "2",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "gain_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "2"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -391,9 +405,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "gain_life",
-                "recipient": "controller",
-                "amount": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "gain_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
@@ -701,15 +729,43 @@
             "targets": [],
             "instructions": [
               {
-                "op": "lose_life",
-                "recipient": "event_player",
-                "amount": "2",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "lose_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "caster"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "2"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
-                "op": "gain_life",
-                "recipient": "controller",
-                "amount": "2",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "gain_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "2"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]

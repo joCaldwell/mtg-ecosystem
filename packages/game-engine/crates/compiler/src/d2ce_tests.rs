@@ -609,11 +609,13 @@ fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
     damage_draw.capabilities = damage_draw.requirements();
     assert!(damage_draw.validate().is_err());
     let mut damage_life = damage_draw;
-    damage_life.triggered[0].program.instructions = vec![Instruction::GainLife {
-        recipient: LifeRecipient::EventPlayer,
-        amount: Quantity::from(1),
-        source_block: 0,
-    }];
+    damage_life.triggered[0].program.instructions = vec![Instruction::act(
+        Verb::GainLife {
+            player: PlayerExpr::event(kir::EventPlayerRole::Caster),
+            amount: Amount::fixed(1),
+        },
+        0,
+    )];
     damage_life.capabilities = damage_life.requirements();
     assert!(damage_life.validate().is_err());
     for recipient in [None, Some(ActionRecipient::Controller)] {

@@ -99,7 +99,7 @@ pub(super) fn reminder_valid(text: &str, instructions: &[Instruction]) -> bool {
     })
 }
 
-fn effects(body: &str, block: u32) -> Option<(Vec<Instruction>, Value)> {
+fn effects(body: &str, block: u32, context: Context) -> Option<(Vec<Instruction>, Value)> {
     let (body, reminder) = body
         .split_once(" (")
         .map_or((body, None), |(b, r)| (b, Some(r)));
@@ -150,11 +150,13 @@ fn effects(body: &str, block: u32) -> Option<(Vec<Instruction>, Value)> {
                     .and_then(equipped_trigger::count)?;
                 (
                     json!({"effect":"gain-life","who":{"player":"you"},"amount":fixed(n)}),
-                    Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: i64::from(n).into(),
-                        source_block: block,
-                    },
+                    Instruction::act(
+                        Verb::GainLife {
+                            player: PlayerExpr::you(context),
+                            amount: Amount::fixed(i64::from(n)),
+                        },
+                        block,
+                    ),
                 )
             };
             steps.push(ast);
@@ -259,7 +261,7 @@ pub fn printed(line: &str, raw: &Value, block: u32, kind: CardKind) -> Option<Bo
         } else {
             let (text, body) = line.split_once(": ")?;
             let (cost, costs) = cost(text, noun)?;
-            let (instructions, effects) = effects(body, block)?;
+            let (instructions, effects) = effects(body, block, Context::Activated)?;
             return (*raw == json!({"kind":"activated","costs":costs,"effects":effects}))
                 .then_some(BoundAbility::Activation(ActivatedAbility {
                     functioning_zone: FunctioningZone::Battlefield,
@@ -267,7 +269,7 @@ pub fn printed(line: &str, raw: &Value, block: u32, kind: CardKind) -> Option<Bo
                     program: program(instructions),
                 }));
         };
-    let (instructions, effects) = effects(body, block)?;
+    let (instructions, effects) = effects(body, block, Context::Triggered)?;
     (*raw==json!({"kind":"triggered","trigger":{"trigger":event,"what":{"ref":"this","noun":noun}},"effects":effects}))
         .then_some(BoundAbility::Trigger(TriggeredAbility { functioning_zone:FunctioningZone::Battlefield,
             condition,intervening_if:None,death_filter:None,program:program(instructions) }))
@@ -283,7 +285,7 @@ fn has_scalar(a: &SpellProgram) -> bool {
         )
     }) || matches!(
         a.instructions.as_slice(),
-        [Instruction::GainLife { .. }, Instruction::DrawCards { .. }]
+        [kernel!(GainLife { .. }), Instruction::DrawCards { .. }]
     )
 }
 
@@ -334,10 +336,7 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
                         recipient: None,
                         ..
                     }
-                    | Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        ..
-                    }
+                    | kernel!(GainLife { player: you!(), .. })
             )
         })
 }
@@ -422,13 +421,13 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(schema: &mut Value) {
     let has_look = json!({"contains":{"properties":{"op":{"enum":["scry","surveil","create_predefined_tokens"]}}}});
-    let inst = json!({"minItems":1,"items":{"properties":{"op":{"enum":["scry","surveil","draw_cards","gain_life","create_predefined_tokens"]}}}});
+    let inst = json!({"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["scry","surveil","draw_cards","create_predefined_tokens"]}}},instruction_schema::kernel_verb("gain_life")]}});
     schema["$defs"]["ScalarAbilityProgram"] = json!({"type":"object","required":["instructions","targets"],"properties":{
         "timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
         "targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},
         "optional_additional_costs":{"maxItems":0},"instructions":{"allOf":[inst,{"anyOf":[has_look,{
             "minItems":2,"maxItems":2,"prefixItems":[
-                {"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"}}},
+                instruction_schema::kernel_verb("gain_life"),
                 {"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"}}}
             ],"items":false}]}]}
     }});

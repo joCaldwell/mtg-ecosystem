@@ -43,7 +43,7 @@ fn d2cb_archive_programs_and_capability_closure() {
         matches!(mine.triggered[0].program.instructions.as_slice(), [Instruction::DrawCards { recipient: Some(LifeRecipient::EventPlayer), count, .. }] if *count == 1.into())
     );
     assert!(
-        matches!(seizan.triggered[0].program.instructions.as_slice(), [Instruction::LoseLife {recipient: LifeRecipient::EventPlayer, amount, ..}, Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}, Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}] if *amount == 2.into())
+        matches!(seizan.triggered[0].program.instructions.as_slice(), [kernel!(LoseLife { player: event_player!(), amount: fixed!(amount) }), Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}, Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}] if *amount == 2.into())
     );
     let mut status_only = mine.clone();
     if let Instruction::DrawCards { recipient, .. } =
@@ -96,7 +96,8 @@ fn d2cb_condition_composition_and_unbound_actor_whole_card_rejections() {
                 &effects,
                 0,
                 &mut BTreeMap::new(),
-                PlayerBinding::Unbound
+                PlayerBinding::Unbound,
+                Context::Triggered,
             )
             .is_err()
         );
@@ -154,14 +155,21 @@ fn d2cb_condition_composition_and_unbound_actor_whole_card_rejections() {
     let mut d = lower(SEIZAN);
     d.triggered[0].condition = TriggerCondition::SelfEntersBattlefield;
     d.capabilities = d.requirements();
-    assert!(d.validate().unwrap_err().contains("bound step trigger"));
+    // CR 603.2: an enters event has no active player for "that player".
+    assert!(
+        d.validate()
+            .unwrap_err()
+            .contains("kernel reference out of scope")
+    );
     let mut d = lower(MINE);
     d.triggered[0].condition = TriggerCondition::SelfDies;
-    d.triggered[0].program.instructions = vec![Instruction::GainLife {
-        recipient: LifeRecipient::Controller,
-        amount: 1.into(),
-        source_block: 0,
-    }];
+    d.triggered[0].program.instructions = vec![Instruction::act(
+        Verb::GainLife {
+            player: PlayerExpr::you(Context::Triggered),
+            amount: Amount::fixed(1),
+        },
+        0,
+    )];
     d.capabilities = d.requirements();
     assert!(d.validate().is_err());
 }

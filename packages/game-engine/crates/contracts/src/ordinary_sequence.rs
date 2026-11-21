@@ -395,19 +395,23 @@ fn instruction(
         }
         Gain => (
             json!({"effect":"gain-life","who":you,"amount":amount}),
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: count,
+            Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::Fixed { value: count },
+                },
                 source_block,
-            },
+            ),
         ),
         Lose => (
             json!({"effect":"lose-life","who":you,"amount":amount}),
-            Instruction::LoseLife {
-                recipient: LifeRecipient::Controller,
-                amount: count,
+            Instruction::act(
+                Verb::LoseLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::Fixed { value: count },
+                },
                 source_block,
-            },
+            ),
         ),
         Land => (
             json!({"effect":"additional-land-plays","allowance":{"who":you,"additional":amount},"duration":{"duration":"this-turn"}}),
@@ -557,14 +561,8 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
             | Instruction::DrawCards {
                 recipient: None, ..
             }
-            | Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                ..
-            }
-            | Instruction::LoseLife {
-                recipient: LifeRecipient::Controller,
-                ..
-            }
+            | kernel!(GainLife { player: you!(), .. })
+            | kernel!(LoseLife { player: you!(), .. })
             | Instruction::DiscardCards {
                 recipient: None, ..
             }
@@ -689,8 +687,8 @@ pub(crate) fn extend_schema(schema: &mut Value) {
                 op("exile_permanent"),op("return_to_owner_hand"),
                 {"allOf":[op("draw_cards"),{"properties":{"recipient":{"type":"null"},"count":{"const":"1"}}}]},
                 {"allOf":[op("discard_cards"),{"properties":none}]},
-                {"allOf":[op("gain_life"),{"properties":{"recipient":{"const":"controller"}}}]},
-                {"allOf":[op("lose_life"),{"properties":{"recipient":{"const":"controller"}}}]},
+                instruction_schema::kernel_verb("gain_life"),
+                instruction_schema::kernel_verb("lose_life"),
                 {"allOf":[op("destroy_permanent"),{"properties":{"optional":{"const":false},"regeneration_forbidden":{"const":false}}}]}
             ]},"anyOf":[{"contains":library},{"prefixItems":[op("discard_cards")],"contains":draw}]
             }
@@ -744,11 +742,21 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         ("scry", Capability::ControllerScryV1),
         ("surveil", Capability::ControllerSurveilV1),
         ("mill_cards", Capability::FixedMillProgramV1),
-        ("gain_life", Capability::LifeGainV1),
-        ("lose_life", Capability::LifeLossV1),
-    ] {
+    ]
+    .map(|(name, cap)| (op(name), cap))
+    .into_iter()
+    .chain([
+        (
+            instruction_schema::kernel_verb("gain_life"),
+            Capability::LifeGainV1,
+        ),
+        (
+            instruction_schema::kernel_verb("lose_life"),
+            Capability::LifeLossV1,
+        ),
+    ]) {
         def.push(json!({"if":{"required":["spell"],"properties":{"spell":{"$ref":SCHEMA}}},
-            "then":{"if":{"properties":{"spell":{"properties":{"instructions":{"contains":op(name)}}}}},
+            "then":{"if":{"properties":{"spell":{"properties":{"instructions":{"contains":name}}}}},
                 "then":{"properties":{"capabilities":capability(cap)}},
                 "else":{"properties":{"capabilities":{"not":capability(cap)}}}
             }

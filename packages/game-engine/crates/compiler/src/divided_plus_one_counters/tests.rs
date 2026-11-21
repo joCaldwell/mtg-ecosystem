@@ -56,11 +56,13 @@ fn check(raw: &str) -> Box<Definition> {
         [
             draw.clone(),
             draw,
-            Instruction::LoseLife {
-                recipient: LifeRecipient::Controller,
-                amount: 2.into(),
-                source_block: 0,
-            }
+            Instruction::act(
+                Verb::LoseLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(2)
+                },
+                0
+            )
         ]
     );
     assert_eq!(

@@ -1286,6 +1286,9 @@ impl Game {
     ) -> Result<(), String> {
         let player = frame.spell.controller;
         match instruction {
+            Instruction::Kernel { node, source_block } => {
+                self.execute_kernel(frame, node, source_block)
+            }
             Instruction::PlayHideawayLinked {
                 hideaway_block,
                 minimum_total_power,
@@ -1538,32 +1541,15 @@ impl Game {
                 gain,
                 source_block,
             } => {
-                let amount = frame.spell.x.clone().ok_or("missing announced X")?;
-                if amount == Quantity::zero() {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Life { actual: None });
-                }
-                let op = if gain {
-                    Instruction::GainLife {
-                        recipient,
-                        amount,
-                        source_block,
-                    }
-                } else {
-                    Instruction::LoseLife {
-                        recipient,
-                        amount,
-                        source_block,
-                    }
-                };
-                self.execute_damage_life_instruction(frame, op)
+                let node = kir::announced_x_life(&frame, &recipient, gain)?;
+                self.execute_kernel(frame, node, source_block)
             }
             op @ (Instruction::DealDamage { .. }
             | Instruction::DealDamageToController { .. }
             | Instruction::DealDamageToManaActivator { .. }
-            | Instruction::DealDamageAnnouncedX { .. }
-            | Instruction::GainLife { .. }
-            | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
+            | Instruction::DealDamageAnnouncedX { .. }) => {
+                self.execute_damage_life_instruction(frame, op)
+            }
             Instruction::SacrificeCreature {
                 recipient,
                 source_block,

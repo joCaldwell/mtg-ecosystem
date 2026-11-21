@@ -514,7 +514,7 @@ impl Game {
         Ok((slot, amount, block, target))
     }
 
-    fn commit_opponent_life(
+    pub(super) fn commit_opponent_life(
         &mut self,
         frame: &Resolving,
         amount: &Quantity,
@@ -602,25 +602,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        // CR 119.9: the complete permanent-grant family permits a fixed zero
-        // tail, which advances without a life event or trigger. Keep ordinary
-        // GainLife/LoseLife's strictly positive event boundary unchanged.
-        if let Instruction::GainLife {
-            recipient: LifeRecipient::Controller,
-            amount,
-            source_block: 0,
-        } = &instruction
-            && *amount == Quantity::zero()
-            && frame.cursor == 1
-            && frame.spell.kind.is_spell()
-            && self.program_for(&frame.spell).is_ok_and(|program| {
-                temporary_permanent_keyword_program(program)
-                    .is_some_and(|descriptor| descriptor.controller_life == Some(amount))
-            })
-        {
-            return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
-        }
-        let gain = matches!(instruction, Instruction::GainLife { .. });
         let (block, proposed, damage) = match instruction {
             Instruction::DealDamage { .. } | Instruction::DealDamageAnnouncedX { .. } => {
                 let (target_slot, amount, source_block, target) =
@@ -680,62 +661,6 @@ impl Game {
                     amount,
                 };
                 return self.prepare_noncombat_damage(frame, damage, source_block);
-            }
-            Instruction::GainLife {
-                recipient,
-                amount,
-                source_block,
-            }
-            | Instruction::LoseLife {
-                recipient,
-                amount,
-                source_block,
-            } => {
-                let player = match recipient {
-                    LifeRecipient::EachOpponent => {
-                        let _ = self.commit_opponent_life(&frame, &amount, source_block, gain)?;
-                        return self
-                            .finish_instruction(frame, InstructionOutcome::Life { actual: None });
-                    }
-                    LifeRecipient::EventPlayer => {
-                        let Some(actor) = frame.spell.kind.event_player()? else {
-                            return self.finish_instruction(
-                                frame,
-                                InstructionOutcome::Life { actual: None },
-                            );
-                        };
-                        actor
-                    }
-                    LifeRecipient::Controller => frame.spell.controller,
-                    LifeRecipient::Target { target_slot } => {
-                        if !frame
-                            .legal_targets
-                            .get(target_slot as usize)
-                            .copied()
-                            .unwrap_or(false)
-                        {
-                            return self.finish_instruction(
-                                frame,
-                                InstructionOutcome::Life { actual: None },
-                            );
-                        }
-                        *frame
-                            .spell
-                            .player_targets
-                            .get(target_slot as usize)
-                            .ok_or("missing life player target")?
-                    }
-                };
-                if !self.is_live(player) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Life { actual: None });
-                }
-                let proposed = if gain {
-                    ProposedEvent::GainLife { player, amount }
-                } else {
-                    ProposedEvent::LoseLife { player, amount }
-                };
-                (source_block, proposed, false)
             }
             _ => return Err("unexpected damage/life instruction".into()),
         };

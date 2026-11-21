@@ -1,4 +1,5 @@
 //! Offline archive-3 adapter and the first complete-card lowering subset.
+use mtg_contracts::kir::{Amount, Context, PlayerExpr, Verb};
 use mtg_contracts::*;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -3022,6 +3023,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                         block,
                         &mut slots,
                         PlayerBinding::AnnouncedX,
+                        Context::Spell,
                     )?;
                     continue;
                 }
@@ -3075,11 +3077,13 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                         source_block: 0,
                     });
                     if let Some(amount) = life_loss {
-                        program.instructions.push(Instruction::LoseLife {
-                            recipient: LifeRecipient::Controller,
-                            amount,
-                            source_block: 0,
-                        });
+                        program.instructions.push(Instruction::act(
+                            Verb::LoseLife {
+                                player: PlayerExpr::you(Context::Spell),
+                                amount: Amount::Fixed { value: amount },
+                            },
+                            0,
+                        ));
                     }
                     continue;
                 }
@@ -3128,6 +3132,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                         block,
                         &mut slots,
                         PlayerBinding::DiscardTarget(domain),
+                        Context::Spell,
                     )?;
                 } else {
                     optional_costs::append(&mut program, effects, block, &mut slots)?;
@@ -3589,9 +3594,18 @@ enum PlayerBinding {
     Unbound,
     AnnouncedX,
     DiscardTarget(TargetDomain),
-    EventPlayer,
+    /// "That player" is the trigger's event player in this role.
+    EventPlayer(kir::EventPlayerRole),
     DamageRecipient,
     DeathController,
+}
+impl PlayerBinding {
+    fn event_role(self) -> Option<kir::EventPlayerRole> {
+        match self {
+            Self::EventPlayer(role) => Some(role),
+            _ => None,
+        }
+    }
 }
 fn append_spell_effects(
     program: &mut SpellProgram,
@@ -3599,6 +3613,7 @@ fn append_spell_effects(
     block: usize,
     slots: &mut BTreeMap<String, u32>,
     player_binding: PlayerBinding,
+    context: Context,
 ) -> Result<(), Failure> {
     if let Some((draw, count)) = hand_return::coalesce(effects)? {
         if block != 0
@@ -3716,6 +3731,7 @@ fn append_spell_effects(
                 block,
                 &mut BTreeMap::new(),
                 player_binding,
+                context,
             )?;
             if !child.modes.is_empty() {
                 return Err(unsupported("effects.modal", "nested modes unsupported"));
@@ -3815,7 +3831,12 @@ fn append_spell_effects(
                         "only fixed controller life tail supported",
                     ));
                 };
-                Some(lower_fixed_controller_life(who, amount, source_block)?)
+                Some(lower_fixed_controller_life(
+                    who,
+                    amount,
+                    source_block,
+                    context,
+                )?)
             }
         } else {
             None
@@ -4484,32 +4505,44 @@ fn append_spell_effects(
                 Step::Mill { who, amount } => {
                     fixed_mill::instruction(program, slots, who, amount, source_block)?
                 }
-                Step::GainLife { who, amount, .. } => Instruction::GainLife {
-                    recipient: life_recipient(
-                        program,
-                        slots,
-                        who,
-                        player_binding == PlayerBinding::EventPlayer,
-                    )?,
-                    amount: fixed_positive(
-                        &serde_json::from_value(amount.clone())
-                            .map_err(|_| unsupported("amount", "unsupported fixed amount"))?,
-                    )?,
+                Step::GainLife { who, amount, .. } => Instruction::act(
+                    Verb::GainLife {
+                        player: life_player(
+                            program,
+                            slots,
+                            who,
+                            context,
+                            player_binding.event_role(),
+                        )?,
+                        amount: Amount::Fixed {
+                            value: fixed_positive(
+                                &serde_json::from_value(amount.clone()).map_err(|_| {
+                                    unsupported("amount", "unsupported fixed amount")
+                                })?,
+                            )?,
+                        },
+                    },
                     source_block,
-                },
-                Step::LoseLife { who, amount } => Instruction::LoseLife {
-                    recipient: life_recipient(
-                        program,
-                        slots,
-                        who,
-                        player_binding == PlayerBinding::EventPlayer,
-                    )?,
-                    amount: fixed_positive(
-                        &serde_json::from_value(amount.clone())
-                            .map_err(|_| unsupported("amount", "unsupported fixed amount"))?,
-                    )?,
+                ),
+                Step::LoseLife { who, amount } => Instruction::act(
+                    Verb::LoseLife {
+                        player: life_player(
+                            program,
+                            slots,
+                            who,
+                            context,
+                            player_binding.event_role(),
+                        )?,
+                        amount: Amount::Fixed {
+                            value: fixed_positive(
+                                &serde_json::from_value(amount.clone()).map_err(|_| {
+                                    unsupported("amount", "unsupported fixed amount")
+                                })?,
+                            )?,
+                        },
+                    },
                     source_block,
-                },
+                ),
                 Step::Discard(DiscardStep::Random {
                     who,
                     what,
@@ -4611,7 +4644,7 @@ fn append_spell_effects(
                         program,
                         slots,
                         who,
-                        player_binding == PlayerBinding::EventPlayer,
+                        player_binding.event_role().is_some(),
                     )? {
                         LifeRecipient::Controller => None,
                         r => Some(r),
@@ -5922,6 +5955,38 @@ fn life_recipient(
         )),
     }
 }
+/// CR 109.5, 119.3: who a life change names. "You" is the controller of this
+/// kind of stack object; "that player" is the trigger's event player.
+fn life_player(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    who: &PlayerSelector,
+    context: Context,
+    event_player: Option<kir::EventPlayerRole>,
+) -> Result<PlayerExpr, Failure> {
+    if who.of.is_some() {
+        return Err(unsupported("who", "unexpected object reference"));
+    }
+    match (
+        who.player.as_str(),
+        who.selection_id.as_deref(),
+        event_player,
+    ) {
+        ("you", None, _) => Ok(PlayerExpr::you(context)),
+        ("that-player", None, Some(role)) => Ok(PlayerExpr::event(role)),
+        ("each-opponent", None, _) => Ok(PlayerExpr::EachOpponent),
+        ("target-player", Some(id), _) => Ok(PlayerExpr::target(bind_target(
+            program,
+            slots,
+            id,
+            TargetDomain::AnyPlayer,
+        )?)),
+        _ => Err(unsupported(
+            "who",
+            "unsupported life recipient or unbound target",
+        )),
+    }
+}
 // CR 509.1g/601.2c/608.2b: consume the entire blocking-creature target.
 // The blocking exception stays pump-only; keyword grants use the ordinary/controlled binder.
 fn bind_pump_target(
@@ -6003,6 +6068,7 @@ fn lower_fixed_controller_life(
     who: &PlayerSelector,
     amount: &serde_json::Value,
     source_block: u32,
+    context: Context,
 ) -> Result<Instruction, Failure> {
     if who.player != "you" || who.selection_id.is_some() || who.of.is_some() {
         return Err(unsupported(
@@ -6015,11 +6081,15 @@ fn lower_fixed_controller_life(
     if count.amount != "fixed" {
         return Err(unsupported("life", "requires fixed life amount"));
     }
-    Ok(Instruction::GainLife {
-        recipient: LifeRecipient::Controller,
-        amount: Quantity::from(i64::from(count.value)),
+    Ok(Instruction::act(
+        Verb::GainLife {
+            player: PlayerExpr::you(context),
+            amount: Amount::Fixed {
+                value: Quantity::from(i64::from(count.value)),
+            },
+        },
         source_block,
-    })
+    ))
 }
 // CR 109.5/601.2c/608.2b: “you” is the invocation controller and remains a
 // target restriction, not an owner test. Consume the exact controlled shape
@@ -6454,11 +6524,8 @@ fn lower_trigger(
             effects,
             block,
             &mut BTreeMap::new(),
-            if matches!(
-                condition,
-                TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
-            ) {
-                PlayerBinding::EventPlayer
+            if let Some(role) = kir::event_player_role(&condition) {
+                PlayerBinding::EventPlayer(role)
             } else if matches!(condition, TriggerCondition::DamageDealt { .. }) {
                 PlayerBinding::DamageRecipient
             } else if condition == TriggerCondition::OpponentCreatureDies {
@@ -6466,6 +6533,7 @@ fn lower_trigger(
             } else {
                 PlayerBinding::Unbound
             },
+            Context::Triggered,
         )?;
     }
     let intervening_if = match intervening {
@@ -6808,6 +6876,7 @@ fn lower_activation(
             block,
             &mut BTreeMap::new(),
             PlayerBinding::Unbound,
+            Context::Activated,
         )?;
         let ability = ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
@@ -6842,6 +6911,7 @@ fn lower_activation(
             block,
             &mut BTreeMap::new(),
             PlayerBinding::Unbound,
+            Context::Activated,
         )?;
         return Ok(ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
@@ -6863,6 +6933,7 @@ fn lower_activation(
             block,
             &mut BTreeMap::new(),
             PlayerBinding::Unbound,
+            Context::Activated,
         )?;
         return Ok(ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
@@ -6877,6 +6948,7 @@ fn lower_activation(
             block,
             &mut BTreeMap::new(),
             PlayerBinding::Unbound,
+            Context::Activated,
         )?;
         if !matches!(
             program.instructions.as_slice(),
@@ -8459,7 +8531,7 @@ mod tests {
         assert!(p.instructions.is_empty() && p.targets.is_empty());
         assert_eq!(p.modes.len(), 2);
         assert!(
-            matches!(p.modes[0].program.instructions.as_slice(),[Instruction::GainLife{recipient:LifeRecipient::Target{target_slot:0},amount,source_block:0}] if *amount==Quantity::from(3))
+            matches!(p.modes[0].program.instructions.as_slice(),[kernel!(GainLife { player: target_player!(0), amount: fixed!(amount) } @ 0)] if *amount==Quantity::from(3))
         );
         assert_eq!(
             p.modes[0].program.targets[0].domain,
@@ -9798,11 +9870,13 @@ mod tests {
         );
         assert_eq!(
             warden.triggered[0].program.instructions,
-            [Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 1.into(),
-                source_block: 0
-            }]
+            [Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Triggered),
+                    amount: Amount::fixed(1)
+                },
+                0
+            )]
         );
         let artist = get("Blood Artist");
         assert_eq!(
@@ -9832,16 +9906,20 @@ mod tests {
         assert_eq!(
             artist.triggered[0].program.instructions,
             [
-                Instruction::LoseLife {
-                    recipient: LifeRecipient::Target { target_slot: 0 },
-                    amount: 1.into(),
-                    source_block: 0
-                },
-                Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 1.into(),
-                    source_block: 0
-                }
+                Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::target(0),
+                        amount: Amount::fixed(1)
+                    },
+                    0
+                ),
+                Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Triggered),
+                        amount: Amount::fixed(1)
+                    },
+                    0
+                )
             ]
         );
         for d in [artist, warden] {
@@ -10014,11 +10092,13 @@ mod tests {
             |d| d.triggered[0].program.resolution = SpellResolution::Permanent,
             |d| d.triggered[0].program.targets[0].domain = TargetDomain::OpponentPlayer,
             |d| {
-                d.triggered[0].program.instructions[0] = Instruction::LoseLife {
-                    recipient: LifeRecipient::Target { target_slot: 1 },
-                    amount: 1.into(),
-                    source_block: 0,
-                }
+                d.triggered[0].program.instructions[0] = Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::target(1),
+                        amount: Amount::fixed(1),
+                    },
+                    0,
+                )
             },
             |d| {
                 d.capabilities.remove(&Capability::CreatureDiesV1);
@@ -10120,16 +10200,20 @@ mod tests {
         assert_eq!(
             p.instructions,
             [
-                Instruction::LoseLife {
-                    recipient: LifeRecipient::Target { target_slot: 0 },
-                    amount: 4.into(),
-                    source_block: 0
-                },
-                Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 4.into(),
-                    source_block: 0
-                }
+                Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::target(0),
+                        amount: Amount::fixed(4)
+                    },
+                    0
+                ),
+                Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: Amount::fixed(4)
+                    },
+                    0
+                )
             ]
         );
         let hands = get("Healing Hands");
@@ -10144,11 +10228,13 @@ mod tests {
         assert_eq!(
             p.instructions,
             [
-                Instruction::GainLife {
-                    recipient: LifeRecipient::Target { target_slot: 0 },
-                    amount: 4.into(),
-                    source_block: 0
-                },
+                Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::target(0),
+                        amount: Amount::fixed(4)
+                    },
+                    0
+                ),
                 Instruction::DrawCards {
                     recipient: None,
                     count: 1.into(),
@@ -10169,11 +10255,13 @@ mod tests {
         assert_eq!(p.timing, SpellTiming::MainPhase);
         assert_eq!(
             p.instructions,
-            [Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 4.into(),
-                source_block: 0
-            }]
+            [Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(4)
+                },
+                0
+            )]
         );
         let mountain = get("Mountain");
         assert_eq!(mountain.characteristics.subtypes, ["Mountain"]);
@@ -10323,25 +10411,31 @@ mod tests {
         }
         for change in [
             (|d: &mut Definition| {
-                d.spell.as_mut().unwrap().instructions[0] = Instruction::LoseLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 4.into(),
-                    source_block: 0,
-                }
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: Amount::fixed(4),
+                    },
+                    0,
+                )
             }) as fn(&mut Definition),
             |d| {
-                d.spell.as_mut().unwrap().instructions[0] = Instruction::LoseLife {
-                    recipient: LifeRecipient::Target { target_slot: 99 },
-                    amount: 4.into(),
-                    source_block: 0,
-                }
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::target(99),
+                        amount: Amount::fixed(4),
+                    },
+                    0,
+                )
             },
             |d| {
-                d.spell.as_mut().unwrap().instructions[0] = Instruction::LoseLife {
-                    recipient: LifeRecipient::Target { target_slot: 0 },
-                    amount: Quantity::from(-4),
-                    source_block: 0,
-                }
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::target(0),
+                        amount: Amount::fixed(-4),
+                    },
+                    0,
+                )
             },
         ] {
             let mut bad = catalog.clone();
@@ -10358,9 +10452,10 @@ mod tests {
         for (from, to) in [
             ("any_damage_target", "creature_or_player"),
             ("any_player", "opponent_only"),
+            // CR 109.5: a spell's "you" is never a static ability's controller.
             (
-                "\"recipient\":\"controller\"",
-                "\"recipient\":{\"controller\":{\"extra\":true}}",
+                "\"role\":\"spell_controller\"",
+                "\"role\":\"static_controller\"",
             ),
         ] {
             let bad = raw.replace(from, to);

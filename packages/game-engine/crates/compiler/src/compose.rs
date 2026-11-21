@@ -153,6 +153,7 @@ fn append_effects(
     parts: Vec<Part>,
     block: usize,
     slots: &mut BTreeMap<String, u32>,
+    context: Context,
     damage: impl Fn(&[Sentence]) -> Result<(), Failure>,
 ) -> Result<(), Failure> {
     if parts.iter().all(|p| matches!(p, Part::Typed(_))) {
@@ -165,7 +166,14 @@ fn append_effects(
             .collect();
         plain_sentences(&typed)?;
         damage(&typed)?;
-        return append_spell_effects(program, &typed, block, slots, PlayerBinding::Unbound);
+        return append_spell_effects(
+            program,
+            &typed,
+            block,
+            slots,
+            PlayerBinding::Unbound,
+            context,
+        );
     }
     let label = source_block(block)?;
     for part in parts {
@@ -188,7 +196,14 @@ fn append_effects(
                 let sentence = [sentence];
                 plain_sentences(&sentence)?;
                 damage(&sentence)?;
-                append_spell_effects(program, &sentence, block, slots, PlayerBinding::Unbound)?;
+                append_spell_effects(
+                    program,
+                    &sentence,
+                    block,
+                    slots,
+                    PlayerBinding::Unbound,
+                    context,
+                )?;
             }
             Part::Table(steps) => {
                 for step in &steps {
@@ -232,9 +247,16 @@ fn activation(
     let first_it_is_self = matches!(cost, ActivationCost::SacrificeSource)
         || matches!(&cost, ActivationCost::Composite { costs } if costs.sacrifice);
     let mut program = SpellProgram::instructions(timing);
-    append_effects(&mut program, parts, block, &mut BTreeMap::new(), |typed| {
-        validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self })
-    })?;
+    append_effects(
+        &mut program,
+        parts,
+        block,
+        &mut BTreeMap::new(),
+        Context::Activated,
+        |typed| {
+            validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self })
+        },
+    )?;
     Ok(ActivatedAbility {
         functioning_zone: FunctioningZone::Battlefield,
         cost,
@@ -272,9 +294,14 @@ fn trigger(
         ));
     }
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
-    append_effects(&mut program, parts, block, &mut BTreeMap::new(), |typed| {
-        validate_trigger_damage_sources(&event, typed)
-    })?;
+    append_effects(
+        &mut program,
+        parts,
+        block,
+        &mut BTreeMap::new(),
+        Context::Triggered,
+        |typed| validate_trigger_damage_sources(&event, typed),
+    )?;
     Ok(TriggeredAbility {
         functioning_zone: FunctioningZone::Battlefield,
         condition: event,
@@ -856,6 +883,7 @@ fn compose(
                     parts(&effects)?,
                     block,
                     &mut slots,
+                    Context::Spell,
                     |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
                 )?;
             }

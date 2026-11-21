@@ -5,7 +5,7 @@ use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
     KeywordAbility, LifeRecipient, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
     SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount,
-    compound_indestructible_parameters,
+    compound_indestructible_parameters, kernel, target_player,
 };
 use mtg_core::query::{self, Tri};
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
@@ -363,10 +363,10 @@ impl Strategy<'_> {
                 toughness,
                 ..
             } => *target_slot == slot && !power.is_negative() && !toughness.is_negative(),
-            I::GainLife {
-                recipient: LifeRecipient::Target { target_slot },
+            kernel!(GainLife {
+                player: target_player!(target_slot),
                 ..
-            }
+            })
             | I::DrawCards {
                 recipient: Some(LifeRecipient::Target { target_slot }),
                 ..

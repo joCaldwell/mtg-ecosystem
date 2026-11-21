@@ -126,11 +126,13 @@ pub fn fixed_creature_activation(
     {
         let n = positive(n)?;
         (
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: i64::from(n).into(),
-                source_block: block,
-            },
+            Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Activated),
+                    amount: Amount::fixed(i64::from(n)),
+                },
+                block,
+            ),
             json!({"effect":"gain-life","who":{"player":"you"},"amount":fixed(n)}),
         )
     } else if effect == "Destroy target artifact or enchantment." {
@@ -298,7 +300,7 @@ pub fn has_fixed_creature_activation(d: &Definition) -> bool {
                 || a.program.instructions.iter().any(|i| {
                     matches!(
                         i,
-                        Instruction::GainLife { .. } | Instruction::DestroyPermanent { .. }
+                        kernel!(GainLife { .. }) | Instruction::DestroyPermanent { .. }
                     )
                 })
                 || a.program
@@ -462,7 +464,7 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
 pub(super) fn extend_schema(schema: &mut Value) {
     let damage = json!({"properties":{"op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}});
     let destroy = json!({"properties":{"op":{"const":"destroy_permanent"},"target_slot":{"const":0},"optional":{"const":false},"regeneration_forbidden":{"const":false}}});
-    let gain = json!({"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},"amount":{"pattern":"^[1-9][0-9]*$"}}});
+    let gain = instruction_schema::kernel_verb("gain_life");
     let pump_op = "modify_source_power_toughness";
     let pump =
         json!({"properties":{"op":{"const":pump_op},"duration":{"const":"until_end_of_turn"}}});
@@ -496,20 +498,21 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "else":{"properties":{"cost":mana}}
     });
     let candidate = json!({"required":["cost","program"],"properties":{"cost":{"required":["mana"],"type":"object"},"program":{"anyOf":[
-        {"properties":{"instructions":{"contains":{"properties":{"op":{"enum":["destroy_permanent","gain_life",pump_op]}}}}}},
+        {"properties":{"instructions":{"contains":{"anyOf":[{"properties":{"op":{"enum":["destroy_permanent",pump_op]}}},instruction_schema::kernel_verb("gain_life")]}}}},
         {"properties":{"instructions":{"contains":{"properties":{"op":{"const":"deal_damage"}}}},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
     ]}}});
+    let legacy = |op: &str| json!({"properties":{"op":{"const":op}}});
     let printed_effects = [
-        ("deal_damage", r" deals [1-9][0-9]* damage to target creature\."),
-        ("destroy_permanent", r"Destroy target artifact or enchantment\."),
-        ("gain_life", r"You gain [1-9][0-9]* life\."),
-        (pump_op, r" gets [+−-][0-9]+/[+−-][0-9]+ until end of turn\."),
+        (legacy("deal_damage"), r" deals [1-9][0-9]* damage to target creature\."),
+        (legacy("destroy_permanent"), r"Destroy target artifact or enchantment\."),
+        (instruction_schema::kernel_verb("gain_life"), r"You gain [1-9][0-9]* life\."),
+        (legacy(pump_op), r" gets [+−-][0-9]+/[+−-][0-9]+ until end of turn\."),
     ].into_iter().map(|(op, printed)| json!({
         "if":{"properties":{"provenance":{"properties":{"source_json":{
             "pattern":format!(r#""oracle_text"\s*:\s*"(?:[^"]*\\n)?(?:\{{[WUBRGC0-9]+\}})+: [^"\\]*?{printed}(?:\\n|")"#)
         }}}}},
         "then":{"required":["activated"],"properties":{"activated":{"contains":{"properties":{"program":{"properties":{
-            "instructions":{"contains":{"properties":{"op":{"const":op}}}}
+            "instructions":{"contains":op}
         }}}}}}}
     })).collect::<Vec<_>>();
     schema["$defs"]["Definition"]["allOf"]
@@ -520,12 +523,12 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "type":"object","required":["mana"]
     }}}]});
     let effect_capabilities = [
-        ("deal_damage",vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
-        ("destroy_permanent",vec![Capability::PermanentRemovalV1]),
-        ("gain_life",vec![Capability::LifeGainV1]),
+        (legacy("deal_damage"),vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
+        (legacy("destroy_permanent"),vec![Capability::PermanentRemovalV1]),
+        (instruction_schema::kernel_verb("gain_life"),vec![Capability::LifeGainV1]),
     ].into_iter().map(|(op,caps)|json!({
         "if":{"properties":{"activated":{"contains":{"properties":{"program":{"properties":{
-            "instructions":{"contains":{"properties":{"op":{"const":op}}}}
+            "instructions":{"contains":op}
         }}}}}}},
         "then":{"properties":{"capabilities":{"allOf":caps.into_iter().map(|cap|json!({"contains":{"const":cap}})).collect::<Vec<_>>()}}}
     })).collect::<Vec<_>>();

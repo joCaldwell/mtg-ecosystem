@@ -98,11 +98,13 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
             {
                 (
                     json!({"effect":"gain-life","who":{"player":"you"},"amount":{"amount":"fixed","value":n}}),
-                    Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: i64::from(n).into(),
-                        source_block: block,
-                    },
+                    Instruction::act(
+                        Verb::GainLife {
+                            player: PlayerExpr::you(Context::Triggered),
+                            amount: Amount::fixed(i64::from(n)),
+                        },
+                        block,
+                    ),
                 )
             } else if part == "that player discards a card"
                 && condition == TriggerCondition::EquippedCombatDamage
@@ -256,7 +258,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
                 "program":{"properties":{"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
                     "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"items":{"properties":{"op":{"enum":["draw_cards","optional_draw_cards","deal_damage","discard_cards","untap_controller_lands","gain_life","create_predefined_tokens"]}}}}}}
+                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["draw_cards","optional_draw_cards","deal_damage","discard_cards","untap_controller_lands","create_predefined_tokens"]}}},instruction_schema::kernel_verb("gain_life")]}}}}
             }}}}}},
         "else":{"properties":{"capabilities":{"not":cap}}}
     }));
