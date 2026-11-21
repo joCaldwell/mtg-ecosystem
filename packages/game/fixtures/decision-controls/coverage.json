@@ -27,7 +27,7 @@
   "evidence": [
     {
       "path": "docs/game-client.md",
-      "sha256": "99694fcfd0a4025c0a66aa970eece2d4179a0ca4355343c64d7b9508a46ef028"
+      "sha256": "61753a3a9008e72108441d0e7e7d949f9a17e5868d0244e55b627b135517bf73"
     },
     {
       "path": "docs/game-engine-current.md",
@@ -39,7 +39,7 @@
     },
     {
       "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "342f8a41ff293706b755f4821d122c6a58946880490a769759e88b593d046e64"
+      "sha256": "0d04a53b476cecd8a725dfdd323fc42a82a62ac1b03ff3311cb790b32d4498b5"
     },
     {
       "path": "packages/game/web/src/decisions/controls.ts",

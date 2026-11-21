@@ -239,7 +239,7 @@ fn streamed_snapshot_failed_io_changed_input_and_late_forgery_cannot_poison_veri
     let mut changed = Source::new(initial.as_bytes());
     changed.replace_on_rewind = Some(
         initial
-            .replace("\"snapshot_version\":75", "\"snapshot_version\":17")
+            .replace("\"snapshot_version\":78", "\"snapshot_version\":17")
             .into_bytes(),
     );
     assert_ne!(

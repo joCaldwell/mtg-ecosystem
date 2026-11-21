@@ -565,10 +565,10 @@ fn sacrifice_profile_catalog_decks_policy_and_bounds() {
             .as_str()
     );
     for (colors, expected) in [
-        (vec![Color::W], 17),
-        (vec![Color::B, Color::G], 42),
-        (vec![Color::U], 11),
-        (vec![Color::R], 12),
+        (vec![Color::W], 18),
+        (vec![Color::B, Color::G], 43),
+        (vec![Color::U], 12),
+        (vec![Color::R], 13),
     ] {
         assert_eq!(
             c.definitions

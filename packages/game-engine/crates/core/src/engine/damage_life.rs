@@ -237,6 +237,35 @@ impl Game {
         self.retain_source_facts(&fact);
         Ok(())
     }
+    // CR 608.2h/113.7a: a rules step works on its own copy of the resolving
+    // frame. When that step moves the ability's source or trigger entrant, the
+    // live stack entry receives the departure's last-known information; the
+    // copy written back afterwards must carry the same facts, never the stale
+    // ones. Only the two fields a departure rewrites are taken from the entry.
+    pub(super) fn refresh_resolving_lki(&self, spell: &mut StackInstance) {
+        let Some(live) = self
+            .state
+            .rules
+            .stack
+            .iter()
+            .find(|entry| entry.id == spell.id)
+        else {
+            return;
+        };
+        if spell.source_facts != live.source_facts {
+            spell.source_facts.clone_from(&live.source_facts);
+        }
+        if let (
+            StackKind::Triggered { witness, .. },
+            StackKind::Triggered {
+                witness: current, ..
+            },
+        ) = (&mut spell.kind, &live.kind)
+            && witness != current
+        {
+            witness.clone_from(current);
+        }
+    }
     pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         for trigger in &mut self.state.rules.pending_triggers {
