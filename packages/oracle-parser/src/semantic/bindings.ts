@@ -6,6 +6,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { Ability, Amount, CascadeExiledCards, CharacteristicRelation, Color, Condition, Cost, CostModification, Effect, EntryCopy, GainedAbility, KeywordInstance, LookPermission, ObjectFilter, ObjectRef, PlayerRef, PlayerDesignation, ReplacementInstruction, Sentence, StaticEffect, Trigger } from "../ast.ts";
 import { KEYWORD_SCOPES } from "./keyword-scopes.ts";
+import { stepEventOperation } from "./step-vocabulary.ts";
 import { isPluralPlayerRef } from "../parser/refs.ts";
 import { uniqueStackTriggerEvent } from "../parser/stack-copy.ts";
 import type {
@@ -4624,7 +4625,7 @@ class Analyzer {
       scope: context.ability, group: players.id, domain: "player", rules });
     const owner: Candidate = { id: member, domain: "player", cardinality: "one" };
     this.walk(scan.library, child(at, "library"), { ...context, actor: owner });
-    const scanEvent = this.event(at, context, "library-scan:exile", [players]);
+    const scanEvent = this.event(at, context, stepEventOperation("scan-library"), [players]);
     const pool = this.eventResult(at, scanEvent, "objects", "many", "zone-successors", { cls: "card" });
     const matches = this.eventResult(child(at, "until"), scanEvent, "objects", "many", "zone-successors", predicate, pool.id);
     this.node({ id: this.id(at, "grouped-library-scan"), path: at, node: "grouped-library-scan", scope: context.ability,
@@ -5463,7 +5464,7 @@ class Analyzer {
     const subject = this.node({ id: this.id(match, "scan-candidate"), path: match, node: "characteristic-subject",
       scope: context.ability, role: "evaluated-candidate", timing: "resolution", rules });
     this.walk(until.matching, match, { ...context, characteristicSubject: subject, actor });
-    const event = this.event(path, context, `library-scan:${operation}`, [actor, owner],
+    const event = this.event(path, context, stepEventOperation(effect.effect), [actor, owner],
       context.conditional ? { conditional: true } : {});
     const identity = operation === "exile" ? "zone-successors" as const : "same-objects" as const;
     const pool = this.eventResult(path, event, "objects", "many", identity, { cls: "card" });
@@ -5928,7 +5929,7 @@ class Analyzer {
       if (effect.optional) {
         this.rememberDecision(path, context);
         context.decisions?.push(path);
-        this.event(path, context, "choose-one", [{ id: context.you, domain: "player", cardinality: "one" }],
+        this.event(path, context, stepEventOperation(effect.effect), [{ id: context.you, domain: "player", cardinality: "one" }],
           { optional: true, decider: context.you, ...(context.conditional ? { conditional: true as const } : {}) });
       }
       this.choice(effect, path, context);

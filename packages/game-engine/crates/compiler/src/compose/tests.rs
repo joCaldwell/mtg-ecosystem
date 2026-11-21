@@ -197,6 +197,55 @@ fn frozen_witnesses_lower_block_by_block_and_round_trip_executable_ir() {
 }
 
 #[test]
+fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
+    let archive = accepted_manifest(R3).unwrap();
+    let unbound = |row: &mut serde_json::Value| row["binding"]["referencesBound"] = json!(false);
+    // CR 207.2c: an annotation block 1 does not print is a block blocker.
+    let unprinted = |row: &mut serde_json::Value| {
+        row["faces"][0]["result"]["abilities"][1]["abilityWord"] = json!("Unprinted");
+    };
+    let summary = |found: &Blockers| {
+        (
+            found.binding.as_ref().map(|f| f.path.clone()),
+            found.lowering.as_ref().map(|f| f.path.clone()),
+            found.block,
+        )
+    };
+    let clean = blockers(archive, STRIP);
+    assert_eq!(summary(&clean), (None, None, None));
+    assert!(lower(archive, STRIP).is_ok());
+    // Only the card-wide binding check fails: lowering still rejects it, and
+    // the report names no block.
+    let only_binding = changed(STRIP, unbound);
+    assert_eq!(lower(archive, &only_binding).unwrap_err().path, "binding");
+    assert_eq!(
+        summary(&blockers(archive, &only_binding)),
+        (Some("binding".into()), None, None)
+    );
+    // Both fail: lowering is unchanged (the binding verdict comes first) and
+    // the report also names the block that would fail next.
+    let both = changed(STRIP, |row| {
+        unbound(row);
+        unprinted(row);
+    });
+    assert_eq!(lower(archive, &both).unwrap_err().path, "binding");
+    assert_eq!(
+        summary(&blockers(archive, &both)),
+        (
+            Some("binding".into()),
+            Some("abilities.abilityWord".into()),
+            Some(1)
+        )
+    );
+    // Only the block fails: the report and lowering agree.
+    let only_block = changed(STRIP, unprinted);
+    let failure = lower(archive, &only_block).unwrap_err();
+    let found = blockers(archive, &only_block);
+    assert_eq!(summary(&found), (None, Some(failure.path), Some(1)));
+    assert_eq!(found.lowering.unwrap().reason, failure.reason);
+}
+
+#[test]
 fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     // A land: one mana block and one tap-and-sacrifice activation.
     let strip = composed(STRIP);
@@ -498,7 +547,7 @@ fn timing_and_step_tables_lower_sorcery_speed_and_combat_restrictions() {
         "what":{"ref":"target","filter":{"types":["creature"]},
             "count":{"amount":"fixed","value":1},"selectionId":"line:0:3"}});
     assert!(steps::claims(&step));
-    let mut program = instructions_program(SpellTiming::Instant);
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
     let instruction = steps::lower(&step, &mut program, &mut BTreeMap::new(), 0).unwrap();
     assert_eq!(
         instruction,

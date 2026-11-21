@@ -116,14 +116,7 @@ pub(super) fn lower(
     }
     if let Some((kind, selection)) = typed_counter(step) {
         let slot = bind_target(program, slots, selection, TargetDomain::StackSpell)?;
-        let filter = PermanentFilter {
-            types: vec![kind],
-            non_types: vec![],
-            non_colors: vec![],
-            opponent: false,
-            tapped: false,
-            power: None,
-        };
+        let filter = PermanentFilter::any().with_types([kind]);
         let target = &mut program.targets[slot as usize];
         if target.filter.as_ref().is_some_and(|old| *old != filter) {
             return Err(unsupported("counter", "conflicting target filter"));

@@ -48,19 +48,6 @@ impl Card<'_> {
     }
 }
 
-fn instructions_program(timing: SpellTiming) -> SpellProgram {
-    SpellProgram {
-        optional_additional_costs: vec![],
-        additional_sacrifice: None,
-        timing,
-        resolution: SpellResolution::Instructions,
-        functioning_zone: FunctioningZone::Stack,
-        targets: vec![],
-        instructions: vec![],
-        modes: vec![],
-    }
-}
-
 /// CR 207.2c: an ability word has no rules meaning, but it is printed. An
 /// empty annotation, or one the block does not open with, is an archive
 /// defect rather than something to ignore.
@@ -244,7 +231,7 @@ fn activation(
     // CR 608.2c: only sacrificing this exact source proves a first pronoun.
     let first_it_is_self = matches!(cost, ActivationCost::SacrificeSource)
         || matches!(&cost, ActivationCost::Composite { costs } if costs.sacrifice);
-    let mut program = instructions_program(timing);
+    let mut program = SpellProgram::instructions(timing);
     append_effects(&mut program, parts, block, &mut BTreeMap::new(), |typed| {
         validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self })
     })?;
@@ -284,7 +271,7 @@ fn trigger(
             "unsupported complete intervening-if condition",
         ));
     }
-    let mut program = instructions_program(SpellTiming::Instant);
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
     append_effects(&mut program, parts, block, &mut BTreeMap::new(), |typed| {
         validate_trigger_damage_sources(&event, typed)
     })?;
@@ -586,7 +573,55 @@ fn binding_covers_ast(
     Ok(())
 }
 
+/// What keeps one record out of composition, for the gap report.
+#[derive(Default)]
+pub(super) struct Blockers {
+    /// The first card-wide reference-graph failure. `lower` reports it before
+    /// any block is inspected.
+    pub binding: Option<Failure>,
+    /// The first failure once those checks are deferred: an integrity check,
+    /// the first printed block that does not lower, or a card-wide step after
+    /// the blocks. `None` when every block lowers.
+    pub lowering: Option<Failure>,
+    /// The printed block `lowering` failed in, when it failed inside one.
+    pub block: Option<usize>,
+}
+
 pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
+    compose(archive, record, None)
+}
+
+/// Every blocker the gap report should rank, without changing what lowers:
+/// the card-wide binding checks are recorded instead of returned, so the
+/// first block that also fails is named rather than hidden behind them. The
+/// definition built under deferred checks is discarded; only `lower` admits.
+pub(super) fn blockers(archive: &AcceptedArchive, record: &str) -> Blockers {
+    let mut found = Blockers::default();
+    let lowered = compose(archive, record, Some(&mut found));
+    found.lowering = lowered.err();
+    found
+}
+
+/// A card-wide reference-graph check: enforced by `lower`, recorded (first
+/// failure only, matching the enforced order) by `blockers`.
+fn binding_gate(
+    check: Result<(), Failure>,
+    deferred: &mut Option<&mut Blockers>,
+) -> Result<(), Failure> {
+    match (check, deferred) {
+        (Err(failure), Some(found)) => {
+            found.binding.get_or_insert(failure);
+            Ok(())
+        }
+        (check, _) => check,
+    }
+}
+
+fn compose(
+    archive: &AcceptedArchive,
+    record: &str,
+    mut deferred: Option<&mut Blockers>,
+) -> Result<Definition, Failure> {
     // Integrity: the same checks, in the same order, as the family path.
     let r: Record = decode(record, "record")?;
     if r.record_type != "card" {
@@ -636,15 +671,23 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
         return Err(invalid("astSha256", "successful AST hash mismatch"));
     }
     let binding: serde_json::Value = decode(r.binding.get(), "binding")?;
-    if !references_bound(&binding) {
-        return Err(unsupported(
-            "binding",
-            "composition requires a completely bound reference graph",
-        ));
-    }
+    binding_gate(
+        if references_bound(&binding) {
+            Ok(())
+        } else {
+            Err(unsupported(
+                "binding",
+                "composition requires a completely bound reference graph",
+            ))
+        },
+        &mut deferred,
+    )?;
     let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
-    references_resolve_in_block(&binding, &r.oracle_identity, &printed)?;
-    binding_covers_ast(&binding, &printed)?;
+    binding_gate(
+        references_resolve_in_block(&binding, &r.oracle_identity, &printed),
+        &mut deferred,
+    )?;
+    binding_gate(binding_covers_ast(&binding, &printed), &mut deferred)?;
     let types = type_line::parse_source(&source.type_line, &source.layout)?;
     let kind = types.kind;
     let noun = match kind {
@@ -743,13 +786,10 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
         spell: match kind {
             CardKind::Land => None,
             // CR 304.1, 307.1: ordinary timing follows the card type.
-            CardKind::Instant => Some(instructions_program(SpellTiming::Instant)),
-            CardKind::Sorcery => Some(instructions_program(SpellTiming::MainPhase)),
+            CardKind::Instant => Some(SpellProgram::instructions(SpellTiming::Instant)),
+            CardKind::Sorcery => Some(SpellProgram::instructions(SpellTiming::MainPhase)),
             // CR 302.1, 608.3: a permanent spell resolves onto the battlefield.
-            _ => Some(SpellProgram {
-                resolution: SpellResolution::Permanent,
-                ..instructions_program(SpellTiming::MainPhase)
-            }),
+            _ => Some(SpellProgram::permanent(SpellTiming::MainPhase)),
         },
         activated: vec![],
         mana_abilities: vec![],
@@ -777,6 +817,9 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
     // CR 115.3: each printed block announces its own target occurrences.
     let mut slots = BTreeMap::new();
     for (block, raw) in blocks.iter().enumerate() {
+        if let Some(found) = deferred.as_deref_mut() {
+            found.block = Some(block);
+        }
         let ability: Block = serde_json::from_str(raw.get())
             .map_err(|e| unsupported("compose.block", e.to_string()))?;
         let label = source_block(block)?;
@@ -891,6 +934,9 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
                 ));
             }
         }
+    }
+    if let Some(found) = deferred {
+        found.block = None;
     }
     keywords::printed(&shape, &definition.keywords)?;
     if definition.keywords.contains(&KeywordAbility::Flash)

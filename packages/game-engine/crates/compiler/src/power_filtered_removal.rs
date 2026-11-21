@@ -93,21 +93,11 @@ pub(super) fn lower(
         "requires the complete power-filtered target and removal binding",
     )?;
     Ok(Some((
-        TargetSpec {
-            slot: 0,
-            selection_id: SELECTION.into(),
-            chooser: Chooser::Controller,
-            stage: EvaluationStage::Announcement,
-            domain: TargetDomain::BattlefieldPermanent,
-            filter: Some(PermanentFilter {
-                types: vec![CardKind::Creature],
-                non_types: vec![],
-                non_colors: vec![],
-                opponent: false,
-                tapped: false,
-                power: Some(power),
-            }),
-        },
+        TargetSpec::new(0, SELECTION, TargetDomain::BattlefieldPermanent).with_filter(
+            PermanentFilter::any()
+                .with_types([CardKind::Creature])
+                .with_power(power),
+        ),
         instruction,
     )))
 }
