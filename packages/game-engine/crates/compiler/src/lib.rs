@@ -1537,7 +1537,15 @@ fn compile_result(result: Result<Definition, Failure>) -> CompileResult {
 /// recovered keeps its original path and reason.
 fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
     match lower_families(archive, record) {
-        Err(family) if family.unsupported => compose::lower(archive, record).map_err(|_| family),
+        // A family that recognised the source and rejected its reference
+        // graph has given an integrity verdict; only shape rejections fall back.
+        Err(family)
+            if family.unsupported
+                && family.path != "binding"
+                && !family.path.starts_with("binding.") =>
+        {
+            compose::lower(archive, record).map_err(|_| family)
+        }
         other => other,
     }
 }
@@ -8084,35 +8092,64 @@ mod tests {
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
     }
-    /// A family probe: the changed source must not lower as the family under
-    /// test. The block-by-block pipeline may still lower a self-consistent
-    /// probe as an ordinary card; that definition is then marked composed and
-    /// admitted only by the composition matrix, never by the family.
-    pub(crate) fn family_rejects(result: &CompileResult) -> bool {
-        match result {
-            CompileResult::Unsupported { .. } => true,
-            CompileResult::Invalid { .. } => false,
-            CompileResult::Lowered { definition } => {
-                eprintln!(
-                    "composed probe {}: {}",
-                    definition.composed,
-                    serde_json::to_string(&(
-                        &definition.spell,
-                        &definition.activated,
-                        &definition.triggered
-                    ))
-                    .unwrap()
-                );
-                definition.composed
-                    && definition
-                        .capabilities
-                        .contains(&Capability::ComposedAbilityV1)
+    /// A changed source that no family supports but that is a complete,
+    /// self-consistent ordinary card: the block-by-block pipeline must lower
+    /// it, mark it composed, and admit it only through the composition matrix.
+    /// Callers assert the changed semantics on the returned definition.
+    pub(crate) fn composed_near_miss(result: CompileResult) -> Definition {
+        let CompileResult::Lowered { definition } = result else {
+            panic!("near miss must lower: {result:?}")
+        };
+        assert!(definition.composed);
+        assert!(
+            definition
+                .capabilities
+                .contains(&Capability::ComposedAbilityV1)
+        );
+        definition.validate().unwrap();
+        *definition
+    }
+    /// A program's sole target as `(domain, types, non_types, non_colors,
+    /// opponent, tapped)`, with an absent filter rendered as unrestricted.
+    pub(crate) type TargetShape = (
+        TargetDomain,
+        Vec<CardKind>,
+        Vec<CardKind>,
+        Vec<Color>,
+        bool,
+        bool,
+    );
+    pub(crate) fn sole_target(program: &SpellProgram) -> TargetShape {
+        let [target] = program.targets.as_slice() else {
+            panic!("one target: {:?}", program.targets)
+        };
+        match &target.filter {
+            None => (target.domain, vec![], vec![], vec![], false, false),
+            Some(f) => {
+                assert!(f.power.is_none());
+                (
+                    target.domain,
+                    f.types.clone(),
+                    f.non_types.clone(),
+                    f.non_colors.clone(),
+                    f.opponent,
+                    f.tapped,
+                )
             }
         }
     }
-    /// As `family_rejects`, for probes whose source may also be invalid.
-    pub(crate) fn family_or_source_rejects(result: &CompileResult) -> bool {
-        matches!(result, CompileResult::Invalid { .. }) || family_rejects(result)
+    /// The program's instruction operations, in order.
+    pub(crate) fn ops(program: &SpellProgram) -> Vec<String> {
+        program
+            .instructions
+            .iter()
+            .map(|i| {
+                serde_json::to_value(i).unwrap()["op"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect()
     }
     fn match_record(name: &str) -> &'static str {
         fixtures::MATCH_RECORDS

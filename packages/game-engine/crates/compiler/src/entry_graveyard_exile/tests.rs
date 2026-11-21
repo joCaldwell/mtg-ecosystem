@@ -255,7 +255,7 @@ fn entry_graveyard_exile() {
                 result["lines"][1]["ability"] = result["abilities"][1].clone();
             });
             assert!(
-                crate::tests::family_or_source_rejects(&compile(MANIFEST, &wrong)),
+                !matches!(compile(MANIFEST, &wrong), CompileResult::Lowered { .. }),
                 "source {i}, mutation {mutation}"
             );
         }

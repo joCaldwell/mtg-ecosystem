@@ -136,16 +136,45 @@ fn activated_tap_source_rejects_unrepresented_targets_and_step_fields() {
         ("ref", json!("all")),
         ("selectionId", json!("")),
         ("upTo", json!(true)),
-        ("filter", json!({"cls":"permanent"})),
-        ("filter", json!({"types":["creature"]})),
         ("filter", json!({"types":["artifact","creature","land"]})),
-        ("filter", json!({"types":["enchantment"]})),
     ] {
         let raw = changed(|a| a["effects"][0]["steps"][0]["what"][field] = value);
         assert!(
-            crate::tests::family_rejects(&compile(MANIFEST, &raw)),
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
             "{field}"
         );
+    }
+    use TargetDomain::{BattlefieldCreature, BattlefieldPermanent};
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    for (filter, expected) in [
+        (
+            json!({"cls":"permanent"}),
+            (BattlefieldPermanent, vec![], vec![], vec![], false, false),
+        ),
+        (
+            json!({"types":["creature"]}),
+            (BattlefieldCreature, vec![], vec![], vec![], false, false),
+        ),
+        (
+            json!({"types":["enchantment"]}),
+            (
+                BattlefieldPermanent,
+                vec![CardKind::Enchantment],
+                vec![],
+                vec![],
+                false,
+                false,
+            ),
+        ),
+    ] {
+        let raw = changed(|a| a["effects"][0]["steps"][0]["what"]["filter"] = filter);
+        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let [ability] = d.activated.as_slice() else {
+            panic!("one activation")
+        };
+        assert_eq!(tests::sole_target(&ability.program), expected);
+        assert_eq!(tests::ops(&ability.program), ["tap_permanent"]);
     }
     for field in ["optional", "duration", "unknown"] {
         let raw = changed(|a| a["effects"][0]["steps"][0][field] = json!(true));

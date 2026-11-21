@@ -63,6 +63,7 @@ fn library_order_complete_ponder_cost_blocks_binding_and_legacy_search() {
 #[test]
 fn library_order_rejects_qualified_null_partial_and_wrong_binding_source() {
     for case in 0..14 {
+        let near_miss = case == 8;
         let changed = tests::changed_source(PONDER, |r| {
             let a = &mut r["faces"][0]["result"]["abilities"];
             match case {
@@ -105,8 +106,32 @@ fn library_order_rejects_qualified_null_partial_and_wrong_binding_source() {
                 line["ability"] = a;
             }
         });
+        if near_miss {
+            // A fixed draw of two after the same ordering is an ordinary
+            // sequence: the block pipeline lowers it, marked composed, as two
+            // single draws (CR 121.2) with every other instruction unchanged.
+            let d = tests::composed_near_miss(compile(HEADER, &changed));
+            let draw = Instruction::DrawCards {
+                recipient: None,
+                count: 1.into(),
+                source_block: 1,
+            };
+            assert_eq!(
+                d.spell.as_ref().unwrap().instructions,
+                vec![
+                    Instruction::OrderLibraryTop {
+                        amount: 3.into(),
+                        source_block: 0
+                    },
+                    Instruction::OptionalShuffleLibrary { source_block: 0 },
+                    draw.clone(),
+                    draw
+                ]
+            );
+            continue;
+        }
         assert!(
-            crate::tests::family_or_source_rejects(&compile(HEADER, &changed)),
+            !matches!(compile(HEADER, &changed), CompileResult::Lowered { .. }),
             "case {case}"
         );
     }

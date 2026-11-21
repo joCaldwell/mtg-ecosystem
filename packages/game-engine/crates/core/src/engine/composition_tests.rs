@@ -26,7 +26,7 @@ const PRIEST: &str =
 const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-piranha-marsh.json");
 const DRAGON: &str =
     include_str!("../../../../tests/fixtures/phase1-r3/compose-destructor-dragon.json");
-const CREW: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-hire-a-crew.json");
+const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-bake-into-a-pie.json");
 
 /// `(name, owner, controller, in hand)`; card IDs follow row order.
 type Row = (&'static str, u8, u8, bool);
@@ -378,29 +378,35 @@ fn composed_dies_trigger_destroys_an_announced_noncreature_permanent() {
 }
 
 #[test]
-fn composed_spell_sequence_creates_a_token_before_capturing_the_controller_set() {
-    // CR 608.2c, 608.2h: the set is read when its instruction is performed,
-    // after the token from the preceding instruction exists.
+fn composed_spell_sequence_performs_its_clauses_in_printed_order() {
+    // CR 608.2c, 701.8, 111.10: the spell destroys its target, then its
+    // controller creates the predefined token.
     both(
         prepared(
             &[
-                ("Mountain", 0, 0, false),
-                ("Mountain", 0, 0, false),
-                ("Mountain", 0, 0, false),
-                ("Hire a Crew", 0, 0, true),
-                ("Grizzly Bears", 0, 0, false),
+                ("Swamp", 0, 0, false),
+                ("Swamp", 0, 0, false),
+                ("Swamp", 0, 0, false),
+                ("Swamp", 0, 0, false),
+                ("Bake into a Pie", 0, 0, true),
                 ("Grizzly Bears", 1, 1, false),
             ],
-            &[CREW],
+            &[PIE],
         ),
         |g, q| {
-            answer(g, q, Response::Cast { card: CardId(3) });
-            settle(g, q, vec![]);
+            let bears = object(g, 5);
+            answer(g, q, Response::Cast { card: CardId(4) });
+            settle(g, q, vec![objects(&[bears])]);
+            assert!(graveyard(g, 5));
+            assert!(graveyard(g, 4));
             assert_eq!(g.state.rules.tokens.len(), 1);
             let token = *g.state.rules.tokens.keys().next().unwrap();
-            assert_eq!(stats(g, g.object_id(token).unwrap()), (3, 1));
-            assert_eq!(stats(g, object(g, 4)), (3, 2));
-            assert_eq!(stats(g, object(g, 5)), (2, 2));
+            let token = g.current(g.object_id(token).unwrap()).unwrap();
+            assert_eq!(token.controller, PlayerId(0));
+            assert_eq!(token.zone, Zone::Battlefield);
+            let food = g.characteristics(token.id).unwrap();
+            assert_eq!(food.kind, CardKind::Artifact);
+            assert_eq!(food.subtypes, ["Food"]);
             recover(g);
         },
     );

@@ -207,7 +207,10 @@ mod tests {
                     _ => nodes.push(nodes.last().unwrap().clone()),
                 }
             });
-            assert!(crate::tests::family_rejects(&compile(manifest, &changed)));
+            assert!(matches!(
+                compile(manifest, &changed),
+                CompileResult::Unsupported { .. }
+            ));
         }
     }
 }

@@ -490,7 +490,9 @@ Tokens recover from the creating recipe of a spell, activation or trigger.
 Private R3 witnesses cover noncreature tap abilities, paid and unpaid
 tap/sacrifice land and enchantment activations, creature tap damage, mana
 pumps, land entry triggers, a dies trigger and an ordered spell sequence; they
-qualify those paths only, not full games or consumers.
+qualify those paths only, not full games or consumers. The lowering-side
+integrity rules, including the final family binding verdict, are owned by
+[compositional lowering](game-engine-catalogs.md#compositional-lowering).
 
 ## Admission and policy boundaries
 

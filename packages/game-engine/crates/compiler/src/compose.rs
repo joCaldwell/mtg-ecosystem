@@ -61,11 +61,17 @@ fn instructions_program(timing: SpellTiming) -> SpellProgram {
     }
 }
 
-/// CR 207.2c: an ability word has no rules meaning, but an empty annotation
-/// is an archive defect rather than something to ignore.
-fn ability_word(word: &Option<String>) -> Result<(), Failure> {
-    if word.as_ref().is_some_and(|s| s.trim().is_empty()) {
-        return Err(unsupported("abilities.abilityWord", "empty annotation"));
+/// CR 207.2c: an ability word has no rules meaning, but it is printed. An
+/// empty annotation, or one the block does not open with, is an archive
+/// defect rather than something to ignore.
+fn ability_word(word: &Option<String>, line: &str) -> Result<(), Failure> {
+    if let Some(word) = word
+        && (word.trim().is_empty() || !line.starts_with(&format!("{word} \u{2014} ")))
+    {
+        return Err(unsupported(
+            "abilities.abilityWord",
+            "empty or unprinted annotation",
+        ));
     }
     Ok(())
 }
@@ -405,6 +411,7 @@ fn sentences_accounted(
     restricted: bool,
 ) -> Result<(), Failure> {
     let mut printed = 0usize;
+    let mut rules_text = String::new();
     let (mut reminder, mut quoted) = (0usize, false);
     let mut characters = line.chars().peekable();
     while let Some(c) = characters.next() {
@@ -417,10 +424,32 @@ fn sentences_accounted(
                     && !quoted
                     && characters.peek().is_none_or(|next| next.is_whitespace()) =>
             {
-                printed += 1
+                printed += 1;
+                rules_text.push(' ');
             }
+            _ if reminder == 0 && !quoted => rules_text.extend(c.to_lowercase()),
             _ => {}
         }
+    }
+    // A printed choice, limit or condition must be carried by the AST, and an
+    // AST choice must be printed. The parser spells "may" as `optional`, "up
+    // to" as `upTo` and "if"/"unless" as a condition; a block whose text and
+    // AST disagree would otherwise lower as mandatory, optional, exact or
+    // unconditional against its printed text.
+    let words: Vec<&str> = rules_text
+        .split(|c: char| !c.is_alphabetic())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let ast = serde_json::to_string(effects).unwrap_or_default();
+    let has = |word: &str| words.contains(&word);
+    if (has("may") != ast.contains("\"optional\":true"))
+        || (words.windows(2).any(|w| w == ["up", "to"]) && !ast.contains("\"upTo\":true"))
+        || ((has("if") || has("unless")) && !ast.contains("\"condition"))
+    {
+        return Err(unsupported(
+            "compose.effects",
+            "printed choice, limit or condition disagrees with the AST",
+        ));
     }
     let prohibitions = effects
         .iter()
@@ -431,6 +460,45 @@ fn sentences_accounted(
         return Err(unsupported(
             "compose.effects",
             "printed sentences differ from the AST sentences",
+        ));
+    }
+    Ok(())
+}
+
+/// Every number printed in a block, outside mana symbols, reminder text and
+/// quoted abilities, must occur in that block's AST. A changed amount whose
+/// printed number the AST no longer carries is rejected rather than lowered
+/// against its text.
+fn numbers_printed(line: &str, ast: &str) -> Result<(), Failure> {
+    fn runs(text: impl Iterator<Item = char>) -> BTreeSet<String> {
+        let (mut found, mut run) = (BTreeSet::new(), String::new());
+        for c in text.chain([' ']) {
+            if c.is_ascii_digit() {
+                run.push(c);
+            } else if !run.is_empty() {
+                found.insert(std::mem::take(&mut run));
+            }
+        }
+        found
+    }
+    let (mut reminder, mut braces, mut quoted) = (0usize, 0usize, false);
+    let printed = runs(line.chars().map(|c| {
+        let outside = reminder == 0 && braces == 0 && !quoted;
+        match c {
+            '(' if !quoted => reminder += 1,
+            ')' if !quoted => reminder = reminder.saturating_sub(1),
+            '"' if reminder == 0 => quoted = !quoted,
+            '{' => braces += 1,
+            '}' => braces = braces.saturating_sub(1),
+            _ if outside => return c,
+            _ => {}
+        }
+        ' '
+    }));
+    if !printed.is_subset(&runs(ast.chars())) {
+        return Err(unsupported(
+            "compose.effects",
+            "a printed number is absent from the AST",
         ));
     }
     Ok(())
@@ -712,12 +780,13 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
         let ability: Block = serde_json::from_str(raw.get())
             .map_err(|e| unsupported("compose.block", e.to_string()))?;
         let label = source_block(block)?;
+        numbers_printed(&result.lines[block].text, raw.get())?;
         match ability {
             Block::Keywords {
                 ability_word: word,
                 keywords,
             } => {
-                ability_word(&word)?;
+                ability_word(&word, &result.lines[block].text)?;
                 definition
                     .keywords
                     .extend(keywords::lower(&card, &keywords)?);
@@ -726,7 +795,7 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
                 ability_word: word,
                 effect,
             } => {
-                ability_word(&word)?;
+                ability_word(&word, &result.lines[block].text)?;
                 labels.statics.push(label);
                 definition
                     .static_abilities
@@ -736,7 +805,7 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
                 ability_word: word,
                 effects,
             } if spell_kind => {
-                ability_word(&word)?;
+                ability_word(&word, &result.lines[block].text)?;
                 sentences_accounted(&result.lines[block].text, &effects, false)?;
                 slots.clear();
                 append_effects(
@@ -753,7 +822,7 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
                 costs,
                 effects,
             } if !spell_kind => {
-                ability_word(&word)?;
+                ability_word(&word, &result.lines[block].text)?;
                 sentences_accounted(&result.lines[block].text, &effects, restriction.is_some())?;
                 let (timing, restriction) = timing(restriction)?;
                 let parts = parts(&effects)?;
@@ -804,7 +873,7 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
                 trigger: event,
                 effects,
             } if !spell_kind => {
-                ability_word(&word)?;
+                ability_word(&word, &result.lines[block].text)?;
                 sentences_accounted(&result.lines[block].text, &effects, false)?;
                 labels.triggered.push(label);
                 definition.triggered.push(trigger(
@@ -823,6 +892,7 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
             }
         }
     }
+    keywords::printed(&shape, &definition.keywords)?;
     if definition.keywords.contains(&KeywordAbility::Flash)
         && let Some(spell) = definition.spell.as_mut()
     {

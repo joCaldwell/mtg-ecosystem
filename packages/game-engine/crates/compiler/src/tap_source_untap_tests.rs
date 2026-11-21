@@ -109,8 +109,28 @@ fn complete_seeker_of_skybreak_preserves_source_tap_and_creature_untap() {
 }
 #[test]
 fn tap_source_untap_rejects_unrepresented_target_qualifiers() {
+    // Self-consistent near misses are ordinary cards: the block pipeline
+    // lowers them, marked composed, with exactly the changed selector.
+    let raw =
+        changed(|a| a["effects"][0]["steps"][0]["what"]["filter"] = json!({"cls":"permanent"}));
+    let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+    let [ability] = d.activated.as_slice() else {
+        panic!("one activation")
+    };
+    assert_eq!(ability.cost, ActivationCost::TapSource);
+    assert_eq!(
+        tests::sole_target(&ability.program),
+        (
+            TargetDomain::BattlefieldPermanent,
+            vec![],
+            vec![],
+            vec![],
+            false,
+            false
+        )
+    );
+    assert_eq!(tests::ops(&ability.program), ["untap_permanent"]);
     for (field, value) in [
-        ("filter", json!({"cls":"permanent"})),
         ("filter", json!({"types":["creature"],"status":["tapped"]})),
         ("filter", json!({"types":["artifact"],"status":["tapped"]})),
         (
@@ -124,7 +144,7 @@ fn tap_source_untap_rejects_unrepresented_target_qualifiers() {
     ] {
         let raw = changed(|a| a["effects"][0]["steps"][0]["what"][field] = value);
         assert!(
-            crate::tests::family_rejects(&compile(MANIFEST, &raw)),
+            matches!(compile(MANIFEST, &raw), CompileResult::Unsupported { .. }),
             "{field}"
         );
     }

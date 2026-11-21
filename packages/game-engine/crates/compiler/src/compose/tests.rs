@@ -137,6 +137,8 @@ const SEAL: &str =
 const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-piranha-marsh.json");
 const DRAGON: &str =
     include_str!("../../../../tests/fixtures/phase1-r3/compose-destructor-dragon.json");
+const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-bake-into-a-pie.json");
+// A complete row whose reference graph a family recognised and refused.
 const CREW: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-hire-a-crew.json");
 const WITNESSES: [&str; 9] = [
     include_str!("../../../../tests/fixtures/phase1-r3/compose-marble-chalice.json"),
@@ -147,7 +149,7 @@ const WITNESSES: [&str; 9] = [
     include_str!("../../../../tests/fixtures/phase1-r3/compose-icatian-priest.json"),
     MARSH,
     DRAGON,
-    CREW,
+    PIE,
 ];
 
 fn composed(raw: &str) -> Definition {
@@ -244,17 +246,21 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     );
     assert_eq!(labels.mana, [2]);
     // A spell sequence stays in printed order.
-    let crew = composed(CREW);
-    assert!(matches!(
-        crew.spell.as_ref().unwrap().instructions.as_slice(),
+    let pie = composed(PIE);
+    assert_eq!(
+        pie.spell.as_ref().unwrap().instructions,
         [
-            Instruction::CreateCreatureTokens { count: 1, .. },
-            Instruction::PumpSet {
-                set: ObjectSet::ControllerCreatures,
-                ..
+            Instruction::DestroyTargetCreature {
+                target_slot: 0,
+                source_block: 0
+            },
+            Instruction::CreatePredefinedTokens {
+                count: 1,
+                kind: PredefinedToken::Food,
+                source_block: 0
             }
         ]
-    ));
+    );
     // A creature's dies trigger on any noncreature permanent.
     let dragon = composed(DRAGON);
     assert_eq!(dragon.keywords, [KeywordAbility::Flying]);
@@ -273,6 +279,70 @@ fn families_keep_precedence_and_composition_never_relabels_them() {
             .capabilities
             .contains(&Capability::ComposedAbilityV1)
     );
+}
+
+#[test]
+fn a_family_binding_verdict_is_final() {
+    // The block pipeline alone accepts this row, but a family recognised the
+    // source and refused its reference graph. That is an integrity verdict,
+    // not a shape rejection, so the compiler reports it instead of falling back.
+    assert!(lower(accepted_manifest(R3).unwrap(), CREW).is_ok());
+    assert!(matches!(
+        compile(R3, CREW),
+        CompileResult::Unsupported { ref path, .. } if path == "binding"
+    ));
+}
+
+#[test]
+fn printed_text_and_ast_must_agree_on_choices_words_and_numbers() {
+    let rejected = |raw: &str| !matches!(compile(R3, raw), CompileResult::Lowered { .. });
+    let reworded = |raw: &str, from: &str, to: &str| {
+        changed(raw, |row| {
+            let text = row["source"]["oracle_text"]
+                .as_str()
+                .unwrap()
+                .replace(from, to);
+            assert_ne!(row["source"]["oracle_text"], json!(text));
+            row["source"]["oracle_text"] = json!(text);
+            let line = &mut row["faces"][0]["result"]["lines"][0]["text"];
+            *line = json!(line.as_str().unwrap().replace(from, to));
+        })
+    };
+    // A printed choice the AST makes mandatory, and an AST choice not printed.
+    assert!(rejected(&reworded(
+        PIE,
+        "Create a Food token.",
+        "You may create a Food token."
+    )));
+    assert!(rejected(&changed(PIE, |row| {
+        row["faces"][0]["result"]["abilities"][0]["effects"][1]["steps"][0]["optional"] =
+            json!(true);
+    })));
+    // A printed limit or condition the AST does not carry.
+    assert!(rejected(&reworded(
+        PIE,
+        "Destroy target creature.",
+        "Destroy up to one target creature."
+    )));
+    assert!(rejected(&reworded(
+        PIE,
+        "Create a Food token.",
+        "Create a Food token if you control a Swamp."
+    )));
+    // A printed number the AST does not carry.
+    assert!(rejected(&reworded(
+        PIE,
+        "Create a Food token.",
+        "Create 4 Food tokens."
+    )));
+    // An evergreen keyword in the printed keyword list but not the AST, and
+    // an ability word the block does not print.
+    assert!(rejected(&changed(PIE, |row| {
+        row["source"]["keywords"] = json!(["Flash"])
+    })));
+    assert!(rejected(&changed(PIE, |row| {
+        row["faces"][0]["result"]["abilities"][0]["abilityWord"] = json!("Delirium");
+    })));
 }
 
 #[test]
@@ -375,7 +445,7 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
     })));
     // Variable costs keep their reviewed families.
     assert!(rejected(
-        &changed(CREW, |row| row["source"]["mana_cost"] = json!("{X}{R}"))
+        &changed(PIE, |row| row["source"]["mana_cost"] = json!("{X}{B}"))
     ));
     // An intervening condition on a table event.
     assert!(rejected(&changed(MARSH, |row| {

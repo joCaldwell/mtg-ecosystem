@@ -231,7 +231,6 @@ mod tests {
                 json!({"amount":"x"}),
             ),
             ("/source/keywords", json!(["Flash"])),
-            ("/source/type_line", json!("Instant")),
         ];
         for (path, value) in mutations {
             let bad = changed_source(&raw, |r| {
@@ -240,10 +239,19 @@ mod tests {
                 result["lines"][0]["ability"] = result["abilities"][0].clone();
             });
             assert!(
-                crate::tests::family_or_source_rejects(&compile(MANIFEST, &bad)),
+                !matches!(compile(MANIFEST, &bad), CompileResult::Lowered { .. }),
                 "{path}"
             );
         }
+        // The same two clauses on an instant are an ordinary card: the block
+        // pipeline lowers them, marked composed, at instant timing.
+        let instant = changed_source(&raw, |r| r["source"]["type_line"] = json!("Instant"));
+        let d = crate::tests::composed_near_miss(compile(MANIFEST, &instant));
+        let original = check(&raw, Some(3));
+        let (p, q) = (d.spell.as_ref().unwrap(), original.spell.as_ref().unwrap());
+        assert_eq!(d.characteristics.kind, CardKind::Instant);
+        assert_eq!(p.timing, SpellTiming::Instant);
+        assert_eq!((&p.targets, &p.instructions), (&q.targets, &q.instructions));
         for value in [Value::Null, json!(true), json!(false)] {
             let bad = changed_source(&raw, |r| {
                 let result = &mut r["faces"][0]["result"];

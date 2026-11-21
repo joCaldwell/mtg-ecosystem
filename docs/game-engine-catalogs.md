@@ -89,14 +89,24 @@ transitive feature behavior still requires review. Focused guards are
 
 ## Compositional lowering
 
-`compiler/src/lib.rs` tries whole-card families first. A record no family
-supports falls back to `compiler/src/compose.rs`, which repeats the archive
-integrity checks, requires a completely bound reference graph that covers the AST, and lowers each block
-through small tables: `compose/costs.rs`, `compose/events.rs`,
-`compose/keywords.rs`, `compose/steps.rs` and the shared typed step lowerer.
-Unknown kinds, fields, operands and unconsumed references reject. A family
-rejection that composition does not recover keeps its original reason, so
-coverage reasons stay comparable. `--example composition_gaps ARCHIVE` lists the
+`compiler/src/lib.rs` tries whole-card families first. A record whose shape no
+family supports falls back to `compiler/src/compose.rs`, which repeats the
+archive integrity checks, requires a completely bound reference graph that
+covers the AST, and lowers each block through small tables: `compose/costs.rs`,
+`compose/events.rs`, `compose/keywords.rs`, `compose/steps.rs` and the shared
+typed step lowerer. Unknown kinds, fields, operands and unconsumed references
+reject. A family that recognised the source and refused its reference graph
+(path `binding`) has given an integrity verdict, which is final: only shape
+rejections fall back. A family rejection that composition does not recover
+keeps its original reason, so coverage reasons stay comparable.
+
+The fallback also rejects a block whose printed text and AST disagree: the
+sentence count; "may", "up to" and "if"/"unless" against `optional`, `upTo` and
+a condition; a printed number absent from the block's AST; a cost term; an
+ability word the block does not print; and an evergreen keyword present in only
+one of the source keyword list and the AST. Legacy family tests therefore keep
+strict rejection for malformed mutations, and assert `composed` with the exact
+changed operands for self-consistent near misses (`tests::composed_near_miss`). `--example composition_gaps ARCHIVE` lists the
 table row each remaining card lacks; `--example inspect ARCHIVE NAME` prints one
 compile result.
 

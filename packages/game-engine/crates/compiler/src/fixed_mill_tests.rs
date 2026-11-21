@@ -131,7 +131,7 @@ fn fixed_mill_rejects_null_qualified_actors_counts_sentences_and_binding_drift()
                 }
             });
             assert!(
-                crate::tests::family_or_source_rejects(&compile(HEADER, &changed)),
+                !matches!(compile(HEADER, &changed), CompileResult::Lowered { .. }),
                 "case{case}"
             );
         }
