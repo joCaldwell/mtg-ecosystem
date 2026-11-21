@@ -1,8 +1,7 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { nativeEnvironment, pinnedRust, runCheckPhases, smokePhases, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
+import { nativeEnvironment, nativeLock, pinnedRust, runCheckPhases, smokePhases, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const phases = smokePhases(process.argv.slice(2));
@@ -14,9 +13,9 @@ const fd = fs.openSync(report, "wx");
 const options = { cwd: root, env, record: (value: unknown) => fs.writeSync(fd, `${JSON.stringify(value)}\n`) };
 console.error(`Smoke timing evidence: ${report}`);
 try {
-  await withAdvisoryLock(path.join(os.homedir(), ".local/share/mtg-ecosystem/engine-verification/cargo.lock"), options, async () => {
+  await withAdvisoryLock(nativeLock(root, env), options, async () => {
     const source = sourceIdentity(root);
-    options.record({ kind: "freeze", source, rust, phases, cargo_target_dir: env.CARGO_TARGET_DIR, cargo_incremental: env.CARGO_INCREMENTAL });
+    options.record({ kind: "freeze", source, rust, phases, cargo_target_dir: env.CARGO_TARGET_DIR, cargo_incremental: env.CARGO_INCREMENTAL ?? "profile default" });
     try {
       const result = await runCheckPhases(phases, options);
       options.record({ kind: "phases-complete", ...result });

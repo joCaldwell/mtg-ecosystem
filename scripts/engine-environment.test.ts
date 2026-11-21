@@ -92,18 +92,32 @@ test("doctor does not expose arbitrary child output or environment secrets", t =
 
 test("launcher preserves argument boundaries, explicit cache and loader environment", () => {
   const result = spawnSync("sh", [path.join(root, "scripts/engine-env.sh"), "node", "-e",
-    'console.log(JSON.stringify({args:process.argv.slice(1), target:process.env.CARGO_TARGET_DIR, incremental:process.env.CARGO_INCREMENTAL, rust:process.env.RUSTUP_TOOLCHAIN, auto:process.env.RUSTUP_AUTO_INSTALL, loader:process.env.LD_LIBRARY_PATH}))',
+    'console.log(JSON.stringify({args:process.argv.slice(1), target:process.env.CARGO_TARGET_DIR, incremental:process.env.CARGO_INCREMENTAL, jobs:process.env.CARGO_BUILD_JOBS, rust:process.env.RUSTUP_TOOLCHAIN, auto:process.env.RUSTUP_AUTO_INSTALL, loader:process.env.LD_LIBRARY_PATH}))',
     "one two", "$(never-run)", "semi;colon"], {
-    encoding: "utf8", env: { ...process.env, CARGO_TARGET_DIR: "/tmp/explicit engine target", CARGO_INCREMENTAL: "1", LD_LIBRARY_PATH: "/tmp/previous-loader-path" },
+    encoding: "utf8", env: { ...process.env, CARGO_TARGET_DIR: "/tmp/explicit engine target", CARGO_INCREMENTAL: "1", CARGO_BUILD_JOBS: "3", LD_LIBRARY_PATH: "/tmp/previous-loader-path" },
   });
   assert.equal(result.status, 0, result.stderr);
   const actual = JSON.parse(result.stdout);
   assert.deepEqual(actual.args, ["one two", "$(never-run)", "semi;colon"]);
   assert.equal(actual.target, "/tmp/explicit engine target");
   assert.equal(actual.incremental, "1");
+  assert.equal(actual.jobs, "3");
   assert.equal(actual.rust, "1.99.0");
   assert.equal(actual.auto, "0");
   assert.ok(actual.loader.endsWith("/tmp/previous-loader-path"));
+});
+
+test("launcher leaves incrementality to Cargo profiles and bounds default jobs", () => {
+  const env: NodeJS.ProcessEnv = { ...process.env, CARGO_TARGET_DIR: "/tmp/explicit engine target" };
+  delete env.CARGO_INCREMENTAL;
+  delete env.CARGO_BUILD_JOBS;
+  const result = spawnSync("sh", [path.join(root, "scripts/engine-env.sh"), "node", "-e",
+    'console.log(JSON.stringify({incremental:process.env.CARGO_INCREMENTAL ?? null, jobs:process.env.CARGO_BUILD_JOBS}))'], { encoding: "utf8", env });
+  assert.equal(result.status, 0, result.stderr);
+  const actual = JSON.parse(result.stdout);
+  assert.equal(actual.incremental, null);
+  const cpus = Number(spawnSync("nproc", { encoding: "utf8" }).stdout.trim());
+  assert.equal(Number(actual.jobs), Math.min(cpus, Math.max(4, Math.floor(cpus / 4))));
 });
 
 test("missing explicit toolchain blocks bootstrap before dependency installation", t => {
