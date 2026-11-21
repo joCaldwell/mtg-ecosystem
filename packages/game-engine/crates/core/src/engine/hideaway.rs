@@ -6,7 +6,7 @@ use super::*;
 /// the link, independently of what happens to its source or either controller.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct HideawayLink {
+pub struct HideawayLink {
     card: ObjectId,
     source: ObjectId,
     source_block: u32,
@@ -15,7 +15,7 @@ pub(super) struct HideawayLink {
 }
 
 impl HideawayLink {
-    pub(super) fn matches(&self, source: ObjectId, source_block: u32, card: ObjectId) -> bool {
+    pub fn matches(&self, source: ObjectId, source_block: u32, card: ObjectId) -> bool {
         self.source == source && self.source_block == source_block && self.card == card
     }
 
@@ -30,14 +30,14 @@ impl HideawayLink {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct RandomBottom {
+pub struct RandomBottom {
     selected: ObjectId,
     order: Vec<ObjectId>,
     remaining: u32,
 }
 
 impl Game {
-    pub(super) fn linked_hideaway_cards(
+    pub(crate) fn linked_hideaway_cards(
         &self,
         source: ObjectId,
         source_block: u32,
@@ -56,7 +56,7 @@ impl Game {
             .collect()
     }
 
-    pub(super) fn turn_up_linked_hideaway(
+    pub(crate) fn turn_up_linked_hideaway(
         &mut self,
         source: ObjectId,
         source_block: u32,
@@ -76,7 +76,7 @@ impl Game {
         Ok(*link)
     }
 
-    pub(super) fn restore_hideaway_link(
+    pub(crate) fn restore_hideaway_link(
         &mut self,
         mut receipt: HideawayLink,
     ) -> Result<(), String> {

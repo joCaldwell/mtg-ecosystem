@@ -125,7 +125,7 @@ impl Game {
         }
         self.land_search_for(frame)
     }
-    pub(super) fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
+    pub(crate) fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
         if let Frame::LandEntry {
             origin: EntryOrigin::Search { frame },
             ..
@@ -152,7 +152,7 @@ impl Game {
             .ok_or("not land search instruction")?
             .force_tapped())
     }
-    pub(super) fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String> {
+    pub(crate) fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String> {
         let search = self
             .land_search_for(frame)
             .ok_or("not an entry search instruction")?;
@@ -278,7 +278,7 @@ impl Game {
         }
     }
 
-    pub(super) fn graveyard_target_legal(
+    pub(crate) fn graveyard_target_legal(
         &self,
         object: &Object,
         player: PlayerId,
@@ -293,13 +293,13 @@ impl Game {
                 _ => false,
             }
     }
-    pub(super) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
+    pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
         self.current(id).is_ok_and(|o| o.present_on_battlefield())
             && self
                 .characteristics(id)
                 .is_ok_and(|c| c.has_type(CardKind::Creature))
     }
-    pub(super) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
+    pub(crate) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
         let announced = matches!(self.state.rules.frame, Frame::Targets { .. })
             && self.top().is_ok_and(|top| top.id == entry.id);
         let program = if announced {
@@ -368,7 +368,7 @@ impl Game {
         cards.sort();
         Ok(cards)
     }
-    pub(super) fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
+    pub(crate) fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
         let descriptor = self.active_land_search();
         // CardId order is physical order, never library order (CR 401.2).
         let mut cards = self
@@ -407,7 +407,7 @@ impl Game {
         let token = self.search_decision_token(player)?;
         Ok(ObjectHandle(format!("{}:search:{index}", token.0)))
     }
-    pub(super) fn resolve_search_handle(
+    pub(crate) fn resolve_search_handle(
         &self,
         player: PlayerId,
         handle: &ObjectHandle,

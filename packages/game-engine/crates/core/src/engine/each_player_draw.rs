@@ -5,15 +5,15 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PlayerDrawAttempts {
-    pub(super) player: PlayerId,
-    pub(super) attempted: Quantity,
-    pub(super) failed: Quantity,
+pub struct PlayerDrawAttempts {
+    pub player: PlayerId,
+    pub attempted: Quantity,
+    pub failed: Quantity,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct EachPlayerDrawProgress {
+pub struct EachPlayerDrawProgress {
     pub(super) completed: Vec<PlayerDrawAttempts>,
     // The first remaining player owns the ordinary DrawProgress, if present.
     pub(super) remaining: Vec<PlayerId>,

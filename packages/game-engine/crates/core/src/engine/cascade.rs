@@ -7,13 +7,13 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum AlternativeCost {
+pub enum AlternativeCost {
     Bestow,
     WithoutManaCost,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CastPermission {
+pub struct CastPermission {
     pub(super) object: ObjectId,
     pub(super) caster: PlayerId,
     owner: StackId,
@@ -25,7 +25,7 @@ pub(super) struct CastPermission {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "return_to", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum CastCompletion {
+pub enum CastCompletion {
     Priority,
     HandTrigger {
         frame: Box<Resolving>,
@@ -38,7 +38,7 @@ pub(super) enum CastCompletion {
 /// The original cascade progress remains its serialized resolution owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub(super) enum CastOwner {
+pub enum CastOwner {
     LinkedPlay {
         progress: Box<LinkedPlayProgress>,
         object: ObjectId,
@@ -85,7 +85,7 @@ impl CastPermission {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum CascadeStage {
+pub enum CascadeStage {
     Scan,
     LandOffer { provider: ObjectId },
     Offer,
@@ -101,11 +101,11 @@ struct CascadeLandChoice {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CascadeProgress {
-    pub(super) frame: Resolving,
+pub struct CascadeProgress {
+    pub frame: Resolving,
     pub(super) source_block: u32,
     threshold: Quantity,
-    pub(super) stage: CascadeStage,
+    pub stage: CascadeStage,
     exiled: Vec<ObjectId>,
     hit: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -245,7 +245,7 @@ impl Game {
             .spell_proposal_obstacle(program, caster, &definition.characteristics)
             .is_none())
     }
-    pub(super) fn resulting_permission_matches(
+    pub(crate) fn resulting_permission_matches(
         &self,
         permission: &CastPermission,
         stack: &StackInstance,
@@ -722,7 +722,7 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn cascade_charge(&self) -> usize {
+    pub(crate) fn cascade_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         match frame {
             Frame::PlayHideawayLinked { .. }

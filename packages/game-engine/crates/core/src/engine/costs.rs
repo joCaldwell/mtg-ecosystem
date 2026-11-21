@@ -5,7 +5,7 @@
 use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CostLock {
+pub struct CostLock {
     increases: Quantity,
     reducers: Vec<CountFact>,
 }
@@ -42,14 +42,14 @@ fn total_cost(
     }
     base
 }
-pub(super) fn entry_cost_lock_charge(entry: &StackInstance) -> usize {
+pub fn entry_cost_lock_charge(entry: &StackInstance) -> usize {
     entry
         .cost_lock
         .as_ref()
         .map_or(0, stored_history::payload_charge)
 }
 impl Game {
-    pub(super) fn cost_lock_charge(&self) -> usize {
+    pub(crate) fn cost_lock_charge(&self) -> usize {
         let mut charge = self
             .state
             .rules
@@ -237,7 +237,7 @@ impl Game {
         entry.cost_lock = Some(lock);
         Ok(())
     }
-    pub(super) fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String> {
+    pub(crate) fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String> {
         if self.is_spell_copy(entry) {
             return if entry.cost_lock.is_none()
                 && entry.hybrid_colors.is_empty()

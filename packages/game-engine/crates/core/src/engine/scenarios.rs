@@ -694,7 +694,7 @@ impl ScenarioConfig {
         sizes
     }
 
-    pub(super) fn initial_libraries(&self) -> BTreeMap<PlayerId, Vec<CardId>> {
+    pub(crate) fn initial_libraries(&self) -> BTreeMap<PlayerId, Vec<CardId>> {
         if let Some(libraries) = &self.initial.libraries {
             return libraries.clone();
         }

@@ -96,7 +96,7 @@ impl Game {
             .map(|_| ())
     }
 
-    pub(super) fn announce_priority_spell(
+    pub(crate) fn announce_priority_spell(
         &mut self,
         player: PlayerId,
         card: CardId,
@@ -121,7 +121,7 @@ impl Game {
         let announcement = self.priority_spell_announcement(player, card, true)?;
         self.begin_spell_announcement(announcement)
     }
-    pub(super) fn is_bestowed_spell(&self, object: ObjectId) -> bool {
+    pub(crate) fn is_bestowed_spell(&self, object: ObjectId) -> bool {
         // CR 702.103e: the Aura effect ends as resolution starts if its target
         // is illegal. The stack entry keeps the alternative payment as history.
         if let Frame::Resolve { frame } = &self.state.rules.frame
@@ -387,7 +387,7 @@ impl Game {
     /// retained turn owner even when there is no active player. The current
     /// battlefield controller supplies "your"; ownership does not.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn validate_cast_permission(&self, player: PlayerId) -> Result<(), String> {
+    pub(crate) fn validate_cast_permission(&self, player: PlayerId) -> Result<(), String> {
         if !self.is_live(player) {
             return Err("departed player cannot cast spells".into());
         }
@@ -396,7 +396,7 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
+    pub(crate) fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
         for source in self.state.rules.objects.values().filter(|o| {
             o.present_on_battlefield()
                 && o.controller == self.state.rules.turn_owner
@@ -413,7 +413,7 @@ impl Game {
         }
         Ok(false)
     }
-    pub(super) fn validate_mana_activation(
+    pub(crate) fn validate_mana_activation(
         &self,
         player: PlayerId,
         object: ObjectId,

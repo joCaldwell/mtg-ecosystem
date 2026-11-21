@@ -6,7 +6,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub(super) enum EntryChoice {
+pub enum EntryChoice {
     Life(bool),
     Reveal {
         #[serde(deserialize_with = "Deserialize::deserialize")]
@@ -38,7 +38,7 @@ pub(super) enum EntryCost {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum EntryOrigin {
+pub enum EntryOrigin {
     LinkedPlay {
         progress: Box<LinkedPlayProgress>,
         object: ObjectId,
@@ -90,7 +90,7 @@ impl EntryOrigin {
 
 // Private, nonserializable, immutable batch-local proof. Constructed ONLY by
 // prepare_entry_batch after complete cause/group equality and pre-debit checks.
-pub(super) struct PreparedEntryAuthority {
+pub struct PreparedEntryAuthority {
     player: PlayerId,
     donor: Option<ObjectId>,
     back_face: bool,
@@ -545,7 +545,7 @@ impl Game {
                 .collect(),
         }))
     }
-    pub(super) fn land_entry_step(&mut self) -> Result<(), String> {
+    pub(crate) fn land_entry_step(&mut self) -> Result<(), String> {
         self.validate_entry_plan()?;
         if let Some(request) = self.copy_entry_request()? {
             return self.consume_copy_entry_response(&request);
@@ -694,15 +694,15 @@ impl Game {
         }
         Ok(())
     }
-    #[cfg(test)]
-    pub(super) fn entry_cause_for_test(&self) -> BatchCause {
+    #[cfg(feature = "testkit")]
+    pub(crate) fn entry_cause_for_test(&self) -> BatchCause {
         self.entry_cause().unwrap()
     }
-    #[cfg(test)]
-    pub(super) fn entry_group_for_test(&self) -> EventGroup {
+    #[cfg(feature = "testkit")]
+    pub(crate) fn entry_group_for_test(&self) -> EventGroup {
         self.entry_group().unwrap()
     }
-    pub(super) fn land_entry_charge(&self) -> usize {
+    pub(crate) fn land_entry_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         let Frame::LandEntry { origin, .. } = frame else {
             return 0;

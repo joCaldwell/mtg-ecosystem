@@ -27,25 +27,27 @@ pub struct CompletionLayout {
     pub rotate: bool,
     pub homogeneous_seats: [usize; 2],
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MatchProfile {
-    pub name: String,
-    pub catalog_manifest: String,
-    pub decks: [Decklist; 4],
-    pub commanders: Vec<String>,
-    pub commander_policy: CommanderPolicy,
-    pub hosted: bool,
-    pub search: bool,
-    pub completion: CompletionLayout,
-    #[serde(skip)]
-    pub catalog_sha256: String,
-    #[serde(skip)]
-    pub catalog: Option<Catalog>,
-    #[serde(skip)]
-    pub(crate) banned_list_raw: String,
-    #[serde(skip)]
-    pub(crate) bans: Vec<BanRecord>,
+testkit_fields! {
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct MatchProfile {
+        pub name: String,
+        pub catalog_manifest: String,
+        pub decks: [Decklist; 4],
+        pub commanders: Vec<String>,
+        pub commander_policy: CommanderPolicy,
+        pub hosted: bool,
+        pub search: bool,
+        pub completion: CompletionLayout,
+        #[serde(skip)]
+        pub catalog_sha256: String,
+        #[serde(skip)]
+        pub catalog: Option<Catalog>,
+        #[serde(skip)]
+        pub(crate) banned_list_raw: String,
+        #[serde(skip)]
+        pub(crate) bans: Vec<BanRecord>,
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -93,7 +95,7 @@ impl From<String> for ProfileError {
     }
 }
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct BanRecord {
+pub struct BanRecord {
     pub name: String,
     pub oracle_id: String,
     pub record_json: String,

@@ -42,7 +42,7 @@ pub struct MatchRandom {
 }
 // Generic physical-card bound includes a tucked commander. Setup still checks
 // its own starting library; callers never infer that as a sampler limit.
-pub(super) fn sample_shuffle_word(word: u32, upper: u32) -> Option<u32> {
+pub fn sample_shuffle_word(word: u32, upper: u32) -> Option<u32> {
     if !(2..=capacities::OWNED_LIMIT as u32).contains(&upper) {
         return None;
     }
@@ -58,7 +58,7 @@ pub(super) fn sample_bounded_word(word: u32, upper: u32) -> Option<u32> {
     (u64::from(word) < limit).then_some(word % upper)
 }
 impl MatchRandom {
-    pub(super) fn word(&mut self) -> Result<u32, String> {
+    pub(crate) fn word(&mut self) -> Result<u32, String> {
         if self.version != 1 || self.stream != 0 || self.word_position.0 >= RNG_END {
             return Err("shuffle random stream exhausted or unsupported".into());
         }
@@ -240,10 +240,10 @@ impl ScenarioConfig {
     }
 }
 impl Game {
-    pub(super) fn damage_limit(&self) -> usize {
+    pub(crate) fn damage_limit(&self) -> usize {
         capacities::DAMAGE_LIMIT
     }
-    pub(super) fn effect_limit(&self) -> usize {
+    pub(crate) fn effect_limit(&self) -> usize {
         capacities::EFFECT_LIMIT
     }
     fn opening(&self) -> Result<&OpeningSetup, String> {

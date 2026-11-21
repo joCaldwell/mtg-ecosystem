@@ -113,15 +113,17 @@ impl Game {
 
 // CR 603.7e: the resolving chapter fixes the controller and the source of the
 // delayed ability. Subsequent entries use their actual battlefield appearance.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DelayedChapterRegistration {
-    pub(super) issuer: Box<StackInstance>,
-    pub(super) turn: u64,
+testkit_fields! {
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct DelayedChapterRegistration {
+        pub(super) issuer: Box<StackInstance>,
+        pub(super) turn: u64,
+    }
 }
 
 impl DelayedChapterRegistration {
-    pub(super) fn chapter(&self) -> Result<u32, String> {
+    pub(crate) fn chapter(&self) -> Result<u32, String> {
         match &self.issuer.kind {
             StackKind::Triggered {
                 ability: EffectiveTriggerAbility::Intrinsic { index },

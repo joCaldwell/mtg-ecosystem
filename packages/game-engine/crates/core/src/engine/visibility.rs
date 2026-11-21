@@ -880,11 +880,11 @@ pub struct SearchContext {
 // one of them mints or retires a handle; the wire form is the map itself.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(transparent)]
-struct ObjectHandles {
+pub struct ObjectHandles {
     #[serde(with = "shared_entries")]
-    entries: Arc<BTreeMap<String, ObjectId>>,
+    pub entries: Arc<BTreeMap<String, ObjectId>>,
     #[serde(skip)]
-    reverse: Arc<std::sync::OnceLock<BTreeMap<ObjectId, ObjectHandle>>>,
+    pub reverse: Arc<std::sync::OnceLock<BTreeMap<ObjectId, ObjectHandle>>>,
 }
 mod shared_entries {
     use super::*;
@@ -907,7 +907,7 @@ impl PartialEq for ObjectHandles {
 }
 impl Eq for ObjectHandles {}
 impl ObjectHandles {
-    fn handle_for(&self, object: ObjectId) -> Option<&ObjectHandle> {
+    pub fn handle_for(&self, object: ObjectId) -> Option<&ObjectHandle> {
         self.reverse
             .get_or_init(|| {
                 let mut reverse = BTreeMap::new();
@@ -923,7 +923,7 @@ impl ObjectHandles {
     fn get(&self, handle: &str) -> Option<&ObjectId> {
         self.entries.get(handle)
     }
-    fn insert(&mut self, handle: String, object: ObjectId) {
+    pub fn insert(&mut self, handle: String, object: ObjectId) {
         // An unchanged row leaves the shared map and its index alone.
         if self.entries.get(&handle) == Some(&object) {
             return;
@@ -931,7 +931,7 @@ impl ObjectHandles {
         Arc::make_mut(&mut self.entries).insert(handle, object);
         self.reverse = Arc::default();
     }
-    fn retain_objects(&mut self, current: &BTreeSet<ObjectId>) {
+    pub fn retain_objects(&mut self, current: &BTreeSet<ObjectId>) {
         // Unshare only when a row actually leaves.
         if self.entries.values().all(|object| current.contains(object)) {
             return;
@@ -946,15 +946,15 @@ impl ObjectHandles {
 
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Knowledge {
+pub struct Knowledge {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub(super) revealed_hand: BTreeSet<ObjectId>,
+    pub revealed_hand: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub(super) public_tucked_cards: BTreeSet<ObjectId>,
+    pub public_tucked_cards: BTreeSet<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) own_knowledge: Vec<OwnKnowledgeAction>,
+    pub own_knowledge: Vec<OwnKnowledgeAction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) namespace: Option<String>,
+    pub namespace: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) effect_handles: Vec<(EffectKey, EffectHandle)>,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -971,12 +971,12 @@ pub(super) struct Knowledge {
     ability_handles: BTreeMap<StackId, StackHandle>,
     #[serde(default, skip_serializing_if = "is_zero")]
     next_ability_handle: u64,
-    handles: ObjectHandles,
+    pub handles: ObjectHandles,
     next_handle: u64,
     decision_key: Option<(u64, u8)>,
     decision_token: Option<DecisionToken>,
     next_decision: u64,
-    pub(super) history: super::stored_history::StoredHistory,
+    pub history: super::stored_history::StoredHistory,
 }
 fn scoped(namespace: &Option<String>, handle: String) -> String {
     namespace.as_ref().map_or_else(
@@ -996,7 +996,7 @@ impl Knowledge {
 // four observers' handles and histories are updated, and for as long as a
 // Work's state token is current. Lists preserve object-table order.
 #[derive(Default)]
-pub(super) struct ProjectionIndex {
+pub struct ProjectionIndex {
     hand_counts: [usize; 4],
     library_counts: [usize; 4],
     attachments: BTreeMap<ObjectId, Vec<ObjectId>>,
@@ -1073,7 +1073,7 @@ impl Game {
             .ok_or_else(|| "missing private search token".into())
     }
 
-    pub(super) fn capture_trigger_source_handles(
+    pub(crate) fn capture_trigger_source_handles(
         &mut self,
         object: ObjectId,
     ) -> Result<Vec<ObjectHandle>, String> {
@@ -1095,7 +1095,7 @@ impl Game {
         }
         Ok(handles)
     }
-    pub(super) fn resolve_trigger_handle(
+    pub(crate) fn resolve_trigger_handle(
         &self,
         viewer: PlayerId,
         handle: &TriggerHandle,
@@ -1112,7 +1112,7 @@ impl Game {
             })
             .ok_or_else(|| "invalid trigger handle".into())
     }
-    pub(super) fn visible_pending_trigger(
+    pub(crate) fn visible_pending_trigger(
         &self,
         viewer: PlayerId,
         id: TriggerId,
@@ -1211,7 +1211,7 @@ impl Game {
             | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
         })
     }
-    pub(super) fn player_entity(
+    pub(crate) fn player_entity(
         &self,
         viewer: PlayerId,
         target: TargetEntity,
@@ -1223,7 +1223,7 @@ impl Game {
             }),
         }
     }
-    pub(super) fn resolve_entity(
+    pub(crate) fn resolve_entity(
         &self,
         viewer: PlayerId,
         target: &PlayerTargetEntity,
@@ -1279,7 +1279,7 @@ impl Game {
         }
         false
     }
-    pub(super) fn stack_handle_for(
+    pub(crate) fn stack_handle_for(
         &self,
         viewer: PlayerId,
         id: StackId,
@@ -1315,8 +1315,8 @@ impl Game {
             .ok_or_else(|| "stale or foreign stack handle".into())
     }
     // Unindexed reference projection, kept for the frozen query oracle.
-    #[cfg(test)]
-    pub(super) fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String> {
+    #[cfg(feature = "testkit")]
+    pub(crate) fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String> {
         self.project_player(player, None)
     }
     /// `visible_player` for seats 0..4, with an index of this unchanged state.
@@ -1379,7 +1379,7 @@ impl Game {
             library_count: checked_count(library_count)?,
         })
     }
-    pub(super) fn handle_for(
+    pub(crate) fn handle_for(
         &self,
         viewer: PlayerId,
         id: ObjectId,
@@ -1405,8 +1405,8 @@ impl Game {
         })
     }
     // Unindexed reference projection, kept for the frozen query oracle.
-    #[cfg(test)]
-    pub(super) fn visible_object(
+    #[cfg(feature = "testkit")]
+    pub(crate) fn visible_object(
         &self,
         viewer: PlayerId,
         object: &Object,
@@ -1631,7 +1631,7 @@ impl Game {
             characteristics: self.characteristics_with_sources(object.id, static_sources)?,
         })
     }
-    pub(super) fn visible_stack(
+    pub(crate) fn visible_stack(
         &self,
         viewer: PlayerId,
         index: usize,
@@ -1773,7 +1773,7 @@ impl Game {
             targets,
         })
     }
-    pub(super) fn blank_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
+    pub(crate) fn blank_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
         if viewer.0 >= 4 {
             return Err("invalid viewer".into());
         }
@@ -1836,7 +1836,7 @@ impl Game {
             stack: vec![],
         })
     }
-    pub(super) fn request_header(&self, viewer: PlayerId) -> Result<Option<PlayerRequest>, String> {
+    pub(crate) fn request_header(&self, viewer: PlayerId) -> Result<Option<PlayerRequest>, String> {
         if viewer.0 >= 4 {
             return Err("invalid viewer".into());
         }
@@ -2676,7 +2676,7 @@ impl Game {
         Self::order_view_objects(&mut view);
         Ok(view)
     }
-    pub(super) fn refresh_visibility(&mut self) -> Result<(), String> {
+    pub(crate) fn refresh_visibility(&mut self) -> Result<(), String> {
         if self.setup_automatic() {
             return Ok(());
         }
@@ -2952,7 +2952,7 @@ impl Game {
         row.map(|(handle, _)| ObjectHandle(handle.clone()))
     }
 
-    pub(super) fn resolve_handle(
+    pub(crate) fn resolve_handle(
         &self,
         viewer: PlayerId,
         handle: &ObjectHandle,
@@ -2970,7 +2970,7 @@ impl Game {
         }
         Ok(id)
     }
-    pub(super) fn convert_response(
+    pub(crate) fn convert_response(
         &self,
         viewer: PlayerId,
         response: &PlayerResponse,
@@ -3292,7 +3292,7 @@ impl Game {
             }),
         }
     }
-    pub(super) fn validate_player_token(
+    pub(crate) fn validate_player_token(
         &self,
         viewer: PlayerId,
         token: &DecisionToken,
@@ -3306,7 +3306,3 @@ impl Game {
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "visibility_index_tests.rs"]
-mod index_tests;

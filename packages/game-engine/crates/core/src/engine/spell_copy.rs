@@ -5,13 +5,13 @@ use tokens::{TokenIdentity, TokenTemplate, copied_creature_definition};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CopyIdentity {
+pub struct CopyIdentity {
     card: CardId,
     stack_id: StackId,
 }
 
 impl Game {
-    pub(super) fn is_spell_copy(&self, entry: &StackInstance) -> bool {
+    pub(crate) fn is_spell_copy(&self, entry: &StackInstance) -> bool {
         entry.kind.is_spell()
             && entry.source.incarnation == 0
             && self.state.rules.tokens.get(&entry.source.card).is_some_and(|identity|
@@ -329,7 +329,7 @@ impl Game {
 }
 
 impl Resolving {
-    pub(super) fn copied_child(&self) -> Option<StackId> {
+    pub fn copied_child(&self) -> Option<StackId> {
         match self.outcomes.as_slice() {
             [InstructionOutcome::SpellCopied { copy }] => Some(*copy),
             _ => None,

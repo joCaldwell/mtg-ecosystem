@@ -5,7 +5,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(in crate::engine) struct ManaLifeUndo {
+pub struct ManaLifeUndo {
     before: Quantity,
     after: Quantity,
 }

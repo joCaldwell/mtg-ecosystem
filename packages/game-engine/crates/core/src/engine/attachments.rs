@@ -46,7 +46,7 @@ impl Game {
     /// CR 301.5/303.4/701.3: type/domain validity only. Exact incarnation,
     /// battlefield presence and spell targetability belong to the caller. In
     /// particular, gaining Hexproof/Shroud never ends an existing attachment.
-    pub(super) fn attachment_target_type_valid(
+    pub(crate) fn attachment_target_type_valid(
         &self,
         source: ObjectId,
         target: ObjectId,
@@ -75,7 +75,7 @@ impl Game {
         }
     }
 
-    pub(super) fn validate_attachment_state(&self) -> Result<(), String> {
+    pub(crate) fn validate_attachment_state(&self) -> Result<(), String> {
         let next = self.state.rules.next_attachment_timestamp;
         if next == 0 {
             return Err("snapshot attachment counter invariant".into());
@@ -126,7 +126,7 @@ impl Game {
         Ok(())
     }
 
-    pub(super) fn target_is_creature(&self, object: ObjectId) -> bool {
+    pub(crate) fn target_is_creature(&self, object: ObjectId) -> bool {
         self.current(object)
             .is_ok_and(|o| o.present_on_battlefield())
             && self
@@ -154,8 +154,8 @@ impl Game {
             .filter(|object| object.present_on_battlefield())
     }
 
-    #[cfg(test)]
-    pub(super) fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
+    #[cfg(feature = "testkit")]
+    pub(crate) fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
         self.static_modifications_with_sources(target, None)
     }
 
@@ -257,7 +257,7 @@ impl Game {
             })
             .collect()
     }
-    pub(super) fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
+    pub(crate) fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
         self.current_keywords_with_sources(object, None)
     }
 
@@ -353,7 +353,7 @@ impl Game {
         }
         keywords
     }
-    pub(super) fn has_restriction(
+    pub(crate) fn has_restriction(
         &self,
         object: ObjectId,
         restriction: CreatureRestriction,
@@ -398,7 +398,7 @@ impl Game {
             )
     }
 
-    pub(super) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
+    pub(crate) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
         // CR 702.11b/18a apply only while the ability functions on battlefield.
         if self.current(object).is_ok_and(|o| o.phased_out.is_some()) {
             return false;
@@ -472,7 +472,7 @@ impl Game {
         Ok(())
     }
 
-    pub(super) fn attachment_sbas(
+    pub(crate) fn attachment_sbas(
         &self,
         occurrences: &mut Vec<ProposedEvent>,
     ) -> Result<(), String> {

@@ -2,7 +2,7 @@ use super::*;
 
 /// Lack of funds is an ordinary casting outcome; corrupt inputs are not.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum PaymentError {
+pub enum PaymentError {
     InsufficientMana,
     Invariant(&'static str),
 }
@@ -19,12 +19,12 @@ impl From<PaymentError> for String {
 /// an engine error. This receipt is produced only after every cost and the one
 /// cast occurrence; a caller, rather than the payment primitive, owns resumption.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct AnnouncementCompleted {
-    pub(super) stack_id: StackId,
-    pub(super) controller: PlayerId,
+pub struct AnnouncementCompleted {
+    pub stack_id: StackId,
+    pub controller: PlayerId,
 }
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum AnnouncementPayment {
+pub enum AnnouncementPayment {
     Completed(AnnouncementCompleted),
     Unpayable,
     Deferred,
@@ -41,7 +41,7 @@ pub(super) fn phyrexian_life(choices: &[HybridPayment]) -> Quantity {
 }
 
 impl Game {
-    pub(super) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
+    pub(crate) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
         match self.payment_pool(player, cost) {
             Ok(_) => Ok(true),
             Err(PaymentError::InsufficientMana) => Ok(false),
@@ -132,7 +132,7 @@ impl Game {
     // costs. A complete selection must satisfy every colored symbol and pay
     // exactly the total cost. Never silently spend a different color.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn selected_payment_pool(
+    pub(crate) fn selected_payment_pool(
         &self,
         player: PlayerId,
         cost: &ManaCost,
@@ -290,7 +290,7 @@ impl Game {
     // priority or stabilize. The caller returns either to priority or to its
     // owned resolving continuation. Payment itself never supplies permission.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn pay_announcement_costs(
+    pub(crate) fn pay_announcement_costs(
         &mut self,
         cast: &Casting,
     ) -> Result<AnnouncementPayment, String> {

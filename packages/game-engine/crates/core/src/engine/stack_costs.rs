@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum AnnouncementOrigin {
+pub enum AnnouncementOrigin {
     #[default]
     Spell,
     Activated,
@@ -35,7 +35,7 @@ impl Game {
     // CR 118.3/119.4/602.2: payer is the current controller, and paying
     // exactly all remaining life is legal. Zero is payable at any life total.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn validate_tap_life_sacrifice_source(
+    pub(crate) fn validate_tap_life_sacrifice_source(
         &self,
         player: PlayerId,
         source: ObjectId,
@@ -84,7 +84,7 @@ impl Game {
         self.commit_batch(cause, EventGroup::Ordered { children })?;
         Ok(())
     }
-    pub(super) fn announce_ability(
+    pub(crate) fn announce_ability(
         &mut self,
         player: PlayerId,
         decision_id: u64,

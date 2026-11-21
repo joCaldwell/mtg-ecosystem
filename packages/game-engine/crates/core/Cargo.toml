@@ -22,5 +22,26 @@ sha2.workspace = true
 [lints]
 workspace = true
 
-[dev-dependencies]
-mtg-compiler.workspace = true
+# Integration-test harness surface (src/testkit.rs). Never a default feature and
+# never enabled by production crates; scripts/engine-structure-check.py enforces it.
+[features]
+testkit = []
+
+# White-box scenario binaries use engine internals through `testkit`; run them
+# with `--features testkit` (a workspace test build enables it via mtg-witness).
+
+[[test]]
+name = "rules_kernel"
+required-features = ["testkit"]
+
+[[test]]
+name = "search_work"
+required-features = ["testkit"]
+
+[[test]]
+name = "state_recovery"
+required-features = ["testkit"]
+
+[[test]]
+name = "trigger_kernel"
+required-features = ["testkit"]

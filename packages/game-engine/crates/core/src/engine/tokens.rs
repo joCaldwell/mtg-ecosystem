@@ -65,7 +65,7 @@ pub struct VisibleToken {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TokenIdentity {
+pub struct TokenIdentity {
     pub source: ObjectId,
     pub spec: TokenTemplate,
     // Generated runtime characteristics, not an admitted source card. Keeping
@@ -80,7 +80,7 @@ pub(super) struct TokenIdentity {
 // the target is itself a copy (CR 707.9b/10).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub(super) enum TokenTemplate {
+pub enum TokenTemplate {
     Created(CreatureToken),
     Predefined {
         kind: PredefinedToken,
@@ -153,7 +153,7 @@ impl Game {
         self.state.rules.typed_fault = Some(fault);
         reason.into()
     }
-    pub(super) fn check_stack_capacity(&mut self, additional: usize) -> Result<(), String> {
+    pub(crate) fn check_stack_capacity(&mut self, additional: usize) -> Result<(), String> {
         let requested = self
             .state
             .rules
@@ -169,10 +169,10 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn token_capacity(&self) -> u32 {
+    pub(crate) fn token_capacity(&self) -> u32 {
         capacities::TOKEN_CAPACITY
     }
-    pub(super) fn allocated_capacity_count(&self) -> usize {
+    pub(crate) fn allocated_capacity_count(&self) -> usize {
         {
             self.state
                 .rules
@@ -182,7 +182,7 @@ impl Game {
                 .count()
         }
     }
-    pub(super) fn event_group_limit(&self) -> usize {
+    pub(crate) fn event_group_limit(&self) -> usize {
         capacities::EVENT_GROUP_LIMIT
     }
     pub(super) fn check_token_capacity(&mut self, requested: u32) -> Result<(), String> {
@@ -505,7 +505,7 @@ impl Game {
             _ => Err("unexpected token event".into()),
         }
     }
-    pub(super) fn validate_tokens_state(&self) -> Result<(), String> {
+    pub(crate) fn validate_tokens_state(&self) -> Result<(), String> {
         if self.allocated_capacity_count() > self.token_capacity() as usize
             || self.state.rules.tokens.len() > capacities::TOKEN_HISTORY_LIMIT
         {

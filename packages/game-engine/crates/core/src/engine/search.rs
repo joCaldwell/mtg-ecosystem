@@ -2,12 +2,8 @@
 //! or opponent Knowledge is accepted by the world builder. P7a is restricted to
 //! the sealed P5 construction whitelist and fresh active precombat priority.
 use super::*;
-mod capture;
+pub mod capture;
 mod sample;
-#[cfg(test)]
-mod shared_history_tests;
-#[cfg(test)]
-mod tests;
 mod world;
 pub use capture::*;
 pub use sample::*;
@@ -248,7 +244,7 @@ impl Game {
 }
 
 // Position proof uses completed owner actions, never current hidden library rows.
-fn known_suffix(
+pub fn known_suffix(
     actions: &[OwnKnowledgeAction],
     current_library: usize,
 ) -> Result<Vec<RememberedCard>, SearchRejection> {

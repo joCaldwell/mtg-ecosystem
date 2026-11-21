@@ -6,9 +6,6 @@ include!(concat!(env!("OUT_DIR"), "/catalog_sizes.rs"));
 
 pub use crate::profile_data::*;
 include!(concat!(env!("OUT_DIR"), "/match_profiles.rs"));
-#[cfg(test)]
-#[path = "match_profile_validation_tests.rs"]
-mod match_profile_validation_tests;
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
     if name == super::dynamic_admission::DYNAMIC_PROFILE {
         return None;
@@ -92,12 +89,14 @@ impl fmt::Display for MatchAdmissionError {
     }
 }
 impl std::error::Error for MatchAdmissionError {}
-/// Construction is private; successful validation is the only way to produce
-/// this immutable initialization description. It is not deserialized from a client.
-#[derive(Clone, Debug)]
-pub struct ValidatedPod {
-    pub(super) config: ScenarioConfig,
-    pub(super) match_config: MatchConfig,
+testkit_fields! {
+    /// Construction is private; successful validation is the only way to produce
+    /// this immutable initialization description. It is not deserialized from a client.
+    #[derive(Clone, Debug)]
+    pub struct ValidatedPod {
+        pub(super) config: ScenarioConfig,
+        pub(super) match_config: MatchConfig,
+    }
 }
 impl ValidatedPod {
     pub fn normalized_config(&self) -> &MatchConfig {

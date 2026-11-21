@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ResolutionPaymentStage {
+pub enum ResolutionPaymentStage {
     Offer,
     Mana,
     Spend,
@@ -12,9 +12,9 @@ pub(super) enum ResolutionPaymentStage {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ResolutionPayment {
+pub struct ResolutionPayment {
     purpose: PaymentPurpose,
-    pub(super) payer: PlayerId,
+    pub payer: PlayerId,
     cost: ManaCost,
     pub(super) stage: ResolutionPaymentStage,
     pub(super) receipts: Vec<ManaActivationUndo>,
@@ -235,7 +235,7 @@ impl Game {
         Ok(())
     }
 
-    pub(super) fn validate_resolution_payment(
+    pub(crate) fn validate_resolution_payment(
         &self,
         frame: &Resolving,
         payment: &ResolutionPayment,

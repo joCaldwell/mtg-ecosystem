@@ -5,7 +5,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct GroupDiscardProgress {
+pub struct GroupDiscardProgress {
     pub(super) remaining: Vec<PlayerId>,
     selected: Vec<(PlayerId, Vec<ObjectId>)>,
 }

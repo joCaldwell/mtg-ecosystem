@@ -7,15 +7,15 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-const CHUNK: usize = 32;
+pub const CHUNK: usize = 32;
 
 // The memo is derived from an immutable entry, never part of history's wire
 // format/equality. Complete-entry memo helpers remain only for generic tests;
 // production retained views use row/metadata segments in StoredHistory.
 // No cache is consulted by Serialize or ordinary iteration.
-struct HistoryEntry<T> {
+pub struct HistoryEntry<T> {
     value: T,
-    canonical: OnceLock<Result<Box<[u8]>, String>>,
+    pub canonical: OnceLock<Result<Box<[u8]>, String>>,
 }
 impl<T: Clone> Clone for HistoryEntry<T> {
     fn clone(&self) -> Self {
@@ -25,11 +25,13 @@ impl<T: Clone> Clone for HistoryEntry<T> {
         }
     }
 }
-pub struct History<T> {
-    chunks: Vec<Arc<Vec<Arc<HistoryEntry<T>>>>>,
-    tail: Vec<Arc<HistoryEntry<T>>>,
-    len: usize,
-    flat: OnceLock<Vec<T>>,
+testkit_fields! {
+    pub struct History<T> {
+        chunks: Vec<Arc<Vec<Arc<HistoryEntry<T>>>>>,
+        tail: Vec<Arc<HistoryEntry<T>>>,
+        len: usize,
+        flat: OnceLock<Vec<T>>,
+    }
 }
 impl<T> Default for History<T> {
     fn default() -> Self {
@@ -115,8 +117,8 @@ impl<T> History<T> {
     /// Memoize complete canonical bytes for an immutable typed entry. The
     /// private initializer must emit the generic canonical oracle's exact
     /// bytes. A warm hit skips it entirely, including its local accelerator.
-    #[cfg(test)]
-    pub(super) fn canonical_entry_bytes_with(
+    #[cfg(feature = "testkit")]
+    pub(crate) fn canonical_entry_bytes_with(
         &self,
         index: usize,
         initialize: impl FnOnce(&T) -> Result<Box<[u8]>, String>,
@@ -129,8 +131,8 @@ impl<T> History<T> {
             .map_err(Clone::clone)
     }
     /// Independent generic oracle for initializer and invalidation tests.
-    #[cfg(test)]
-    pub(super) fn canonical_entry_bytes(&self, index: usize) -> Result<&[u8], String>
+    #[cfg(feature = "testkit")]
+    pub(crate) fn canonical_entry_bytes(&self, index: usize) -> Result<&[u8], String>
     where
         T: Serialize,
     {
@@ -166,7 +168,7 @@ impl<T: Eq> History<T> {
     /// Keep the generic PartialEq implementation below unchanged: NaN and
     /// arbitrary PartialEq-only users must still use complete value comparison.
     /// Called only by private StoredHistory; memos never participate in Eq.
-    pub(super) fn eq_reflexive(&self, other: &Self) -> bool {
+    pub(crate) fn eq_reflexive(&self, other: &Self) -> bool {
         fn entries_equal<T: Eq>(
             left: &[Arc<HistoryEntry<T>>],
             right: &[Arc<HistoryEntry<T>>],
@@ -229,7 +231,3 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for History<T> {
         deserializer.deserialize_seq(Entries(std::marker::PhantomData))
     }
 }
-
-#[cfg(test)]
-#[path = "history_tests.rs"]
-mod tests;

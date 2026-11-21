@@ -25,7 +25,7 @@ enum RevealStage {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct RevealAndCastProgress {
+pub struct RevealAndCastProgress {
     pub(super) frame: Resolving,
     pub(super) source_block: u32,
     lands: Vec<ObjectId>,

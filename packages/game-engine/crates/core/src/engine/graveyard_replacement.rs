@@ -5,7 +5,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct GraveyardReplacement {
+pub struct GraveyardReplacement {
     pub(super) frame: Resolving,
     completion: GraveyardCompletion,
     source_block: u32,
@@ -243,7 +243,7 @@ impl Game {
         }
     }
 
-    pub(super) fn replacement_reveals(&self, object: ObjectId) -> bool {
+    pub(crate) fn replacement_reveals(&self, object: ObjectId) -> bool {
         matches!(&self.state.rules.frame, Frame::GraveyardGroup { tx } if tx.reveals(object))
             || matches!(&self.state.rules.frame, Frame::GraveyardReplacement { transaction }
             if matches!(transaction.phase, ReplacementPhase::BeforeMovement)

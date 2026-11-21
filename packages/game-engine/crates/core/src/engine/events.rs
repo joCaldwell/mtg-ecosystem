@@ -134,52 +134,54 @@ pub struct AttachmentBefore {
     pub target: Option<ObjectId>,
     pub timestamp: Option<u64>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PreEventFacts {
-    /// CR 406.3a: these exile objects have no characteristics to capture.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub face_down_exile: Vec<(ObjectId, PlayerId)>,
-    /// Exact common-prior controller counts; narrow consumed entry authority.
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "multiplayer::player_quantity_map"
-    )]
-    pub entry_basic_lands: BTreeMap<PlayerId, Quantity>,
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "multiplayer::player_quantity_map"
-    )]
-    pub entry_other_lands: BTreeMap<PlayerId, Quantity>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub entry_live_seats: Vec<PlayerId>,
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub entry_land_types: BTreeSet<(PlayerId, BasicLandType)>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) control: Option<Box<ControlBefore>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_attachment_timestamp: Option<u64>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attachments: Vec<AttachmentBefore>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub match_state: Option<MatchState>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub effects: Vec<ResolvedEffect>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub damage_transaction: Option<DamageTransactionBefore>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub damage_sources: Vec<ObjectBefore>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub stack: Vec<StackBefore>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub commander_damage: Vec<CommanderDamageBefore>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub libraries: Vec<LibraryBefore>,
-    pub turn: Option<TurnBefore>,
-    pub objects: Vec<ObjectBefore>,
-    pub players: Vec<PlayerBefore>,
+testkit_fields! {
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct PreEventFacts {
+        /// CR 406.3a: these exile objects have no characteristics to capture.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub face_down_exile: Vec<(ObjectId, PlayerId)>,
+        /// Exact common-prior controller counts; narrow consumed entry authority.
+        #[serde(
+            default,
+            skip_serializing_if = "BTreeMap::is_empty",
+            deserialize_with = "multiplayer::player_quantity_map"
+        )]
+        pub entry_basic_lands: BTreeMap<PlayerId, Quantity>,
+        #[serde(
+            default,
+            skip_serializing_if = "BTreeMap::is_empty",
+            deserialize_with = "multiplayer::player_quantity_map"
+        )]
+        pub entry_other_lands: BTreeMap<PlayerId, Quantity>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub entry_live_seats: Vec<PlayerId>,
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        pub entry_land_types: BTreeSet<(PlayerId, BasicLandType)>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub(super) control: Option<Box<ControlBefore>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub next_attachment_timestamp: Option<u64>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub attachments: Vec<AttachmentBefore>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub match_state: Option<MatchState>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub effects: Vec<ResolvedEffect>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub damage_transaction: Option<DamageTransactionBefore>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub damage_sources: Vec<ObjectBefore>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub stack: Vec<StackBefore>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub commander_damage: Vec<CommanderDamageBefore>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub libraries: Vec<LibraryBefore>,
+        pub turn: Option<TurnBefore>,
+        pub objects: Vec<ObjectBefore>,
+        pub players: Vec<PlayerBefore>,
+    }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EntryLandCount {
@@ -201,12 +203,12 @@ struct EntryLandCounts {
 /// (whose narrow shape is part of destruction and damage validation).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ControlBefore {
-    pub(super) objects: Vec<ObjectBefore>,
-    pub(super) attachments: Vec<AttachmentBefore>,
+pub struct ControlBefore {
+    pub objects: Vec<ObjectBefore>,
+    pub attachments: Vec<AttachmentBefore>,
     pub(super) effects: Vec<ControlEffect>,
-    pub(super) live_players: Vec<PlayerId>,
-    pub(super) next_attachment_timestamp: u64,
+    pub live_players: Vec<PlayerId>,
+    pub next_attachment_timestamp: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -873,7 +875,7 @@ fn collect<'a>(
     Ok(())
 }
 impl Game {
-    pub(super) fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String> {
+    pub(crate) fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String> {
         let objects = self
             .state
             .rules
@@ -1641,7 +1643,7 @@ impl Game {
     // actual outcomes and group observer views. General replacement/prevention
     // consumers remain outside these closed profiles.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn commit_batch(
+    pub(crate) fn commit_batch(
         &mut self,
         cause: BatchCause,
         group: EventGroup,
@@ -2101,7 +2103,7 @@ impl Game {
         });
         Ok(())
     }
-    pub(super) fn commit(
+    pub(crate) fn commit(
         &mut self,
         proposed: ProposedEvent,
         cause: BatchCause,
@@ -2112,7 +2114,7 @@ impl Game {
             .cloned()
             .ok_or_else(|| "missing singleton actual outcome".into())
     }
-    pub(super) fn move_object_for(
+    pub(crate) fn move_object_for(
         &mut self,
         object: ObjectId,
         destination: Zone,
@@ -2144,8 +2146,8 @@ impl Game {
             self.move_object_for(object, destination, cause)
         }
     }
-    #[cfg(test)]
-    pub(super) fn move_object(
+    #[cfg(any(test, feature = "testkit"))]
+    pub(crate) fn move_object(
         &mut self,
         object: ObjectId,
         destination: Zone,
@@ -2561,7 +2563,7 @@ impl Game {
         }
         Ok(fact.keywords.contains(&KeywordAbility::Indestructible))
     }
-    pub(super) fn apply_occurrence(
+    pub(crate) fn apply_occurrence(
         &mut self,
         proposed: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
@@ -2571,7 +2573,7 @@ impl Game {
     // consumes the common prior layer-6 view. Ordered leaves capture fresh facts.
     // No new snapshot state: this authority is already in occurrence evidence.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn apply_occurrence_with_prior(
+    pub(crate) fn apply_occurrence_with_prior(
         &mut self,
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,

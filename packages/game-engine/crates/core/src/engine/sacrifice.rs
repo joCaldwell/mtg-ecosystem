@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 impl Game {
-    pub(super) fn sacrifice_candidates(
+    pub(crate) fn sacrifice_candidates(
         &self,
         player: PlayerId,
         filter: &SacrificeFilter,

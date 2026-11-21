@@ -642,7 +642,6 @@ dependencies = [
 name = "mtg-core"
 version = "0.1.0"
 dependencies = [
- "mtg-compiler",
  "mtg-contracts",
  "rand_chacha",
  "rand_core",
@@ -682,6 +681,19 @@ dependencies = [
  "serde_json",
  "sha2",
  "stats_alloc",
+]
+
+[[package]]
+name = "mtg-witness"
+version = "0.1.0"
+dependencies = [
+ "mtg-compiler",
+ "mtg-contracts",
+ "mtg-core",
+ "rand_chacha",
+ "rand_core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Attacker {
+pub struct Attacker {
     pub attacker: ObjectId,
     pub defender: PlayerId,
     pub blocked: bool,
@@ -65,7 +65,7 @@ impl Game {
             _ => None,
         }
     }
-    pub(super) fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
+    pub(crate) fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId> {
         self.state
             .rules
             .objects
@@ -163,7 +163,7 @@ impl Game {
             _ => return Ok(None),
         }))
     }
-    pub(super) fn validate_combat_response(
+    pub(crate) fn validate_combat_response(
         &self,
         player: PlayerId,
         response: &Response,
@@ -296,7 +296,7 @@ impl Game {
         self.state.rules.damage_choices.remove(&object);
         self.state.rules.player_damage_choices.remove(&object);
     }
-    pub(super) fn is_blocking_creature(&self, object: ObjectId) -> bool {
+    pub(crate) fn is_blocking_creature(&self, object: ObjectId) -> bool {
         self.state.rules.blocking_creatures.contains(&object)
             && self.is_battlefield_creature(object)
     }
@@ -327,7 +327,7 @@ impl Game {
             changed: false,
         };
     }
-    pub(super) fn combat_step(&mut self) -> Result<(), String> {
+    pub(crate) fn combat_step(&mut self) -> Result<(), String> {
         match self.state.rules.frame.clone() {
             Frame::Attackers => {
                 let input = self.state.rules.pending.take().ok_or("missing attackers")?;
@@ -458,7 +458,7 @@ impl Game {
             })
             .map(|a| a.defender)
     }
-    pub(super) fn lethal_requirement(
+    pub(crate) fn lethal_requirement(
         &self,
         source: ObjectId,
         blocker: ObjectId,
@@ -598,7 +598,7 @@ impl Game {
     ) -> Result<(), String> {
         self.stabilization_wave_with_legends(resume, cleanup, changed, None)
     }
-    pub(super) fn stabilization_wave_with_legends(
+    pub(crate) fn stabilization_wave_with_legends(
         &mut self,
         resume: Frame,
         cleanup: bool,

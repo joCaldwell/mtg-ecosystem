@@ -266,7 +266,7 @@ impl Game {
 // Build identity scopes permissions/restore, but is not strategy entropy. Otherwise
 // even a byte-preserving optimization would change every sampled world, preventing
 // identical-worklist comparisons. Every permitted semantic field stays bound.
-pub(super) fn capture_identity(
+pub fn capture_identity(
     data: &SearchCaptureData,
     history_digest: &str,
     bind_build: bool,

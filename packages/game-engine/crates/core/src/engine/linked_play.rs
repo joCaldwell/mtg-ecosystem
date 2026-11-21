@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct LinkedPlayProgress {
+pub struct LinkedPlayProgress {
     pub(super) frame: Resolving,
     pub(super) source_block: u32,
     hideaway_block: u32,

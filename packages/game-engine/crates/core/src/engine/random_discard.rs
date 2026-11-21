@@ -4,9 +4,9 @@ use super::*;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct RandomDiscardProgress {
+pub struct RandomDiscardProgress {
     // Canonical order records only membership, including exact incarnations.
-    pub(super) selected: Vec<ObjectId>,
+    pub selected: Vec<ObjectId>,
 }
 
 impl Game {

@@ -26,7 +26,7 @@ fn main() {
     let data = root.join("packages/game-engine/tests/fixtures/catalogs");
     println!("cargo:rerun-if-changed={}", data.display());
     let mut sizes = String::from(
-        "pub(super) fn reviewed_catalog_size(hash: &str) -> Option<usize> { const SIZES: &[(&str, usize)] = &[\n",
+        "pub fn reviewed_catalog_size(hash: &str) -> Option<usize> { const SIZES: &[(&str, usize)] = &[\n",
     );
     let mut manifests = fs::read_dir(&data)
         .into_iter()

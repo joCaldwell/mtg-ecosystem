@@ -1,9 +1,7 @@
-mod advance_report;
-mod capacities;
-mod costs;
-#[cfg(test)]
-mod data_rules_tests;
-mod search;
+pub mod advance_report;
+pub mod capacities;
+pub mod costs;
+pub mod search;
 // Missing/malformed generated outputs remain runtime admission failures rather
 // than making the catalog diagnostic CLI impossible to compile.
 macro_rules! definition_digest {
@@ -15,144 +13,70 @@ macro_rules! definition_digest {
     };
 }
 pub use search::*;
-mod dynamic_admission;
+pub mod dynamic_admission;
 pub use dynamic_admission::*;
-mod match_admission;
-mod snapshot_codec;
-mod state_digest;
+pub mod match_admission;
+pub mod snapshot_codec;
+pub mod state_digest;
 pub use advance_report::*;
 pub use match_admission::*;
-mod commander_policy;
-mod optional_costs;
-mod phasing;
+pub mod commander_policy;
+pub mod optional_costs;
+pub mod phasing;
 pub use commander_policy::policy_digest;
 pub use phasing::{PhaseReturn, PhasingSchedule};
-#[cfg(test)]
-mod activated_permanent_return_tests;
-#[cfg(test)]
-mod activated_permanent_tap_tests;
-#[cfg(test)]
-mod activated_spell_counter_tests;
-mod each_player_draw;
-mod graveyard_group;
-mod graveyard_replacement;
-mod regeneration;
-use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
-mod group_discard;
-use graveyard_replacement::GraveyardReplacement;
-mod hideaway;
-#[cfg(test)]
-mod keyword_removal_wipe_tests;
-#[cfg(test)]
-mod nonland_exile_life_tests;
-#[cfg(test)]
-mod opponent_nonland_destroy_tests;
-#[cfg(test)]
-mod permanent_owner_hand_tests;
-use hideaway::HideawayLink;
-mod impulse_play;
-#[cfg(test)]
-mod impulse_play_tests;
-mod mana_tap_observer;
-#[cfg(test)]
-mod mana_tap_observer_tests;
-mod optional_block;
-#[cfg(test)]
-mod optional_block_tests;
-mod random_discard;
-mod removal;
-#[cfg(test)]
-mod removal_information_tests;
-#[cfg(test)]
-mod removal_tests;
-mod resolution_mana;
-mod sacrifice;
-#[cfg(test)]
-mod sacrifice_tests;
-#[cfg(test)]
-mod source_damage_counters_tests;
-#[cfg(test)]
-mod tap_source_destroy_tests;
-#[cfg(test)]
-mod tap_source_untap_tests;
-mod wipes;
-#[cfg(test)]
-mod wipes_tests;
-use each_player_draw::{EachPlayerDrawProgress, PlayerDrawAttempts};
-use removal::TargetFacts;
-#[cfg(test)]
-mod artifact_sacrifice_source_tests;
-#[cfg(test)]
-mod attachment_entry_tests;
-#[cfg(test)]
-mod attachment_foundation_tests;
-mod attachments;
-#[cfg(test)]
-mod attachments_tests;
-#[cfg(test)]
-mod aura_control_tests;
-#[cfg(test)]
-mod blocking_target_tests;
-#[cfg(test)]
-mod combat_window_tests;
-#[cfg(test)]
-mod composed_spell_tests;
-#[cfg(test)]
-mod composition_tests;
-mod counter_placement;
-mod equipped_events;
-#[cfg(test)]
-mod equipped_events_tests;
-#[cfg(test)]
-mod phase1_sequences_tests;
-mod predefined_token_templates;
-mod proliferate;
-mod resolution_payment;
-mod target_color;
-use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
-mod colored_search;
-mod entry_copy;
-#[cfg(test)]
-mod four_colors_tests;
-mod land_entry;
-mod opponent_count_entry;
-mod reveal_land_entry;
+pub mod each_player_draw;
+pub mod graveyard_group;
+pub mod graveyard_replacement;
+pub mod regeneration;
+pub use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
+pub mod group_discard;
+pub use graveyard_replacement::GraveyardReplacement;
+pub mod hideaway;
+pub use hideaway::HideawayLink;
+pub mod impulse_play;
+pub mod mana_tap_observer;
+pub mod optional_block;
+pub mod random_discard;
+pub mod removal;
+pub mod resolution_mana;
+pub mod sacrifice;
+pub mod wipes;
+pub use each_player_draw::{EachPlayerDrawProgress, PlayerDrawAttempts};
+pub use removal::TargetFacts;
+pub mod attachments;
+pub mod counter_placement;
+pub mod equipped_events;
+pub mod predefined_token_templates;
+pub mod proliferate;
+pub mod resolution_payment;
+pub mod target_color;
+pub use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
+pub mod colored_search;
+pub mod entry_copy;
+pub mod land_entry;
+pub mod opponent_count_entry;
+pub mod reveal_land_entry;
 pub use colored_search::{ColoredCardAssignment, ColoredCardCandidate};
-mod staples;
+pub mod staples;
 pub use counter_placement::*;
-use land_entry::{EntryOrigin, PreparedEntryAuthority};
-mod copiable_identity;
-mod spell_copy;
-mod tokens;
+pub use land_entry::{EntryOrigin, PreparedEntryAuthority};
+pub mod copiable_identity;
+pub mod spell_copy;
+pub mod tokens;
 pub use staples::VisibleSearchLand;
 pub use tokens::{RuleFault, TOKEN_CAPACITY, VisibleToken};
-mod keywords;
-#[cfg(test)]
-mod staples_tests;
-#[cfg(test)]
-mod tap_tests;
-#[cfg(test)]
-mod tapped_target_tests;
-#[cfg(test)]
-mod tokens_tests;
-#[cfg(test)]
-mod untap_tests;
+pub mod keywords;
 pub use keywords::LifelinkGain;
-#[cfg(test)]
-mod combat_keywords_tests;
-#[cfg(test)]
-mod keywords_tests;
-mod setup;
-#[cfg(test)]
-mod setup_tests;
+pub mod setup;
 pub use setup::*;
-const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
-const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
-const FOG: &str = "27e9db49-7af7-4bef-ad4c-bf5dfb92030d";
-const HEALER: &str = "95a0ca48-d924-47f4-86ed-42c673ee778c";
-const FURNACE: &str = "68715465-6cf9-4006-87e9-31f227fe9ed3";
-const OX: &str = "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8";
-const EFFECT_EXTRA: [(&str, &str); 6] = [
+pub const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
+pub const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
+pub const FOG: &str = "27e9db49-7af7-4bef-ad4c-bf5dfb92030d";
+pub const HEALER: &str = "95a0ca48-d924-47f4-86ed-42c673ee778c";
+pub const FURNACE: &str = "68715465-6cf9-4006-87e9-31f227fe9ed3";
+pub const OX: &str = "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8";
+pub const EFFECT_EXTRA: [(&str, &str); 6] = [
     (
         GROWTH,
         definition_digest!("MTG_DEFINITION_effects_5748ebf1-24e3-499d-ab7c-c2cebd462a24"),
@@ -178,23 +102,19 @@ const EFFECT_EXTRA: [(&str, &str); 6] = [
         definition_digest!("MTG_DEFINITION_effects_19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8"),
     ),
 ];
-mod allocation;
+pub mod allocation;
 pub use allocation::*;
-mod choices;
-#[cfg(test)]
-mod choices_tests;
-mod graveyard_targets;
+pub mod choices;
+pub mod graveyard_targets;
 pub use choices::*;
-mod effects;
-#[cfg(test)]
-mod effects_tests;
-use crate::build_id;
+pub mod effects;
+pub use crate::build_id;
 // Cargo profile of this test build, recorded by build.rs for diagnostic receipts.
 // Profile settings never depend on source, so this adds no rebuild trigger.
-#[cfg(test)]
-pub(crate) const TEST_OPT_LEVEL: &str = env!("MTG_CORE_OPT_LEVEL");
-#[cfg(test)]
-pub(crate) const TEST_PROFILE: &str = env!("MTG_CORE_PROFILE");
+#[cfg(feature = "testkit")]
+pub const TEST_OPT_LEVEL: &str = env!("MTG_CORE_OPT_LEVEL");
+#[cfg(feature = "testkit")]
+pub const TEST_PROFILE: &str = env!("MTG_CORE_PROFILE");
 pub use effects::*;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
@@ -203,23 +123,23 @@ use std::{
     sync::Arc,
 };
 
-const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
-const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
-const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
-const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
-const PLAINS: &str = "bc71ebf6-2056-41f7-be35-b2e5c34afa99";
-const PLAINS_DIGEST: &str =
+pub const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
+pub const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
+pub const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
+pub const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
+pub const PLAINS: &str = "bc71ebf6-2056-41f7-be35-b2e5c34afa99";
+pub const PLAINS_DIGEST: &str =
     definition_digest!("MTG_DEFINITION_commander_bc71ebf6-2056-41f7-be35-b2e5c34afa99");
-const TIME_EBB: &str = "30cc8f7b-3c28-40f5-8f8f-157e8212280b";
-const TIME_EBB_DIGEST: &str =
+pub const TIME_EBB: &str = "30cc8f7b-3c28-40f5-8f8f-157e8212280b";
+pub const TIME_EBB_DIGEST: &str =
     definition_digest!("MTG_DEFINITION_library_30cc8f7b-3c28-40f5-8f8f-157e8212280b");
-const YARGLE: &str = "980e1721-3717-4425-95a4-938dbf2ac661";
-const YARGLE_DIGEST: &str =
+pub const YARGLE: &str = "980e1721-3717-4425-95a4-938dbf2ac661";
+pub const YARGLE_DIGEST: &str =
     definition_digest!("MTG_DEFINITION_damage_980e1721-3717-4425-95a4-938dbf2ac661");
-const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
-const HAPLESS: &str = "240a349a-79f8-4e11-9a05-a78148e70a62";
-const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
-const ACTION_EXTRA: [(&str, &str); 3] = [
+pub const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
+pub const HAPLESS: &str = "240a349a-79f8-4e11-9a05-a78148e70a62";
+pub const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
+pub const ACTION_EXTRA: [(&str, &str); 3] = [
     (
         EDICT,
         definition_digest!("MTG_DEFINITION_action_10c585c4-bf5b-4d8f-94a9-e9a5036a688f"),
@@ -233,11 +153,11 @@ const ACTION_EXTRA: [(&str, &str); 3] = [
         definition_digest!("MTG_DEFINITION_action_56719f6a-1a6c-4c0a-8d21-18f7d7350b68"),
     ),
 ];
-const LOOTER: &str = "67362406-b1ca-49e2-800d-9050bfe8742a";
-const STIFLE: &str = "b3b00911-ece7-4484-bc36-f211ce72b6cc";
-const AZURE: &str = "bbf9fd47-10e1-4749-b06f-4fe72200afc7";
-const COUNTERSPELL: &str = "cc187110-1148-4090-bbb8-e205694a39f5";
-const STACK_EXTRA: [(&str, &str); 4] = [
+pub const LOOTER: &str = "67362406-b1ca-49e2-800d-9050bfe8742a";
+pub const STIFLE: &str = "b3b00911-ece7-4484-bc36-f211ce72b6cc";
+pub const AZURE: &str = "bbf9fd47-10e1-4749-b06f-4fe72200afc7";
+pub const COUNTERSPELL: &str = "cc187110-1148-4090-bbb8-e205694a39f5";
+pub const STACK_EXTRA: [(&str, &str); 4] = [
     (
         LOOTER,
         definition_digest!("MTG_DEFINITION_stack_67362406-b1ca-49e2-800d-9050bfe8742a"),
@@ -255,9 +175,9 @@ const STACK_EXTRA: [(&str, &str); 4] = [
         definition_digest!("MTG_DEFINITION_stack_cc187110-1148-4090-bbb8-e205694a39f5"),
     ),
 ];
-const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
+pub const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 // Reviewed canonical definition digests, independent of compiler success.
-const ALLOWED: [(&str, &str); 5] = [
+pub const ALLOWED: [(&str, &str); 5] = [
     (
         ISAMARU,
         definition_digest!("MTG_DEFINITION_base_cfb756dd-6fe1-430a-8f04-8b10cac62a86"),
@@ -279,13 +199,13 @@ const ALLOWED: [(&str, &str); 5] = [
         definition_digest!("MTG_DEFINITION_base_14c8f55d-d177-4c25-a931-ebeb9e6062a0"),
     ),
 ];
-const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
-const PRODIGAL: &str = "5e961d15-5972-4e4b-9385-1cd7cd7c6bbe";
-const SOUL_FEAST: &str = "8186fd80-015f-470c-9e1c-cbf45764a057";
-const HEALING_HANDS: &str = "3cc48835-3ac0-4774-b380-f9b21d2dc974";
-const NECTAR: &str = "30870ee5-6ad7-48a9-983e-d3b018f2344f";
-const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
-const DAMAGE_LIFE_EXTRA: [(&str, &str); 6] = [
+pub const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
+pub const PRODIGAL: &str = "5e961d15-5972-4e4b-9385-1cd7cd7c6bbe";
+pub const SOUL_FEAST: &str = "8186fd80-015f-470c-9e1c-cbf45764a057";
+pub const HEALING_HANDS: &str = "3cc48835-3ac0-4774-b380-f9b21d2dc974";
+pub const NECTAR: &str = "30870ee5-6ad7-48a9-983e-d3b018f2344f";
+pub const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
+pub const DAMAGE_LIFE_EXTRA: [(&str, &str); 6] = [
     (
         BOLT,
         definition_digest!("MTG_DEFINITION_damage-life_4457ed35-7c10-48c8-9776-456485fdf070"),
@@ -311,10 +231,10 @@ const DAMAGE_LIFE_EXTRA: [(&str, &str); 6] = [
         definition_digest!("MTG_DEFINITION_damage-life_a3fb7228-e76b-4e96-a40e-20b5fed75685"),
     ),
 ];
-const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
-const VISIONARY: &str = "c6a3a882-a127-4590-93d7-679ef4313efe";
-const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
-const TRIGGER_EXTRA: [(&str, &str); 3] = [
+pub const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
+pub const VISIONARY: &str = "c6a3a882-a127-4590-93d7-679ef4313efe";
+pub const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
+pub const TRIGGER_EXTRA: [(&str, &str); 3] = [
     (
         BLOOD_ARTIST,
         definition_digest!("MTG_DEFINITION_trigger_310f141c-7f37-4729-aed6-dd9c09db448d"),
@@ -328,181 +248,87 @@ const TRIGGER_EXTRA: [(&str, &str); 3] = [
         definition_digest!("MTG_DEFINITION_trigger_6ca2a89e-7032-4864-b4e9-66f3178f90ab"),
     ),
 ];
-mod damage_life;
-#[cfg(test)]
-mod damage_life_tests;
+pub mod damage_life;
 pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
-#[cfg(test)]
-mod attack_trigger_tests;
-#[cfg(test)]
-mod attacking_creature_keyword_tests;
-#[cfg(test)]
-mod cast_prohibition_tests;
-#[cfg(test)]
-mod cast_trigger_tests;
-#[cfg(test)]
-mod controlled_creature_damage_replacement_tests;
-#[cfg(test)]
-mod damage_controller_discard_tests;
-#[cfg(test)]
-mod damage_match_appearance_tests;
-#[cfg(test)]
-mod damage_match_tests;
-#[cfg(test)]
-mod damage_match_v2_tests;
-#[cfg(test)]
-mod damage_quantity_draw_tests;
-#[cfg(test)]
-mod damage_trigger_tests;
-#[cfg(test)]
-mod event_player_discard_tests;
-#[cfg(test)]
-mod event_player_sacrifice_tests;
-#[cfg(test)]
-mod filtered_damage_trigger_tests;
-#[cfg(test)]
-mod grouped_damage_trigger_tests;
-#[cfg(test)]
-mod hand_cast_lki_tests;
-#[cfg(test)]
-mod opponent_damage_trigger_tests;
-#[cfg(test)]
-mod optional_draw_tests;
-#[cfg(test)]
-mod query_tests;
-mod spell_cascade_grants;
-#[cfg(test)]
-mod step_trigger_tests;
-#[cfg(test)]
-mod trigger_tests;
+pub mod spell_cascade_grants;
 pub use spell_cascade_grants::{CascadeGrantProvenance, EffectiveTriggerAbility};
-mod triggers;
+pub mod triggers;
 pub use triggers::{
     CastOccurrence, CastOccurrenceId, GroupedDamageMember, TriggerEventWitness, TriggerId,
     TriggerOccurrenceId,
 };
-use triggers::{PendingTrigger, TriggerPlacement};
-mod history;
+pub use triggers::{PendingTrigger, TriggerPlacement};
+pub mod history;
 pub use history::History;
-mod recovery;
+pub mod recovery;
 pub use recovery::SnapshotVerifier;
-mod actions;
-mod divided_counters;
+pub mod actions;
+pub mod divided_counters;
 pub use divided_counters::CounterDivision;
-mod cascade;
-mod linked_play;
-use linked_play::LinkedPlayProgress;
-mod reveal_and_cast;
-use reveal_and_cast::RevealAndCastProgress;
-mod frame;
-mod hand_cast;
-mod object_facts;
-use hand_cast::HandCastPermission;
-#[cfg(test)]
-mod cascade_tests;
-mod casting;
-mod checkland_entry;
-use cascade::{CascadeProgress, CastCompletion, CastOwner, CastPermission};
-#[cfg(test)]
-mod cast_origin_tests;
-#[cfg(test)]
-mod casting_foundation_tests;
-#[cfg(test)]
-mod controller_land_type_tests;
-#[cfg(test)]
-mod distinct_permanent_colors_tests;
-mod granted_land_mana;
-mod hand_return;
-mod intrinsic_mana;
-mod library_order;
-mod library_position_memory;
-mod library_selection;
-mod look_top_mana;
-mod mana_permanents;
-#[cfg(test)]
-mod mana_tests;
-mod mill;
-mod opponent_mana;
-mod same_color_mana;
-mod scry;
-mod successor_tuck;
-#[cfg(test)]
-mod successor_tuck_tests;
-mod surveil;
-mod unspent_mana;
+pub mod cascade;
+pub mod linked_play;
+pub use linked_play::LinkedPlayProgress;
+pub mod reveal_and_cast;
+pub use reveal_and_cast::RevealAndCastProgress;
+pub mod frame;
+pub mod hand_cast;
+pub mod object_facts;
+pub use hand_cast::HandCastPermission;
+pub mod casting;
+pub mod checkland_entry;
+pub use cascade::{CascadeProgress, CastCompletion, CastOwner, CastPermission};
+pub mod granted_land_mana;
+pub mod hand_return;
+pub mod intrinsic_mana;
+pub mod library_order;
+pub mod library_position_memory;
+pub mod library_selection;
+pub mod look_top_mana;
+pub mod mana_permanents;
+pub mod mill;
+pub mod opponent_mana;
+pub mod same_color_mana;
+pub mod scry;
+pub mod successor_tuck;
+pub mod surveil;
+pub mod unspent_mana;
 pub use mana_permanents::PermanentManaUndo;
-use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
-mod stack_costs;
-use stack_costs::AnnouncementOrigin;
-#[cfg(test)]
-mod stack_costs_tests;
-use actions::{ResolutionChoice, StackKind};
-#[cfg(test)]
-mod actions_tests;
-mod commander;
-mod payments;
-#[cfg(test)]
-mod spending_tests;
-use commander::CommanderContinuation;
-mod combat;
-#[cfg(test)]
-mod combat_tests;
-#[cfg(test)]
-mod commander_damage_library_tests;
-#[cfg(test)]
-mod commander_tests;
-mod legend;
-mod scenarios;
-mod targeted_loss;
+pub use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
+pub mod stack_costs;
+pub use actions::{ResolutionChoice, StackKind};
+pub use stack_costs::AnnouncementOrigin;
+pub mod commander;
+pub mod payments;
+pub use commander::CommanderContinuation;
+pub mod combat;
+pub mod legend;
+pub mod scenarios;
+pub mod targeted_loss;
 pub use combat::*;
-mod saga;
-mod turns;
+pub mod saga;
+pub mod turns;
 pub use saga::{DelayedChapterRegistration, LoreChange};
 pub use turns::*;
-mod events;
-mod fetched_land_untap;
-mod trace;
-#[cfg(test)]
-mod turns_tests;
+pub mod events;
+pub mod fetched_land_untap;
+pub mod trace;
 pub use events::*;
 pub use trace::*;
-mod control;
-mod controlled_land_entry;
-mod land_reclamation;
-mod multiplayer;
-mod restricted_mana;
+pub mod control;
+pub mod controlled_land_entry;
+pub mod land_reclamation;
+pub mod multiplayer;
+pub mod restricted_mana;
 pub use multiplayer::*;
-mod permitted_history;
-mod stored_history;
+pub mod permitted_history;
+pub mod stored_history;
 pub use permitted_history::PermittedHistory;
-mod decision_context;
+pub mod decision_context;
 pub use decision_context::*;
-mod visibility;
-mod work;
+pub mod visibility;
+pub mod work;
 pub use visibility::*;
 pub use work::*;
-#[cfg(test)]
-mod definition_diversity_tests;
-#[cfg(test)]
-mod dense_kernel_tests;
-#[cfg(test)]
-mod departure_tests;
-#[cfg(test)]
-mod event_tests;
-#[cfg(test)]
-mod legal_branch_tests;
-#[cfg(test)]
-mod p2_tests;
-#[cfg(test)]
-mod payment_event_tests;
-#[cfg(test)]
-mod payment_query_tests;
-#[cfg(test)]
-mod payment_tests;
-#[cfg(test)]
-mod prepared_sharing_tests;
-#[cfg(test)]
-mod stack_tests;
 
 macro_rules! id {
     ($name:ident,$inner:ty) => {
@@ -696,13 +522,15 @@ impl ScenarioConfig {
         }
     }
 }
-#[derive(Clone)]
-pub struct Prepared {
-    match_config: Option<MatchConfig>,
-    catalog: Arc<Catalog>,
-    catalog_digest: String,
-    config: ScenarioConfig,
-    profile_digest: String,
+testkit_fields! {
+    #[derive(Clone)]
+    pub struct Prepared {
+        match_config: Option<MatchConfig>,
+        catalog: Arc<Catalog>,
+        catalog_digest: String,
+        config: ScenarioConfig,
+        profile_digest: String,
+    }
 }
 impl Prepared {
     fn has_target_color_set(&self) -> bool {
@@ -973,19 +801,19 @@ impl Prepared {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Player {
+pub struct Player {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    life_frozen_until_next_turn: bool,
-    failed_draw: bool,
-    life: Quantity,
-    mana: BTreeMap<Color, Quantity>,
+    pub life_frozen_until_next_turn: bool,
+    pub failed_draw: bool,
+    pub life: Quantity,
+    pub mana: BTreeMap<Color, Quantity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    restricted_mana: Vec<RestrictedMana>,
-    status: PlayerStatus,
-    last_known: Option<PlayerLastKnown>,
+    pub restricted_mana: Vec<RestrictedMana>,
+    pub status: PlayerStatus,
+    pub last_known: Option<PlayerLastKnown>,
 }
 impl Player {
-    fn can_pay_life(&self, amount: &Quantity) -> bool {
+    pub fn can_pay_life(&self, amount: &Quantity) -> bool {
         *amount == Quantity::zero()
             || (*amount > Quantity::zero()
                 && !self.life_frozen_until_next_turn
@@ -1003,169 +831,169 @@ impl Player {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Card {
-    owner: PlayerId,
-    oracle_id: String,
+pub struct Card {
+    pub owner: PlayerId,
+    pub oracle_id: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Object {
+pub struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    hideaway: Option<Box<HideawayLink>>,
+    pub hideaway: Option<Box<HideawayLink>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    phased_out: Option<PhaseReturn>,
+    pub phased_out: Option<PhaseReturn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    attached_to: Option<ObjectId>,
+    pub attached_to: Option<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    attachment_timestamp: Option<u64>,
+    pub attachment_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     keyword_timestamp: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     battlefield_entry_turn: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
-    plus_one_counters: Quantity,
+    pub plus_one_counters: Quantity,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
-    lore_counters: Quantity,
-    marked_damage: Quantity,
+    pub lore_counters: Quantity,
+    pub marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    deathtouch_damage: bool,
-    attack_ready: bool,
-    id: ObjectId,
-    controller: PlayerId,
-    default_controller: PlayerId,
-    zone: Zone,
-    tapped: bool,
+    pub deathtouch_damage: bool,
+    pub attack_ready: bool,
+    pub id: ObjectId,
+    pub controller: PlayerId,
+    pub default_controller: PlayerId,
+    pub zone: Zone,
+    pub tapped: bool,
 }
 impl Object {
-    fn present_on_battlefield(&self) -> bool {
+    pub fn present_on_battlefield(&self) -> bool {
         self.zone == Zone::Battlefield && self.phased_out.is_none()
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct StackInstance {
+pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    cost_lock: Option<costs::CostLock>,
+    pub cost_lock: Option<costs::CostLock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    hybrid_colors: Vec<HybridPayment>,
+    pub hybrid_colors: Vec<HybridPayment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    selected_additional_costs: Option<Vec<String>>,
+    pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    alternative_cost: Option<cascade::AlternativeCost>,
+    pub alternative_cost: Option<cascade::AlternativeCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    hand_cast_permission: Option<Box<HandCastPermission>>,
+    pub hand_cast_permission: Option<Box<HandCastPermission>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    x: Option<Quantity>,
+    pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    death_controller: Option<PlayerId>,
+    pub death_controller: Option<PlayerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    sacrificed: Option<ObjectBefore>,
+    pub sacrificed: Option<ObjectBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sacrificed_set: Vec<ObjectId>,
+    pub sacrificed_set: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    mode: Option<u32>,
+    pub mode: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    mode_subset: Option<choices::BoundModeSubset>,
+    pub mode_subset: Option<choices::BoundModeSubset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    effect_source_handles: Vec<ObjectHandle>,
+    pub effect_source_handles: Vec<ObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    source_facts: Option<ObjectBefore>,
+    pub source_facts: Option<ObjectBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    entity_targets: Vec<TargetEntity>,
+    pub entity_targets: Vec<TargetEntity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    announced_entity_targets: Vec<Vec<Option<ObjectHandle>>>,
+    pub announced_entity_targets: Vec<Vec<Option<ObjectHandle>>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    stack_targets: Vec<StackId>,
+    pub stack_targets: Vec<StackId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    announced_stack_targets: Vec<Vec<StackHandle>>,
+    pub announced_stack_targets: Vec<Vec<StackHandle>>,
     #[serde(default, skip_serializing_if = "StackKind::is_spell")]
-    kind: StackKind,
+    pub kind: StackKind,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    player_targets: Vec<PlayerId>,
-    id: StackId,
-    source: ObjectId,
-    controller: PlayerId,
-    targets: Vec<ObjectId>,
-    announced_targets: Vec<Vec<ObjectHandle>>,
-    paid: Option<ManaCost>,
-    total_cost: ManaCost,
-    cast_from: Zone,
+    pub player_targets: Vec<PlayerId>,
+    pub id: StackId,
+    pub source: ObjectId,
+    pub controller: PlayerId,
+    pub targets: Vec<ObjectId>,
+    pub announced_targets: Vec<Vec<ObjectHandle>>,
+    pub paid: Option<ManaCost>,
+    pub total_cost: ManaCost,
+    pub cast_from: Zone,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Casting {
-    completion: CastCompletion,
+pub struct Casting {
+    pub completion: CastCompletion,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sacrifices: Vec<ObjectId>,
+    pub sacrifices: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
-    origin: AnnouncementOrigin,
+    pub origin: AnnouncementOrigin,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    spending: Option<BTreeMap<Color, Quantity>>,
+    pub spending: Option<BTreeMap<Color, Quantity>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    spending_restricted: Vec<RestrictedMana>,
-    stack_id: StackId,
-    original_object: ObjectId,
-    prior_passes: Vec<PlayerId>,
-    mana_activations: Vec<ManaActivationUndo>,
-    undo_mana: bool,
+    pub spending_restricted: Vec<RestrictedMana>,
+    pub stack_id: StackId,
+    pub original_object: ObjectId,
+    pub prior_passes: Vec<PlayerId>,
+    pub mana_activations: Vec<ManaActivationUndo>,
+    pub undo_mana: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ManaActivationUndo {
-    object: ObjectId,
-    player: PlayerId,
-    color: Color,
-    amount: Quantity,
-    mana_was_absent: bool,
+pub struct ManaActivationUndo {
+    pub object: ObjectId,
+    pub player: PlayerId,
+    pub color: Color,
+    pub amount: Quantity,
+    pub mana_was_absent: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tap_triggers: Vec<TriggerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    permanent: Option<Box<PermanentManaUndo>>,
+    pub permanent: Option<Box<PermanentManaUndo>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SetDamageFacts {
+pub struct SetDamageFacts {
     cursor: u32,
     amount: Quantity,
     targets: Vec<TargetEntity>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DrawProgress {
-    cursor: u32,
-    source_block: u32,
-    completed: Quantity,
-    remaining: Quantity,
-    failed: Quantity,
+pub struct DrawProgress {
+    pub cursor: u32,
+    pub source_block: u32,
+    pub completed: Quantity,
+    pub remaining: Quantity,
+    pub failed: Quantity,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Resolving {
+pub struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    entrant_draw: Option<Box<ObjectBefore>>,
+    pub entrant_draw: Option<Box<ObjectBefore>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    group_discard: Option<group_discard::GroupDiscardProgress>,
+    pub group_discard: Option<group_discard::GroupDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    random_discard: Option<random_discard::RandomDiscardProgress>,
+    pub random_discard: Option<random_discard::RandomDiscardProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    draw_progress: Option<DrawProgress>,
+    pub draw_progress: Option<DrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    each_player_draw: Option<EachPlayerDrawProgress>,
+    pub each_player_draw: Option<EachPlayerDrawProgress>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    set_damage: Option<SetDamageFacts>,
+    pub set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    condition_check: Option<InterveningCheck>,
-    stack_id: StackId,
-    spell: StackInstance,
-    cursor: u32,
-    legal_targets: Vec<bool>,
+    pub condition_check: Option<InterveningCheck>,
+    pub stack_id: StackId,
+    pub spell: StackInstance,
+    pub cursor: u32,
+    pub legal_targets: Vec<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    target_facts: Vec<Option<TargetFacts>>,
-    outcomes: Vec<InstructionOutcome>,
+    pub target_facts: Vec<Option<TargetFacts>>,
+    pub outcomes: Vec<InstructionOutcome>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
-enum Frame {
+pub enum Frame {
     GraveyardGroup {
         tx: Box<GraveyardGroup>,
     },
@@ -2527,7 +2355,7 @@ pub enum EventOutcome {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
-enum InstructionOutcome {
+pub enum InstructionOutcome {
     OptionalBlock {
         accepted_by: Option<PlayerId>,
     },
@@ -2727,16 +2555,12 @@ pub enum Event {
         reason: String,
     },
 }
-mod action_query;
+pub mod action_query;
 pub use action_query::*;
-mod player_session;
+pub mod player_session;
 pub use player_session::PlayerSession;
-#[cfg(test)]
-mod architecture_transaction_tests;
-mod state;
-#[cfg(test)]
-mod state_ownership_tests;
-use state::{AuditState, KnowledgeState, RulesState, State};
+pub mod state;
+pub use state::{AuditState, KnowledgeState, RulesState, State};
 
 /// Full raw snapshot output receipt, returned only after the caller sink flushes.
 /// Host metadata only; not a snapshot field, schema or semantic State input.
@@ -2746,51 +2570,57 @@ pub struct SnapshotWriteInfo {
     pub snapshot_sha256: String,
     pub state_sha256: String,
 }
-pub struct Game {
-    opening_library_sizes: [u32; 4],
-    catalog_has_land_type_grant: bool,
-    catalog_has_land_reclamation: bool,
-    catalog_has_nonland_color_grant: bool,
-    catalog_has_target_color_set: bool,
-    catalog_has_mana_tap_observer: bool,
-    // Admitted metadata is immutable for this executor and all staged forks.
-    prepared: Arc<Prepared>,
-    // Derived accelerator only, never state: catalog row for each physical
-    // card when this executor was built. Every use rechecks the Oracle ID.
-    definition_index: Arc<[u32]>,
-    state: State,
-    trace: TraceEvidence,
-    executor: Arc<()>,
-    state_token: Arc<()>,
-    // Private staging scope: nested event batches share the outer rollback.
-    in_rule_step: bool,
+testkit_fields! {
+    pub struct Game {
+        opening_library_sizes: [u32; 4],
+        catalog_has_land_type_grant: bool,
+        catalog_has_land_reclamation: bool,
+        catalog_has_nonland_color_grant: bool,
+        catalog_has_target_color_set: bool,
+        catalog_has_mana_tap_observer: bool,
+        // Admitted metadata is immutable for this executor and all staged forks.
+        prepared: Arc<Prepared>,
+        // Derived accelerator only, never state: catalog row for each physical
+        // card when this executor was built. Every use rechecks the Oracle ID.
+        definition_index: Arc<[u32]>,
+        state: State,
+        trace: TraceEvidence,
+        executor: Arc<()>,
+        state_token: Arc<()>,
+        // Private staging scope: nested event batches share the outer rollback.
+        in_rule_step: bool,
+    }
 }
-pub struct ValidatedResponse {
-    executor: Arc<()>,
-    revision: u64,
-    state_token: Arc<()>,
-    input: AcceptedInput,
+testkit_fields! {
+    pub struct ValidatedResponse {
+        executor: Arc<()>,
+        revision: u64,
+        state_token: Arc<()>,
+        input: AcceptedInput,
+    }
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Snapshot {
-    snapshot_version: u32,
-    build_id: String,
-    catalog_digest: String,
-    profile_digest: String,
-    state_sha256: String,
-    state: State,
-    trace: TraceEvidence,
+testkit_fields! {
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Snapshot {
+        snapshot_version: u32,
+        build_id: String,
+        catalog_digest: String,
+        profile_digest: String,
+        state_sha256: String,
+        state: State,
+        trace: TraceEvidence,
+    }
 }
 #[derive(Serialize)]
-struct SnapshotRef<'a> {
-    snapshot_version: u32,
-    build_id: &'a str,
-    catalog_digest: &'a str,
-    profile_digest: &'a str,
-    state_sha256: &'a str,
-    state: &'a State,
-    trace: &'a TraceEvidence,
+pub struct SnapshotRef<'a> {
+    pub snapshot_version: u32,
+    pub build_id: &'a str,
+    pub catalog_digest: &'a str,
+    pub profile_digest: &'a str,
+    pub state_sha256: &'a str,
+    pub state: &'a State,
+    pub trace: &'a TraceEvidence,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Advance {
@@ -2973,7 +2803,7 @@ impl Game {
             in_rule_step: false,
         }
     }
-    fn history_charge(&self) -> usize {
+    pub(crate) fn history_charge(&self) -> usize {
         // Charge actual retained allocations, independently of trace mode.
         self.state.knowledge.visibility.iter().fold(
             self.state
@@ -2989,7 +2819,7 @@ impl Game {
             |n, k| n.saturating_add(k.history.retention_charge()),
         )
     }
-    fn check_history_capacity(&mut self) -> Result<(), String> {
+    pub(crate) fn check_history_capacity(&mut self) -> Result<(), String> {
         let requested = self.history_charge();
         if requested > capacities::HISTORY_LIMIT {
             return Err(self.capacity_error(RuleFault::HistoryCapacityExceeded {
@@ -3109,7 +2939,7 @@ impl Game {
         index.into()
     }
     /// Immutable physical card or generated token definition, independent of zone copies.
-    fn definition(&self, card: CardId) -> Result<&Definition, String> {
+    pub(crate) fn definition(&self, card: CardId) -> Result<&Definition, String> {
         if let Some(token) = self.state.rules.tokens.get(&card) {
             return Ok(&token.definition);
         }
@@ -3132,7 +2962,7 @@ impl Game {
             .definition_by_oracle_id(&physical.oracle_id)
             .ok_or_else(|| "missing admitted definition".into())
     }
-    fn current(&self, id: ObjectId) -> Result<&Object, String> {
+    pub(crate) fn current(&self, id: ObjectId) -> Result<&Object, String> {
         self.state
             .rules
             .objects
@@ -3140,20 +2970,20 @@ impl Game {
             .filter(|o| o.id == id)
             .ok_or_else(|| "stale or absent object incarnation".into())
     }
-    fn is_battlefield_creature(&self, id: ObjectId) -> bool {
+    pub(crate) fn is_battlefield_creature(&self, id: ObjectId) -> bool {
         self.current(id).is_ok_and(|o| o.present_on_battlefield())
             && self
                 .characteristics(id)
                 .is_ok_and(|c| c.kind == CardKind::Creature)
     }
-    fn top(&self) -> Result<&StackInstance, String> {
+    pub(crate) fn top(&self) -> Result<&StackInstance, String> {
         self.state
             .rules
             .stack
             .last()
             .ok_or_else(|| "missing stack frame".into())
     }
-    fn program(&self) -> Result<&SpellProgram, String> {
+    pub(crate) fn program(&self) -> Result<&SpellProgram, String> {
         let entry = self.top()?;
         if matches!(
             self.state.rules.frame,
@@ -3168,7 +2998,10 @@ impl Game {
         }
         self.program_for(entry)
     }
-    fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
+    pub(crate) fn program_for<'a>(
+        &'a self,
+        stack: &'a StackInstance,
+    ) -> Result<&'a SpellProgram, String> {
         if let Some(plan) = &stack.mode_subset {
             return plan.program(self.root_program_for(stack)?);
         }
@@ -3408,7 +3241,11 @@ impl Game {
         };
         Ok((req.player() == viewer).then_some(req))
     }
-    fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
+    pub(crate) fn validate_response(
+        &self,
+        player: PlayerId,
+        response: &Response,
+    ) -> Result<(), String> {
         if matches!(
             self.state.rules.frame,
             Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
@@ -3705,7 +3542,7 @@ impl Game {
     pub fn advance(&mut self, budget: Budget) -> Advance {
         self.advance_internal::<false, true>(budget, &mut vec![])
     }
-    fn advance_internal<const REPORT: bool, const COALESCE: bool>(
+    pub(crate) fn advance_internal<const REPORT: bool, const COALESCE: bool>(
         &mut self,
         mut budget: Budget,
         processed: &mut Vec<InputProcessingFact>,
@@ -3769,7 +3606,7 @@ impl Game {
         self.state_token = Arc::new(());
         Advance::Fault(reason)
     }
-    fn step(&mut self) -> Result<(), String> {
+    pub(crate) fn step(&mut self) -> Result<(), String> {
         self.check_history_capacity()?;
         self.refresh_removal_target_facts()?;
         // Every exit that keeps its staged state reconciles the frame it
@@ -4177,7 +4014,7 @@ impl Game {
             .ok_or("no live player after resolution")?;
         self.stabilize()
     }
-    fn payment_pool(
+    pub(crate) fn payment_pool(
         &self,
         player: PlayerId,
         cost: &ManaCost,
@@ -4223,7 +4060,7 @@ impl Game {
         }
         Ok(pool)
     }
-    fn stabilize(&mut self) -> Result<(), String> {
+    pub(crate) fn stabilize(&mut self) -> Result<(), String> {
         if matches!(self.state.rules.frame, Frame::Priority) {
             self.schedule_stabilization(Frame::Priority, false);
         }
@@ -4265,10 +4102,10 @@ impl Game {
             state_sha256,
         })
     }
-    fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
+    pub(crate) fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         Self::admit_decoded_snapshot(prepared, strict_read(json)?)
     }
-    fn read_snapshot_from_reader<R: std::io::Read + std::io::Seek>(
+    pub(crate) fn read_snapshot_from_reader<R: std::io::Read + std::io::Seek>(
         prepared: Prepared,
         source: &mut R,
     ) -> Result<(Self, String), String> {
@@ -4323,7 +4160,7 @@ impl Game {
     ) -> Result<Self, String> {
         Self::prove_decoded_snapshot(Self::read_snapshot_from_reader(prepared, source)?)
     }
-    fn validate_state(&self) -> Result<(), String> {
+    pub(crate) fn validate_state(&self) -> Result<(), String> {
         self.validate_match_state()?;
         self.validate_phasing_state()?;
         if self.state.rules.players.iter().any(|p| {
@@ -4650,10 +4487,10 @@ impl Game {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testkit"))]
 impl Game {
     /// Historical scenario drivers now answer the common explicit spending request.
-    fn complete_test_mana(&mut self) {
+    pub(crate) fn complete_test_mana(&mut self) {
         if let Advance::AwaitingDecision(Request::SpendMana {
             player,
             decision_id,
@@ -4678,7 +4515,7 @@ impl Game {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     fn prepared() -> Prepared {
         Prepared::admit(
@@ -5034,54 +4871,3 @@ mod tests {
         assert!(Game::restore(p, &canonical(&snapshot).unwrap()).is_err());
     }
 }
-
-#[cfg(test)]
-mod indestructible_tests;
-#[cfg(test)]
-mod scoped_creature_stats_tests;
-#[cfg(test)]
-mod static_permanent_indestructible_tests;
-
-#[cfg(test)]
-mod equipped_indestructible_tests;
-
-#[cfg(test)]
-mod deathtouch_window_tests;
-
-#[cfg(test)]
-mod temporary_indestructible_tests;
-
-#[cfg(test)]
-mod temporary_flying_tests;
-
-#[cfg(test)]
-mod compound_indestructible_family_tests;
-#[cfg(test)]
-mod compound_indestructible_tests;
-
-#[cfg(test)]
-mod temporary_deathtouch_tests;
-
-#[cfg(test)]
-mod temporary_creature_keyword_family_tests;
-
-#[cfg(test)]
-mod controlled_creature_protection_tests;
-
-#[cfg(test)]
-mod temporary_combat_keyword_tests;
-
-#[cfg(test)]
-mod set_keyword_effect_tests;
-
-#[cfg(test)]
-mod scalar_keyword_effect_kernel_tests;
-
-#[cfg(test)]
-mod creature_set_keyword_tests;
-
-#[cfg(test)]
-mod permanent_set_keyword_kernel_tests;
-
-#[cfg(test)]
-mod permanent_target_keyword_kernel_tests;

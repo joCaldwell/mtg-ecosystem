@@ -10,16 +10,16 @@ macro_rules! state_layout {
      knowledge { $( $(#[$ka:meta])* $k:ident: $kt:ty, )* }
      audit { $( $(#[$aa:meta])* $a:ident: $at:ty, )* }) => {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-        pub(super) struct RulesState { $( $(#[$ra])* pub(super) $r: $rt, )* }
+        pub struct RulesState { $( $(#[$ra])* pub $r: $rt, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-        pub(super) struct KnowledgeState { $( $(#[$ka])* pub(super) $k: $kt, )* }
+        pub struct KnowledgeState { $( $(#[$ka])* pub $k: $kt, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-        pub(super) struct AuditState { $( $(#[$aa])* pub(super) $a: $at, )* }
+        pub struct AuditState { $( $(#[$aa])* pub $a: $at, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-        pub(super) struct State {
-            #[serde(flatten)] pub(super) rules: RulesState,
-            #[serde(flatten)] pub(super) knowledge: KnowledgeState,
-            #[serde(flatten)] pub(super) audit: AuditState,
+        pub struct State {
+            #[serde(flatten)] pub rules: RulesState,
+            #[serde(flatten)] pub knowledge: KnowledgeState,
+            #[serde(flatten)] pub audit: AuditState,
         }
         impl<'de> Deserialize<'de> for State {
             fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> Result<Self, D::Error> {

@@ -72,14 +72,14 @@ fn unbuffered<W: Write>(snapshot: &SnapshotRef<'_>, writer: &mut W) -> Result<()
     trace(writer, evidence)?;
     raw(writer, b"}")
 }
-pub(super) fn write<W: Write>(snapshot: &SnapshotRef<'_>, sink: &mut W) -> Result<(), String> {
+pub fn write<W: Write>(snapshot: &SnapshotRef<'_>, sink: &mut W) -> Result<(), String> {
     let mut writer = BufWriter::with_capacity(BUFFER, sink);
     unbuffered(snapshot, &mut writer)?;
     // BufWriter's Drop cannot report flush failures. A successful result always
     // includes the underlying sink's flush; a failed sink may hold a prefix.
     writer.flush().map_err(|error| error.to_string())
 }
-pub(super) fn encode(snapshot: &SnapshotRef<'_>) -> Result<String, String> {
+pub fn encode(snapshot: &SnapshotRef<'_>) -> Result<String, String> {
     let mut bytes = Vec::new();
     write(snapshot, &mut bytes)?;
     String::from_utf8(bytes).map_err(|error| error.to_string())
@@ -91,10 +91,10 @@ pub(super) struct WrittenBytes {
     pub(super) bytes: u64,
     pub(super) sha256: String,
 }
-struct CheckedWrite<W> {
-    sink: W,
-    bytes: u64,
-    sha256: Sha256Sink,
+pub struct CheckedWrite<W> {
+    pub sink: W,
+    pub bytes: u64,
+    pub sha256: Sha256Sink,
 }
 impl<W: Write> Write for CheckedWrite<W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -130,10 +130,3 @@ pub(super) fn write_counted<W: Write>(
         sha256: checked.sha256.finalize_hex(),
     })
 }
-#[cfg(test)]
-#[path = "streaming_snapshot_tests.rs"]
-mod streaming_tests;
-
-#[cfg(test)]
-#[path = "snapshot_codec_tests.rs"]
-mod tests;

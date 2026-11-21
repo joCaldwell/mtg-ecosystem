@@ -13,8 +13,8 @@ use std::{
 };
 
 #[derive(Debug)]
-struct Row<T> {
-    value: T,
+pub struct Row<T> {
+    pub value: T,
     bytes: OnceLock<Result<Box<[u8]>, String>>,
 }
 impl<T: Clone> Clone for Row<T> {
@@ -26,17 +26,17 @@ impl<T: Clone> Clone for Row<T> {
     }
 }
 #[derive(Clone)]
-pub(super) struct StoredRow<T>(Arc<Row<T>>);
-pub(super) type StoredObject = StoredRow<VisibleObject>;
+pub struct StoredRow<T>(pub Arc<Row<T>>);
+pub type StoredObject = StoredRow<VisibleObject>;
 pub(super) type StoredPlayer = StoredRow<VisiblePlayer>;
 impl<T: Serialize> StoredRow<T> {
-    fn new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self(Arc::new(Row {
             value,
             bytes: OnceLock::new(),
         }))
     }
-    fn bytes(&self) -> Result<&[u8], String> {
+    pub fn bytes(&self) -> Result<&[u8], String> {
         self.0
             .bytes
             .get_or_init(|| canonical(&self.0.value).map(|s| s.into_bytes().into_boxed_slice()))
@@ -86,7 +86,7 @@ impl<'de, T: Deserialize<'de> + Serialize> Deserialize<'de> for StoredRow<T> {
 // its predecessor. Priority-only views retain the same root. Nodes never cross
 // viewers. Full typed prefix equality is required, including order/duplicates.
 #[derive(Clone, Default)]
-pub(super) struct StoredStack {
+pub struct StoredStack {
     tail: Option<Arc<StackNode>>,
     len: usize,
 }
@@ -163,8 +163,8 @@ impl StoredStack {
         }
         Ok(())
     }
-    #[cfg(test)]
-    pub(super) fn node_pointers(&self) -> Vec<usize> {
+    #[cfg(feature = "testkit")]
+    pub fn node_pointers(&self) -> Vec<usize> {
         self.rows()
             .iter()
             .map(|n| *n as *const StackNode as usize)
@@ -220,7 +220,7 @@ impl<'de> Deserialize<'de> for StoredStack {
 // exhaustive conversions below force future public fields to be accounted for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct StoredViewData {
+pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     known_searched_hand: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -235,16 +235,16 @@ pub(super) struct StoredViewData {
     pub(super) viewer: PlayerId,
     pub(super) active: Option<PlayerId>,
     pub(super) turn_owner: PlayerId,
-    pub(super) turn: TurnState,
+    pub turn: TurnState,
     pub(super) live_turn_order: Vec<PlayerId>,
     #[serde(with = "shared_vec")]
-    pub(super) commanders: Arc<Vec<VisibleCommander>>,
+    pub commanders: Arc<Vec<VisibleCommander>>,
     pub(super) priority: Option<PlayerId>,
     #[serde(with = "shared_vec")]
-    pub(super) players: Arc<Vec<StoredPlayer>>,
+    pub players: Arc<Vec<StoredPlayer>>,
     #[serde(with = "shared_vec")]
-    pub(super) objects: Arc<Vec<StoredObject>>,
-    pub(super) stack: StoredStack,
+    pub objects: Arc<Vec<StoredObject>>,
+    pub stack: StoredStack,
 }
 // Private ownership only: no Arc marker/identity is added to the public array.
 // Keep serde's workspace feature set unchanged (no generic rc feature needed).
@@ -263,23 +263,23 @@ mod shared_vec {
     }
 }
 #[derive(Clone, Copy)]
-enum StreamedRows {
+pub enum StreamedRows {
     Commanders,
     Objects,
     Players,
     Stack,
 }
-struct Segments {
-    parts: Vec<(Box<[u8]>, StreamedRows)>,
-    after: Box<[u8]>,
+pub struct Segments {
+    pub parts: Vec<(Box<[u8]>, StreamedRows)>,
+    pub after: Box<[u8]>,
 }
 type CollectionBytes = Arc<OnceLock<Result<Box<[u8]>, String>>>;
-pub(super) struct StoredPermittedView {
-    data: StoredViewData,
+pub struct StoredPermittedView {
+    pub data: StoredViewData,
     // Metadata excludes every shared collection. Collection canonical bytes
     // follow the same immutable allocation as their typed values.
     segments: OnceLock<Result<Segments, String>>,
-    commanders_bytes: CollectionBytes,
+    pub commanders_bytes: CollectionBytes,
 }
 impl Clone for StoredPermittedView {
     fn clone(&self) -> Self {
@@ -379,7 +379,7 @@ impl From<PermittedView> for StoredPermittedView {
     }
 }
 impl StoredPermittedView {
-    pub(super) fn to_public(&self) -> PermittedView {
+    pub fn to_public(&self) -> PermittedView {
         let StoredViewData {
             known_searched_hand,
             known_library_positions,
@@ -417,7 +417,7 @@ impl StoredPermittedView {
             stack: stack.to_public(),
         }
     }
-    pub(super) fn matches_public(&self, view: &PermittedView) -> bool {
+    pub fn matches_public(&self, view: &PermittedView) -> bool {
         let PermittedView {
             known_searched_hand,
             known_library_positions,
@@ -473,7 +473,7 @@ impl StoredPermittedView {
             && r.len() == objects.len()
             && r.iter().zip(objects).all(|(r, o)| r.0.value == *o)
     }
-    fn reuse_previous(&mut self, previous: Option<&Self>) {
+    pub fn reuse_previous(&mut self, previous: Option<&Self>) {
         let Some(previous) = previous.filter(|p| p.viewer == self.viewer) else {
             return;
         };
@@ -524,7 +524,7 @@ impl StoredPermittedView {
             }
         }
     }
-    fn metadata_segments(&self) -> Result<&Segments, String> {
+    pub fn metadata_segments(&self) -> Result<&Segments, String> {
         self.segments
             .get_or_init(|| {
                 let mut skeleton = self.data.clone();
@@ -574,7 +574,7 @@ impl StoredPermittedView {
             .as_ref()
             .map_err(Clone::clone)
     }
-    pub(super) fn write_canonical<W: Write>(&self, writer: &mut W) -> Result<(), String> {
+    pub fn write_canonical<W: Write>(&self, writer: &mut W) -> Result<(), String> {
         fn collection<W: Write, T: Serialize>(
             writer: &mut W,
             rows: &[T],
@@ -619,20 +619,20 @@ impl StoredPermittedView {
     /// Rare deliberate historical edits are explicit. A mutable public value
     /// is detached from caches before exposure; even panic leaves self intact.
     /// Reintern only against this SAME viewer, after the complete edit.
-    #[cfg(test)]
-    pub(super) fn update_public(&mut self, edit: impl FnOnce(&mut PermittedView)) {
+    #[cfg(feature = "testkit")]
+    pub fn update_public(&mut self, edit: impl FnOnce(&mut PermittedView)) {
         let mut public = self.to_public();
         edit(&mut public);
         let mut replacement = Self::from(public);
         replacement.reuse_previous(Some(self));
         *self = replacement;
     }
-    #[cfg(test)]
-    pub(super) fn replace_public_objects(&mut self, objects: Vec<VisibleObject>) {
+    #[cfg(feature = "testkit")]
+    pub fn replace_public_objects(&mut self, objects: Vec<VisibleObject>) {
         self.update_public(|v| v.objects = objects);
     }
-    #[cfg(test)]
-    pub(super) fn mutate_object(&mut self, index: usize, edit: impl FnOnce(&mut VisibleObject)) {
+    #[cfg(feature = "testkit")]
+    pub fn mutate_object(&mut self, index: usize, edit: impl FnOnce(&mut VisibleObject)) {
         // No &mut StoredObject/StoredViewData escapes; the caller cannot warm a
         // row cache while retaining its mutable underlying VisibleObject.
         edit(&mut Arc::make_mut(&mut self.data.objects)[index]);
@@ -643,7 +643,7 @@ impl StoredPermittedView {
 // Key sorting changes order but not encoded length; the streaming serde writer
 // uses the same JSON escaping/number encoding as canonical(), without a buffer.
 // Charge new retained content only. Allocator/memo warmth never selects a fault.
-pub(super) fn payload_charge(value: &impl Serialize) -> usize {
+pub fn payload_charge(value: &impl Serialize) -> usize {
     struct Count(usize);
     impl Write for Count {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -725,7 +725,7 @@ impl StoredPermittedView {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(super) struct StoredHistory(History<StoredPermittedView>, usize);
+pub struct StoredHistory(History<StoredPermittedView>, usize);
 impl PartialEq for StoredHistory {
     fn eq(&self, other: &Self) -> bool {
         // StoredPermittedView is Eq, with complete typed fallback for entries
@@ -736,38 +736,38 @@ impl PartialEq for StoredHistory {
 }
 impl Eq for StoredHistory {}
 impl StoredHistory {
-    pub(super) fn retention_charge(&self) -> usize {
+    pub fn retention_charge(&self) -> usize {
         self.1
     }
-    pub(super) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.0.len()
     }
-    #[cfg(test)]
-    pub(super) fn is_empty(&self) -> bool {
+    #[cfg(feature = "testkit")]
+    pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-    pub(super) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.0.clear();
         self.1 = 0;
     }
-    pub(super) fn last(&self) -> Option<&StoredPermittedView> {
+    pub fn last(&self) -> Option<&StoredPermittedView> {
         self.0.last()
     }
-    pub(super) fn iter(
+    pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = &StoredPermittedView> + ExactSizeIterator {
         self.0.iter()
     }
-    pub(super) fn push(&mut self, mut view: StoredPermittedView) {
+    pub fn push(&mut self, mut view: StoredPermittedView) {
         view.reuse_previous(self.last());
         self.1 = self.1.saturating_add(view.retention_charge(self.last()));
         self.0.push(view);
     }
-    pub(super) fn push_public(&mut self, view: PermittedView) {
+    pub fn push_public(&mut self, view: PermittedView) {
         self.push(view.into());
     }
-    #[cfg(test)]
-    pub(super) fn canonical_entry_bytes(&self, index: usize) -> Result<Vec<u8>, String> {
+    #[cfg(feature = "testkit")]
+    pub fn canonical_entry_bytes(&self, index: usize) -> Result<Vec<u8>, String> {
         let mut bytes = vec![];
         self[index].write_canonical(&mut bytes)?;
         Ok(bytes)
@@ -812,10 +812,6 @@ impl<'de> Deserialize<'de> for StoredHistory {
     }
 }
 
-#[cfg(test)]
-#[path = "stored_history_tests.rs"]
-mod tests;
-
-pub(super) fn is_zero_charge(n: &usize) -> bool {
+pub fn is_zero_charge(n: &usize) -> bool {
     *n == 0
 }

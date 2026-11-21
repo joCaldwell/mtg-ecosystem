@@ -23,7 +23,7 @@ pub struct CounterPlacementApplication {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CounterPlacementMember {
+pub struct CounterPlacementMember {
     pub object: ObjectId,
     pub original_amount: Quantity,
     pub amount: Quantity,
@@ -34,7 +34,7 @@ pub(super) struct CounterPlacementMember {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CounterPlacementTransaction {
+pub struct CounterPlacementTransaction {
     pub members: Vec<CounterPlacementMember>,
     current: usize,
     pub cause: BatchCause,
@@ -282,7 +282,7 @@ impl Game {
             after: modification.apply(&member.amount),
         })
     }
-    pub(super) fn counter_placement_candidates(&self) -> Vec<CounterPlacementEffectKey> {
+    pub(crate) fn counter_placement_candidates(&self) -> Vec<CounterPlacementEffectKey> {
         self.current_counter_member()
             .map(|member| self.member_candidates(member))
             .unwrap_or_default()
@@ -320,7 +320,7 @@ impl Game {
             .filter(|key| self.counter_application(member, key).is_ok())
             .collect()
     }
-    pub(super) fn counter_placement_request(&self) -> Result<Option<Request>, String> {
+    pub(crate) fn counter_placement_request(&self) -> Result<Option<Request>, String> {
         let Frame::CounterPlacement { .. } = &self.state.rules.frame else {
             return Ok(None);
         };
@@ -336,7 +336,7 @@ impl Game {
             candidates,
         }))
     }
-    pub(super) fn validate_counter_placement_response(
+    pub(crate) fn validate_counter_placement_response(
         &self,
         player: PlayerId,
         key: &CounterPlacementEffectKey,
