@@ -92,7 +92,7 @@ impl Game {
             },
             definition,
         };
-        self.state.rules.next_stack_id += 1; // Reserved above along with outstanding triggers' IDs.
+        self.rules_mut().next_stack_id += 1; // Reserved above along with outstanding triggers' IDs.
         let object = self.insert_token_identity(card, controller, Zone::Stack, identity);
         // Keep all announcement choices, including the original objects used
         // to pay additional costs (CR 707.10). Rebind only the new source,
@@ -106,7 +106,7 @@ impl Game {
         copy.cost_lock = None;
         copy.total_cost = zero_mana_cost();
         copy.cast_from = Zone::Stack;
-        self.state.rules.stack.push(copy);
+        self.rules_mut().stack.push(copy);
         self.record_event(Event::SpellCopied {
             cause: self.instruction_cause(frame, source_block)?,
             target,
@@ -192,7 +192,7 @@ impl Game {
     ) -> Result<(), String> {
         let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) || (first.is_some() && self.opponents(player).is_empty()) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self.finish_instruction(
                 frame,
                 match first {
@@ -205,8 +205,7 @@ impl Game {
             );
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing demonstrate choice")?;
@@ -218,7 +217,7 @@ impl Game {
             }
             (None, Response::OptionalEffect { perform: true }) => {
                 let first = self.copy_demonstrated_spell(&frame, source_block, player)?;
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Demonstrate {
                         source_block,

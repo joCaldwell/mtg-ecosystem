@@ -80,8 +80,8 @@ impl Game {
             stack_id: id,
             resolved,
         })?;
-        self.state.rules.frame = Frame::Priority;
-        self.state.rules.priority = self
+        self.rules_mut().frame = Frame::Priority;
+        self.rules_mut().priority = self
             .state
             .rules
             .active

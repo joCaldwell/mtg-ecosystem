@@ -147,8 +147,7 @@ impl Game {
             group,
         )?;
         let entry = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing sacrifice invocation")?;
@@ -232,8 +231,7 @@ impl Game {
                     return self.reverse_cast(cast, "sacrifice no longer payable", undo);
                 }
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing sacrifice cost input")?;
@@ -244,7 +242,7 @@ impl Game {
                 cast.sacrifices.push(object);
                 let (_, count) = self.invocation_sacrifice(&stack).ok_or("missing cost")?;
                 if u32::try_from(cast.sacrifices.len()) != Ok(count) {
-                    self.state.rules.frame = Frame::SacrificeCost { cast };
+                    self.rules_mut().frame = Frame::SacrificeCost { cast };
                     return Ok(());
                 }
                 self.payment_step(cast)
@@ -252,8 +250,7 @@ impl Game {
             Frame::OptionalDamage { frame } => {
                 let perform = if self.is_live(self.entry(frame.stack_id)?.controller) {
                     let input = self
-                        .state
-                        .rules
+                        .rules_mut()
                         .pending
                         .take()
                         .ok_or("missing optional damage input")?;
@@ -280,8 +277,7 @@ impl Game {
                 if let Some(player) = remaining.first().copied() {
                     if self.is_live(player) && !self.controlled_creatures(player).is_empty() {
                         let input = self
-                            .state
-                            .rules
+                            .rules_mut()
                             .pending
                             .take()
                             .ok_or("missing forced sacrifice input")?;
@@ -292,7 +288,7 @@ impl Game {
                         choices.push((player, object));
                     }
                     remaining.remove(0);
-                    self.state.rules.frame = Frame::ForcedSacrifice {
+                    self.rules_mut().frame = Frame::ForcedSacrifice {
                         frame,
                         remaining,
                         choices,
@@ -351,8 +347,8 @@ impl Game {
             return self.reverse_cast(cast, "departure made artifact sacrifice unpayable", undo);
         }
         cast.sacrifices.clear();
-        self.state.rules.pending = None;
-        self.state.rules.frame = Frame::SacrificeCost { cast };
+        self.rules_mut().pending = None;
+        self.rules_mut().frame = Frame::SacrificeCost { cast };
         Ok(())
     }
     pub(super) fn execute_sacrifice_instruction(
@@ -367,7 +363,7 @@ impl Game {
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| self.is_live(*p) && *p != controller)
                     .collect();
-                self.state.rules.frame = Frame::ForcedSacrifice {
+                self.rules_mut().frame = Frame::ForcedSacrifice {
                     frame,
                     remaining,
                     choices: vec![],
@@ -376,7 +372,7 @@ impl Game {
                 Ok(())
             }
             Instruction::SacrificeDamage { optional: true, .. } => {
-                self.state.rules.frame = Frame::OptionalDamage { frame };
+                self.rules_mut().frame = Frame::OptionalDamage { frame };
                 Ok(())
             }
             Instruction::SacrificeDamage { .. } => self.start_sacrifice_damage(frame),

@@ -120,7 +120,7 @@ impl Game {
             .collect();
         let opening_library_sizes = prepared.config.initial_library_sizes();
         let state = State {
-            rules: RulesState {
+            rules: RulesState::new(RulesTables {
                 mana_ability_uses: BTreeSet::new(),
                 tokens: Arc::default(),
                 entry_copies: BTreeMap::new(),
@@ -187,7 +187,7 @@ impl Game {
                 pending: None,
                 next_batch_id: 0,
                 next_event_sequence: 0,
-            },
+            }),
             knowledge: KnowledgeState {
                 visibility: (0..4)
                     .map(|_| visibility::Knowledge::default().into())
@@ -218,11 +218,17 @@ impl Game {
             in_rule_step: false,
             published: None,
         };
-        if let Some(config) = game.prepared.match_config.as_ref() {
-            game.state.rules.active = Some(config.starting_player);
-            game.state.rules.turn_owner = config.starting_player;
-            game.state.rules.priority = config.starting_player;
-            game.state.rules.frame = Frame::Setup;
+        if let Some(starting) = game
+            .prepared
+            .match_config
+            .as_ref()
+            .map(|config| config.starting_player)
+        {
+            let rules = game.rules_mut();
+            rules.active = Some(starting);
+            rules.turn_owner = starting;
+            rules.priority = starting;
+            rules.frame = Frame::Setup;
         }
         game.initialize_commanders()
             .expect("admitted commander configuration");

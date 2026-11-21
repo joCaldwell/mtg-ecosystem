@@ -197,8 +197,7 @@ impl Game {
 
     pub(super) fn spend_mana_step(&mut self, mut cast: Casting) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing spending input")?;
@@ -214,7 +213,7 @@ impl Game {
         cast.spending = Some(spending);
         cast.spending_restricted = restricted;
         if self.invocation_sacrifice(self.top()?).is_some() {
-            self.state.rules.frame = Frame::SacrificeCost { cast };
+            self.rules_mut().frame = Frame::SacrificeCost { cast };
             Ok(())
         } else {
             self.payment_step(cast)
@@ -230,11 +229,11 @@ impl Game {
         match self.pay_announcement_costs(&cast)? {
             AnnouncementPayment::Completed(completed) => match cast.completion {
                 CastCompletion::Priority => {
-                    self.state.rules.priority = completed.controller;
-                    self.state.rules.frame = Frame::Priority;
+                    self.rules_mut().priority = completed.controller;
+                    self.rules_mut().frame = Frame::Priority;
                 }
                 CastCompletion::HandTrigger { frame } => {
-                    self.state.rules.frame = Frame::HandCast {
+                    self.rules_mut().frame = Frame::HandCast {
                         frame,
                         child: Some(completed.stack_id),
                     };
@@ -263,7 +262,7 @@ impl Game {
                             progress.complete_cast(permission.object, completed.stack_id)?
                         }
                     }
-                    self.state.rules.frame = progress.resume();
+                    self.rules_mut().frame = progress.resume();
                 }
             },
             AnnouncementPayment::Deferred => return Ok(()),
@@ -443,8 +442,7 @@ impl Game {
         }
         self.pay_sacrifice_cost(&stack, &cast.sacrifices)?;
         self.finish_payment_shuffles(cast)?;
-        self.state
-            .rules
+        self.rules_mut()
             .stack
             .last_mut()
             .ok_or("missing stack")?
@@ -454,7 +452,7 @@ impl Game {
                 stack_id: cast.stack_id,
             })?;
             self.collect_cast_triggers(&stack)?;
-            self.state.rules.commanders.record_cast(
+            self.rules_mut().commanders.record_cast(
                 stack.source.card,
                 stack.controller,
                 stack.cast_from,

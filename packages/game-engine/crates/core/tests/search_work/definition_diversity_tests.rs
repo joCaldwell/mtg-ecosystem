@@ -190,6 +190,7 @@ fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payl
         let target = targets[payload.partition];
         let source_handles = game.capture_trigger_source_handles(source).unwrap();
         let target_handles = game.capture_trigger_source_handles(target).unwrap();
+        let turn = game.state.rules.turn.number;
         game.state.rules.effects.push(ResolvedEffect {
             target_handles,
             id: EffectId(u64::try_from(index).unwrap()),
@@ -203,7 +204,7 @@ fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payl
                 cursor: 0,
                 source_block: *source_block,
             },
-            expires_in_cleanup_of_turn: game.state.rules.turn.number,
+            expires_in_cleanup_of_turn: turn,
             kind: ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power: power.clone(),

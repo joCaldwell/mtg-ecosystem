@@ -43,7 +43,7 @@ impl Game {
         if let Some(player) = self.optional_recipient(&frame, &chooser)?
             && self.is_live(player)
         {
-            self.state.rules.frame = Frame::ResolutionChoice {
+            self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::ChooseOptional {
                     player,
@@ -78,8 +78,7 @@ impl Game {
         let following = *following;
         let accepted_by = if self.is_live(player) {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing optional choice")?;
@@ -91,7 +90,7 @@ impl Game {
             };
             perform.then_some(player)
         } else {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             None
         };
         self.finish_optional_block(frame, following, accepted_by)
@@ -130,7 +129,7 @@ impl Game {
             .outcomes
             .extend((next..end).map(|_| InstructionOutcome::OptionalSkipped));
         frame.cursor = end;
-        self.state.rules.frame = Frame::Resolve { frame };
+        self.rules_mut().frame = Frame::Resolve { frame };
         Ok(())
     }
 }

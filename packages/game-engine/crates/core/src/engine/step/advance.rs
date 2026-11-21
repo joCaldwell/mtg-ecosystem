@@ -52,7 +52,7 @@ impl Game {
     }
     /// Counts the rule step this transaction executed.
     fn count_rule_step(&mut self) -> Result<(), RuleError> {
-        let rules = &mut self.state.rules;
+        let rules = self.rules_mut();
         rules.rule_steps = rules
             .rule_steps
             .checked_add(1)
@@ -62,9 +62,9 @@ impl Game {
     /// A failed step is never a rules outcome: the game keeps its pre-step
     /// state and stops at a fault, typed when a capacity was exhausted.
     pub(in crate::engine) fn enter_fault(&mut self, error: RuleError) -> Advance {
-        self.state.rules.typed_fault = error.fault().cloned();
+        self.rules_mut().typed_fault = error.fault().cloned();
         let reason = String::from(error);
-        self.state.rules.frame = Frame::Fault {
+        self.rules_mut().frame = Frame::Fault {
             reason: reason.clone(),
         };
         self.state_token = Arc::new(());

@@ -886,9 +886,10 @@ fn aura_control_mixed_synthetic_and_simultaneous_attachment_dependencies_reject_
         .unwrap()
         .default_controller = PlayerId(3);
     dependent.state.rules.losing_players.push(PlayerId(3));
+    let controlled = object(&dependent, 2);
     dependent.state.rules.control_effects.push(ControlEffect {
         id: 1,
-        object: object(&dependent, 2),
+        object: controlled,
         controller: PlayerId(1),
         source: ControlSource::Static { object: source },
     });

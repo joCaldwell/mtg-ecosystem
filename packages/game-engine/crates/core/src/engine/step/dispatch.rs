@@ -6,7 +6,7 @@ impl Game {
         self.check_history_capacity()?;
         self.refresh_removal_target_facts()?;
         if let Some(player) = self.state.rules.pending_concessions.first().copied() {
-            self.state.rules.pending_concessions.remove(0);
+            self.rules_mut().pending_concessions.remove(0);
             self.apply_departure(player)?;
         } else {
             let frame = self.working_frame();
@@ -47,8 +47,7 @@ impl Game {
             Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
             Frame::HybridCost { cast } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing hybrid cost choice")?;
@@ -56,13 +55,12 @@ impl Game {
                 let Response::HybridCost { colors } = input.response else {
                     return Err("missing hybrid cost response".into());
                 };
-                self.state
-                    .rules
+                self.rules_mut()
                     .stack
                     .last_mut()
                     .ok_or("missing hybrid spell")?
                     .hybrid_colors = colors;
-                self.state.rules.frame = self.spell_announcement_frame(cast)?;
+                self.rules_mut().frame = self.spell_announcement_frame(cast)?;
             }
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
             Frame::Modes { cast } => self.bind_mode(cast)?,
@@ -70,8 +68,7 @@ impl Game {
             Frame::DamageEffects { .. } => self.damage_effect_step()?,
             Frame::Priority => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing accepted priority input")?;
@@ -98,12 +95,12 @@ impl Game {
                         self.record_event(Event::PriorityPassed {
                             player: input.player,
                         })?;
-                        self.state.rules.passes.push(input.player);
+                        self.rules_mut().passes.push(input.player);
                         // CR 117.4 applies to the current live player set.
                         if self.all_live_passed() {
                             self.begin_resolution()?;
                         } else {
-                            self.state.rules.priority = self
+                            self.rules_mut().priority = self
                                 .next_live(input.player)
                                 .ok_or("no live priority recipient")?;
                             self.stabilize()?;
@@ -114,8 +111,7 @@ impl Game {
             }
             Frame::Targets { cast } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing accepted target input")?;
@@ -130,7 +126,7 @@ impl Game {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let top = self.state.rules.stack.last_mut().ok_or("missing stack")?;
+                let top = self.rules_mut().stack.last_mut().ok_or("missing stack")?;
                 top.targets.extend(objects);
                 if top.announced_targets.is_empty() {
                     top.announced_targets = announced;
@@ -154,13 +150,12 @@ impl Game {
                     // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = self.continue_spell_targeting(cast)?;
+                    self.rules_mut().frame = self.continue_spell_targeting(cast)?;
                 }
             }
             Frame::Mana { mut cast } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing accepted mana input")?;
@@ -170,7 +165,7 @@ impl Game {
                     }
                     Response::FinishMana { undo_mana } => {
                         cast.undo_mana = undo_mana;
-                        self.state.rules.frame = self.finish_mana_frame(cast)?;
+                        self.rules_mut().frame = self.finish_mana_frame(cast)?;
                     }
                     _ => return Err("mana response/frame invariant".into()),
                 }
@@ -214,7 +209,7 @@ impl Game {
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
                         Instruction::OfferHandCastWithoutManaCost { .. } => {
-                            self.state.rules.frame = Frame::HandCast {
+                            self.rules_mut().frame = Frame::HandCast {
                                 frame: Box::new(frame),
                                 child: None,
                             };
@@ -264,7 +259,7 @@ impl Game {
                                     Zone::Hand { owner }
                                 };
                                 if self.state.rules.commanders.history(target.card).is_some() {
-                                    self.state.rules.frame = Frame::CommanderReturn {
+                                    self.rules_mut().frame = Frame::CommanderReturn {
                                         object: target,
                                         destination,
                                         continuation: Box::new(CommanderContinuation::SpellMove {
@@ -296,7 +291,7 @@ impl Game {
                         .cursor
                         .checked_add(1)
                         .ok_or("instruction cursor resource limit")?;
-                    self.state.rules.frame = Frame::Resolve { frame };
+                    self.rules_mut().frame = Frame::Resolve { frame };
                 } else {
                     if stack.kind.is_spell()
                         && program.resolution == SpellResolution::Permanent

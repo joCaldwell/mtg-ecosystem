@@ -240,7 +240,7 @@ impl Game {
                 _ => return Err("unexpected retained hand cast response".into()),
             };
             if invalid {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
             }
         }
         Ok(())
@@ -253,7 +253,7 @@ impl Game {
         self.validate_resolving_owned(&frame, child)?;
         if child.is_none() {
             let candidates = self.hand_cast_candidates(&frame)?;
-            if let Some(input) = self.state.rules.pending.take() {
+            if let Some(input) = self.rules_mut().pending.take() {
                 if input.player != self.entry(frame.stack_id)?.controller {
                     return Err("hand cast actor mismatch".into());
                 }

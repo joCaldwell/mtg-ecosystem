@@ -52,12 +52,12 @@ impl Game {
         Ok(total)
     }
     pub(super) fn bind_x(&mut self, cast: Casting) -> Result<(), String> {
-        let input = self.state.rules.pending.take().ok_or("missing X input")?;
+        let input = self.rules_mut().pending.take().ok_or("missing X input")?;
         self.validate_response(input.player, &input.response)?;
         let Response::AnnounceX { value } = input.response else {
             return Err("X response invariant".into());
         };
-        let top = self.state.rules.stack.last_mut().ok_or("missing X spell")?;
+        let top = self.rules_mut().stack.last_mut().ok_or("missing X spell")?;
         if top.x.is_some() {
             return Err("X already announced".into());
         }
@@ -69,7 +69,7 @@ impl Game {
             player: input.player,
             value,
         })?;
-        self.state.rules.frame = self.spell_announcement_frame(cast)?;
+        self.rules_mut().frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
     pub(super) fn anger_replaces_death(&self, object: ObjectId, destination: Zone) -> bool {
@@ -194,7 +194,7 @@ impl Game {
                 && self.is_live(self.state.rules.cards[&o.card].owner)
         });
         if let Some(object) = remaining.first().copied() {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand {
                     owner: self.state.rules.cards[&object.card].owner,
@@ -555,7 +555,7 @@ impl Game {
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| self.is_live(*p))
                     .collect();
-                self.state.rules.frame = Frame::ForcedSacrifice {
+                self.rules_mut().frame = Frame::ForcedSacrifice {
                     frame,
                     remaining,
                     choices: vec![],

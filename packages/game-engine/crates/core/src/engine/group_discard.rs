@@ -62,7 +62,7 @@ impl Game {
             let count = self.bounded_hand_count(player, &count);
             if count > 0 {
                 frame.group_discard = Some(group);
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Discard {
                         player,
@@ -97,7 +97,7 @@ impl Game {
     }
 
     pub(super) fn remove_group_discard_recipient(&mut self, departed: PlayerId) {
-        let (frame, chooser_left) = match &mut self.state.rules.frame {
+        let (frame, chooser_left) = match &mut self.rules_mut().frame {
             Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::Discard { player, .. },
@@ -111,7 +111,7 @@ impl Game {
         group.remaining.retain(|&p| p != departed);
         group.selected.retain(|(p, _)| *p != departed);
         if chooser_left {
-            self.state.rules.frame = Frame::Resolve {
+            self.rules_mut().frame = Frame::Resolve {
                 frame: frame.clone(),
             };
         }

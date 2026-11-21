@@ -839,7 +839,7 @@ impl Game {
             },
         )?;
         if consumes_choice {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         self.finish_instruction(
             frame,
@@ -980,8 +980,8 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        self.state.rules.damage_choices.clear();
-        self.state.rules.player_damage_choices.clear();
+        self.rules_mut().damage_choices.clear();
+        self.rules_mut().player_damage_choices.clear();
         self.begin_damage(
             DamageKind::Combat,
             entries,
@@ -1112,13 +1112,13 @@ impl Game {
             }
         }
         let id = DamageTransactionId(self.state.rules.next_damage_transaction_id);
-        self.state.rules.next_damage_transaction_id = self
+        self.rules_mut().next_damage_transaction_id = self
             .state
             .rules
             .next_damage_transaction_id
             .checked_add(1)
             .ok_or("damage transaction limit")?;
-        self.state.rules.frame = Frame::DamageEffects {
+        self.rules_mut().frame = Frame::DamageEffects {
             transaction: DamageTransaction {
                 allocation_groups: vec![],
                 id,
@@ -1183,8 +1183,7 @@ impl Game {
         self.is_live(player) && !self.player_protected(player)
     }
     pub(super) fn expire_player_protection(&mut self, player: PlayerId) {
-        self.state
-            .rules
+        self.rules_mut()
             .effects
             .retain(|e| !e.lasts_until_controller_turn() || e.origin.controller != player);
     }
@@ -1469,12 +1468,11 @@ impl Game {
     pub(crate) fn damage_effect_step(&mut self) -> Result<(), String> {
         if let Some((_, _, pairs)) = self.damage_effect_group()? {
             let pair = if self.automatic_pair(&pairs) {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
                 pairs[0].clone()
             } else {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing damage effect choice")?;
@@ -1486,7 +1484,7 @@ impl Game {
             };
             let tx = self.damage_transaction()?.clone();
             if self.needs_allocation(&tx, &pair.effect) {
-                self.state.rules.frame = Frame::DamageAllocation {
+                self.rules_mut().frame = Frame::DamageAllocation {
                     transaction: tx,
                     effect: pair.effect,
                 };
@@ -1541,7 +1539,7 @@ impl Game {
                 _ => false,
             };
             if !valid {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
             }
         }
         Ok(())
@@ -1936,13 +1934,13 @@ impl Game {
                 if !valid || !valid_handles || !valid_target_handles {
                     return Err("invalid continuous effect facts".into());
                 }
-                self.state.rules.next_effect_id = self
+                self.rules_mut().next_effect_id = self
                     .state
                     .rules
                     .next_effect_id
                     .checked_add(1)
                     .ok_or("effect identity limit")?;
-                self.state.rules.effects.push(*effect.clone());
+                self.rules_mut().effects.push(*effect.clone());
                 Ok(EventOutcome::EffectCreated {
                     effect: effect.clone(),
                 })
@@ -1975,8 +1973,7 @@ impl Game {
                     && let Some(after) = &a.budget_after
                 {
                     let e = self
-                        .state
-                        .rules
+                        .rules_mut()
                         .effects
                         .iter_mut()
                         .find(|e| e.id == *id)
@@ -1987,7 +1984,7 @@ impl Game {
                     };
                     *remaining = after.clone();
                 }
-                let Frame::DamageEffects { transaction: tx } = &mut self.state.rules.frame else {
+                let Frame::DamageEffects { transaction: tx } = &mut self.rules_mut().frame else {
                     return Err("missing damage frame".into());
                 };
                 let d = tx
@@ -2009,7 +2006,7 @@ impl Game {
             } => self.apply_damage_allocation(*transaction, effect, allocations),
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
-                self.state.rules.delayed_chapters.clear();
+                self.rules_mut().delayed_chapters.clear();
                 let turn = self.state.rules.turn.number;
                 let owner = self.state.rules.turn_owner;
                 let expired = self
@@ -2028,11 +2025,10 @@ impl Game {
                     .filter(|o| o.marked_damage > Quantity::zero())
                     .map(|o| (o.id, o.marked_damage.clone()))
                     .collect();
-                self.state
-                    .rules
+                self.rules_mut()
                     .effects
                     .retain(|e| e.survives_cleanup(owner, turn));
-                for o in self.state.rules.objects.values_mut() {
+                for o in self.rules_mut().objects.values_mut() {
                     o.marked_damage = Quantity::zero();
                     o.deathtouch_damage = false;
                 }
@@ -2101,12 +2097,11 @@ impl Game {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
                 let (before, after) =
-                    self.state.rules.players[player.0 as usize].lose_life(&amount);
+                    self.rules_mut().players[player.0 as usize].lose_life(&amount);
                 (DamageRecipient::Player { player }, before, after)
             } else {
                 let o = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .objects
                     .get_mut(&CardId(id))
                     .ok_or("missing final damage object")?;
@@ -2134,8 +2129,7 @@ impl Game {
                 .and_then(|h| h.combat_damage.get(&recipient))
                 .cloned()
                 .unwrap_or_default();
-            self.state
-                .rules
+            self.rules_mut()
                 .commanders
                 .record_damage(commander, recipient, true, &amount)?;
             let mut current = previous.clone();

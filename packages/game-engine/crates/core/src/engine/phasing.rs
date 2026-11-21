@@ -245,8 +245,7 @@ impl Game {
             let status = schedule
                 .return_condition(id)
                 .ok_or("missing phased status")?;
-            self.state
-                .rules
+            self.rules_mut()
                 .objects
                 .get_mut(&id.card)
                 .unwrap()
@@ -275,7 +274,7 @@ impl Game {
                 && object
                     .attached_to
                     .is_some_and(|host| self.zone(host) != Some(Zone::Battlefield));
-            let returning = self.state.rules.objects.get_mut(&id.card).unwrap();
+            let returning = self.rules_mut().objects.get_mut(&id.card).unwrap();
             returning.phased_out = None;
             if lost_host {
                 returning.attached_to = None;

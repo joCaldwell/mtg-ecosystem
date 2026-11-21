@@ -125,7 +125,7 @@ impl Game {
         if looked.is_empty() {
             return self.complete_scry(frame, amount, looked, vec![], vec![], source_block);
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Scry {
                 player,
@@ -145,7 +145,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_scry_choice(&frame, player, &looked, source_block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player || !matches!(input.response, Response::Scry { .. }))
             {
                 return Err("departed scry input invariant".into());
@@ -154,8 +154,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing scry input")?;
@@ -237,7 +236,7 @@ impl Game {
         bottom: &[ObjectId],
     ) -> Result<(), String> {
         self.validate_library_partition(player, looked, top, bottom)?;
-        if let Some(library) = self.state.rules.libraries.get_mut(&player) {
+        if let Some(library) = self.rules_mut().libraries.get_mut(&player) {
             *library = top
                 .iter()
                 .map(|o| o.card)

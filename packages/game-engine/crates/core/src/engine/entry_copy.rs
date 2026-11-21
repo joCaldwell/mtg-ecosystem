@@ -231,8 +231,7 @@ impl Game {
 
     pub(super) fn consume_copy_entry_response(&mut self, request: &Request) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing copy entry choice")?;
@@ -240,7 +239,7 @@ impl Game {
         let Frame::LandEntry {
             origin: EntryOrigin::Copy { selection, .. },
             ..
-        } = &mut self.state.rules.frame
+        } = &mut self.rules_mut().frame
         else {
             return Err("missing copy entry origin".into());
         };
@@ -322,7 +321,7 @@ impl Game {
         selection: &EntryCopySelection,
     ) -> Result<(), String> {
         if self.current(source).is_err() || !self.is_live(self.entry(frame.stack_id)?.controller) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             if self.entry(frame.stack_id)?.source == source {
                 return Ok(self.finish_spell(frame.stack_id, true)?);
             }
@@ -346,7 +345,7 @@ impl Game {
                 origin: EntryOrigin::Copy { selection, .. },
                 choices,
                 ..
-            } = &mut self.state.rules.frame
+            } = &mut self.rules_mut().frame
             else {
                 return Err("missing copy entry origin".into());
             };
@@ -356,7 +355,7 @@ impl Game {
                 selection.attachment = None;
             }
             choices.clear();
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }

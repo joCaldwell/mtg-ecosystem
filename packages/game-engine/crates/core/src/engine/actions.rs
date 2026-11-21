@@ -953,16 +953,14 @@ impl Game {
             Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
             Frame::PlayerTargets { cast } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing player targets")?;
                 let Response::PlayerTargets { players } = input.response else {
                     return Err("player target response invariant".into());
                 };
-                self.state
-                    .rules
+                self.rules_mut()
                     .stack
                     .last_mut()
                     .ok_or("missing player-target stack entry")?
@@ -971,7 +969,7 @@ impl Game {
                 if cast.origin == AnnouncementOrigin::Activated {
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.state.rules.frame = self.continue_spell_targeting(cast)?;
+                    self.rules_mut().frame = self.continue_spell_targeting(cast)?;
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
@@ -1123,13 +1121,12 @@ impl Game {
                             movements: vec![],
                         },
                     };
-                    self.state.rules.pending = None;
+                    self.rules_mut().pending = None;
                     self.finish_instruction(frame, outcome)?;
                     return Ok(());
                 };
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing resolution choice")?;
@@ -1185,7 +1182,7 @@ impl Game {
                     Response::ResolveDiscard { objects } => {
                         if let Some(group) = &mut frame.group_discard {
                             group.select(request.player(), objects)?;
-                            self.state.rules.frame = Frame::Resolve { frame };
+                            self.rules_mut().frame = Frame::Resolve { frame };
                             return Ok(());
                         }
                         return self.complete_resolving_discards(
@@ -1280,7 +1277,7 @@ impl Game {
             .cursor
             .checked_add(1)
             .ok_or("instruction cursor resource limit")?;
-        self.state.rules.frame = Frame::Resolve { frame };
+        self.rules_mut().frame = Frame::Resolve { frame };
         Ok(())
     }
     pub(super) fn execute_action_instruction(
@@ -1319,7 +1316,7 @@ impl Game {
                 self.begin_library_shuffle(frame, source_block)
             }
             Instruction::OfferHandCastWithoutManaCost { .. } => {
-                self.state.rules.frame = Frame::HandCast {
+                self.rules_mut().frame = Frame::HandCast {
                     frame: Box::new(frame),
                     child: None,
                 };
@@ -1480,14 +1477,14 @@ impl Game {
             | Instruction::SearchColoredLibrary { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
             Instruction::SetTargetColor { source_block, .. } => {
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::SetColor { source_block },
                 };
                 Ok(())
             }
             Instruction::Proliferate { source_block } => {
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Proliferate {
                         source_block,
@@ -1502,7 +1499,7 @@ impl Game {
                 self.begin_counter_placements(frame, allocations, cause)
             }
             Instruction::Demonstrate { source_block } => {
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Demonstrate {
                         source_block,
@@ -1593,7 +1590,7 @@ impl Game {
                         },
                     )
                 } else {
-                    self.state.rules.frame = Frame::ResolutionChoice {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
                         frame,
                         choice: ResolutionChoice::Sacrifice {
                             player: actor,
@@ -1628,7 +1625,7 @@ impl Game {
                         },
                     )
                 } else {
-                    self.state.rules.frame = Frame::ResolutionChoice {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
                         frame,
                         choice: ResolutionChoice::Sacrifice {
                             player: target,
@@ -1756,7 +1753,7 @@ impl Game {
                         },
                     )
                 } else {
-                    self.state.rules.frame = Frame::ResolutionChoice {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
                         frame,
                         choice: ResolutionChoice::Discard {
                             player,
@@ -1823,7 +1820,7 @@ impl Game {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::OptionalDraw {
                 player,
@@ -1855,7 +1852,7 @@ impl Game {
                 .object_id(card)
                 .ok_or("missing instruction draw source")?;
             if self.state.rules.commanders.history(card).is_some() {
-                self.state.rules.frame = Frame::CommanderReturn {
+                self.rules_mut().frame = Frame::CommanderReturn {
                     object,
                     destination: Zone::Hand { owner: player },
                     continuation: Box::new(CommanderContinuation::ResolutionDraw {
@@ -2108,7 +2105,7 @@ impl Game {
             let progress = frame.draw_progress.take().unwrap();
             self.finish_player_draws(frame, player, progress.completed, progress.failed)
         } else {
-            self.state.rules.frame = Frame::Resolve { frame };
+            self.rules_mut().frame = Frame::Resolve { frame };
             Ok(())
         }
     }
@@ -2207,8 +2204,8 @@ impl Game {
         } else {
             self.record_event(Event::AbilityCompleted { stack_id: id })?;
         }
-        self.state.rules.frame = Frame::Priority;
-        self.state.rules.priority = self
+        self.rules_mut().frame = Frame::Priority;
+        self.rules_mut().priority = self
             .state
             .rules
             .active
@@ -2375,7 +2372,7 @@ impl Game {
         {
             let outcome = InstructionOutcome::ObjectNoLongerPresent { target: *target };
             let frame = frame.clone();
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self.finish_instruction(frame, outcome);
         }
         if matches!(
@@ -2388,7 +2385,7 @@ impl Game {
             self.validate_response(input.player, &input.response)
                 .is_err()
         }) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }

@@ -918,6 +918,7 @@ fn shield(game: &mut Game, source: u32, amount: i64) {
     game.state.rules.next_effect_id += 1;
     game.state.rules.next_stack_id = 1;
     let source_handles = game.capture_trigger_source_handles(source).unwrap();
+    let turn = game.state.rules.turn.number;
     game.state.rules.effects.push(ResolvedEffect {
         id,
         target_handles: vec![],
@@ -931,7 +932,7 @@ fn shield(game: &mut Game, source: u32, amount: i64) {
             cursor: 0,
             source_block: 0,
         },
-        expires_in_cleanup_of_turn: game.state.rules.turn.number,
+        expires_in_cleanup_of_turn: turn,
         kind: ResolvedEffectKind::PreventNextDamage {
             target: TargetEntity::Player {
                 player: PlayerId(0),

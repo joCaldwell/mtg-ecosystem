@@ -57,7 +57,7 @@ impl Game {
         if looked.is_empty() {
             return self.complete_surveil(frame, amount, looked, vec![], vec![], source_block);
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Surveil {
                 player,
@@ -77,7 +77,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_surveil_choice(&frame, player, &looked, source_block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player || !matches!(input.response, Response::Surveil { .. }))
             {
                 return Err("departed surveil input invariant".into());
@@ -86,8 +86,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing surveil input")?;
@@ -146,7 +145,7 @@ impl Game {
         self.validate_library_partition(player, looked, top, graveyard)?;
         let movements =
             self.move_library_cards_to_graveyard(player, graveyard, before, replacement)?;
-        if let Some(library) = self.state.rules.libraries.get_mut(&player) {
+        if let Some(library) = self.rules_mut().libraries.get_mut(&player) {
             // CR 701.24g: the chosen top stays above the randomized portion.
             // Replaced cards that never left the library remain in that portion.
             let fixed: BTreeSet<_> = top.iter().map(|o| o.card).collect();

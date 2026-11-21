@@ -115,7 +115,7 @@ impl Game {
             return self.resolve_unpaid(frame, purpose, source_block);
         };
         let generic = generic.clone();
-        self.state.rules.frame = Frame::ResolutionPayment {
+        self.rules_mut().frame = Frame::ResolutionPayment {
             frame,
             payment: ResolutionPayment {
                 purpose,
@@ -182,8 +182,7 @@ impl Game {
         mut payment: ResolutionPayment,
     ) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing resolution payment input")?;
@@ -231,7 +230,7 @@ impl Game {
             }
             _ => return Err("resolution payment input invariant".into()),
         }
-        self.state.rules.frame = Frame::ResolutionPayment { frame, payment };
+        self.rules_mut().frame = Frame::ResolutionPayment { frame, payment };
         Ok(())
     }
 
@@ -297,7 +296,7 @@ impl Game {
         let (_, _, source_block) = self.resolution_payment_terms(frame)?;
         let purpose = payment.purpose;
         let frame = frame.clone();
-        self.state.rules.pending = None;
+        self.rules_mut().pending = None;
         self.resolve_unpaid(frame, purpose, source_block)
     }
 }

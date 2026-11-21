@@ -461,8 +461,7 @@ impl Game {
         }
         for card in detached {
             let o = self
-                .state
-                .rules
+                .rules_mut()
                 .objects
                 .get_mut(&card)
                 .ok_or("missing bestowed permanent")?;

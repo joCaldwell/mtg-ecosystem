@@ -499,7 +499,7 @@ impl Game {
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
                 }
                 if optional && self.is_live(self.entry(frame.stack_id)?.controller) {
-                    self.state.rules.frame = Frame::ResolutionChoice {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
                         choice: ResolutionChoice::OptionalRecursion {
                             player: self.entry(frame.stack_id)?.controller,
                             target,
@@ -514,7 +514,7 @@ impl Game {
             }
             Instruction::SearchColoredLibrary { source_block, .. } => {
                 let player = self.entry(frame.stack_id)?.controller;
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::ColoredSearch {
                         player,
@@ -545,7 +545,7 @@ impl Game {
                     };
                     return self.finish_instruction(frame, outcome);
                 }
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     choice: ResolutionChoice::Search {
                         player,
                         maximum,
@@ -585,7 +585,7 @@ impl Game {
         // CR903.9b offers the owner the hand-move replacement from ANY zone.
         // Declining leaves an ordinary hand card (still the physical Commander).
         if self.state.rules.commanders.history(target.card).is_some() {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object: target,
                 destination: Zone::Hand { owner },
                 continuation: Box::new(CommanderContinuation::SpellMove {
@@ -677,7 +677,7 @@ impl Game {
             _ => return Err("not staples choice".into()),
         };
         if !self.is_live(player) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
@@ -699,7 +699,7 @@ impl Game {
                             .get(frame.cursor as usize),
                         Some(Instruction::RevealAndCast { .. })
                     ) {
-                        self.state.rules.frame = Frame::RevealAndCast {
+                        self.rules_mut().frame = Frame::RevealAndCast {
                             progress: Box::new(RevealAndCastProgress::after_shuffle(
                                 frame,
                                 source_block,
@@ -718,7 +718,7 @@ impl Game {
                 let EventOutcome::LibraryShuffledWord { selected, .. } = actual else {
                     return Err("missing shuffle result".into());
                 };
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Shuffle {
                         player,
@@ -735,8 +735,7 @@ impl Game {
                 ..
             } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing search input")?;
@@ -754,7 +753,7 @@ impl Game {
                         },
                         self.instruction_cause(&frame, source_block)?,
                     )?;
-                    self.state.rules.frame = Frame::ResolutionChoice {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
                         frame,
                         choice: ResolutionChoice::SearchSplit {
                             player,
@@ -797,8 +796,7 @@ impl Game {
             } => {
                 let battlefield = if objects.len() == 2 {
                     let input = self
-                        .state
-                        .rules
+                        .rules_mut()
                         .pending
                         .take()
                         .ok_or("missing partition input")?;
@@ -837,8 +835,7 @@ impl Game {
             }
             ResolutionChoice::OptionalDraw { source_block, .. } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing optional draw input")?;
@@ -856,8 +853,7 @@ impl Game {
                 ..
             } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing optional recursion input")?;
@@ -889,9 +885,8 @@ impl Game {
         } else {
             return Err("shuffle continuation invariant".into());
         };
-        let library = self
-            .state
-            .rules
+        let rules = self.rules_mut();
+        let library = rules
             .libraries
             .get_mut(&player)
             .ok_or("missing search library")?;
@@ -910,9 +905,7 @@ impl Game {
         if library.len() > limit {
             return Err("shuffle library exceeds the physical-card sampler range".into());
         }
-        let random = &mut self
-            .state
-            .rules
+        let random = &mut rules
             .match_state
             .as_mut()
             .ok_or("missing trusted match randomness")?

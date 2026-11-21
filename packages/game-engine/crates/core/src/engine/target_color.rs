@@ -45,7 +45,7 @@ impl Game {
         source_block: u32,
     ) -> Result<(), String> {
         let Some(target) = self.target_color_target(&frame) else {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         };
         let color = self.target_color_pending(&frame)?;

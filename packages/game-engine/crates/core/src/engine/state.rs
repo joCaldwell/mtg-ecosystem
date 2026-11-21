@@ -22,8 +22,10 @@ macro_rules! state_layout {
     (rules { $( $(#[$ra:meta])* $r:ident: $rt:ty, )* }
      knowledge { $( $(#[$ka:meta])* $k:ident: $kt:ty, )* }
      audit { $( $(#[$aa:meta])* $a:ident: $at:ty, )* }) => {
+        /// The rules tables. Every routine reads them through `RulesState`;
+        /// only `Game::rules_mut` hands out exclusive access.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-        pub struct RulesState { $( $(#[$ra])* pub $r: $rt, )* }
+        pub struct RulesTables { $( $(#[$ra])* pub $r: $rt, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
         pub struct KnowledgeState { $( $(#[$ka])* pub $k: $kt, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -45,7 +47,7 @@ macro_rules! state_layout {
                 }
                 let Flat { $( $r, )* $( $k, )* $( $a, )* } = Flat::deserialize(decoder)?;
                 Ok(Self {
-                    rules: RulesState { $( $r, )* },
+                    rules: RulesState::new(RulesTables { $( $r, )* }),
                     knowledge: KnowledgeState { $( $k, )* },
                     audit: AuditState { $( $a, )* },
                 })
@@ -53,6 +55,40 @@ macro_rules! state_layout {
         }
     };
 }
+/// The rules state of a game. Its tables are private to this module: the rest
+/// of the engine reads them through `Deref` and writes them only through
+/// `Game::rules_mut`, so every write to the rules is explicit and stays
+/// inside the staged copy a transaction commits.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct RulesState {
+    tables: RulesTables,
+}
+impl RulesState {
+    pub fn new(tables: RulesTables) -> Self {
+        Self { tables }
+    }
+}
+impl std::ops::Deref for RulesState {
+    type Target = RulesTables;
+    fn deref(&self) -> &RulesTables {
+        &self.tables
+    }
+}
+// White-box tests build and forge states directly; production code cannot.
+#[cfg(any(test, feature = "testkit"))]
+impl std::ops::DerefMut for RulesState {
+    fn deref_mut(&mut self) -> &mut RulesTables {
+        &mut self.tables
+    }
+}
+impl Game {
+    /// Exclusive access to the rules tables: the single write path.
+    pub(in crate::engine) fn rules_mut(&mut self) -> &mut RulesTables {
+        &mut self.state.rules.tables
+    }
+}
+
 // Private ownership only: staged forks share tables that change only when a
 // token is created. Serialized shape and typed equality remain the map's own.
 mod shared_map {

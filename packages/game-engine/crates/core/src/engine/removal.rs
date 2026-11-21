@@ -70,7 +70,7 @@ impl Game {
     /// atomic step, including concessions between instructions. This never
     /// repeats the resolution-start target legality check (CR608.2b).
     pub(super) fn refresh_removal_target_facts(&mut self) -> Result<(), String> {
-        let (id, legal) = match Self::target_information_frame(&mut self.state.rules.frame) {
+        let (id, legal) = match Self::target_information_frame(&mut self.rules_mut().frame) {
             Some(frame) if !frame.target_facts.is_empty() => {
                 (frame.stack_id, frame.legal_targets.clone())
             }
@@ -97,7 +97,7 @@ impl Game {
             })
             .collect::<Vec<_>>();
         let fresh = self.capture_target_facts(entry, &current)?;
-        let frame = Self::target_information_frame(&mut self.state.rules.frame)
+        let frame = Self::target_information_frame(&mut self.rules_mut().frame)
             .ok_or("missing target information frame")?;
         for (slot, fact) in fresh.into_iter().enumerate() {
             if fact.is_some() {
@@ -504,7 +504,7 @@ impl Game {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             choice: ResolutionChoice::OptionalEffect {
                 player,
                 target,
@@ -522,13 +522,12 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         if !self.is_live(player) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing optional effect answer")?;

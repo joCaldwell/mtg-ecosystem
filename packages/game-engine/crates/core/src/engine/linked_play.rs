@@ -61,7 +61,7 @@ impl Game {
         if power < minimum_total_power {
             return self.finish_ability(frame.stack_id, true);
         }
-        self.state.rules.frame = Frame::PlayHideawayLinked {
+        self.rules_mut().frame = Frame::PlayHideawayLinked {
             progress: Box::new(LinkedPlayProgress {
                 frame,
                 hideaway_block,
@@ -183,7 +183,7 @@ impl Game {
         progress: Box<LinkedPlayProgress>,
     ) -> Result<(), String> {
         let player = self.entry(progress.frame.stack_id)?.controller;
-        if let Some(input) = self.state.rules.pending.take() {
+        if let Some(input) = self.rules_mut().pending.take() {
             self.validate_linked_play_response(input.player, &input.response)?;
             let choice = match input.response {
                 Response::PlayHideawayLinked { object } => object.map(|id| (id, false)),
@@ -227,7 +227,7 @@ impl Game {
                 .validate_linked_play_response(input.player, &input.response)
                 .is_err()
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }

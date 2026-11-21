@@ -19,7 +19,7 @@ impl Game {
             .ok_or("structural revision resource limit")?;
         let input = receipt.input;
         self.transact_input(|tx| {
-            let rules = &mut tx.state.rules;
+            let rules = tx.rules_mut();
             rules.retained_auxiliary_charge = rules
                 .retained_auxiliary_charge
                 .saturating_add(stored_history::payload_charge(&input));

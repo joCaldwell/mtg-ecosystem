@@ -234,7 +234,7 @@ impl Game {
                 )),
                 _ => None,
             };
-        self.state.rules.next_stack_id = self
+        self.rules_mut().next_stack_id = self
             .state
             .rules
             .next_stack_id
@@ -287,7 +287,7 @@ impl Game {
             total_cost,
             cast_from,
         };
-        self.state.rules.stack.push(entry);
+        self.rules_mut().stack.push(entry);
         let cast = Casting {
             completion,
             sacrifices: vec![],
@@ -300,8 +300,8 @@ impl Game {
             mana_activations: vec![],
             undo_mana: false,
         };
-        self.state.rules.frame = self.spell_announcement_frame(cast)?;
-        self.state.rules.passes.clear();
+        self.rules_mut().frame = self.spell_announcement_frame(cast)?;
+        self.rules_mut().passes.clear();
         Ok(())
     }
 
@@ -556,27 +556,26 @@ impl Game {
                 EventGroup::Ordered { children },
             )?;
         }
-        self.state.rules.stack.pop();
+        self.rules_mut().stack.pop();
         if cast.origin.is_spell() {
+            let owner = self.state.rules.cards[&cast.original_object.card].owner;
             let o = self
-                .state
-                .rules
+                .rules_mut()
                 .objects
                 .get_mut(&cast.original_object.card)
                 .ok_or("missing reversal object")?;
             o.id = cast.original_object;
             o.zone = stack.cast_from;
-            let owner = self.state.rules.cards[&cast.original_object.card].owner;
             o.controller = owner;
             o.default_controller = owner;
             o.tapped = false;
         }
-        self.state.rules.pending = None;
-        self.state.rules.priority = stack.controller;
+        self.rules_mut().pending = None;
+        self.rules_mut().priority = stack.controller;
         // CR 117.4: keeping a legal mana activation interrupts the old pass
         // round. Undoing all activations restores the pre-attempt live passes.
         let live = self.live_players();
-        self.state.rules.passes = if undo_mana || cast.mana_activations.is_empty() {
+        self.rules_mut().passes = if undo_mana || cast.mana_activations.is_empty() {
             cast.prior_passes
                 .into_iter()
                 .filter(|p| live.contains(p))
@@ -584,7 +583,7 @@ impl Game {
         } else {
             vec![]
         };
-        self.state.rules.frame = match cast.completion {
+        self.rules_mut().frame = match cast.completion {
             CastCompletion::Priority => Frame::Priority,
             CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
             CastCompletion::Resolution {

@@ -60,7 +60,7 @@ impl Game {
         if !self.look_top_mana_eligible(&frame, object)? {
             return self.move_look_top_mana(frame, object, false);
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::LookTopMana {
                 player,
@@ -163,7 +163,7 @@ impl Game {
         revealed: bool,
     ) -> Result<(), String> {
         self.validate_look_top_mana_choice(&frame, player, &looked, revealed)?;
-        let input = self.state.rules.pending.take();
+        let input = self.rules_mut().pending.take();
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -184,7 +184,7 @@ impl Game {
                 if self.look_top_mana_colors(object)?.is_empty() {
                     return self.move_look_top_mana(frame, object, true);
                 }
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::LookTopMana {
                         player,
@@ -245,7 +245,7 @@ impl Game {
     ) -> Result<(), String> {
         let player = self.entry(frame.stack_id)?.controller;
         if self.state.rules.commanders.history(object.card).is_some() {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand { owner: player },
                 continuation: Box::new(CommanderContinuation::LookTopMana { frame, revealed }),

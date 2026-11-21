@@ -89,20 +89,20 @@ impl GroupFinish {
             Self::Payment { .. } => {
                 return Err("payment completion belongs to its announcement".into());
             }
-            Self::Cleanup => game.state.rules.frame = Frame::CleanupClear,
+            Self::Cleanup => game.rules_mut().frame = Frame::CleanupClear,
             Self::StateBased {
                 resume, checked, ..
             } => {
                 game.consume_checked_deathtouch(&checked)?;
                 if matches!(game.state.rules.frame, Frame::GraveyardGroup { .. }) {
-                    game.state.rules.frame = *resume.clone();
+                    game.rules_mut().frame = *resume.clone();
                 }
                 if let Some(batch) = batch
                     && game.finish_committed_player_losses(batch)?
                 {
                     return Ok(());
                 }
-                game.state.rules.frame = *resume;
+                game.rules_mut().frame = *resume;
             }
             Self::Instruction { frame, result } => {
                 let outcome = match result {
@@ -583,7 +583,7 @@ impl Game {
                 objects: revealed,
             })?;
         }
-        self.state.rules.frame = Frame::GraveyardGroup {
+        self.rules_mut().frame = Frame::GraveyardGroup {
             tx: Box::new(GraveyardGroup {
                 finish,
                 cause,
@@ -611,15 +611,15 @@ impl Game {
                 return Err("invalid replacement cost resume".into());
             };
             if self.top().is_err() || self.top()?.id != cast.stack_id {
-                self.state.rules.frame = *resume.clone();
-                self.state.rules.pending = None;
+                self.rules_mut().frame = *resume.clone();
+                self.rules_mut().pending = None;
                 return Ok(());
             }
             if self.check_sacrifice_payment(self.top()?, cast).is_err() {
                 let mut cast = cast.clone();
                 cast.sacrifices.clear();
-                self.state.rules.frame = Frame::SacrificeCost { cast };
-                self.state.rules.pending = None;
+                self.rules_mut().frame = Frame::SacrificeCost { cast };
+                self.rules_mut().pending = None;
                 return Ok(());
             }
         }
@@ -729,7 +729,7 @@ impl Game {
             }
         }
         if tx.members != next || tx.group != next_group || tx.shields != shields {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         tx.group = next_group;
         tx.members = next;
@@ -737,7 +737,7 @@ impl Game {
         // No uncommitted trials have changed the live random stream. Rebuild
         // against the remaining libraries before sampling the next paid word.
         tx.draft = None;
-        self.state.rules.frame = Frame::GraveyardGroup { tx };
+        self.rules_mut().frame = Frame::GraveyardGroup { tx };
         Ok(())
     }
 
@@ -762,8 +762,7 @@ impl Game {
 
     fn finish_group_shuffles(&mut self, draft: &Randomization) -> Result<(), String> {
         let state = self
-            .state
-            .rules
+            .rules_mut()
             .match_state
             .as_mut()
             .ok_or("missing replacement entropy")?;
@@ -772,7 +771,7 @@ impl Game {
         }
         state.random = draft.random.clone();
         for (index, shuffle) in draft.shuffles.iter().enumerate() {
-            let Frame::GraveyardGroup { tx } = &mut self.state.rules.frame else {
+            let Frame::GraveyardGroup { tx } = &mut self.rules_mut().frame else {
                 return Err("missing shuffle publication frame".into());
             };
             tx.publishing_shuffle = Some(index);
@@ -788,7 +787,8 @@ impl Game {
     }
 
     pub(super) fn publish_group_permutation(&mut self, player: PlayerId) -> Result<bool, String> {
-        let Frame::GraveyardGroup { tx } = &self.state.rules.frame else {
+        let rules = self.rules_mut();
+        let Frame::GraveyardGroup { tx } = &rules.frame else {
             return Ok(false);
         };
         let Some(shuffle) = tx
@@ -797,7 +797,7 @@ impl Game {
         else {
             return Ok(false);
         };
-        let library = self.state.rules.libraries.entry(player).or_default();
+        let library = rules.libraries.entry(player).or_default();
         if shuffle.owner != player || shuffle.order.len() != library.len() {
             return Err("replacement permutation membership changed".into());
         }
@@ -827,8 +827,7 @@ impl Game {
     ) -> Result<(), String> {
         if let Some(request) = tx.next(self) {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing graveyard replacement choice")?;
@@ -926,7 +925,7 @@ impl Game {
                 return updated.finish.clone().complete(self, batch.as_ref());
             }
         }
-        self.state.rules.frame = Frame::GraveyardGroup { tx };
+        self.rules_mut().frame = Frame::GraveyardGroup { tx };
         Ok(())
     }
 }

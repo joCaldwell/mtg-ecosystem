@@ -209,7 +209,7 @@ impl Game {
                 // Reuse the original special-action legality without granting
                 // priority or consuming its pending boolean on the real state.
                 let mut validation = self.fork();
-                validation.state.rules.frame = Frame::Priority;
+                validation.rules_mut().frame = Frame::Priority;
                 validation.validate_land_face(player, objects[0].card, *back_face)?;
             }
             EntryOrigin::Copy { frame, selection } => {
@@ -296,7 +296,7 @@ impl Game {
         {
             return Ok(false);
         }
-        self.state.rules.frame = Frame::LandEntry {
+        self.rules_mut().frame = Frame::LandEntry {
             origin,
             objects,
             choices: vec![],
@@ -553,15 +553,14 @@ impl Game {
         }
         if self.land_entry_offer()?.is_some() {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing entry decision")?;
             self.validate_land_entry_response(input.player, &input.response)?;
             let choice =
                 EntryChoice::from_response(&input.response).ok_or("entry input invariant")?;
-            let Frame::LandEntry { choices, .. } = &mut self.state.rules.frame else {
+            let Frame::LandEntry { choices, .. } = &mut self.rules_mut().frame else {
                 unreachable!()
             };
             choices.push(choice);
@@ -584,12 +583,12 @@ impl Game {
         let batch = self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
         match origin {
             EntryOrigin::LandPlay { .. } => {
-                self.state.rules.frame = Frame::Priority;
-                self.state.rules.passes.clear();
+                self.rules_mut().frame = Frame::Priority;
+                self.rules_mut().passes.clear();
                 Ok(self.stabilize()?)
             }
             EntryOrigin::LinkedPlay { progress, .. } => {
-                self.state.rules.frame = Frame::PlayHideawayLinked { progress };
+                self.rules_mut().frame = Frame::PlayHideawayLinked { progress };
                 Ok(())
             }
             EntryOrigin::Copy { .. } => unreachable!(),
@@ -608,7 +607,7 @@ impl Game {
         let retained = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         if matches!(retained, Frame::LandEntry { .. }) {
             let mut validation = self.fork();
-            validation.state.rules.frame = retained.clone();
+            validation.rules_mut().frame = retained.clone();
             validation.validate_entry_plan()?;
         }
         Ok(())
@@ -630,13 +629,13 @@ impl Game {
             && (!self.is_live(origin.player(self)?)
                 || !self.linked_land_face_playable(origin.player(self)?, *object, *back_face)?)
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             // Entry has not committed. A surviving land returns to its
             // original face-down exile state, preserving all prior lookers.
             if self.current(*object).is_ok_and(|o| o.zone == Zone::Exile) {
                 self.restore_hideaway_link(receipt.clone())?;
             }
-            self.state.rules.frame = Frame::PlayHideawayLinked {
+            self.rules_mut().frame = Frame::PlayHideawayLinked {
                 progress: progress.clone(),
             };
             return Ok(());
@@ -648,10 +647,10 @@ impl Game {
             }
         }
         if !self.is_live(origin.player(self)?) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return match origin {
                 EntryOrigin::LandPlay { .. } => {
-                    self.state.rules.frame = Frame::Priority;
+                    self.rules_mut().frame = Frame::Priority;
                     Ok(())
                 }
                 EntryOrigin::LinkedPlay { .. } => unreachable!("departed linked land was unwound"),
@@ -669,20 +668,20 @@ impl Game {
         } = &origin
         {
             let mut validation = self.fork();
-            validation.state.rules.frame = Frame::Priority;
+            validation.rules_mut().frame = Frame::Priority;
             if validation
                 .validate_land_face(*player, objects[0].card, *back_face)
                 .is_err()
             {
-                self.state.rules.pending = None;
-                self.state.rules.frame = Frame::Priority;
+                self.rules_mut().pending = None;
+                self.rules_mut().frame = Frame::Priority;
                 return Ok(());
             }
         }
         if let EntryOrigin::Cascade { progress } = origin
             && !self.cascade_land_available(&progress, objects[0])?
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self.resume_cascade_land(progress, None);
         }
         // A departed SPELL SOURCE OWNER does not cancel a live controller's
@@ -692,7 +691,7 @@ impl Game {
             self.validate_land_entry_response(p.player, &p.response)
                 .is_err()
         }) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }

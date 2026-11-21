@@ -56,8 +56,7 @@ impl Game {
             }
         }
         for change in &changes {
-            self.state
-                .rules
+            self.rules_mut()
                 .objects
                 .get_mut(&change.object.card)
                 .ok_or("missing Saga object")?
@@ -284,7 +283,7 @@ impl Game {
         self.validate_delayed_registration(&row)?;
         if self.is_live(row.controller) {
             self.reserve_effect_slot()?;
-            self.state.rules.delayed_chapters.push(row);
+            self.rules_mut().delayed_chapters.push(row);
         }
         self.finish_instruction(
             frame,

@@ -69,8 +69,7 @@ impl Game {
     ) -> Result<(), String> {
         if self.proliferate_request(&frame, &choices).is_some() {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing proliferate choice")?;
@@ -81,7 +80,7 @@ impl Game {
             choices.push((object, include));
         }
         if self.proliferate_request(&frame, &choices).is_some() {
-            self.state.rules.frame = Frame::ResolutionChoice {
+            self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::Proliferate {
                     source_block,
@@ -117,8 +116,7 @@ impl Game {
         lore: bool,
     ) -> Result<EventOutcome, String> {
         let o = self
-            .state
-            .rules
+            .rules_mut()
             .objects
             .get_mut(&id.card)
             .ok_or("missing proliferate recipient")?;

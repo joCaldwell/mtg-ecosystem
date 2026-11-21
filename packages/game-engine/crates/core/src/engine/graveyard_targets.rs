@@ -203,7 +203,7 @@ impl Game {
         )?;
         let destination = Zone::Library { owner: player };
         if let Some(object) = remaining.first().copied() {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination,
                 continuation: Box::new(CommanderContinuation::GraveyardShuffle {

@@ -699,8 +699,7 @@ impl Game {
     }
     pub(super) fn bind_mode(&mut self, cast: Casting) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing mode input")?;
@@ -714,8 +713,7 @@ impl Game {
             let selected = self.authorize_mode_subset(input.player, &modes)?;
             let indices = selected.indices.clone();
             let top = self
-                .state
-                .rules
+                .rules_mut()
                 .stack
                 .last_mut()
                 .ok_or("missing modal spell")?;
@@ -732,8 +730,7 @@ impl Game {
             };
             self.validate_mode(input.player, mode)?;
             let top = self
-                .state
-                .rules
+                .rules_mut()
                 .stack
                 .last_mut()
                 .ok_or("missing modal spell")?;
@@ -749,17 +746,17 @@ impl Game {
             })?;
         }
         if cast.origin.is_spell() {
-            self.state.rules.frame = self.spell_announcement_frame(cast)?;
+            self.rules_mut().frame = self.spell_announcement_frame(cast)?;
         } else {
             match self.program()?.targets.first().map(|t| t.domain) {
                 Some(TargetDomain::AnyDamageTarget) => {
-                    self.state.rules.frame = Frame::EntityTargets { cast }
+                    self.rules_mut().frame = Frame::EntityTargets { cast }
                 }
                 Some(TargetDomain::PlayerOrPlaneswalker) => {
-                    self.state.rules.frame = Frame::PlayerTargets { cast }
+                    self.rules_mut().frame = Frame::PlayerTargets { cast }
                 }
                 Some(TargetDomain::BattlefieldCreature) => {
-                    self.state.rules.frame = Frame::Targets { cast }
+                    self.rules_mut().frame = Frame::Targets { cast }
                 }
                 None => self.continue_activation_after_targets(cast, input.decision_id)?,
                 Some(_) => return Err("unsupported activated mode target".into()),

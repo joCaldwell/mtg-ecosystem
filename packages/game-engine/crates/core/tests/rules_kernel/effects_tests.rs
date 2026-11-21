@@ -39,11 +39,12 @@ fn seed(g: &mut Game, source: u32, kind: ResolvedEffectKind) -> EffectId {
         _ => vec![],
     };
     g.state.rules.next_effect_id += 1;
+    let turn = g.state.rules.turn.number;
     g.state.rules.effects.push(ResolvedEffect {
         target_handles,
         id,
         origin,
-        expires_in_cleanup_of_turn: g.state.rules.turn.number,
+        expires_in_cleanup_of_turn: turn,
         kind,
     });
     id

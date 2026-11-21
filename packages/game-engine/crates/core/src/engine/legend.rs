@@ -72,8 +72,7 @@ impl Game {
         };
         if kept.len() < groups.len() {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing legend choice")?;
@@ -82,7 +81,7 @@ impl Game {
                 return Err("legend response".into());
             };
             kept.push(keep);
-            self.state.rules.frame = Frame::LegendRule {
+            self.rules_mut().frame = Frame::LegendRule {
                 resume,
                 groups,
                 kept,

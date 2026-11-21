@@ -191,7 +191,7 @@ impl Game {
             .copied()
             .filter(|id| self.state.rules.commanders.history(id.card).is_some())
             .collect();
-        self.state.rules.frame = Frame::GraveyardReplacement {
+        self.rules_mut().frame = Frame::GraveyardReplacement {
             transaction: Box::new(GraveyardReplacement {
                 frame,
                 proposed,
@@ -227,7 +227,7 @@ impl Game {
                 mill,
                 ..
             } => {
-                self.state.rules.frame = Frame::Resolve {
+                self.rules_mut().frame = Frame::Resolve {
                     frame: frame.clone(),
                 };
                 self.complete_counter_outcome(frame, source_block, target, controller, mill, actual)
@@ -308,7 +308,7 @@ impl Game {
         mut tx: Box<GraveyardReplacement>,
     ) -> Result<(), String> {
         if !self.is_live(tx.owner) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return match tx.phase {
                 ReplacementPhase::Shuffling { actual, .. } => self.finish_graveyard_effect(
                     tx.frame,
@@ -338,7 +338,7 @@ impl Game {
         let cause = self.instruction_cause(&tx.frame, tx.source_block)?;
         match &tx.phase {
             ReplacementPhase::BeforeMovement if tx.counter_target_left(self) => {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
                 tx.phase = ReplacementPhase::Shuffling {
                     actual: None,
                     remaining: tx.revealed.len(),
@@ -347,8 +347,7 @@ impl Game {
             }
             ReplacementPhase::BeforeMovement if tx.choices.len() < tx.commanders.len() => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing printed commander replacement choice")?;
@@ -413,7 +412,7 @@ impl Game {
                 }
             }
         }
-        self.state.rules.frame = Frame::GraveyardReplacement { transaction: tx };
+        self.rules_mut().frame = Frame::GraveyardReplacement { transaction: tx };
         Ok(())
     }
 

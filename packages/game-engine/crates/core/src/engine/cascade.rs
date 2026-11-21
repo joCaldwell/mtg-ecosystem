@@ -188,7 +188,7 @@ impl Game {
             commander_cursor: 0,
             redirected: vec![],
         };
-        self.state.rules.frame = Frame::Cascade {
+        self.rules_mut().frame = Frame::Cascade {
             progress: Box::new(progress),
         };
         Ok(())
@@ -386,7 +386,7 @@ impl Game {
             .land_choices
             .push(CascadeLandChoice { provider, entered });
         self.next_cascade_offer(&mut progress)?;
-        self.state.rules.frame = Frame::Cascade { progress };
+        self.rules_mut().frame = Frame::Cascade { progress };
         Ok(())
     }
     // The public query walks this cascade's publicly observed scan in order.
@@ -524,7 +524,7 @@ impl Game {
                 }
             }
             CascadeStage::LandOffer { .. } => {
-                if let Some(input) = self.state.rules.pending.take() {
+                if let Some(input) = self.rules_mut().pending.take() {
                     let Response::CascadeLandEntry { object } = input.response else {
                         return Err("cascade land response shape invariant".into());
                     };
@@ -554,7 +554,7 @@ impl Game {
                 // offer even if a concession removed its last legal target.
                 // Consume only the exact frame-bound response; an invariant
                 // error rolls the whole step back, retaining unrelated input.
-                if let Some(input) = self.state.rules.pending.take() {
+                if let Some(input) = self.rules_mut().pending.take() {
                     if input.player != progress.caster(self)? {
                         return Err("cascade accepted choice caster invariant".into());
                     }
@@ -574,8 +574,7 @@ impl Game {
             CascadeStage::Randomize => {
                 if progress.random_index > 0 {
                     let random = &mut self
-                        .state
-                        .rules
+                        .rules_mut()
                         .match_state
                         .as_mut()
                         .ok_or("missing trusted match randomness for random bottom")?
@@ -605,7 +604,7 @@ impl Game {
                         && self.state.rules.commanders.history(object.card).is_some()
                     {
                         let owner = self.state.rules.cards[&object.card].owner;
-                        self.state.rules.frame = Frame::CommanderReturn {
+                        self.rules_mut().frame = Frame::CommanderReturn {
                             object,
                             destination: Zone::Library { owner },
                             continuation: Box::new(CommanderContinuation::CascadeBottom {
@@ -642,13 +641,13 @@ impl Game {
             CascadeStage::Finish => {
                 // Keep this exact owned completion visible to the narrow outer
                 // removal guard; child remains paid ABOVE its resolving owner.
-                self.state.rules.frame = Frame::Cascade {
+                self.rules_mut().frame = Frame::Cascade {
                     progress: Box::new(progress.clone()),
                 };
                 return self.finish_ability(progress.frame.stack_id, true);
             }
         }
-        self.state.rules.frame = Frame::Cascade {
+        self.rules_mut().frame = Frame::Cascade {
             progress: Box::new(progress),
         };
         Ok(())
@@ -687,7 +686,7 @@ impl Game {
             self.move_object_for(object, Zone::Command { owner }, BatchCause::CommanderReturn)?;
             progress.redirected.push(object);
         }
-        self.state.rules.frame = Frame::Cascade { progress };
+        self.rules_mut().frame = Frame::Cascade { progress };
         Ok(())
     }
     pub(super) fn resolution_child(&self, owner: StackId) -> Option<StackId> {
@@ -708,8 +707,9 @@ impl Game {
             && self.is_live(progress.caster(self)?)
             && self.cascade_request()?.is_none()
         {
-            self.state.rules.pending = None;
-            return self.resume_cascade_land(progress.clone(), None);
+            let progress = progress.clone();
+            self.rules_mut().pending = None;
+            return self.resume_cascade_land(progress, None);
         }
         let caster = progress.caster(self)?;
         if progress.stage == CascadeStage::Offer
@@ -722,7 +722,7 @@ impl Game {
             // The accepted journal entry remains historical. Departure consumes
             // this exact invalidated offer input before exposing/recovering the
             // next boundary, as for the other owned decision continuations.
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }

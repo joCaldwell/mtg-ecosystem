@@ -150,7 +150,7 @@ impl Game {
             RuleFault::StackCapacityExceeded { .. } => "stack capacity exceeded",
             RuleFault::EventGroupCapacityExceeded { .. } => "event group capacity exceeded",
         };
-        self.state.rules.typed_fault = Some(fault);
+        self.rules_mut().typed_fault = Some(fault);
         reason.into()
     }
     pub(crate) fn check_stack_capacity(&mut self, additional: usize) -> Result<(), String> {
@@ -233,25 +233,24 @@ impl Game {
             card,
             incarnation: 0,
         };
-        Arc::make_mut(&mut self.state.rules.cards).insert(
+        Arc::make_mut(&mut self.rules_mut().cards).insert(
             card,
             Card {
                 owner: controller,
                 oracle_id: identity.definition.oracle_id.clone(),
             },
         );
-        Arc::make_mut(&mut self.state.rules.tokens).insert(card, identity);
-        self.state.rules.objects.insert(
+        Arc::make_mut(&mut self.rules_mut().tokens).insert(card, identity);
+        let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
+        self.rules_mut().objects.insert(
             card,
             Object {
                 hideaway: None,
                 phased_out: None,
                 attached_to: None,
                 attachment_timestamp: None,
-                battlefield_entry_turn: (zone == Zone::Battlefield)
-                    .then_some(self.state.rules.turn.number),
-                keyword_timestamp: (zone == Zone::Battlefield)
-                    .then_some(self.state.rules.next_batch_id),
+                battlefield_entry_turn: (zone == Zone::Battlefield).then_some(turn),
+                keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
                 plus_one_counters: Quantity::zero(),
                 lore_counters: Quantity::zero(),
                 marked_damage: Quantity::zero(),
@@ -491,8 +490,8 @@ impl Game {
                     return Err("invalid token cessation".into());
                 }
                 self.retain_source_lki(*object)?;
-                self.state.rules.objects.remove(&object.card);
-                for library in self.state.rules.libraries.values_mut() {
+                self.rules_mut().objects.remove(&object.card);
+                for library in self.rules_mut().libraries.values_mut() {
                     library.retain(|c| *c != object.card);
                 }
                 Ok(match event {

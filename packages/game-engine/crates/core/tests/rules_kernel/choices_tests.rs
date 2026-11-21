@@ -29,6 +29,7 @@ fn seed(
     };
     g.state.rules.next_effect_id += 1;
     g.state.rules.next_stack_id = 1;
+    let turn = g.state.rules.turn.number;
     g.state.rules.effects.push(ResolvedEffect {
         id,
         origin: EffectOrigin {
@@ -41,7 +42,7 @@ fn seed(
             cursor,
             source_block: cursor,
         },
-        expires_in_cleanup_of_turn: g.state.rules.turn.number,
+        expires_in_cleanup_of_turn: turn,
         kind,
         target_handles,
     });

@@ -26,8 +26,7 @@ impl Game {
     }
     pub(super) fn bind_additional_costs(&mut self, cast: Casting) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing optional cost input")?;
@@ -35,13 +34,12 @@ impl Game {
             return Err("optional cost response invariant".into());
         };
         self.validate_additional_cost_selection(input.player, &selected)?;
-        self.state
-            .rules
+        self.rules_mut()
             .stack
             .last_mut()
             .ok_or("missing optional cost invocation")?
             .selected_additional_costs = Some(selected);
-        self.state.rules.frame = self.spell_announcement_frame(cast)?;
+        self.rules_mut().frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
     pub(super) fn public_additional_cost_choices(

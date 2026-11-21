@@ -62,7 +62,7 @@ impl Game {
                 .is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))
             && self.state.rules.commanders.history(object.card).is_some()
         {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Library { owner },
                 continuation: Box::new(CommanderContinuation::SpellMove {
@@ -143,8 +143,7 @@ impl Game {
             return Err("ordered-library movement invariant".into());
         };
         let library = self
-            .state
-            .rules
+            .rules_mut()
             .libraries
             .get_mut(&player)
             .ok_or("missing recipient library")?;

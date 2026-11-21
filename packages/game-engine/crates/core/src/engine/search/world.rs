@@ -161,14 +161,14 @@ impl SampleBuildWork {
         // the explicitly reviewed fresh-origin values from Game::new: empty
         // stack/passes/effects/combat/queues/journal, zero counters, no failed
         // draws or pending fresh Commander opportunities. Setup is NOT rerun.
-        game.state.rules.objects.clear();
-        game.state.rules.libraries.clear();
-        game.state.rules.active = view.active;
-        game.state.rules.turn_owner = view.turn_owner;
-        game.state.rules.turn = view.turn.clone();
-        game.state.rules.priority = view.viewer;
-        game.state.rules.frame = Frame::Priority;
-        game.state.rules.match_state = Some(MatchState {
+        game.rules_mut().objects.clear();
+        game.rules_mut().libraries.clear();
+        game.rules_mut().active = view.active;
+        game.rules_mut().turn_owner = view.turn_owner;
+        game.rules_mut().turn = view.turn.clone();
+        game.rules_mut().priority = view.viewer;
+        game.rules_mut().frame = Frame::Priority;
+        game.rules_mut().match_state = Some(MatchState {
             library_shuffles: [0; 4],
             random: MatchRandom {
                 version: 1,
@@ -189,8 +189,7 @@ impl SampleBuildWork {
             data.own_knowledge.clone();
         for row in &view.players {
             let p = game
-                .state
-                .rules
+                .rules_mut()
                 .players
                 .get_mut(row.player.0 as usize)
                 .ok_or_else(|| invariant("public player"))?;
@@ -217,8 +216,7 @@ impl SampleBuildWork {
             if expected.oracle_id != row.oracle_id {
                 return Err(invariant("public commander identity"));
             }
-            game.state
-                .rules
+            game.rules_mut()
                 .commanders
                 .records
                 .insert(card, row.history.clone());
@@ -371,7 +369,8 @@ impl SampleBuildWork {
                 ),
                 None => (row.owner, false, false, Quantity::zero()),
             };
-            self.game.state.rules.objects.insert(
+            let turn = self.game.state.rules.turn.number;
+            self.game.rules_mut().objects.insert(
                 id,
                 Object {
                     hideaway: None,
@@ -382,7 +381,7 @@ impl SampleBuildWork {
                         .visible
                         .as_ref()
                         .filter(|v| v.entered_this_turn)
-                        .map(|_| self.game.state.rules.turn.number),
+                        .map(|_| turn),
                     keyword_timestamp: None,
                     plus_one_counters: Quantity::zero(),
                     lore_counters: Quantity::zero(),
@@ -398,8 +397,7 @@ impl SampleBuildWork {
             );
             if matches!(row.zone, Zone::Library { .. }) {
                 self.game
-                    .state
-                    .rules
+                    .rules_mut()
                     .libraries
                     .entry(row.owner)
                     .or_default()
@@ -421,8 +419,7 @@ impl SampleBuildWork {
                 return Err(invalid("proposal omits live owner's physical cards"));
             }
             self.game
-                .state
-                .rules
+                .rules_mut()
                 .libraries
                 .entry(player.player)
                 .or_default();

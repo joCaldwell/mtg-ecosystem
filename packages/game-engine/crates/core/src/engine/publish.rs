@@ -134,8 +134,8 @@ impl Published {
     /// reads, and the priority, turn step and view-neutral frame that the
     /// reuse path refreshes itself. Both states are destructured in full, so
     /// a new rules field must be classified here before this compiles.
-    fn projects_same_rows(&self, rules: &RulesState) -> bool {
-        let RulesState {
+    fn projects_same_rows(&self, rules: &RulesTables) -> bool {
+        let RulesTables {
             mana_ability_uses,
             tokens,
             entry_copies,

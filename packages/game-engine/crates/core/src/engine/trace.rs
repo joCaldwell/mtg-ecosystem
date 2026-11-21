@@ -69,7 +69,7 @@ impl Game {
     }
     pub(super) fn record_evidence(&mut self, record: EvidenceRecord) -> Result<(), String> {
         let sequence = self.state.rules.next_event_sequence;
-        self.state.rules.next_event_sequence = sequence
+        self.rules_mut().next_event_sequence = sequence
             .checked_add(1)
             .ok_or("event sequence resource limit")?;
         let entry = TraceRecord {
@@ -87,7 +87,7 @@ impl Game {
             EvidenceRecord::Event { event } => stored_history::payload_charge(event),
             EvidenceRecord::Batch { .. } => 0,
         };
-        self.state.rules.retained_auxiliary_charge = self
+        self.rules_mut().retained_auxiliary_charge = self
             .state
             .rules
             .retained_auxiliary_charge

@@ -519,7 +519,7 @@ impl Game {
     /// detached table until the rule step commits; `release_detached` then
     /// keeps it only while the installed frame still resumes it (CR 608.2m).
     pub(crate) fn unstack(&mut self, index: usize) -> Result<StackId, RuleError> {
-        let rules = &mut self.state.rules;
+        let rules = self.rules_mut();
         if index >= rules.stack.len() {
             return Err("missing stack entry".into());
         }
@@ -531,7 +531,7 @@ impl Game {
 
     /// Drops every detached invocation the installed frame no longer resumes.
     pub(crate) fn release_detached(&mut self) {
-        let rules = &mut self.state.rules;
+        let rules = self.rules_mut();
         if rules.detached.is_empty() {
             return;
         }

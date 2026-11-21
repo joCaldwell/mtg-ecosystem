@@ -153,13 +153,12 @@ impl Game {
             return Err("allocation frame invariant".into());
         };
         if self.damage_allocation_request()?.is_none() {
-            self.state.rules.pending = None;
-            self.state.rules.frame = Frame::DamageEffects { transaction };
+            self.rules_mut().pending = None;
+            self.rules_mut().frame = Frame::DamageEffects { transaction };
             return Ok(());
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing allocation vector")?;
@@ -181,7 +180,7 @@ impl Game {
             return Err("allocation event changed frame".into());
         };
         let transaction = transaction.clone();
-        self.state.rules.frame = Frame::DamageEffects { transaction };
+        self.rules_mut().frame = Frame::DamageEffects { transaction };
         Ok(())
     }
     pub(super) fn apply_damage_allocation(
@@ -248,14 +247,14 @@ impl Game {
         let Some(ResolvedEffect {
             kind: ResolvedEffectKind::PreventNextDamage { remaining, .. },
             ..
-        }) = self.state.rules.effects.iter_mut().find(|e| e.id == *id)
+        }) = self.rules_mut().effects.iter_mut().find(|e| e.id == *id)
         else {
             return Err("missing allocated shield".into());
         };
         *remaining = next_budget;
         let Frame::DamageAllocation {
             transaction: tx, ..
-        } = &mut self.state.rules.frame
+        } = &mut self.rules_mut().frame
         else {
             return Err("missing allocation transaction".into());
         };

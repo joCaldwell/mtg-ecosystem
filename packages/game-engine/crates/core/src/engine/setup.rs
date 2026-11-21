@@ -525,8 +525,7 @@ impl Game {
                 }
                 SetupPhase::Finish => {}
             }
-            self.state
-                .rules
+            self.rules_mut()
                 .match_state
                 .as_mut()
                 .ok_or("missing match state")?
@@ -547,8 +546,7 @@ impl Game {
             SetupPhase::Return { players } => SetupAction::Return { player: players[0] },
             SetupPhase::Declare { .. } | SetupPhase::Bottom { .. } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing opening input")?;
@@ -585,11 +583,11 @@ impl Game {
                                 },
                             },
                         )?;
-                        self.state.rules.pending = None;
+                        self.rules_mut().pending = None;
                         return self.normalize_setup();
                     }
                     Response::OpeningPlacement { object: None } => {
-                        self.state.rules.pending = None;
+                        self.rules_mut().pending = None;
                         SetupAction::PassOpeningActions {
                             player: input.player,
                         }
@@ -625,20 +623,18 @@ impl Game {
                     players, index: i, ..
                 },
             ) if players.first() == Some(player) && i == index && *index > 0 => {
-                let library = self
-                    .state
-                    .rules
+                let sizes = self.opening_library_sizes;
+                let rules = self.rules_mut();
+                let library = rules
                     .libraries
                     .get_mut(player)
                     .ok_or("missing shuffle library")?;
-                if library.len() != self.opening_library_sizes[player.0 as usize] as usize
+                if library.len() != sizes[player.0 as usize] as usize
                     || *index as usize >= library.len()
                 {
                     return Err("invalid shuffle range".into());
                 }
-                let random = &mut self
-                    .state
-                    .rules
+                let random = &mut rules
                     .match_state
                     .as_mut()
                     .ok_or("missing match random")?
@@ -651,7 +647,7 @@ impl Game {
                     library.swap(*index as usize, selected as usize);
                     if *i == 1 {
                         players.remove(0);
-                        *i = first_shuffle_index(&self.opening_library_sizes, players);
+                        *i = first_shuffle_index(&sizes, players);
                     } else {
                         *i -= 1;
                     }
@@ -799,13 +795,12 @@ impl Game {
                     .setup_order()
                     .first()
                     .ok_or("no surviving opening player")?;
-                self.state.rules.active = Some(player);
-                self.state.rules.turn_owner = player;
-                self.state.rules.priority = player;
-                self.state.rules.turn.step = TurnStep::Untap;
-                self.state.rules.frame = Frame::EnterStep;
-                self.state
-                    .rules
+                self.rules_mut().active = Some(player);
+                self.rules_mut().turn_owner = player;
+                self.rules_mut().priority = player;
+                self.rules_mut().turn.step = TurnStep::Untap;
+                self.rules_mut().frame = Frame::EnterStep;
+                self.rules_mut()
                     .match_state
                     .as_mut()
                     .ok_or("missing match state")?
@@ -816,8 +811,7 @@ impl Game {
             }
             _ => return Err("setup event does not match durable phase".into()),
         };
-        self.state
-            .rules
+        self.rules_mut()
             .match_state
             .as_mut()
             .ok_or("missing match state")?

@@ -103,8 +103,7 @@ impl Game {
                 return Err("invalid random discard sampling range".into());
             }
             let random = &mut self
-                .state
-                .rules
+                .rules_mut()
                 .match_state
                 .as_mut()
                 .ok_or("random discard requires a seeded match")?
@@ -117,7 +116,7 @@ impl Game {
             if !progress.selected.is_empty() {
                 frame.random_discard = Some(progress);
             }
-            self.state.rules.frame = Frame::Resolve { frame };
+            self.rules_mut().frame = Frame::Resolve { frame };
             return Ok(());
         };
 

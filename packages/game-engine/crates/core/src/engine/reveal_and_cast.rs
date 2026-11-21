@@ -119,7 +119,7 @@ impl Game {
             if !self.is_live(input.player)
                 || !self.resolution_offer_legal(&progress.permission(self)?)?
             {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
             }
         }
         Ok(())
@@ -173,8 +173,7 @@ impl Game {
                     // Private Fisher-Yates. Rejection consumes one word and one
                     // budget step without revealing an intermediate permutation.
                     let rng = &mut self
-                        .state
-                        .rules
+                        .rules_mut()
                         .match_state
                         .as_mut()
                         .ok_or("missing trusted random bottom stream")?
@@ -202,7 +201,7 @@ impl Game {
             }
             RevealStage::Offer { .. } => {
                 let legal = self.resolution_offer_legal(&progress.permission(self)?)?;
-                if let Some(input) = self.state.rules.pending.take() {
+                if let Some(input) = self.rules_mut().pending.take() {
                     let Response::OptionalEffect { perform } = input.response else {
                         return Err("revealed cast response shape".into());
                     };
@@ -221,7 +220,7 @@ impl Game {
                 return Ok(self.finish_spell(progress.frame.stack_id, true)?);
             }
         }
-        self.state.rules.frame = Frame::RevealAndCast { progress };
+        self.rules_mut().frame = Frame::RevealAndCast { progress };
         Ok(())
     }
 

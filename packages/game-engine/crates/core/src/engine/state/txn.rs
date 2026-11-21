@@ -77,7 +77,7 @@ impl Game {
                 self.state_token = Arc::new(());
                 Ok(value)
             }
-            Err(error) => Err(error.with_fault(staged.state.rules.typed_fault)),
+            Err(error) => Err(error.with_fault(staged.state.rules.typed_fault.clone())),
         }
     }
 }

@@ -89,7 +89,7 @@ impl Game {
                 false,
             );
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::LibrarySelect {
                 player,
@@ -108,7 +108,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_selection_choice(&frame, player, &looked, source_block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::LibrarySelect { .. }))
             {
@@ -118,8 +118,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing library selection")?;
@@ -133,7 +132,7 @@ impl Game {
         if let Some(object) = hand.first().copied()
             && self.state.rules.commanders.history(object.card).is_some()
         {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand { owner: player },
                 continuation: Box::new(CommanderContinuation::LibrarySelect {
@@ -264,7 +263,7 @@ impl Game {
             LibraryRemainder::Bottom => {
                 let mut library = tail;
                 library.extend(remainder.iter().map(|o| o.card));
-                self.state.rules.libraries.insert(player, library);
+                self.rules_mut().libraries.insert(player, library);
                 self.remember_library_selection(player, remainder)?;
                 vec![]
             }

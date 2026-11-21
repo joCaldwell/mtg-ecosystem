@@ -111,7 +111,7 @@ impl Game {
             frame: Box::new(frame),
         };
         transaction.current = self.counter_member_index(&transaction);
-        self.state.rules.frame = Frame::CounterPlacement { transaction };
+        self.rules_mut().frame = Frame::CounterPlacement { transaction };
         if self.counter_placement_candidates().is_empty() {
             return self.counter_placement_step();
         }
@@ -209,7 +209,7 @@ impl Game {
         };
         let previous = transaction.current;
         let current = self.counter_member_index(transaction);
-        let Frame::CounterPlacement { transaction } = &mut self.state.rules.frame else {
+        let Frame::CounterPlacement { transaction } = &mut self.rules_mut().frame else {
             unreachable!()
         };
         transaction.current = current;
@@ -228,7 +228,7 @@ impl Game {
                     _ => true,
                 })
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }
@@ -384,15 +384,15 @@ impl Game {
         key: &CounterPlacementEffectKey,
     ) -> Result<EventOutcome, String> {
         let application = self.counter_application(self.current_counter_member()?, key)?;
-        self.state.rules.pending = None;
-        let Frame::CounterPlacement { transaction } = &mut self.state.rules.frame else {
+        self.rules_mut().pending = None;
+        let Frame::CounterPlacement { transaction } = &mut self.rules_mut().frame else {
             unreachable!()
         };
         let member = &mut transaction.members[transaction.current];
         member.amount = application.after.clone();
         member.applications.push(application.clone());
         let current = self.counter_member_index(self.counter_transaction()?);
-        let Frame::CounterPlacement { transaction } = &mut self.state.rules.frame else {
+        let Frame::CounterPlacement { transaction } = &mut self.rules_mut().frame else {
             unreachable!()
         };
         transaction.current = current;

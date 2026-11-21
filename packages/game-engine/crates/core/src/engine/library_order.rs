@@ -55,7 +55,7 @@ impl Game {
         if looked.is_empty() {
             return self.complete_library_order(frame, amount, looked, vec![], source_block);
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::LibraryOrder {
                 player,
@@ -74,7 +74,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_library_order_choice(&frame, player, &looked, source_block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::LibraryOrder { .. }))
             {
@@ -84,8 +84,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing library ordering input")?;
@@ -162,7 +161,7 @@ impl Game {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::OptionalShuffle {
                 player,
@@ -183,7 +182,7 @@ impl Game {
             return Err("optional shuffle source invariant".into());
         }
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::OptionalEffect { .. }))
             {
@@ -193,8 +192,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing optional shuffle input")?;
@@ -236,7 +234,7 @@ impl Game {
                 .map_or(0, |l| l.len().saturating_sub(1)),
         )
         .map_err(|_| "shuffle length resource limit")?;
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Shuffle {
                 player,

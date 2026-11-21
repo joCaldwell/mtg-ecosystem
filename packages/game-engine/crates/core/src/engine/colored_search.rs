@@ -174,7 +174,7 @@ impl Game {
         revealed: Option<Vec<(Color, ObjectId)>>,
     ) -> Result<(), String> {
         if !self.is_live(player) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
@@ -224,7 +224,7 @@ impl Game {
                 .libraries
                 .get(&player)
                 .map_or(0, |l| l.len().saturating_sub(1)) as u32;
-            self.state.rules.frame = Frame::ResolutionChoice {
+            self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::Shuffle {
                     player,
@@ -235,8 +235,7 @@ impl Game {
             };
         } else {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing private search selection")?;
@@ -247,7 +246,7 @@ impl Game {
                 return Err("wrong colored library chooser".into());
             }
             let found = self.colored_found(&frame, player, &assignments, input.decision_id)?;
-            self.state.rules.frame = Frame::ResolutionChoice {
+            self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::ColoredSearch {
                     player,

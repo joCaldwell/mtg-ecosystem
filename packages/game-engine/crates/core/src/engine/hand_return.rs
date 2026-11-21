@@ -99,7 +99,7 @@ impl Game {
         if self.bounded_hand_count(player, &count) == 0 {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::HandReturn {
                 player,
@@ -117,7 +117,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_hand_return_source(&frame, player, block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::HandReturn { .. }))
             {
@@ -127,8 +127,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing hand return input")?;
@@ -160,7 +159,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         if let Some(object) = remaining.first().copied() {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Library { owner: player },
                 continuation: Box::new(CommanderContinuation::HandReturn {
@@ -294,8 +293,7 @@ impl Game {
             .filter(|m| m.destination == (Zone::Library { owner: player }))
             .map(|m| m.successor)
             .collect::<Vec<_>>();
-        self.state
-            .rules
+        self.rules_mut()
             .libraries
             .insert(player, top.iter().map(|o| o.card).chain(tail).collect());
         self.remember_library_order(player, &top)?;

@@ -178,10 +178,10 @@ impl Game {
                     *id,
                 )
             });
-            self.state.rules.commander_returns.clear();
+            self.rules_mut().commander_returns.clear();
             if !objects.is_empty() {
                 let object = objects.remove(0);
-                self.state.rules.frame = Frame::CommanderReturn {
+                self.rules_mut().frame = Frame::CommanderReturn {
                     object,
                     destination: self.current(object)?.zone,
                     continuation: Box::new(CommanderContinuation::StateBasedBatch {
@@ -194,9 +194,9 @@ impl Game {
             }
             return Ok(false);
         }
-        self.state.rules.commander_returns.clear();
+        self.rules_mut().commander_returns.clear();
         if let Some(object) = eligible {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: self.current(object)?.zone,
                 continuation: Box::new(CommanderContinuation::StateBased { resume }),
@@ -222,7 +222,7 @@ impl Game {
         if self.current(object)?.zone != (Zone::Library { owner: player }) {
             return Err("commander draw source invariant".into());
         }
-        self.state.rules.frame = Frame::CommanderReturn {
+        self.rules_mut().frame = Frame::CommanderReturn {
             object,
             destination: Zone::Hand { owner: player },
             continuation: Box::new(CommanderContinuation::Draw { player }),
@@ -236,8 +236,7 @@ impl Game {
         continuation: CommanderContinuation,
     ) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing commander return choice")?;
@@ -363,7 +362,7 @@ impl Game {
                     .cursor
                     .checked_add(1)
                     .ok_or("instruction cursor resource limit")?;
-                self.state.rules.frame = Frame::Resolve { frame };
+                self.rules_mut().frame = Frame::Resolve { frame };
             }
             CommanderContinuation::ResolutionDraw {
                 frame,
@@ -425,7 +424,7 @@ impl Game {
                 });
                 if !remaining.is_empty() {
                     let object = remaining.remove(0);
-                    self.state.rules.frame = Frame::CommanderReturn {
+                    self.rules_mut().frame = Frame::CommanderReturn {
                         object,
                         destination: self.current(object)?.zone,
                         continuation: Box::new(CommanderContinuation::StateBasedBatch {
@@ -457,7 +456,7 @@ impl Game {
                             *changed = true;
                         }
                     }
-                    self.state.rules.frame = resume;
+                    self.rules_mut().frame = resume;
                 }
             }
             CommanderContinuation::StateBased { mut resume } => {
@@ -471,19 +470,17 @@ impl Game {
                         *changed = true;
                     }
                 }
-                self.state.rules.frame = resume;
+                self.rules_mut().frame = resume;
             }
         }
         Ok(())
     }
     pub(super) fn revalidate_commander_departure(&mut self) -> Result<(), String> {
-        self.state.rules.commander_returns.retain(|id| {
-            self.state
-                .rules
-                .objects
-                .get(&id.card)
-                .is_some_and(|o| o.id == *id)
-        });
+        let rules = self.rules_mut();
+        let objects = &rules.objects;
+        rules
+            .commander_returns
+            .retain(|id| objects.get(&id.card).is_some_and(|o| o.id == *id));
         if let Frame::CommanderReturn {
             object,
             destination,
@@ -494,7 +491,7 @@ impl Game {
         {
             let (object, destination) = (*object, *destination);
             let continuation = CommanderContinuation::clone(continuation);
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             self.resume_commander_return(object, destination, continuation, false)?;
         }
         Ok(())

@@ -47,8 +47,7 @@ impl Game {
     /// The typed control transition owns this refresh. A changed controller
     /// cannot be excused merely by recomputing or discarding assignment facts.
     pub(super) fn retain_damage_control_facts(&mut self, fact: &ObjectBefore) {
-        self.state
-            .rules
+        self.rules_mut()
             .frame
             .for_each_held_mut(&mut |held| match held {
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
@@ -96,7 +95,7 @@ impl Game {
     // receives a departure's last-known facts. A frame holds no invocation.
     pub(crate) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
-        let rules = &mut self.state.rules;
+        let rules = self.rules_mut();
         for trigger in &mut rules.pending_triggers {
             update_entrant(&mut trigger.witness, fact);
             if trigger.source == object {
@@ -217,8 +216,7 @@ impl Game {
     }
     pub(super) fn bind_entity_targets(&mut self, cast: Casting) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing entity targets")?;
@@ -240,8 +238,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let top = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing targeted invocation")?;
@@ -254,7 +251,7 @@ impl Game {
             }
         }
         if cast.origin.is_spell() {
-            self.state.rules.frame = self.continue_spell_targeting(cast)?;
+            self.rules_mut().frame = self.continue_spell_targeting(cast)?;
         } else {
             self.continue_activation_after_targets(cast, input.decision_id)?;
         }
@@ -274,15 +271,15 @@ impl Game {
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());
-                    self.state.rules.frame = Frame::SacrificeCost { cast };
+                    self.rules_mut().frame = Frame::SacrificeCost { cast };
                     return Ok(());
                 }
                 ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
                 ActivationCost::Composite { costs } if costs.mana.is_some() => {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
                 ActivationCost::SacrificeSource => {
@@ -320,8 +317,7 @@ impl Game {
                 ability,
             },
         )?;
-        self.state
-            .rules
+        self.rules_mut()
             .stack
             .last_mut()
             .ok_or("missing activated invocation")?
@@ -332,8 +328,8 @@ impl Game {
             player: entry.controller,
             ability,
         })?;
-        self.state.rules.priority = entry.controller;
-        self.state.rules.frame = Frame::Priority;
+        self.rules_mut().priority = entry.controller;
+        self.rules_mut().frame = Frame::Priority;
         Ok(self.stabilize()?)
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
@@ -828,7 +824,7 @@ impl Game {
                 if self.player_protected(player) {
                     return Err("protection requires the damage transaction".into());
                 }
-                self.state.rules.players[player.0 as usize].lose_life(&damage.amount)
+                self.rules_mut().players[player.0 as usize].lose_life(&damage.amount)
             }
             DamageRecipient::Creature { object } => {
                 if !self.is_battlefield_creature(object) {
@@ -838,8 +834,7 @@ impl Game {
                     return Err("protection requires the damage transaction".into());
                 }
                 let o = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing damage object")?;

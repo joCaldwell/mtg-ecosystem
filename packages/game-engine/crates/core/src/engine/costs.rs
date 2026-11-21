@@ -223,8 +223,7 @@ impl Game {
             &lock,
         )?;
         let entry = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing lock entry")?;
