@@ -1,0 +1,357 @@
+//! Publication of each viewer's permitted knowledge after a state change.
+//!
+//! A publication updates every viewer's handles and decision token, projects
+//! the permitted view and appends it to that viewer's history when it differs
+//! from the last one. The complete projection (`publish_full`, in
+//! `visibility.rs`) is the definition. This module adds the coarse
+//! incremental path: when nothing a view row, handle or public table is
+//! derived from has changed since the last publication, the last view's rows
+//! are reused and only the priority and turn fields are refreshed.
+//!
+//! In builds with `debug_assertions`, every publication is also run as a
+//! complete projection of the same prior state and the two results must be
+//! equal, so every test proves the incremental path against its definition.
+use super::*;
+
+/// What the last publication read: the rules it projected and each viewer's
+/// knowledge as that publication left it. A derived accelerator, never state.
+/// It shares the state's tables, so a later write to any of them allocates a
+/// copy and this record keeps exactly what was published.
+pub struct Published {
+    rules: RulesState,
+    knowledge: Vec<Shared<visibility::Knowledge>>,
+}
+
+impl Frame {
+    /// True when this frame, with every frame it resumes, shows no view
+    /// anything: no reveal, look, offer, choice list or resolving invocation.
+    /// Two such frames differ, for a view, only in whether priority is held.
+    /// Every variant is named: a new frame must be classified here.
+    fn shows_nothing(&self) -> bool {
+        match self {
+            Frame::Priority
+            | Frame::Transition
+            | Frame::EnterStep
+            | Frame::CleanupClear
+            | Frame::Damage
+            | Frame::Draw
+            | Frame::Attackers
+            | Frame::Blockers { remaining: _ } => true,
+            Frame::Stabilize {
+                resume,
+                cleanup: _,
+                changed: _,
+            } => resume.shows_nothing(),
+            Frame::GraveyardGroup { tx: _ }
+            | Frame::GraveyardReplacement { transaction: _ }
+            | Frame::PlayHideawayLinked { progress: _ }
+            | Frame::LandEntry {
+                origin: _,
+                objects: _,
+                choices: _,
+            }
+            | Frame::ManaSourceChoice {
+                player: _,
+                source: _,
+                scope: _,
+                resume: _,
+            }
+            | Frame::RevealAndCast { progress: _ }
+            | Frame::HandCast { frame: _, child: _ }
+            | Frame::Cascade { progress: _ }
+            | Frame::LegendRule {
+                resume: _,
+                groups: _,
+                kept: _,
+            }
+            | Frame::AdditionalCosts { cast: _ }
+            | Frame::AnnounceX { cast: _ }
+            | Frame::HybridCost { cast: _ }
+            | Frame::SacrificeCost { cast: _ }
+            | Frame::ForcedSacrifice {
+                frame: _,
+                remaining: _,
+                choices: _,
+                source_block: _,
+            }
+            | Frame::ResolutionPayment {
+                frame: _,
+                payment: _,
+            }
+            | Frame::OptionalDamage { frame: _ }
+            | Frame::ManaAbility { activation: _ }
+            | Frame::Setup
+            | Frame::DamageAllocation {
+                transaction: _,
+                effect: _,
+            }
+            | Frame::Modes { cast: _ }
+            | Frame::CounterPlacement { transaction: _ }
+            | Frame::DamageEffects { transaction: _ }
+            | Frame::TriggerOrder { placement: _ }
+            | Frame::TriggerTargets {
+                placement: _,
+                stack_id: _,
+            }
+            | Frame::EntityTargets { cast: _ }
+            | Frame::StackTargets { cast: _ }
+            | Frame::PlayerTargets { cast: _ }
+            | Frame::SpendMana { cast: _ }
+            | Frame::ResolutionChoice {
+                frame: _,
+                choice: _,
+            }
+            | Frame::CommanderReturn {
+                object: _,
+                destination: _,
+                continuation: _,
+            }
+            | Frame::DamageChoice { source: _ }
+            | Frame::Discard {
+                player: _,
+                count: _,
+            }
+            | Frame::Targets { cast: _ }
+            | Frame::Mana { cast: _ }
+            | Frame::Payment { cast: _ }
+            | Frame::Resolve { frame: _ }
+            | Frame::Fault { reason: _ }
+            | Frame::Finished { winner: _ } => false,
+        }
+    }
+}
+
+impl Published {
+    fn of(state: &State) -> Self {
+        Self {
+            rules: state.rules.clone(),
+            knowledge: state.knowledge.visibility.clone(),
+        }
+    }
+
+    /// True when `rules` projects the same rows, handles and public tables as
+    /// the published rules: every field is equal except those no projection
+    /// reads, and the priority, turn step and view-neutral frame that the
+    /// reuse path refreshes itself. Both states are destructured in full, so
+    /// a new rules field must be classified here before this compiles.
+    fn projects_same_rows(&self, rules: &RulesState) -> bool {
+        let RulesState {
+            mana_ability_uses,
+            tokens,
+            entry_copies,
+            back_face_objects,
+            retained_auxiliary_charge: _,
+            typed_fault: _,
+            match_state,
+            effects,
+            delayed_chapters,
+            next_effect_id,
+            next_damage_transaction_id,
+            pending_triggers,
+            next_trigger_id,
+            libraries,
+            combat,
+            combat_declared,
+            damage_choices,
+            player_damage_choices,
+            first_strike_participants,
+            blocking_creatures,
+            cleanup_repeat,
+            simultaneous_losses,
+            losing_players,
+            // Decision identity and execution counters: token keys read the
+            // revision, no projection does.
+            revision: _,
+            rule_steps: _,
+            players,
+            cards,
+            objects,
+            active,
+            turn_owner,
+            turn,
+            original_seating,
+            cast_history,
+            commanders,
+            commander_returns,
+            control_effects,
+            next_attachment_timestamp,
+            // A queued concession and an accepted input suppress the decision
+            // token only; the departure itself changes players and objects.
+            pending_concessions: _,
+            // Refreshed by the reuse path together with the frame.
+            priority: _,
+            passes: _,
+            next_stack_id,
+            stack,
+            detached,
+            frame,
+            pending: _,
+            next_batch_id: _,
+            next_event_sequence: _,
+        } = rules;
+        let was = &self.rules;
+        // Cheapest and most often different first. The large tables compare
+        // by shared allocation before they compare by value.
+        (*frame == was.frame || (frame.shows_nothing() && was.frame.shows_nothing()))
+            && objects.shares_rows(&was.objects)
+            && Shared::same(stack, &was.stack)
+            && Shared::same(effects, &was.effects)
+            && Shared::same(libraries, &was.libraries)
+            && Arc::ptr_eq(cards, &was.cards)
+            && Arc::ptr_eq(tokens, &was.tokens)
+            // Rows show whether an object entered this turn; the step and the
+            // land count are refreshed by the reuse path.
+            && turn.number == was.turn.number
+            && *active == was.active
+            && *turn_owner == was.turn_owner
+            && *players == was.players
+            && *pending_triggers == was.pending_triggers
+            && *combat == was.combat
+            && *combat_declared == was.combat_declared
+            && *control_effects == was.control_effects
+            && *commanders == was.commanders
+            && *commander_returns == was.commander_returns
+            && *match_state == was.match_state
+            && *mana_ability_uses == was.mana_ability_uses
+            && *entry_copies == was.entry_copies
+            && *back_face_objects == was.back_face_objects
+            && *delayed_chapters == was.delayed_chapters
+            && *damage_choices == was.damage_choices
+            && *player_damage_choices == was.player_damage_choices
+            && *first_strike_participants == was.first_strike_participants
+            && *blocking_creatures == was.blocking_creatures
+            && *cleanup_repeat == was.cleanup_repeat
+            && *simultaneous_losses == was.simultaneous_losses
+            && *losing_players == was.losing_players
+            && *original_seating == was.original_seating
+            && *cast_history == was.cast_history
+            && *detached == was.detached
+            && *next_effect_id == was.next_effect_id
+            && *next_damage_transaction_id == was.next_damage_transaction_id
+            && *next_trigger_id == was.next_trigger_id
+            && *next_attachment_timestamp == was.next_attachment_timestamp
+            && *next_stack_id == was.next_stack_id
+    }
+
+    /// True when no viewer's knowledge was written since this publication.
+    fn knowledge_untouched(&self, knowledge: &KnowledgeState) -> bool {
+        self.knowledge.len() == knowledge.visibility.len()
+            && self
+                .knowledge
+                .iter()
+                .zip(&knowledge.visibility)
+                .all(|(was, now)| Shared::same(was, now))
+    }
+}
+
+impl Game {
+    /// Publishes the current rules state to all four viewers.
+    pub(crate) fn refresh_visibility(&mut self) -> Result<(), String> {
+        #[cfg(debug_assertions)]
+        let reference = self.complete_publication();
+        let published = self.publish();
+        #[cfg(debug_assertions)]
+        self.assert_matches_complete_publication(reference, &published);
+        published
+    }
+
+    fn publish(&mut self) -> Result<(), String> {
+        if self.setup_automatic() {
+            return Ok(());
+        }
+        let decider = self.state.rules.frame.decider(self)?;
+        if !self.republish_rows(decider)? {
+            self.publish_full(decider)?;
+        }
+        self.published = Some(Arc::new(Published::of(&self.state)));
+        Ok(())
+    }
+
+    /// The reuse path. Returns false, having changed nothing, unless every
+    /// viewer's last view still shows the rows of the current rules.
+    fn republish_rows(&mut self, decider: Option<Decider>) -> Result<bool, String> {
+        let Some(published) = &self.published else {
+            return Ok(false);
+        };
+        let state = &self.state;
+        if !published.knowledge_untouched(&state.knowledge)
+            || !published.projects_same_rows(&state.rules)
+            || state
+                .knowledge
+                .visibility
+                .iter()
+                .any(|knowledge| knowledge.history.last().is_none())
+        {
+            return Ok(false);
+        }
+        let revision = state.rules.revision;
+        let priority = matches!(state.rules.frame, Frame::Priority).then_some(state.rules.priority);
+        for v in 0..state.knowledge.visibility.len() {
+            let knowledge = &self.state.knowledge.visibility[v];
+            let key = decider
+                .filter(|decider| decider.player.0 as usize == v)
+                .map(|decider| (revision, decider.kind));
+            let last = knowledge.history.last().ok_or("missing published view")?;
+            let view = (last.priority != priority || last.turn != self.state.rules.turn)
+                .then(|| last.with_priority_and_turn(priority, self.state.rules.turn.clone()));
+            if view.is_none() && knowledge.decision_key() == key {
+                // Nothing to write: this viewer's knowledge stays shared.
+                continue;
+            }
+            let knowledge = &mut *self.state.knowledge.visibility[v];
+            knowledge.set_decision_key(v, key)?;
+            if let Some(view) = view {
+                knowledge.history.push(view);
+            }
+        }
+        Ok(true)
+    }
+
+    /// The prior state, to be published by the complete projection alone.
+    #[cfg(debug_assertions)]
+    fn complete_publication(&self) -> Game {
+        let mut reference = self.fork();
+        reference.published = None;
+        reference
+    }
+
+    /// Proves this publication against the complete projection of the same
+    /// prior state: the same outcome, and on success the same knowledge and
+    /// history retention charge for every viewer.
+    #[cfg(debug_assertions)]
+    fn assert_matches_complete_publication(
+        &self,
+        mut reference: Game,
+        published: &Result<(), String>,
+    ) {
+        let complete = reference.publish();
+        assert_eq!(
+            *published, complete,
+            "incremental publication outcome differs from the complete projection"
+        );
+        if complete.is_err() {
+            return;
+        }
+        for (v, (incremental, complete)) in self
+            .state
+            .knowledge
+            .visibility
+            .iter()
+            .zip(&reference.state.knowledge.visibility)
+            .enumerate()
+        {
+            assert!(
+                incremental == complete,
+                "incremental publication differs from the complete projection for viewer {v}\n\
+                 incremental: {:?}\ncomplete: {:?}",
+                incremental.history.last(),
+                complete.history.last(),
+            );
+            assert_eq!(
+                incremental.history.retention_charge(),
+                complete.history.retention_charge(),
+                "history retention charge differs from the complete projection for viewer {v}"
+            );
+        }
+    }
+}

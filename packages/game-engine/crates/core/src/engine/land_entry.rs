@@ -616,10 +616,11 @@ impl Game {
     pub(super) fn revalidate_land_entry_departure(&mut self) -> Result<(), String> {
         let Frame::LandEntry {
             origin, objects, ..
-        } = self.state.rules.frame.clone()
+        } = &self.state.rules.frame
         else {
             return Ok(());
         };
+        let (origin, objects) = (origin.clone(), objects.clone());
         if let EntryOrigin::LinkedPlay {
             progress,
             object,

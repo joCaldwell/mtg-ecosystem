@@ -393,9 +393,10 @@ impl Game {
         self.refresh_controllers(player)?;
         // A departure can remove a legend or change a controller while choices
         // are pending. Recompute the entire SBA wave; no stale keep survives.
-        if let Frame::LegendRule { resume, .. } = self.state.rules.frame.clone() {
+        if let Frame::LegendRule { resume, .. } = &self.state.rules.frame {
+            let resume = Frame::clone(resume);
             self.state.rules.pending = None;
-            self.state.rules.frame = *resume;
+            self.state.rules.frame = resume;
         }
         // CR 800.4a: a surviving owner's spell cast by the departing
         // player has no remaining controller. Its card goes to public exile.
@@ -490,20 +491,10 @@ impl Game {
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::AdditionalCosts { cast }
-        | Frame::HybridCost { cast }
-        | Frame::AnnounceX { cast }
-        | Frame::Modes { cast }
-        | Frame::EntityTargets { cast }
-        | Frame::Targets { cast }
-        | Frame::StackTargets { cast }
-        | Frame::PlayerTargets { cast }
-        | Frame::Mana { cast }
-        | Frame::SacrificeCost { cast }
-        | Frame::SpendMana { cast }
-        | Frame::Payment { cast } = self.state.rules.frame.clone()
+        if let Some(cast) = self.state.rules.frame.announcement()
             && lost_stack.contains(&cast.stack_id)
         {
+            let cast = cast.clone();
             self.state.rules.pending = None;
             self.state.rules.frame = match cast.completion {
                 CastCompletion::Resolution {
@@ -526,19 +517,7 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::AdditionalCosts { cast }
-        | Frame::HybridCost { cast }
-        | Frame::AnnounceX { cast }
-        | Frame::Modes { cast }
-        | Frame::EntityTargets { cast }
-        | Frame::Targets { cast }
-        | Frame::StackTargets { cast }
-        | Frame::PlayerTargets { cast }
-        | Frame::Mana { cast }
-        | Frame::SacrificeCost { cast }
-        | Frame::SpendMana { cast }
-        | Frame::Payment { cast } = self.state.rules.frame.clone()
-        {
+        if let Some(cast) = self.state.rules.frame.announcement().cloned() {
             // CR601.2e/601.6 (also602.2b): proposal legality precedes
             // costs. Bound targets may become illegal during payment; keep
             // their identities and recheck them at resolution under608.2b.

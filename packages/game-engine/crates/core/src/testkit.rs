@@ -714,7 +714,8 @@ impl GameTestkit for Game {
         Game::color_layer(self, object)
     }
     fn combat_step(&mut self) -> Result<(), String> {
-        Game::combat_step(self)
+        let frame = Game::working_frame(self);
+        Game::combat_step(self, frame)
     }
     fn commit(
         &mut self,

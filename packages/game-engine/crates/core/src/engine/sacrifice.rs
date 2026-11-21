@@ -223,8 +223,8 @@ impl Game {
             _ => Err("invalid sacrifice continuation response".into()),
         }
     }
-    pub(super) fn sacrifice_step(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+    pub(super) fn sacrifice_step(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::SacrificeCost { mut cast } => {
                 let stack = self.top()?.clone();
                 if self.next_sacrifices(&stack, &cast.sacrifices)?.is_empty() {

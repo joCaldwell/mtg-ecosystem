@@ -17,6 +17,9 @@
 //! `spell_cascade_grants.rs` and mana-frame unwrapping in `mana_permanents.rs`.
 use super::*;
 
+mod decider;
+pub use decider::Decider;
+
 /// How a frame holds an invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hold {
@@ -373,6 +376,101 @@ impl Frame {
             }
         });
         resolving
+    }
+
+    /// The announcement this frame is in the middle of, if it is a casting or
+    /// activation stage. Every variant is named.
+    pub fn announcement(&self) -> Option<&Casting> {
+        match self {
+            Frame::AdditionalCosts { cast }
+            | Frame::AnnounceX { cast }
+            | Frame::HybridCost { cast }
+            | Frame::SacrificeCost { cast }
+            | Frame::Modes { cast }
+            | Frame::EntityTargets { cast }
+            | Frame::StackTargets { cast }
+            | Frame::PlayerTargets { cast }
+            | Frame::SpendMana { cast }
+            | Frame::Targets { cast }
+            | Frame::Mana { cast }
+            | Frame::Payment { cast } => Some(cast),
+            Frame::GraveyardGroup { tx: _ }
+            | Frame::GraveyardReplacement { transaction: _ }
+            | Frame::PlayHideawayLinked { progress: _ }
+            | Frame::LandEntry {
+                origin: _,
+                objects: _,
+                choices: _,
+            }
+            | Frame::ManaSourceChoice {
+                player: _,
+                source: _,
+                scope: _,
+                resume: _,
+            }
+            | Frame::RevealAndCast { progress: _ }
+            | Frame::HandCast { frame: _, child: _ }
+            | Frame::Cascade { progress: _ }
+            | Frame::LegendRule {
+                resume: _,
+                groups: _,
+                kept: _,
+            }
+            | Frame::ForcedSacrifice {
+                frame: _,
+                remaining: _,
+                choices: _,
+                source_block: _,
+            }
+            | Frame::ResolutionPayment {
+                frame: _,
+                payment: _,
+            }
+            | Frame::OptionalDamage { frame: _ }
+            | Frame::ManaAbility { activation: _ }
+            | Frame::Setup
+            | Frame::DamageAllocation {
+                transaction: _,
+                effect: _,
+            }
+            | Frame::CounterPlacement { transaction: _ }
+            | Frame::DamageEffects { transaction: _ }
+            | Frame::TriggerOrder { placement: _ }
+            | Frame::TriggerTargets {
+                placement: _,
+                stack_id: _,
+            }
+            | Frame::ResolutionChoice {
+                frame: _,
+                choice: _,
+            }
+            | Frame::CommanderReturn {
+                object: _,
+                destination: _,
+                continuation: _,
+            }
+            | Frame::Attackers
+            | Frame::Blockers { remaining: _ }
+            | Frame::Damage
+            | Frame::DamageChoice { source: _ }
+            | Frame::Discard {
+                player: _,
+                count: _,
+            }
+            | Frame::CleanupClear
+            | Frame::Stabilize {
+                resume: _,
+                cleanup: _,
+                changed: _,
+            }
+            | Frame::Draw
+            | Frame::Priority
+            | Frame::Transition
+            | Frame::EnterStep
+            | Frame::Resolve { frame: _ }
+            | Frame::Fault { reason: _ }
+            | Frame::Finished { winner: _ } => None,
+        }
     }
 
     /// Whether this frame will resume the invocation `id`.

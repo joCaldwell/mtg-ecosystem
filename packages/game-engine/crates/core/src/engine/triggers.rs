@@ -1424,8 +1424,8 @@ impl Game {
     // triggers in their chosen bottom-to-top order, active player first.
     // Targets are chosen as each invocation is placed, with no priority or
     // mana window between placements. Then check SBAs/pending triggers again.
-    pub(super) fn trigger_step(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+    pub(super) fn trigger_step(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::TriggerOrder { mut placement } => {
                 if !placement.order.is_empty() {
                     let id = placement.order.remove(0);
@@ -1648,10 +1648,10 @@ impl Game {
             });
             placement
         };
-        match self.state.rules.frame.clone() {
+        match &self.state.rules.frame {
             Frame::TriggerOrder { placement } => {
                 self.state.rules.frame = Frame::TriggerOrder {
-                    placement: revalidate(placement, self),
+                    placement: revalidate(placement.clone(), self),
                 };
                 if self
                     .state
@@ -1667,7 +1667,8 @@ impl Game {
                 placement,
                 stack_id,
             } => {
-                let placement = revalidate(placement, self);
+                let stack_id = *stack_id;
+                let placement = revalidate(placement.clone(), self);
                 if !self.state.rules.stack.iter().any(|s| s.id == stack_id) {
                     self.state.rules.pending = None;
                     self.state.rules.frame = Frame::TriggerOrder { placement };

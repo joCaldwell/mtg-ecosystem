@@ -947,8 +947,8 @@ impl Game {
             _ => None,
         }
     }
-    pub(super) fn actions_step(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+    pub(super) fn actions_step(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::EntityTargets { cast } => self.bind_entity_targets(cast)?,
             Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
             Frame::PlayerTargets { cast } => {

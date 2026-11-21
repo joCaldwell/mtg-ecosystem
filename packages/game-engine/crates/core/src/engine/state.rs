@@ -3,8 +3,10 @@
 //! recovery hashes. No history is discarded or treated as nonsemantic here.
 use super::*;
 
+mod error;
 mod objects;
 mod shared;
+pub use error::RuleError;
 pub use objects::{OBJECT_CHUNK, ObjectTable};
 pub use shared::Shared;
 

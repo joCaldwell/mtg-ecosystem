@@ -325,6 +325,7 @@ pub mod stored_history;
 pub use permitted_history::PermittedHistory;
 pub mod decision_context;
 pub use decision_context::*;
+pub mod publish;
 pub mod visibility;
 pub mod work;
 pub use visibility::*;
@@ -2559,7 +2560,8 @@ pub use action_query::*;
 pub mod player_session;
 pub use player_session::PlayerSession;
 pub mod state;
-pub use state::{AuditState, KnowledgeState, RulesState, State};
+pub use frame::Decider;
+pub use state::{AuditState, KnowledgeState, ObjectTable, RuleError, RulesState, Shared, State};
 
 /// Full raw snapshot output receipt, returned only after the caller sink flushes.
 /// Host metadata only; not a snapshot field, schema or semantic State input.
@@ -2588,6 +2590,8 @@ testkit_fields! {
         state_token: Arc<()>,
         // Private staging scope: nested event batches share the outer rollback.
         in_rule_step: bool,
+        // Derived accelerator only, never state: what the last publication read.
+        published: Option<Arc<publish::Published>>,
     }
 }
 testkit_fields! {
@@ -2775,6 +2779,7 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            published: None,
         };
         if let Some(config) = game.prepared.match_config.as_ref() {
             game.state.rules.active = Some(config.starting_player);
@@ -2803,6 +2808,7 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            published: self.published.clone(),
         }
     }
     pub(crate) fn history_charge(&self) -> usize {
@@ -3529,6 +3535,7 @@ impl Game {
         next.refresh_visibility()?;
         self.state = next.state;
         self.trace = next.trace;
+        self.published = next.published;
         self.state_token = Arc::new(());
         Ok(())
     }
@@ -3594,6 +3601,7 @@ impl Game {
             }
             self.state = next.state;
             self.trace = next.trace;
+            self.published = next.published;
             self.state_token = Arc::new(());
             if let Some(report) = input_report {
                 report.committed(self, processed);
@@ -3615,16 +3623,20 @@ impl Game {
             self.state.rules.pending_concessions.remove(0);
             self.apply_departure(player)?;
         } else {
-            // The step advances a working copy of the suspended frame's
-            // progress. The suspended frame stays installed, for authority
-            // checks, until the step installs its successor.
-            let frame = Frame::clone(&self.state.rules.frame);
+            let frame = self.working_frame();
             self.step_frame(frame)?;
         }
         // An invocation that left the stack stays owned only while the
         // installed frame still resumes it (CR 608.2m).
         self.release_detached();
         Ok(())
+    }
+    /// The working copy of the suspended frame that one rule step advances.
+    /// A frame holds progress only, so the copy has nothing to reconcile. The
+    /// suspended frame stays installed, for authority checks, until the step
+    /// installs its successor.
+    pub(crate) fn working_frame(&self) -> Frame {
+        Frame::clone(&self.state.rules.frame)
     }
     fn step_frame(&mut self, frame: Frame) -> Result<(), String> {
         match frame {
@@ -3640,12 +3652,12 @@ impl Game {
             Frame::ResolutionPayment { frame, payment } => {
                 self.resolution_payment_step(frame, payment)?
             }
-            Frame::LegendRule { .. } => self.legend_step()?,
-            Frame::SacrificeCost { .. }
+            frame @ Frame::LegendRule { .. } => self.legend_step(frame)?,
+            frame @ (Frame::SacrificeCost { .. }
             | Frame::ForcedSacrifice { .. }
-            | Frame::OptionalDamage { .. } => self.sacrifice_step()?,
+            | Frame::OptionalDamage { .. }) => self.sacrifice_step(frame)?,
             Frame::Setup => self.setup_step()?,
-            Frame::DamageAllocation { .. } => self.damage_allocation_step()?,
+            frame @ Frame::DamageAllocation { .. } => self.damage_allocation_step(frame)?,
             Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
             Frame::HybridCost { cast } => {
                 let input = self
@@ -3786,11 +3798,13 @@ impl Game {
             Frame::ManaAbility { activation } => self.permanent_mana_step(*activation)?,
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
-            Frame::TriggerOrder { .. } | Frame::TriggerTargets { .. } => self.trigger_step()?,
-            Frame::EntityTargets { .. }
+            frame @ (Frame::TriggerOrder { .. } | Frame::TriggerTargets { .. }) => {
+                self.trigger_step(frame)?
+            }
+            frame @ (Frame::EntityTargets { .. }
             | Frame::PlayerTargets { .. }
             | Frame::StackTargets { .. }
-            | Frame::ResolutionChoice { .. } => self.actions_step()?,
+            | Frame::ResolutionChoice { .. }) => self.actions_step(frame)?,
             Frame::Resolve { mut frame } => {
                 let stack = self.entry(frame.stack_id)?.clone();
                 let program = self.program_for(&stack)?.clone();
@@ -3913,13 +3927,13 @@ impl Game {
                 destination,
                 continuation,
             } => self.answer_commander_return(object, destination, *continuation)?,
-            Frame::Attackers
+            frame @ (Frame::Attackers
             | Frame::Blockers { .. }
             | Frame::Damage
             | Frame::DamageChoice { .. }
             | Frame::Discard { .. }
             | Frame::CleanupClear
-            | Frame::Stabilize { .. } => self.combat_step()?,
+            | Frame::Stabilize { .. }) => self.combat_step(frame)?,
             Frame::Draw => {}
             Frame::Transition => self.transition_turn_step()?,
             Frame::EnterStep => self.enter_turn_step()?,
@@ -4132,6 +4146,7 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            published: None,
         };
         game.validate_state()?;
         Ok((game, s.state_sha256))

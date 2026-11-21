@@ -1473,11 +1473,12 @@ impl Game {
             });
         }
         if invalid {
-            if let Frame::ManaSourceChoice { resume, .. } = self.state.rules.frame.clone() {
-                self.state.rules.frame = *resume;
+            if let Frame::ManaSourceChoice { resume, .. } = &self.state.rules.frame {
+                let resume = Frame::clone(resume);
+                self.state.rules.frame = resume;
             }
-            while let Frame::ManaAbility { activation } = self.state.rules.frame.clone() {
-                let mut a = *activation;
+            while let Frame::ManaAbility { activation } = &self.state.rules.frame {
+                let mut a = ManaActivation::clone(activation);
                 if let Some(receipt) = a.paid.take() {
                     a.receipts.push(ManaActivationUndo {
                         object: a.source,

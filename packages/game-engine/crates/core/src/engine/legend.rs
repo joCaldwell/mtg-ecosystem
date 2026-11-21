@@ -61,12 +61,12 @@ impl Game {
             _ => Err("invalid legend-rule keep choice".into()),
         }
     }
-    pub(super) fn legend_step(&mut self) -> Result<(), String> {
+    pub(super) fn legend_step(&mut self, frame: Frame) -> Result<(), String> {
         let Frame::LegendRule {
             resume,
             groups,
             mut kept,
-        } = self.state.rules.frame.clone()
+        } = frame
         else {
             return Err("legend frame".into());
         };

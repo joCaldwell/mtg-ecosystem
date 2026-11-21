@@ -985,6 +985,33 @@ fn scoped(namespace: &Option<String>, handle: String) -> String {
     )
 }
 impl Knowledge {
+    /// The key of this viewer's current decision token, if they owe one.
+    pub(super) fn decision_key(&self) -> Option<(u64, u8)> {
+        self.decision_key
+    }
+    /// Mints a fresh token when the viewer's decision changes, and retires it
+    /// when they owe none. An unchanged key keeps its token.
+    pub(super) fn set_decision_key(
+        &mut self,
+        viewer: usize,
+        key: Option<(u64, u8)>,
+    ) -> Result<(), String> {
+        if key != self.decision_key {
+            self.decision_token = if key.is_some() {
+                let token =
+                    DecisionToken(self.scoped(format!("v{viewer}-d{}", self.next_decision)));
+                self.next_decision = self
+                    .next_decision
+                    .checked_add(1)
+                    .ok_or("decision token resource limit")?;
+                Some(token)
+            } else {
+                None
+            };
+            self.decision_key = key;
+        }
+        Ok(())
+    }
     pub(super) fn scoped(&self, handle: String) -> String {
         self.namespace.as_ref().map_or_else(
             || handle.clone(),
@@ -2678,10 +2705,10 @@ impl Game {
         Self::order_view_objects(&mut view);
         Ok(view)
     }
-    pub(crate) fn refresh_visibility(&mut self) -> Result<(), String> {
-        if self.setup_automatic() {
-            return Ok(());
-        }
+    /// The complete projection: every handle, decision token and view row is
+    /// derived again from the current rules. This is the definition that the
+    /// incremental path in `publish.rs` must equal.
+    pub(super) fn publish_full(&mut self, decider: Option<Decider>) -> Result<(), String> {
         let effects = self.refresh_effect_handles()?;
         let projection = self.projection_index();
         let cores = ObjectCores::default();
@@ -2767,157 +2794,10 @@ impl Game {
                     k.handles.insert(handle, id);
                 }
             }
-            let key = if self.state.rules.pending.is_some()
-                || !self.state.rules.pending_concessions.is_empty()
-            {
-                None
-            } else if matches!(
-                self.state.rules.frame,
-                Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
-            ) {
-                self.replacement_request()
-                    .filter(|r| r.player() == viewer)
-                    .map(|_| (self.state.rules.revision, 4))
-            } else if self
-                .damage_allocation_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 14))
-            } else if self
-                .sacrifice_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 17))
-            } else if self
-                .hand_cast_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 45))
-            } else if let Some(request) = self.resolution_cast_request()?
-                && request.player() == viewer
-            {
-                let kind = match request {
-                    Request::CascadeLandEntry { .. } => 23,
-                    Request::PlayHideawayLinked { .. } => 46,
-                    _ => 22,
-                };
-                Some((self.state.rules.revision, kind))
-            } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
-                Some((self.state.rules.revision, 13))
-            } else if self
-                .counter_placement_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 22))
-            } else if self
-                .damage_effect_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 12))
-            } else if self
-                .trigger_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 11))
-            } else if self
-                .actions_request()?
-                .is_some_and(|request| request.player() == viewer)
-            {
-                Some((self.state.rules.revision, 6))
-            } else if self.combat_decision_player() == Some(viewer) {
-                Some((self.state.rules.revision, 3))
-            } else {
-                match self.state.rules.frame {
-                    Frame::LegendRule { .. }
-                        if self.legend_request()?.is_some_and(|r| r.player() == viewer) =>
-                    {
-                        Some((self.state.rules.revision, 19))
-                    }
-                    Frame::Setup if self.setup_request()?.is_some_and(|r| r.player() == viewer) => {
-                        Some((self.state.rules.revision, 15))
-                    }
-                    Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer
-                            && self.program()?.targets.first().is_some_and(|t| {
-                                t.domain == TargetDomain::AnyDamageTarget
-                                    || self.program().is_ok_and(|p| {
-                                        mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
-                                    })
-                            }) =>
-                    {
-                        Some((self.state.rules.revision, 10))
-                    }
-                    Frame::StackTargets { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 9))
-                    }
-                    Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer && !self.top_has_target_domain()? =>
-                    {
-                        None
-                    }
-                    Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer =>
-                    {
-                        Some((self.state.rules.revision, 7))
-                    }
-                    Frame::LandEntry { .. }
-                        if self
-                            .land_entry_offer()?
-                            .is_some_and(|(player, _, _)| player == viewer) =>
-                    {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::ResolutionPayment { ref payment, .. } if payment.payer == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::ManaSourceChoice { player, .. } if player == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::ManaAbility { ref activation } if activation.player == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::SpendMana { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 8))
-                    }
-                    Frame::CommanderReturn { object, .. }
-                        if self.state.rules.cards[&object.card].owner == viewer =>
-                    {
-                        Some((self.state.rules.revision, 4))
-                    }
-                    Frame::Priority if self.state.rules.priority == viewer => {
-                        Some((self.state.rules.revision, 0))
-                    }
-                    Frame::AdditionalCosts { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::HybridCost { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 51))
-                    }
-                    Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 18))
-                    }
-                    Frame::Targets { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 1))
-                    }
-                    Frame::Mana { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 2))
-                    }
-                    _ => None,
-                }
-            };
-            if key != k.decision_key {
-                k.decision_token = if key.is_some() {
-                    let token = DecisionToken(k.scoped(format!("v{v}-d{}", k.next_decision)));
-                    k.next_decision = k
-                        .next_decision
-                        .checked_add(1)
-                        .ok_or("decision token resource limit")?;
-                    Some(token)
-                } else {
-                    None
-                };
-                k.decision_key = key;
-            }
+            let key = decider
+                .filter(|decider| decider.player == viewer)
+                .map(|decider| (self.state.rules.revision, decider.kind));
+            k.set_decision_key(v as usize, key)?;
             self.state.knowledge.visibility[v as usize] = k.into();
             let view = self.permitted_view(viewer, (&projection, &cores), &effects, &current)?;
             let history = &mut self.state.knowledge.visibility[v as usize].history;

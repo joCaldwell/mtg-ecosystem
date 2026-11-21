@@ -488,12 +488,14 @@ impl Game {
             object,
             destination,
             continuation,
-        } = self.state.rules.frame.clone()
-            && (self.current(object).is_err()
+        } = &self.state.rules.frame
+            && (self.current(*object).is_err()
                 || !self.is_live(self.state.rules.cards[&object.card].owner))
         {
+            let (object, destination) = (*object, *destination);
+            let continuation = CommanderContinuation::clone(continuation);
             self.state.rules.pending = None;
-            self.resume_commander_return(object, destination, *continuation, false)?;
+            self.resume_commander_return(object, destination, continuation, false)?;
         }
         Ok(())
     }

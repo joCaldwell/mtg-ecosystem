@@ -327,8 +327,8 @@ impl Game {
             changed: false,
         };
     }
-    pub(crate) fn combat_step(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+    pub(crate) fn combat_step(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::Attackers => {
                 let input = self.state.rules.pending.take().ok_or("missing attackers")?;
                 self.validate_combat_response(input.player, &input.response)?;
@@ -846,11 +846,12 @@ impl Game {
         }
     }
     pub(super) fn revalidate_combat_departure(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+        match &self.state.rules.frame {
             Frame::Attackers if self.state.rules.active.is_none() => self.grant_turn_priority()?,
             Frame::Blockers { remaining } => {
                 let remaining = remaining
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .filter(|p| self.is_live(*p))
                     .collect::<Vec<_>>();
                 if remaining.is_empty() {
@@ -860,15 +861,15 @@ impl Game {
                 }
             }
             Frame::DamageChoice { source }
-                if self.current(source).is_err()
-                    || (self.recipients(source).len() < 2
-                        && (self.recipients(source).is_empty()
-                            || self.trample_player(source).is_none())) =>
+                if self.current(*source).is_err()
+                    || (self.recipients(*source).len() < 2
+                        && (self.recipients(*source).is_empty()
+                            || self.trample_player(*source).is_none())) =>
             {
                 self.state.rules.pending = None;
                 self.state.rules.frame = Frame::Damage;
             }
-            Frame::Discard { player, .. } if !self.is_live(player) => {
+            Frame::Discard { player, .. } if !self.is_live(*player) => {
                 self.state.rules.pending = None;
                 self.state.rules.frame = Frame::CleanupClear;
             }

@@ -144,11 +144,11 @@ impl Game {
         }
         Ok(())
     }
-    pub(super) fn damage_allocation_step(&mut self) -> Result<(), String> {
+    pub(super) fn damage_allocation_step(&mut self, frame: Frame) -> Result<(), String> {
         let Frame::DamageAllocation {
             transaction,
             effect,
-        } = self.state.rules.frame.clone()
+        } = frame
         else {
             return Err("allocation frame invariant".into());
         };
@@ -176,9 +176,11 @@ impl Game {
             },
             transaction.cause,
         )?;
-        let Frame::DamageAllocation { transaction, .. } = self.state.rules.frame.clone() else {
+        // The committed allocation rewrote the installed transaction.
+        let Frame::DamageAllocation { transaction, .. } = &self.state.rules.frame else {
             return Err("allocation event changed frame".into());
         };
+        let transaction = transaction.clone();
         self.state.rules.frame = Frame::DamageEffects { transaction };
         Ok(())
     }

@@ -379,6 +379,22 @@ impl From<PermittedView> for StoredPermittedView {
     }
 }
 impl StoredPermittedView {
+    /// This view with its priority holder and turn replaced. Every shared
+    /// row collection, and the canonical bytes that follow one, stays shared.
+    pub(super) fn with_priority_and_turn(
+        &self,
+        priority: Option<PlayerId>,
+        turn: TurnState,
+    ) -> Self {
+        let mut data = self.data.clone();
+        data.priority = priority;
+        data.turn = turn;
+        Self {
+            data,
+            segments: OnceLock::new(),
+            commanders_bytes: self.commanders_bytes.clone(),
+        }
+    }
     pub fn to_public(&self) -> PermittedView {
         let StoredViewData {
             known_searched_hand,
@@ -485,7 +501,9 @@ impl StoredPermittedView {
         // Complete ordered typed equality, never a hash or handle-only test.
         // All shared element types are Eq; pointer identity cannot bypass an
         // irreflexive PartialEq value. Sharing is ONLY this same-viewer predecessor.
-        if self.data.players.as_ref() == previous.data.players.as_ref() {
+        if Arc::ptr_eq(&self.data.players, &previous.data.players) {
+            // Already shared with the predecessor.
+        } else if self.data.players.as_ref() == previous.data.players.as_ref() {
             self.data.players = previous.data.players.clone();
         } else {
             let mut rows = previous
@@ -501,11 +519,15 @@ impl StoredPermittedView {
                 }
             }
         }
-        if self.data.commanders.as_ref() == previous.data.commanders.as_ref() {
+        if Arc::ptr_eq(&self.data.commanders, &previous.data.commanders)
+            || self.data.commanders.as_ref() == previous.data.commanders.as_ref()
+        {
             self.data.commanders = previous.data.commanders.clone();
             self.commanders_bytes = previous.commanders_bytes.clone();
         }
-        if self.data.objects.as_ref() == previous.data.objects.as_ref() {
+        if Arc::ptr_eq(&self.data.objects, &previous.data.objects) {
+            // Already shared with the predecessor.
+        } else if self.data.objects.as_ref() == previous.data.objects.as_ref() {
             self.data.objects = previous.data.objects.clone();
         } else {
             // Consume each previous handle at most once: malformed duplicate
