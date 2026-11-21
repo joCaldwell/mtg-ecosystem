@@ -24,6 +24,10 @@
   box-shadow: 0 0 0 3px var(--sel-bg);
 }
 
+@media (forced-colors: none) {
+  .field[type="search"]:focus-visible { outline: none; }
+}
+
 .field:disabled {
   opacity: 0.5;
 }
