@@ -1,10 +1,12 @@
 //! A deliberately fixed, tiny developer probe. This is trusted diagnostic data,
 //! not a player API, full game, universal replay debugger, or acceptance gate.
+use crate::{
+    BUILD_DEBUG_ASSERTIONS, BUILD_ID, BUILD_OPT_LEVEL, BUILD_PROFILE, BUILD_RUSTC, BUILD_TARGET,
+};
 use mtg_compiler::{CompileResult, compile, fixtures};
 use mtg_contracts::{Catalog, Color, Quantity, canonical, digest, sha256, strict_read};
 use mtg_core::{
-    Advance, BUILD_DEBUG_ASSERTIONS, BUILD_ID, BUILD_OPT_LEVEL, BUILD_PROFILE, BUILD_RUSTC,
-    BUILD_TARGET, Budget, Game, Observation, PlayerId, PlayerRequest, PlayerResponse, Prepared,
+    Advance, Budget, Game, Observation, PlayerId, PlayerRequest, PlayerResponse, Prepared,
     QueryRejection, QueryResult, QueryValue, ReplayJournal, ScenarioConfig, TraceMode,
 };
 use serde::{Deserialize, Serialize};

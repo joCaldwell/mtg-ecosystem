@@ -1,11 +1,12 @@
 //! Offline artifact loading, batch inspection and bounded replay evidence.
+use crate::BUILD_ID;
 use mtg_contracts::{
     JsonByteProof,
     bulk_catalog::{BulkArtifact, BulkManifest, MANIFEST_MAX_BYTES, is_sha256},
     canonical, digest, strict_read_seekable_verified,
 };
 use mtg_core::{
-    Advance, BUILD_ID, Budget, CaptureOutcome, DeckInspection, DeckRole, DynamicAdmissionIdentity,
+    Advance, Budget, CaptureOutcome, DeckInspection, DeckRole, DynamicAdmissionIdentity,
     DynamicDeckEntry, DynamicMatchConfig, Game, MatchAdmissionError, MatchConfig, PlayerId,
     Prepared, ReplayJournal, Request, Response, SearchRejection, TraceMode, TurnStep,
     admit_dynamic_pod, inspect_dynamic_deck, match_profile,

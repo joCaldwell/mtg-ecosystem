@@ -277,9 +277,9 @@ fn m4e_actual_artifact_land_and_ramos_wu_payment_printed_color_counters() {
 fn m4e_producer_identity() {
     eprintln!(
         "M4E_PRODUCER {}",
-        serde_json::json!({"build_id":crate::BUILD_ID,"profile":crate::BUILD_PROFILE,"opt_level":crate::BUILD_OPT_LEVEL,"debug_assertions":crate::BUILD_DEBUG_ASSERTIONS,"rustc":crate::BUILD_RUSTC,"target":crate::BUILD_TARGET})
+        serde_json::json!({"build_id":crate::build_id(),"opt_level":TEST_OPT_LEVEL,"debug_assertions":cfg!(debug_assertions)})
     );
-    assert_eq!(crate::BUILD_OPT_LEVEL, "2");
+    assert_eq!(TEST_OPT_LEVEL, "2");
     assert!(cfg!(debug_assertions));
 }
 #[test]

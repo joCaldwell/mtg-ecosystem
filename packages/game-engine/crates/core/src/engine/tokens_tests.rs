@@ -1722,7 +1722,7 @@ fn public_history_release_probe() {
         serde_json::json!({
             "triggers": triggers, "deaths":120, "views":views, "stack_nodes":nodes,
             "logical_stack_entries":logical, "history_charge":g.history_charge(),
-            "elapsed_us":start.elapsed().as_micros(), "build_id":BUILD_ID,
+            "elapsed_us":start.elapsed().as_micros(), "build_id":build_id(),
         "baseline_rss_bytes":baseline_rss, "final_rss_bytes":rss_bytes(),
         "rss_growth_bytes":rss_bytes().saturating_sub(baseline_rss)
         })
@@ -1912,7 +1912,7 @@ fn history_decking_probe(lands: bool) {
             "views":g.state.knowledge.visibility.iter().map(|k| k.history.len()).collect::<Vec<_>>(),
             "rule_steps":g.state.rules.rule_steps,"event_sequence":g.state.rules.next_event_sequence,
             "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),
-            "elapsed_us":start.elapsed().as_micros(),"build_id":BUILD_ID
+            "elapsed_us":start.elapsed().as_micros(),"build_id":build_id()
         })
     );
     assert!(matches!(
@@ -1978,7 +1978,7 @@ fn history_budget_release_probe() {
         serde_json::json!({
             "charge":g.history_charge(),"budget":capacities::HISTORY_LIMIT,
             "views":g.state.knowledge.visibility[0].history.len(),
-            "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),"build_id":BUILD_ID
+            "baseline_rss_bytes":baseline_rss,"final_rss_bytes":history_rss_bytes(),"build_id":build_id()
         })
     );
 }

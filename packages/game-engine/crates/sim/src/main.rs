@@ -1,10 +1,9 @@
 use mtg_compiler::{CompileResult, compile, fixtures};
 use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
-    Advance, BUILD_DEBUG, BUILD_DEBUG_ASSERTIONS, BUILD_ID, BUILD_OPT_LEVEL, BUILD_PROFILE,
-    BUILD_RUSTC, BUILD_RUSTFLAGS, BUILD_TARGET, Budget, CardId, Game, ObjectId, Observation,
-    PlayerId, Prepared, QueryResult, QueryValue, ReplayJournal, Response, ScenarioConfig,
-    SearchContext, SnapshotVerifier, TraceMode, TurnStep, Zone,
+    Advance, Budget, CardId, Game, ObjectId, Observation, PlayerId, Prepared, QueryResult,
+    QueryValue, ReplayJournal, Response, ScenarioConfig, SearchContext, SnapshotVerifier,
+    TraceMode, TurnStep, Zone,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -13,6 +12,21 @@ use std::{
     path::Path,
     time::Instant,
 };
+
+/// This executable's engine build identity: build.rs hashes the production
+/// engine source closure (`crates/build_identity.rs`). `main` installs it into
+/// mtg-core before any engine use; retained source-closure evidence reproduces
+/// it. Unit tests leave core at `BuildIdentity::TEST`, and nothing here compares
+/// that test identity with this compiled one.
+pub(crate) const BUILD: mtg_core::BuildIdentity = mtg_core::compiled_build_identity!();
+pub(crate) const BUILD_ID: &str = BUILD.id;
+pub(crate) const BUILD_PROFILE: &str = BUILD.profile;
+pub(crate) const BUILD_OPT_LEVEL: &str = BUILD.opt_level;
+pub(crate) const BUILD_DEBUG: &str = BUILD.debug;
+pub(crate) const BUILD_DEBUG_ASSERTIONS: &str = BUILD.debug_assertions;
+pub(crate) const BUILD_TARGET: &str = BUILD.target;
+pub(crate) const BUILD_RUSTFLAGS: &str = BUILD.rustflags;
+pub(crate) const BUILD_RUSTC: &str = BUILD.rustc;
 
 mod actions_payments_games;
 mod bulk_input;
@@ -1606,6 +1620,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
     replay.state_digest()
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    mtg_core::install_build_identity(BUILD)?;
     let args: Vec<String> = std::env::args().skip(1).collect();
     if matches!(
         args.first().map(String::as_str),
@@ -2122,6 +2137,10 @@ mod tests {
         );
     }
     #[test]
+    fn recorded_debug_assertions_match_the_target_configuration() {
+        assert_eq!(BUILD_DEBUG_ASSERTIONS, cfg!(debug_assertions).to_string());
+    }
+    #[test]
     fn code_identity_excludes_catalog_data_but_keeps_source_and_hash_checks() {
         let metadata = [
             BUILD_RUSTC.to_owned() + "\n",
@@ -2160,6 +2179,22 @@ mod tests {
         host.contents.push(' ');
         host.sha256 = sha256(host.contents.as_bytes());
         verify_native_source_bytes(&files, BUILD_ID, metadata).unwrap();
+        // Test-only engine sources never enter an executable or its identity.
+        for suffix in [
+            "_tests.rs",
+            "/tests.rs",
+            "crates/core/tests/combat_adversarial.rs",
+        ] {
+            let test = files
+                .iter_mut()
+                .find(|f| {
+                    f.path.starts_with("packages/game-engine/crates/") && f.path.ends_with(suffix)
+                })
+                .unwrap();
+            test.contents.push(' ');
+            test.sha256 = sha256(test.contents.as_bytes());
+            verify_native_source_bytes(&files, BUILD_ID, metadata).unwrap();
+        }
         let code = files
             .iter_mut()
             .find(|f| f.path.ends_with("crates/core/src/engine.rs"))

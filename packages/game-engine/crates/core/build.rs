@@ -1,34 +1,13 @@
-#[path = "src/engine/capacities.rs"]
-#[allow(dead_code)]
-mod capacities;
-#[path = "src/profile_data.rs"]
-#[allow(dead_code)]
-mod profile_data;
+// Pure data embedding: reviewed catalog sizes/definition pins and match
+// profiles. No engine types, no engine source identity: mtg-core never depends
+// on mtg-contracts at build time, and the executable edge supplies the build
+// identity (`crates/build_identity.rs`). Typed profile/catalog validation lives
+// in `src/engine/match_profile_validation_tests.rs`.
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::Command,
 };
-fn collect(path: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(path).expect("engine source directory") {
-        let p = entry.expect("source entry").path();
-        if p.is_dir() {
-            if p.file_name().is_some_and(|name| {
-                name == "generated" || name == "target" || name == "node_modules" || name == ".git"
-            }) {
-                continue;
-            }
-            collect(&p, out);
-        } else if p
-            .extension()
-            .is_some_and(|x| x == "rs" || x == "json" || x == "sha256")
-            || p.file_name().is_some_and(|x| x == "Cargo.toml")
-        {
-            out.push(p);
-        }
-    }
-}
 // Record every data read, including missing inputs that diagnostics tolerate.
 // Cargo recursively watches directories, so avoid watching the fixture root.
 // https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed
@@ -45,6 +24,7 @@ fn main() {
     // Catalog digests/counts and scenario definition pins derive from reviewed
     // expected IR. The compiler freshness test checks it against source records.
     let data = root.join("packages/game-engine/tests/fixtures/catalogs");
+    println!("cargo:rerun-if-changed={}", data.display());
     let mut sizes = String::from(
         "pub(super) fn reviewed_catalog_size(hash: &str) -> Option<usize> { const SIZES: &[(&str, usize)] = &[\n",
     );
@@ -118,14 +98,24 @@ fn main() {
     // recursively watching every unrelated fixture and make warm/cold output
     // disagree after adding an unused policy file.
     let mut banned_files = std::collections::BTreeMap::new();
+    let mut profiles = vec![];
     for path in &paths {
         let raw = read_to_string(path).unwrap();
-        let profile: profile_data::MatchProfile = mtg_contracts::strict_read(&raw)
-            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
-        let selected = path
-            .parent()
-            .unwrap()
-            .join(&profile.commander_policy.banned_list);
+        // Untyped selection only: the typed strict loader (the same one runtime
+        // uses) validates every embedded profile in match_profile_validation_tests.
+        let profile: serde_json::Value = serde_json::from_str(&raw)
+            .unwrap_or_else(|e| panic!("invalid profile JSON {}: {e}", path.display()));
+        let name = profile["name"].as_str().expect("profile name").to_owned();
+        assert!(
+            names.insert(name.clone()),
+            "duplicate profile name {name:?} in {}",
+            path.display()
+        );
+        let selected = path.parent().unwrap().join(
+            profile["commander_policy"]["banned_list"]
+                .as_str()
+                .expect("profile banned list"),
+        );
         let canonical = fs::canonicalize(&selected).unwrap();
         assert!(
             canonical.parent() == Some(fs::canonicalize(fixtures).unwrap().as_path())
@@ -139,31 +129,17 @@ fn main() {
             path.display(),
             selected.display()
         );
-        banned_files.insert(canonical, read_to_string(selected).unwrap());
-    }
-    let mut generated = String::from(
-        "pub static MATCH_PROFILES: std::sync::LazyLock<Vec<MatchProfile>> = std::sync::LazyLock::new(|| { let mut profiles = vec![\n",
-    );
-    for path in paths {
-        let raw = read_to_string(&path).unwrap();
-        let profile: profile_data::MatchProfile = mtg_contracts::strict_read(&raw)
-            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
-        assert!(
-            names.insert(profile.name.clone()),
-            "duplicate profile name {:?} in {}",
-            profile.name,
-            path.display()
+        banned_files.insert(canonical.clone(), read_to_string(&selected).unwrap());
+        let manifest_path = path.parent().unwrap().join(
+            profile["catalog_manifest"]
+                .as_str()
+                .expect("profile catalog manifest"),
         );
-        let manifest_path = path.parent().unwrap().join(&profile.catalog_manifest);
         let manifest: serde_json::Value =
             serde_json::from_slice(&read(&manifest_path).unwrap()).unwrap();
-        let catalog_raw = read_to_string(
-            manifest_path
-                .parent()
-                .unwrap()
-                .join(manifest["expected_ir"].as_str().unwrap()),
-        )
-        .unwrap();
+        let base = manifest_path.parent().unwrap();
+        let catalog_raw =
+            read_to_string(base.join(manifest["expected_ir"].as_str().unwrap())).unwrap();
         let ir: serde_json::Value = serde_json::from_str(&catalog_raw).unwrap();
         assert_eq!(
             ir["schema_version"], manifest["schema_version"],
@@ -172,116 +148,20 @@ fn main() {
         let catalog_hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&ir).unwrap()));
         assert_eq!(
             catalog_hash,
-            read_to_string(
-                manifest_path
-                    .parent()
-                    .unwrap()
-                    .join(manifest["expected_digest"].as_str().unwrap())
-            )
-            .unwrap()
-            .trim(),
+            read_to_string(base.join(manifest["expected_digest"].as_str().unwrap()))
+                .unwrap()
+                .trim(),
             "manifest catalog digest"
         );
-        let banned_path = fs::canonicalize(
-            path.parent()
-                .unwrap()
-                .join(&profile.commander_policy.banned_list),
-        )
-        .unwrap_or_else(|e| panic!("banned list for {}: {e}", path.display()));
-        let banned_raw = banned_files.get(&banned_path).unwrap_or_else(|| {
-            panic!(
-                "profile {} selects a file outside the banned-list data: {}",
-                path.display(),
-                banned_path.display()
-            )
-        });
-        let validated = profile_data::MatchProfile::load(&raw, &catalog_raw, banned_raw)
-            .unwrap_or_else(|e| panic!("invalid profile {}: {e}", path.display()));
-        let banned: serde_json::Value = serde_json::from_str(banned_raw).unwrap();
-        // Derive the old pool review from each authentic archive source record.
-        for record in manifest["records"].as_array().unwrap() {
-            let card: serde_json::Value = serde_json::from_slice(
-                &read(
-                    manifest_path
-                        .parent()
-                        .unwrap()
-                        .join(record.as_str().unwrap()),
-                )
-                .unwrap(),
-            )
-            .unwrap();
-            let source = &card["source"];
-            let id = card["oracleIdentity"].as_str().unwrap();
-            assert_eq!(
-                source["legalities"]["commander"], "legal",
-                "Commander legality: {id}"
-            );
-            assert!(
-                !source["type_line"]
-                    .as_str()
-                    .unwrap()
-                    .split_whitespace()
-                    .any(|x| x == "Conspiracy")
-            );
-            assert!(
-                !source["oracle_text"]
-                    .as_str()
-                    .unwrap_or("")
-                    .split(|c: char| !c.is_alphabetic())
-                    .any(|x| x.eq_ignore_ascii_case("ante"))
-            );
-            assert!(
-                !banned["named_bans"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .chain(banned["offensive_policy"]["records"].as_array().unwrap())
-                    .any(|b| b["oracle_id"] == id),
-                "banned card: {id}"
-            );
-        }
-        // Same typed loader and exact bytes were validated above. Runtime errors
-        // are unreachable without a build-script defect; no user I/O is parsed.
-        assert_eq!(validated.catalog_sha256, catalog_hash);
-        let catalog = validated.catalog();
-        assert!(
-            catalog
-                .definitions
-                .iter()
-                .filter(|d| d.characteristics.basic)
-                .all(|d| d.triggered.is_empty()
-                    && !d.static_abilities.iter().any(|a| matches!(
-                        a.effect,
-                        mtg_contracts::StaticEffect::GrantSpellCascade { .. }
-                    ))),
-            "{}: basic triggered sources invalidate singleton sizing",
-            path.display()
-        );
-        let cast_wave = catalog
-            .cast_trigger_fanout_bound(400)
-            .expect("cast trigger sizing overflow");
-        assert!(
-            cast_wave < capacities::STACK_LIMIT / 2,
-            "{}: cast trigger bound {cast_wave} exceeds shared stack policy",
-            path.display()
-        );
-        let sources = 4 * catalog
-            .definitions
-            .iter()
-            .map(|d| d.triggered.len())
-            .sum::<usize>();
-        let wave = (400 + capacities::TOKEN_CAPACITY as usize)
-            .checked_mul(sources)
-            .expect("trigger sizing overflow");
-        assert!(
-            wave < capacities::STACK_LIMIT / 2,
-            "{}: simultaneous trigger bound {wave} exceeds shared stack policy; revisit capacities",
-            path.display()
-        );
-
+        profiles.push((raw, catalog_raw, canonical));
+    }
+    let mut generated = String::from(
+        "pub static MATCH_PROFILES: std::sync::LazyLock<Vec<MatchProfile>> = std::sync::LazyLock::new(|| { let mut profiles = vec![\n",
+    );
+    for (raw, catalog_raw, banned_path) in profiles {
         let banned_index = banned_files.keys().position(|p| p == &banned_path).unwrap();
         generated += &format!(
-            "MatchProfile::load({raw:?}, {catalog_raw:?}, BANNED_LISTS[{banned_index}]).expect(\"build-validated profile\"),\n"
+            "MatchProfile::load({raw:?}, {catalog_raw:?}, BANNED_LISTS[{banned_index}]).expect(\"test-validated profile\"),\n"
         );
     }
     generated += "]; profiles.sort_by(|a, b| a.name.cmp(&b.name)); profiles });\n";
@@ -295,69 +175,15 @@ fn main() {
         generated,
     )
     .unwrap();
-    let mut files = vec![
-        root.join("Cargo.toml"),
-        root.join("Cargo.lock"),
-        root.join("rust-toolchain.toml"),
-    ];
-    collect(&root.join("packages/game-engine/crates"), &mut files);
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("packages/game-engine/crates").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("packages/game-engine/tests/fixtures/catalogs")
-            .display()
-    );
-    files.retain(|p| {
-        mtg_contracts::engine_build_input(&p.strip_prefix(&root).unwrap().to_string_lossy())
-    });
-    // The manifest is ordered by serialized path bytes, not PathBuf's
-    // component ordering (which differs once sources have nested modules).
-    files.sort_by_key(|p| {
-        p.strip_prefix(&root)
-            .unwrap()
-            .to_string_lossy()
-            .into_owned()
-    });
-    let mut hash = Sha256::new();
-    for p in files {
-        hash.update(p.strip_prefix(&root).unwrap().to_string_lossy().as_bytes());
-        hash.update([0]);
-        hash.update(read(&p).expect("build input"));
-        hash.update([0]);
-    }
-    let rustc = Command::new(env::var("RUSTC").unwrap())
-        .arg("--version")
-        .output()
-        .expect("rustc identity");
-    hash.update(&rustc.stdout);
-    // Cargo PROFILE alone conflates dev and optimized test builds. Capture
-    // effective optimization and checks as part of the reproducible identity.
-    // https://doc.rust-lang.org/cargo/reference/environment-variables.html
-    for key in [
-        "PROFILE",
-        "TARGET",
-        "CARGO_ENCODED_RUSTFLAGS",
-        "OPT_LEVEL",
-        "DEBUG",
-        "DEBUG_ASSERTIONS",
+    // Cargo profile of this unit for diagnostic test receipts. Never source
+    // dependent; https://doc.rust-lang.org/cargo/reference/environment-variables.html
+    for (key, name) in [
+        ("OPT_LEVEL", "MTG_CORE_OPT_LEVEL"),
+        ("PROFILE", "MTG_CORE_PROFILE"),
     ] {
-        let value = if key == "DEBUG_ASSERTIONS" {
-            env::var_os("CARGO_CFG_DEBUG_ASSERTIONS")
-                .is_some()
-                .to_string()
-        } else {
+        println!(
+            "cargo:rustc-env={name}={}",
             env::var(key).unwrap_or_default()
-        };
-        hash.update([0]);
-        hash.update(value.as_bytes());
-        println!("cargo:rustc-env=MTG_{key}={value}");
+        );
     }
-    println!("cargo:rustc-env=MTG_BUILD_ID={:x}", hash.finalize());
-    println!(
-        "cargo:rustc-env=MTG_RUSTC={}",
-        String::from_utf8(rustc.stdout).unwrap().trim_end()
-    );
 }

@@ -122,7 +122,7 @@ fn own_graveyard_card_return_paid_entry_restores_optional_noncreature_return() {
     };
     let saved = game.save_work(&work).unwrap();
     let saved_value: serde_json::Value = serde_json::from_str(&saved).unwrap();
-    assert_eq!(saved_value["work_version"], 50);
+    assert_eq!(saved_value["work_version"], crate::formats::WORK_VERSION);
     let work = game.restore_work(&saved).unwrap();
     let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::Targets {
         token,

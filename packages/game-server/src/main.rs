@@ -60,13 +60,13 @@ fn native_info() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}",
         serde_json::to_string(&serde_json::json!({
-            "engine_build_id":mtg_core::BUILD_ID,
+            "engine_build_id":mtg_server::ENGINE_BUILD.id,
             "server_build_id":mtg_server::SERVER_BUILD_ID.as_str(),
-            "rustc":mtg_core::BUILD_RUSTC,
-            "target":mtg_core::BUILD_TARGET,
-            "profile":mtg_core::BUILD_PROFILE,
-            "opt_level":mtg_core::BUILD_OPT_LEVEL,
-            "rustflags":mtg_core::BUILD_RUSTFLAGS,
+            "rustc":mtg_server::ENGINE_BUILD.rustc,
+            "target":mtg_server::ENGINE_BUILD.target,
+            "profile":mtg_server::ENGINE_BUILD.profile,
+            "opt_level":mtg_server::ENGINE_BUILD.opt_level,
+            "rustflags":mtg_server::ENGINE_BUILD.rustflags,
             "sqlite_version":rusqlite::version(),
             "sqlite_compile_options":options,
         }))?
@@ -166,6 +166,7 @@ async fn serve(
     Ok(())
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    mtg_core::install_build_identity(mtg_server::ENGINE_BUILD)?;
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.first().and_then(|a|a.to_str()) {
         Some("schema") if args.len()==1=>schema(),

@@ -672,7 +672,7 @@ impl Game {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
-                    observation_version: 54,
+                    observation_version: crate::formats::OBSERVATION_VERSION,
                     decision_context: self
                         .permitted_decision_context(builder.view.viewer, builder.decision.as_ref()),
                     view: builder.view,
@@ -1334,7 +1334,7 @@ impl Game {
                         // Search remains incomplete here. Keep its historical
                         // builder scratch intact for exact saved-work recovery.
                         *observation = Some(Box::new(Observation {
-                            observation_version: 54,
+                            observation_version: crate::formats::OBSERVATION_VERSION,
                             decision_context: self.permitted_decision_context(
                                 builder.view.viewer,
                                 builder.decision.as_ref(),
@@ -1370,7 +1370,7 @@ impl Game {
                     return Ok(None);
                 }
                 Ok(Some(QueryValue::SearchContext(SearchContext {
-                    context_version: 50,
+                    context_version: crate::formats::SEARCH_CONTEXT_VERSION,
                     observation: *observation.take().ok_or(QueryRejection::Invariant)?,
                     permitted_history: std::mem::take(history),
                     open_decklists: std::mem::take(decks),
@@ -1389,8 +1389,8 @@ impl Game {
             return Err("stale or foreign work".into());
         }
         canonical(&SavedWork {
-            work_version: 50,
-            build_id: BUILD_ID.into(),
+            work_version: crate::formats::WORK_VERSION,
+            build_id: build_id().into(),
             catalog_digest: self.prepared.catalog_digest.clone(),
             state_sha256: self.state_digest()?,
             data: work.data.clone(),
@@ -1398,8 +1398,8 @@ impl Game {
     }
     pub fn restore_work(&self, json: &str) -> Result<Work, String> {
         let saved: SavedWork = strict_read(json)?;
-        if saved.work_version != 50
-            || saved.build_id != BUILD_ID
+        if saved.work_version != crate::formats::WORK_VERSION
+            || saved.build_id != build_id()
             || saved.catalog_digest != self.prepared.catalog_digest
             || saved.state_sha256 != self.state_digest()?
         {

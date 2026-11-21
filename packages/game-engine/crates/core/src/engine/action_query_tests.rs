@@ -150,9 +150,9 @@ fn partitions_paging_cancellation_and_queries_preserve_every_publication() {
     let game = scenario();
     eprintln!(
         "core test identity: {} profile={} opt={} ir={}",
-        BUILD_ID,
-        crate::BUILD_PROFILE,
-        crate::BUILD_OPT_LEVEL,
+        build_id(),
+        TEST_PROFILE,
+        TEST_OPT_LEVEL,
         mtg_contracts::CURRENT_IR_VERSION
     );
     let before = game.snapshot().unwrap();

@@ -47,7 +47,7 @@ pub fn admit(request: AdmissionRequest) -> AdmissionResponse {
     let Some(profile) = match_profile(&request.profile) else {
         return rejected("profile", "unknown profile");
     };
-    if request.engine_build_id != mtg_core::BUILD_ID
+    if request.engine_build_id != crate::ENGINE_BUILD.id
         || request.server_build_id != *crate::SERVER_BUILD_ID
         || request.catalog_sha256 != profile.catalog_sha256
     {
@@ -79,7 +79,7 @@ pub fn admit(request: AdmissionRequest) -> AdmissionResponse {
     AdmissionResponse::Admitted {
         version: 1,
         profile: profile.name.clone(),
-        engine_build_id: mtg_core::BUILD_ID.into(),
+        engine_build_id: crate::ENGINE_BUILD.id.into(),
         server_build_id: crate::SERVER_BUILD_ID.clone(),
         catalog_sha256: profile.catalog_sha256.clone(),
         deck: pod.normalized_config().decks[0].clone(),
@@ -112,7 +112,7 @@ mod tests {
             version: 1,
             operation: "admit".into(),
             profile: profile.into(),
-            engine_build_id: mtg_core::BUILD_ID.into(),
+            engine_build_id: crate::ENGINE_BUILD.id.into(),
             server_build_id: crate::SERVER_BUILD_ID.clone(),
             catalog_sha256: p.catalog_sha256.clone(),
             deck: p.decks[0].clone(),
@@ -152,7 +152,7 @@ mod tests {
     fn strict_request_rejects_duplicate_unknown_and_imprecise_counts() {
         let p = match_profile("commander-foundations-v1").unwrap();
         let raw = serde_json::json!({"version":1,"operation":"admit","profile":p.name,
-            "engine_build_id":mtg_core::BUILD_ID,"server_build_id":*crate::SERVER_BUILD_ID,
+            "engine_build_id":crate::ENGINE_BUILD.id,"server_build_id":*crate::SERVER_BUILD_ID,
             "catalog_sha256":p.catalog_sha256,"deck":p.decks[0]})
         .to_string();
         assert!(crate::codec::exact::<AdmissionRequest>(&raw).is_ok());

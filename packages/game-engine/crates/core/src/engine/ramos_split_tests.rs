@@ -387,7 +387,7 @@ fn ramos_split_paid_zero_one_two_identity_reveal_privacy_restore_replay() {
                     eprintln!(
                         "ramos_m2 name={name:?} selected={count} reverse={reverse} trace={:?} build={} boundary={} journal={} state={}",
                         g.trace.mode,
-                        BUILD_ID,
+                        build_id(),
                         g.rule_boundary(),
                         digest(&g.replay_journal()).unwrap(),
                         g.state_digest().unwrap()

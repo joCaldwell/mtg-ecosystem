@@ -47,6 +47,7 @@ fn submit(w: &mut Worker, n: &mut u64, response: PlayerResponse) -> Result<(), S
     settle(w)
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    mtg_core::install_build_identity(mtg_server::ENGINE_BUILD)?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() != 2 {
         return Err("usage: action_fixture NEW_SCRATCH NEW_PUBLIC_JSON".into());
@@ -156,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         captures.push(serde_json::json!({"profile":name,"catalog_fixture":fixture,"fixture_sha256":mtg_contracts::sha256(bytes.as_bytes()),"catalog_sha256":catalog_hash,"match_id":"a1","capture_namespace":format!("{name}/seed3/offline"),"stages":stages}));
     }
-    let output = serde_json::json!({"fixture_version":1,"engine_build_id":mtg_core::BUILD_ID,"server_build_id":*mtg_server::SERVER_BUILD_ID,"scope":"isolated frozen admitted prefixes; tokens and handles valid only inside each capture namespace; no credentials or trusted state; labels/context remain core output", "captures":captures});
+    let output = serde_json::json!({"fixture_version":1,"engine_build_id":mtg_server::ENGINE_BUILD.id,"server_build_id":*mtg_server::SERVER_BUILD_ID,"scope":"isolated frozen admitted prefixes; tokens and handles valid only inside each capture namespace; no credentials or trusted state; labels/context remain core output", "captures":captures});
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)

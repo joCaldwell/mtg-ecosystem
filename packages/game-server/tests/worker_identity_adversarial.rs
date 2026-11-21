@@ -39,7 +39,7 @@ fn catalog() -> Catalog {
 fn expected(catalog: &Catalog, config: &MatchConfig) -> WorkerIdentity {
     WorkerIdentity {
         match_id: "a1".into(),
-        engine_build_id: mtg_core::BUILD_ID.into(),
+        engine_build_id: mtg_server::ENGINE_BUILD.id.into(),
         server_build_id: mtg_server::SERVER_BUILD_ID.to_string(),
         catalog_sha256: digest(catalog).unwrap(),
         profile_sha256: Prepared::admit_pod(catalog.clone(), config.clone())

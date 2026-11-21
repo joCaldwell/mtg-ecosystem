@@ -146,11 +146,11 @@ impl Game {
                         .as_ref()
                         .ok_or_else(|| invariant("capture pod"))?;
                     w.data = Some(Box::new(SearchCaptureData {
-                        capture_version: 1,
+                        capture_version: crate::formats::CAPTURE_VERSION,
                         profile: PublicSearchProfile {
                             reconstruction_schema: SEARCH_RECONSTRUCTION.into(),
                             information_policy: SEARCH_INFORMATION.into(),
-                            engine_build_id: BUILD_ID.into(),
+                            engine_build_id: build_id().into(),
                             catalog_digest: self.prepared.catalog_digest.clone(),
                             rules_digest: RULES_SHA256.into(),
                             commander_policy_digest: policy_digest(&config.profile)

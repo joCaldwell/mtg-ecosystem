@@ -928,7 +928,7 @@ fn legal_branch_host_diagnostic() {
         "all_first_write" => Sweep::AllFirstWrite,
         _ => panic!("undeclared legalsweep"),
     };
-    println!("LEGAL_BRANCH_ROOT_START={}",canonical(&serde_json::json!({"case":case,"build_id":BUILD_ID,"contract_sha256":sha256(LEGAL_BRANCH_CONTRACT.as_bytes()),"contract":serde_json::from_str::<serde_json::Value>(LEGAL_BRANCH_CONTRACT).unwrap(),"sweep":kind})).unwrap());
+    println!("LEGAL_BRANCH_ROOT_START={}",canonical(&serde_json::json!({"case":case,"build_id":build_id(),"contract_sha256":sha256(LEGAL_BRANCH_CONTRACT.as_bytes()),"contract":serde_json::from_str::<serde_json::Value>(LEGAL_BRANCH_CONTRACT).unwrap(),"sweep":kind})).unwrap());
     let mut profile = if LegalProofProfile::requested(
         std::env::var_os("LEGAL_BRANCH_PROOF_PHASE_V1").as_deref(),
         std::env::var_os("LEGAL_BRANCH_OUTER_GUARD").as_deref(),
@@ -961,7 +961,7 @@ fn legal_branch_host_diagnostic() {
             rows.push(sweep(&root, &expected, kind, repetition, requested).unwrap());
         }
     }
-    println!("LEGAL_BRANCH_RESULT={}",canonical(&serde_json::json!({"schema":"legal-branch-diagnostic-result-v1","build_id":BUILD_ID,"case":case,"sweep":kind,"contract_sha256":sha256(LEGAL_BRANCH_CONTRACT.as_bytes()),"contract":serde_json::from_str::<serde_json::Value>(LEGAL_BRANCH_CONTRACT).unwrap(),"warmup_sweeps":4,"measured_sweeps":20,"rows":rows,"outer_guard_declared_not_proven_here":true,"latency_or_strategic_strength_claim":false,"initial400_card_legal_admission":true})).unwrap());
+    println!("LEGAL_BRANCH_RESULT={}",canonical(&serde_json::json!({"schema":"legal-branch-diagnostic-result-v1","build_id":build_id(),"case":case,"sweep":kind,"contract_sha256":sha256(LEGAL_BRANCH_CONTRACT.as_bytes()),"contract":serde_json::from_str::<serde_json::Value>(LEGAL_BRANCH_CONTRACT).unwrap(),"warmup_sweeps":4,"measured_sweeps":20,"rows":rows,"outer_guard_declared_not_proven_here":true,"latency_or_strategic_strength_claim":false,"initial400_card_legal_admission":true})).unwrap());
 }
 
 // Same independently reviewed whole-View generic oracle/comparator as the

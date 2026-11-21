@@ -83,18 +83,8 @@ pub use basic_land_fetch::conditional_basic_land_fetch_program;
 pub use fetched_land_untap::{fetched_land_reference, fetched_land_untap_clause};
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
-/// Engine build identity excludes card/profile data and hosting code. Retained
-/// evidence still carries those files with their own hashes; matches/snapshots
-/// separately bind the exact catalog digest. Used by both the core build and
-/// the independent native source-closure verifier.
-pub fn engine_build_input(path: &str) -> bool {
-    matches!(path, "Cargo.toml" | "Cargo.lock" | "rust-toolchain.toml")
-        || (path.starts_with("packages/game-engine/crates/")
-            && !path
-                .split('/')
-                .any(|p| matches!(p, "generated" | "target" | "node_modules" | ".git"))
-            && (path.ends_with(".rs") || path.ends_with("/Cargo.toml")))
-}
+mod build_input;
+pub use build_input::{engine_build_input, test_only_source};
 use num_bigint::BigInt;
 use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -8376,28 +8366,6 @@ mod permanent_owner_hand_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn build_identity_covers_all_engine_source_but_not_fixture_or_host_data() {
-        for path in [
-            "Cargo.lock",
-            "Cargo.toml",
-            "rust-toolchain.toml",
-            "packages/game-engine/crates/sim/src/new_module.rs",
-            "packages/game-engine/crates/core/build.rs",
-            "packages/game-engine/crates/compiler/Cargo.toml",
-        ] {
-            assert!(engine_build_input(path), "{path}");
-        }
-        for path in [
-            "packages/game-engine/tests/fixtures/catalogs/base.json",
-            "packages/game-server/src/main.rs",
-            "packages/game-engine/crates/core/generated/export.rs",
-            "packages/game-engine/crates/core/README.md",
-        ] {
-            assert!(!engine_build_input(path), "{path}");
-        }
-    }
-
     #[test]
     fn current_ir_authority_matches_schema_and_validation() {
         for schema in [

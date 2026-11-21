@@ -287,7 +287,7 @@ impl LegalProofProfile {
         };
         profile.emit(
             serde_json::json!({"schema":PROFILE_SCHEMA,"kind":"header","seq":0,
-            "build_id":BUILD_ID,"collection_scope":"root_proofs_only","instrumentation":true}),
+            "build_id":build_id(),"collection_scope":"root_proofs_only","instrumentation":true}),
         )?;
         Ok(profile)
     }
@@ -1093,7 +1093,7 @@ impl Reference {
             .as_deref()
             .ok_or("reference result observation")?;
         Ok(
-            serde_json::json!({"context":OldContext {context_version:50,observation,permitted_history:&[],open_decklists:&self.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}}),
+            serde_json::json!({"context":OldContext {context_version:crate::formats::SEARCH_CONTEXT_VERSION,observation,permitted_history:&[],open_decklists:&self.decks,catalog_digest:&game.prepared.catalog_digest,profile_id:&game.prepared.config.profile,sampling_seed}}),
         )
     }
 }
@@ -1308,7 +1308,7 @@ pub(super) fn compare_with_profile(
                                     ProofPhase::SparseColdSave,
                                     |_| game.save_work(&work),
                                 )?;
-                                let envelope = serde_json::json!({"work_version":50,"build_id":BUILD_ID,"catalog_digest":game.prepared.catalog_digest,"state_sha256":state_sha256,"data":reference.data().unwrap()});
+                                let envelope = serde_json::json!({"work_version":crate::formats::WORK_VERSION,"build_id":build_id(),"catalog_digest":game.prepared.catalog_digest,"state_sha256":state_sha256,"data":reference.data().unwrap()});
                                 proof_phase(
                                     profile.as_deref_mut(),
                                     ProofPhase::SparseSavedEnvelopeComparison,

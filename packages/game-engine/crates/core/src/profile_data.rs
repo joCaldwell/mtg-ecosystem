@@ -1,5 +1,5 @@
-//! Admission data shared with build.rs: the exact same typed loader validates
-//! embedded profiles before any runtime lazy initialization can occur.
+//! Admission data embedded by build.rs. The same typed loader that runtime lazy
+//! initialization uses validates every embedded profile in a unit test.
 use mtg_contracts::{Capability, Catalog, digest, sha256, strict_read};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -167,9 +167,7 @@ impl MatchProfile {
         Ok(p)
     }
     pub fn catalog(&self) -> &Catalog {
-        self.catalog
-            .as_ref()
-            .expect("build-validated embedded catalog")
+        self.catalog.as_ref().expect("loaded embedded catalog")
     }
     pub fn policy_digest(&self) -> String {
         sha256(self.banned_list_raw.as_bytes())

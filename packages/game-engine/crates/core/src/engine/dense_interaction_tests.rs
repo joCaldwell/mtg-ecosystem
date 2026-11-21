@@ -591,7 +591,7 @@ fn direct_interaction_projection(g: &Game, viewer: PlayerId) -> Observation {
         _ => (),
     }
     Observation {
-        observation_version: 54,
+        observation_version: crate::formats::OBSERVATION_VERSION,
         decision_context: g.permitted_decision_context(viewer, decision.as_ref()),
         view,
         decision,
@@ -2122,7 +2122,7 @@ fn dense_interaction_host_diagnostic() {
             .unwrap()
         );
         let row = run(&name, true, 64);
-        println!("DENSE_INTERACTION_RESULT={}",canonical(&serde_json::json!({"schema":"synthetic-dense-interaction-result-v2","build_id":BUILD_ID,"contract_sha256":sha256(INTERACTION_CONTRACT.as_bytes()),"contract":serde_json::from_str::<serde_json::Value>(INTERACTION_CONTRACT).unwrap(),"repetition":repetition,"warmup":repetition==0,"result":row,"outer_guard_only_declared_here":true,"acceptance_latency_claim":false})).unwrap());
+        println!("DENSE_INTERACTION_RESULT={}",canonical(&serde_json::json!({"schema":"synthetic-dense-interaction-result-v2","build_id":build_id(),"contract_sha256":sha256(INTERACTION_CONTRACT.as_bytes()),"contract":serde_json::from_str::<serde_json::Value>(INTERACTION_CONTRACT).unwrap(),"repetition":repetition,"warmup":repetition==0,"result":row,"outer_guard_only_declared_here":true,"acceptance_latency_claim":false})).unwrap());
     }
 }
 

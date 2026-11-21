@@ -128,7 +128,7 @@ impl SampleBuildWork {
         proposal.validate_shape().map_err(invalid)?;
         let data = capture.data();
         let profile = &data.profile;
-        if proposal.proposal_version != 1
+        if proposal.proposal_version != crate::formats::PROPOSAL_VERSION
             || proposal.context_id != capture.context_id()
             || proposal.sampler_version != SEARCH_SAMPLER
         {
@@ -139,7 +139,7 @@ impl SampleBuildWork {
                 || p.catalog_sha256 != profile.catalog_digest
         }) || profile.reconstruction_schema != SEARCH_RECONSTRUCTION
             || profile.information_policy != SEARCH_INFORMATION
-            || profile.engine_build_id != BUILD_ID
+            || profile.engine_build_id != build_id()
             || profile.rules_digest != RULES_SHA256
             || profile.commander_policy_digest
                 != policy_digest(&profile.match_profile).map_err(invariant)?
