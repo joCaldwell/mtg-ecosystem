@@ -558,6 +558,8 @@ impl StoredPermittedView {
             stack: stack.to_public(),
         }
     }
+    /// Whether this stored view equals a public view, row for row.
+    #[cfg(any(debug_assertions, feature = "testkit"))]
     pub fn matches_public(&self, view: &PermittedView) -> bool {
         let PermittedView {
             known_searched_hand,

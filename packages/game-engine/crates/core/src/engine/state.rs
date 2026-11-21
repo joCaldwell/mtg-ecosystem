@@ -12,7 +12,7 @@ mod txn;
 mod validate;
 pub use error::RuleError;
 pub use model::*;
-pub use objects::{OBJECT_CHUNK, ObjectTable};
+pub use objects::ObjectTable;
 pub use shared::Shared;
 pub use txn::{PreEvent, RulesTxn};
 

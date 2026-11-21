@@ -36,7 +36,7 @@ impl Game {
             // A rules step commits atomically. Resource/invariant failures retain
             // its pre-step state and become faults, never wins/losses/draws.
             let input_report = REPORT.then(|| advance_report::StepInputCapture::capture(self));
-            let stepped = self.transact(|tx| {
+            let stepped = self.transact(|tx: &mut RulesTxn<'_>| {
                 tx.in_rule_step = COALESCE;
                 tx.check_history_capacity()?;
                 tx.step()?;

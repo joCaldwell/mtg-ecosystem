@@ -323,8 +323,10 @@ pub mod land_reclamation;
 pub mod multiplayer;
 pub mod restricted_mana;
 pub use multiplayer::*;
+#[cfg(feature = "testkit")]
+pub use publish::permitted_history;
 pub use publish::permitted_history::PermittedHistory;
-pub use publish::{permitted_history, stored_history, visibility};
+pub use publish::{stored_history, visibility};
 pub mod decision_context;
 pub use decision_context::*;
 pub mod publish;

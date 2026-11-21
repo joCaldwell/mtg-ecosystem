@@ -1987,7 +1987,7 @@ impl Game {
     ) -> Result<(), String> {
         match group {
             EventGroup::Occurrence { proposed } => {
-                let before_event = self.pre_event();
+                let before_event: PreEvent = self.pre_event();
                 let offset = out.len();
                 let before = match prepared {
                     Some(before) => before.clone(),
