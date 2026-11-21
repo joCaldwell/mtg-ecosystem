@@ -217,7 +217,17 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::DrawDamageAmount { .. }
         | I::DiscardTargetPlayerAtRandom { .. }
         | I::CopyControlledCreatureSpell { .. }
-        | I::DealDamageToController { .. } => FAMILY,
+        | I::DealDamageToController { .. }
+        // Optional blocks, delayed cast registration, mana-tap riders, colour
+        // changes, proliferate, recipient searches and transformation each
+        // bind a reviewed event, sibling block or second face.
+        | I::ChooseOptional { .. }
+        | I::DealDamageToManaActivator { .. }
+        | I::Proliferate { .. }
+        | I::RegisterControllerSpellCastThisTurn { .. }
+        | I::SearchRecipientBasicLand { .. }
+        | I::SetTargetColor { .. }
+        | I::TransformSource { .. } => FAMILY,
     }
 }
 
@@ -466,6 +476,8 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
             DamageTriggerSource::CreatureFilter { types, .. } => types.validate().is_ok(),
         },
         TriggerCondition::DelayedControllerCreatureEntry
+        | TriggerCondition::DelayedControllerSpellCast
+        | TriggerCondition::ManaTapped { .. }
         | TriggerCondition::SagaChapter { .. }
         | TriggerCondition::SelfSpellCast
         | TriggerCondition::GroupedDamageDealt { .. }
@@ -619,8 +631,11 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         }
     }
     // Whole-card characteristics the composition tables do not describe stay
-    // with their families: hybrid and X costs, snow, attachments and Sagas.
-    if !c.hybrid_mana.is_empty()
+    // with their families: second faces, hybrid and X costs, snow,
+    // attachments and Sagas.
+    if d.modal_land.is_some()
+        || d.transform_faces.is_some()
+        || !c.hybrid_mana.is_empty()
         || d.x_mana_cost
         || c.snow
         || c.basic

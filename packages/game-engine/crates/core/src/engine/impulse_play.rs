@@ -47,11 +47,18 @@ impl Game {
         else {
             return Err("missing library play instruction".into());
         };
-        if !frame.spell.kind.is_spell()
-            || frame.spell.paid.is_none()
-            || !frame.legal_targets.is_empty()
-        {
-            return Err("library play requires a resolving, paid ordinary spell".into());
+        let handles = match &frame.spell.kind {
+            StackKind::Spell => &frame.spell.effect_source_handles,
+            StackKind::Triggered {
+                ability: EffectiveTriggerAbility::Intrinsic { .. },
+                witness: TriggerEventWitness::LoreAdded { .. },
+                source_handles,
+                ..
+            } => source_handles,
+            _ => return Err("library play requires a spell or intrinsic chapter".into()),
+        };
+        if frame.spell.paid.is_none() || !frame.legal_targets.is_empty() {
+            return Err("library play requires a completed untargeted invocation".into());
         }
         let player = frame.spell.controller;
         if !self.is_live(player) {
@@ -82,7 +89,7 @@ impl Game {
                 stack_id: frame.spell.id,
                 source: frame.spell.source,
                 controller: player,
-                source_handles: frame.spell.effect_source_handles.clone(),
+                source_handles: handles.clone(),
                 cursor: frame.cursor,
                 source_block: *source_block,
             },

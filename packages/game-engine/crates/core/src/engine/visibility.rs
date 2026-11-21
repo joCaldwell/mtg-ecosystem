@@ -102,6 +102,8 @@ pub struct VisiblePlayer {
 pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copied_values: Option<VisiblePermanentCopy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_face: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -306,6 +308,8 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
         candidates: Vec<ObjectHandle>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        back_land_candidates: Vec<ObjectHandle>,
     },
     EntryCopy {
         token: DecisionToken,
@@ -421,6 +425,17 @@ pub enum PlayerRequest {
     OptionalEffect {
         token: DecisionToken,
         player: PlayerId,
+    },
+    ChooseColor {
+        token: DecisionToken,
+        player: PlayerId,
+        target: ObjectHandle,
+        colors: Vec<Color>,
+    },
+    Proliferate {
+        token: DecisionToken,
+        player: PlayerId,
+        candidate: ObjectHandle,
     },
     OptionalRecursion {
         token: DecisionToken,
@@ -605,6 +620,8 @@ impl PlayerRequest {
             | Self::SearchLandBattlefield { token, .. }
             | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
+            | Self::ChooseColor { token, .. }
+            | Self::Proliferate { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
             | Self::OpeningPlacement { token, .. }
@@ -666,6 +683,9 @@ pub enum PlayerResponse {
     },
     PlayHideawayLinked {
         object: Option<ObjectHandle>,
+    },
+    PlayHideawayLinkedBackLand {
+        object: ObjectHandle,
     },
     EntryCopy {
         object: Option<ObjectHandle>,
@@ -729,6 +749,13 @@ pub enum PlayerResponse {
     },
     OptionalEffect {
         perform: bool,
+    },
+    ChooseColor {
+        color: Color,
+    },
+    Proliferate {
+        object: ObjectHandle,
+        include: bool,
     },
     OptionalRecursion {
         perform: bool,
@@ -805,6 +832,9 @@ pub enum PlayerResponse {
         objects: Vec<ObjectHandle>,
     },
     PlayLand {
+        object: ObjectHandle,
+    },
+    PlayBackLand {
         object: ObjectHandle,
     },
     ActivateMana {
@@ -1417,6 +1447,7 @@ impl Game {
         if let Some(link) = &object.hideaway {
             return Ok(VisibleObject {
                 copied_values: None,
+                display_face: None,
                 entered_this_turn: false,
                 face_down: true,
                 lore_counters: Quantity::zero(),
@@ -1447,7 +1478,7 @@ impl Game {
         let copied_values = if self.entry_copy_origin(object.id).is_some() {
             let definition = self.copiable_definition(object.id)?;
             Some(VisiblePermanentCopy {
-                name: definition.name.clone(),
+                name: definition.source_face_name().to_owned(),
                 oracle_id: (!definition.oracle_id.starts_with("token:"))
                     .then(|| definition.oracle_id.clone()),
             })
@@ -1497,6 +1528,19 @@ impl Game {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
+            display_face: {
+                let printed = self.definition(object.id.card)?;
+                if printed.modal_land.is_some() || printed.transform_faces.is_some() {
+                    let face = if copied_values.is_none() {
+                        self.copiable_definition(object.id)?
+                    } else {
+                        printed
+                    };
+                    Some(face.source_face_name().to_owned())
+                } else {
+                    None
+                }
+            },
             copied_values,
             face_down: false,
             exiled_by: None,
@@ -2048,6 +2092,7 @@ impl Game {
                     token,
                     player,
                     candidates: vec![],
+                    back_land_candidates: vec![],
                 },
                 Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
                     token,
@@ -2261,6 +2306,17 @@ impl Game {
                     token,
                     player: viewer,
                     candidates,
+                },
+                Request::ChooseColor { target, .. } => PlayerRequest::ChooseColor {
+                    token,
+                    player: viewer,
+                    target: self.handle_for(viewer, target)?,
+                    colors: MANA_COMBINATION_COLORS.to_vec(),
+                },
+                Request::Proliferate { candidate, .. } => PlayerRequest::Proliferate {
+                    token,
+                    player: viewer,
+                    candidate: self.handle_for(viewer, candidate)?,
                 },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
@@ -3066,6 +3122,11 @@ impl Game {
             PlayerResponse::EntryAttachment { object } => Ok(Response::EntryAttachment {
                 object: self.resolve_handle(viewer, object)?,
             }),
+            PlayerResponse::PlayHideawayLinkedBackLand { object } => {
+                Ok(Response::PlayHideawayLinkedBackLand {
+                    object: self.resolve_handle(viewer, object)?,
+                })
+            }
             PlayerResponse::PlayHideawayLinked { object } => Ok(Response::PlayHideawayLinked {
                 object: object
                     .as_ref()
@@ -3103,6 +3164,11 @@ impl Game {
             }
             PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
                 opponent: *opponent,
+            }),
+            PlayerResponse::ChooseColor { color } => Ok(Response::ChooseColor { color: *color }),
+            PlayerResponse::Proliferate { object, include } => Ok(Response::Proliferate {
+                object: self.resolve_handle(viewer, object)?,
+                include: *include,
             }),
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })
@@ -3198,6 +3264,9 @@ impl Game {
                     .iter()
                     .map(|o| self.resolve_handle(viewer, o))
                     .collect::<Result<_, _>>()?,
+            }),
+            PlayerResponse::PlayBackLand { object } => Ok(Response::PlayBackLand {
+                card: self.resolve_handle(viewer, object)?.card,
             }),
             PlayerResponse::PlayLand { object } => Ok(Response::PlayLand {
                 card: self.resolve_handle(viewer, object)?.card,

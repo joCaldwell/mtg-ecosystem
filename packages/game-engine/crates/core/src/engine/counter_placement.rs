@@ -28,6 +28,8 @@ pub(super) struct CounterPlacementMember {
     pub original_amount: Quantity,
     pub amount: Quantity,
     pub applications: Vec<CounterPlacementApplication>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lore: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,12 +79,6 @@ impl Game {
         cause: BatchCause,
     ) -> Result<(), String> {
         self.validate_counter_allocations(&frame, &allocations, &cause)?;
-        if allocations.is_empty() {
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::CounterPlacements { actual: vec![] },
-            );
-        }
         let members = allocations
             .into_iter()
             .map(|(object, amount)| CounterPlacementMember {
@@ -90,8 +86,24 @@ impl Game {
                 original_amount: amount.clone(),
                 amount,
                 applications: vec![],
+                lore: false,
             })
             .collect();
+        self.begin_counter_transaction(frame, members, cause)
+    }
+
+    pub(super) fn begin_counter_transaction(
+        &mut self,
+        frame: Resolving,
+        members: Vec<CounterPlacementMember>,
+        cause: BatchCause,
+    ) -> Result<(), String> {
+        if members.is_empty() {
+            return self.finish_instruction(
+                frame,
+                InstructionOutcome::CounterPlacements { actual: vec![] },
+            );
+        }
         let mut transaction = CounterPlacementTransaction {
             members,
             current: 0,
@@ -276,6 +288,9 @@ impl Game {
             .unwrap_or_default()
     }
     fn member_candidates(&self, member: &CounterPlacementMember) -> Vec<CounterPlacementEffectKey> {
+        if member.amount <= Quantity::zero() || !self.is_battlefield_creature(member.object) {
+            return vec![];
+        }
         self.state
             .rules
             .objects
@@ -386,6 +401,24 @@ impl Game {
         &self,
         tx: &CounterPlacementTransaction,
     ) -> Result<Option<EventGroup>, String> {
+        if matches!(
+            self.counter_instruction(&tx.frame)?,
+            Instruction::Proliferate { .. }
+        ) {
+            let occurrences = tx
+                .members
+                .iter()
+                .filter(|m| self.proliferate_eligible(m.object))
+                .map(|m| ProposedEvent::ProliferateCounters {
+                    object: m.object,
+                    plus_one: m.amount.clone(),
+                    lore: m.lore,
+                })
+                .collect::<Vec<_>>();
+            return Ok(
+                (!occurrences.is_empty()).then_some(EventGroup::Simultaneous { occurrences })
+            );
+        }
         let mut leaves: Vec<_> = tx
             .members
             .iter()
@@ -478,7 +511,7 @@ impl Game {
         } else {
             let outcome = if matches!(
                 self.counter_instruction(&tx.frame)?,
-                Instruction::DistributePlusOneCounters { .. }
+                Instruction::DistributePlusOneCounters { .. } | Instruction::Proliferate { .. }
             ) {
                 InstructionOutcome::CounterPlacements { actual: vec![] }
             } else {
@@ -525,15 +558,41 @@ impl Game {
     }
 
     fn validate_counter_transaction(&self, tx: &CounterPlacementTransaction) -> Result<(), String> {
-        if tx.members.is_empty() || tx.members.len() > 2 || tx.current >= tx.members.len() {
+        if tx.members.is_empty() || tx.current >= tx.members.len() {
             return Err("counter placement transaction size/cursor".into());
         }
-        let allocations = tx
-            .members
-            .iter()
-            .map(|m| (m.object, m.original_amount.clone()))
-            .collect::<Vec<_>>();
-        self.validate_counter_allocations(&tx.frame, &allocations, &tx.cause)?;
+        if let Instruction::Proliferate { source_block } = self.counter_instruction(&tx.frame)? {
+            if tx.cause != Self::staple_cause(&tx.frame, *source_block)
+                || tx.members.len() > self.state.rules.cards.len()
+                || !tx
+                    .members
+                    .windows(2)
+                    .all(|p| p[0].object.card < p[1].object.card)
+                || tx.members.iter().any(|m| {
+                    m.original_amount < Quantity::zero()
+                        || m.original_amount > 1.into()
+                        || (m.original_amount == Quantity::zero() && !m.lore)
+                        || self.current(m.object).is_ok_and(|o| {
+                            o.present_on_battlefield()
+                                && (m.lore != (o.lore_counters > Quantity::zero())
+                                    || (m.original_amount > Quantity::zero())
+                                        != (o.plus_one_counters > Quantity::zero()))
+                        })
+                })
+            {
+                return Err("invalid proliferate placement plan".into());
+            }
+        } else {
+            if tx.members.iter().any(|m| m.lore) {
+                return Err("lore outside proliferate".into());
+            }
+            let allocations = tx
+                .members
+                .iter()
+                .map(|m| (m.object, m.original_amount.clone()))
+                .collect::<Vec<_>>();
+            self.validate_counter_allocations(&tx.frame, &allocations, &tx.cause)?;
+        }
         for member in &tx.members {
             self.validate_counter_member(member)?;
         }

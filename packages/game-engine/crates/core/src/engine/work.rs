@@ -505,16 +505,31 @@ impl Game {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
-        if let Some(PlayerRequest::PlayHideawayLinked { candidates, .. }) = &mut b.decision
+        if let Some(PlayerRequest::PlayHideawayLinked {
+            candidates,
+            back_land_candidates,
+            ..
+        }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(object) = cache
                 .linked_play(self, viewer)?
                 .get(cursor - base - effect_count)
         {
-            candidates.push(
-                self.handle_for(viewer, *object)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
+            let handle = self
+                .handle_for(viewer, *object)
+                .map_err(|_| QueryRejection::Invariant)?;
+            if self
+                .linked_land_face_playable(viewer, *object, true)
+                .map_err(|_| QueryRejection::Invariant)?
+            {
+                back_land_candidates.push(handle.clone());
+            }
+            if self
+                .linked_front_choice_available(viewer, *object)
+                .map_err(|_| QueryRejection::Invariant)?
+            {
+                candidates.push(handle);
+            }
         }
         if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
@@ -704,13 +719,29 @@ impl Game {
                     return Ok((*cursor as usize >= objects.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
-                if let Some(PlayerRequest::PlayHideawayLinked { candidates, .. }) = request {
+                if let Some(PlayerRequest::PlayHideawayLinked {
+                    candidates,
+                    back_land_candidates,
+                    ..
+                }) = request
+                {
                     let objects = cache.linked_play(self, *viewer)?;
                     if let Some(&object) = objects.get(*cursor as usize) {
-                        candidates.push(
-                            self.handle_for(*viewer, object)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
+                        let handle = self
+                            .handle_for(*viewer, object)
+                            .map_err(|_| QueryRejection::Invariant)?;
+                        if self
+                            .linked_land_face_playable(*viewer, object, true)
+                            .map_err(|_| QueryRejection::Invariant)?
+                        {
+                            back_land_candidates.push(handle.clone());
+                        }
+                        if self
+                            .linked_front_choice_available(*viewer, object)
+                            .map_err(|_| QueryRejection::Invariant)?
+                        {
+                            candidates.push(handle);
+                        }
                     }
                     *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
                     return Ok((*cursor as usize >= objects.len())
@@ -1019,7 +1050,8 @@ impl Game {
                         ) => true,
                         (
                             Frame::PlayHideawayLinked { .. },
-                            PlayerResponse::PlayHideawayLinked { .. },
+                            PlayerResponse::PlayHideawayLinked { .. }
+                            | PlayerResponse::PlayHideawayLinkedBackLand { .. },
                         ) => true,
                         (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
                             matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
@@ -1081,6 +1113,8 @@ impl Game {
                             | PlayerResponse::SearchLandBattlefield { .. }
                             | PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::OptionalRecursion { .. }
+                            | PlayerResponse::ChooseColor { .. }
+                            | PlayerResponse::Proliferate { .. }
                             | PlayerResponse::Sacrifice { .. }
                             | PlayerResponse::ResolveDiscard { .. },
                         )
@@ -1117,6 +1151,7 @@ impl Game {
                             | PlayerResponse::Cast { .. }
                             | PlayerResponse::Bestow { .. }
                             | PlayerResponse::PlayLand { .. }
+                            | PlayerResponse::PlayBackLand { .. }
                             | PlayerResponse::Pass,
                         ) => true,
                         (

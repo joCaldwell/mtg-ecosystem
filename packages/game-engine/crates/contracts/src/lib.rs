@@ -28,6 +28,7 @@ pub use color_hybrid_cost::{
 mod checkland_entry;
 mod conditional_lands;
 mod cycling;
+pub mod paid_restricted_land;
 #[cfg(test)]
 mod wave1_mana_witnesses;
 pub use cycling::hand_discard_draw_activation;
@@ -39,7 +40,9 @@ mod hybrid_filter_mana;
 mod mana_life_gain;
 mod mana_spend;
 pub use mana_life_gain::mana_life_gain_source;
-pub use mana_spend::{ManaSpendRestriction, RestrictedMana, restricted_mana_source};
+pub use mana_spend::{
+    ManaSpellSubtype, ManaSpellTraits, ManaSpendRestriction, RestrictedMana, restricted_mana_source,
+};
 mod listed_mana_choice;
 mod pain_mana;
 pub use hybrid_filter_mana::{hybrid_filter_abilities, hybrid_filter_colors, hybrid_filter_source};
@@ -51,8 +54,13 @@ pub mod combat_window;
 #[cfg(test)]
 mod composition_fixtures;
 mod entry_copy;
+pub mod modal_land;
 mod saga;
-pub use saga::{ChapterEffect, FixedChapter, LifeChapter, chapter_lines, life_chapters};
+pub mod transform_face;
+pub use saga::{
+    ChapterEffect, FixedChapter, LifeChapter, OrdinaryChapter, chapter_lines, life_chapters,
+    saga_damage_target,
+};
 pub mod fixed_color_protection;
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
@@ -108,8 +116,11 @@ pub use land_reclamation::{
 mod counter_unless_generic;
 mod each_player_draw;
 mod entry_graveyard_exile;
+mod instruction_schema;
 mod land_entry_gain_life;
 mod land_entry_scry;
+pub mod proliferate;
+pub mod target_color;
 pub use controlled_land_entry::{controlled_land_entry_trigger, controlled_land_query};
 pub use land_entry_scry::land_entry_scry_trigger;
 mod land_sacrifice_draw;
@@ -137,7 +148,13 @@ mod draw_discard;
 pub mod equipped_trigger;
 pub mod impulse_play;
 pub mod intrinsic_keyword_blocks;
+pub mod mana_tap_observer;
+pub use mana_tap_observer::ManaTapFilter;
+pub mod optional_block;
+pub mod optional_entry_search;
+pub mod optional_trigger;
 pub mod permanent_entry;
+pub mod source_damage_counters;
 pub use impulse_play::PlayWindow;
 pub mod resolution_mana;
 pub use resolution_mana::ManaResolutionQuantity;
@@ -430,6 +447,8 @@ pub enum Capability {
     CastColorPredicateV1,
     CastSubtypePredicateV1,
     TemporaryCombatRestrictionV1,
+    OptionalEffectBlockV1,
+    ManaTapTriggerV1,
     LibraryPlayWindowV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
@@ -492,7 +511,10 @@ pub enum Capability {
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
     SagaChaptersV1,
+    ModalLandFacesV1,
+    TransformV1,
     DelayedControllerCreatureEntryV1,
+    DelayedControllerSpellCastV1,
     NormalLayoutV1,
     ColorHybridCostV1,
     PhyrexianCostV1,
@@ -600,6 +622,8 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
+    ProliferateV1,
+    TargetColorSetV1,
     DividedPlusOneCountersV1,
     DestroyCreatureV1,
     GraveyardRecursionV1,
@@ -947,12 +971,19 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    TransformSource {
+        source_block: u32,
+    },
     LookTopMayRevealForMana {
         minimum_symbols: Quantity,
         mana: Quantity,
         source_block: u32,
     },
     RegisterControllerCreatureEntryThisTurn {
+        program: Box<SpellProgram>,
+        source_block: u32,
+    },
+    RegisterControllerSpellCastThisTurn {
         program: Box<SpellProgram>,
         source_block: u32,
     },
@@ -1190,6 +1221,16 @@ pub enum Instruction {
         search: TypedLandSearch,
         source_block: u32,
     },
+    ChooseOptional {
+        chooser: EffectRecipient,
+        #[schemars(range(min = 1))]
+        following: u32,
+        source_block: u32,
+    },
+    SearchRecipientBasicLand {
+        recipient: EffectRecipient,
+        source_block: u32,
+    },
     SearchBasicLands {
         maximum: u32,
         source_block: u32,
@@ -1231,6 +1272,13 @@ pub enum Instruction {
         count: Quantity,
         minimum_targets: u32,
         maximum_targets: u32,
+        source_block: u32,
+    },
+    SetTargetColor {
+        target_slot: u32,
+        source_block: u32,
+    },
+    Proliferate {
         source_block: u32,
     },
     PutPlusOneCounters {
@@ -1461,6 +1509,11 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    DealDamageToManaActivator {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
     GainLife {
         recipient: LifeRecipient,
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
@@ -1484,9 +1537,11 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
+            Self::TransformSource { source_block } => *source_block,
             Self::ExileLibraryForPlay { source_block, .. }
             | Self::LookTopMayRevealForMana { source_block, .. }
             | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
+            | Self::RegisterControllerSpellCastThisTurn { source_block, .. }
             | Self::Hideaway { source_block, .. }
             | Self::PlayHideawayLinked { source_block, .. }
             | Self::GrantHandCastCascade { source_block }
@@ -1541,12 +1596,16 @@ impl Instruction {
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
-            Self::SearchBasicLands { source_block, .. }
+            Self::ChooseOptional { source_block, .. }
+            | Self::SearchRecipientBasicLand { source_block, .. }
+            | Self::SearchBasicLands { source_block, .. }
             | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. }
             | Self::CreatePredefinedTokens { source_block, .. }
             | Self::AddResolutionMana { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
+            | Self::SetTargetColor { source_block, .. }
+            | Self::Proliferate { source_block }
             | Self::PutPlusOneCounters { source_block, .. } => *source_block,
             Self::GrantKeywords { source_block, .. }
             | Self::GrantSourceKeywords { source_block, .. } => *source_block,
@@ -1583,7 +1642,8 @@ impl Instruction {
             | Self::CounterStackObject { source_block, .. }
             | Self::CopyControlledCreatureSpell { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
-            | Self::DealDamageToController { source_block, .. } => *source_block,
+            | Self::DealDamageToController { source_block, .. }
+            | Self::DealDamageToManaActivator { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
             Self::DrainOpponents { source_block, .. } | Self::LoseLife { source_block, .. } => {
                 *source_block
@@ -1760,6 +1820,9 @@ pub enum StaticEffect {
     EntersTappedUnlessRevealLandTypes {
         subtypes: [BasicLandType; 2],
     },
+    EntersTappedUnlessControllerLandType {
+        subtype: BasicLandType,
+    },
     EntersTappedUnlessControllerLandTypes {
         subtypes: [BasicLandType; 2],
     },
@@ -1879,6 +1942,7 @@ pub struct StaticAbility {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CreatureScope {
     Equipped,
+    EquippedLegendary,
     Enchanted,
     Controller,
     /// Dynamic attacking creatures controlled by this battlefield source.
@@ -2138,6 +2202,7 @@ pub enum CascadeThreshold {
 pub enum TriggerCondition {
     ControlledLandEntersBattlefield,
     DelayedControllerCreatureEntry,
+    DelayedControllerSpellCast,
     SagaChapter {
         number: std::num::NonZeroU32,
     },
@@ -2178,6 +2243,9 @@ pub enum TriggerCondition {
     EquippedDies,
     /// The exact source incarnation actually changes from untapped to tapped.
     SelfBecomesTapped,
+    ManaTapped {
+        filter: ManaTapFilter,
+    },
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
     /// CR 603.6a/603.10: read the entering creature's derived battlefield power
@@ -2401,6 +2469,7 @@ impl TriggerCondition {
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
             Self::DelayedControllerCreatureEntry => "delayed_controller_creature_entry",
+            Self::DelayedControllerSpellCast => "delayed_controller_spell_cast",
             Self::SagaChapter { .. } => "saga_chapter",
             Self::SelfSpellCast => "self_spell_cast",
             Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
@@ -2415,6 +2484,7 @@ impl TriggerCondition {
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
             Self::SelfBecomesTapped => "self_becomes_tapped",
+            Self::ManaTapped { .. } => "mana_tapped",
             Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
             Self::SelfMoved { .. } => "self_moved",
             Self::ControlledLandEntersBattlefield => "controlled_land_enters_battlefield",
@@ -2589,6 +2659,10 @@ impl<'de> Deserialize<'de> for KeywordAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal_land: Option<Box<modal_land::ModalLand>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform_faces: Option<Box<transform_face::TransformFaces>>,
     /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_labels: Option<SourceLabels>,
@@ -2637,53 +2711,55 @@ fn static_creature_modification_valid(
         return false;
     };
     let attached = matches!(scope, CreatureScope::Equipped | CreatureScope::Enchanted);
-    !(!attached && (power.is_negative() || toughness.is_negative())
-        || (power == &Quantity::zero()
-            && toughness == &Quantity::zero()
-            && keywords.is_empty()
-            && restrictions.is_empty())
-        || (*scope == CreatureScope::Source
-            && (kind != CardKind::Creature
-                || *power != Quantity::zero()
-                || *toughness != Quantity::zero()
-                || !keywords.is_empty()
-                || (restrictions != &[CreatureRestriction::CantBlock]
-                    && source_combat_restrictions::restriction(effect).is_none())))
-        || (*scope != CreatureScope::Source
-            && restrictions.contains(&CreatureRestriction::CanBlockOnlyFlying))
-        || (*scope == CreatureScope::AttackingController
-            && (!matches!(
-                kind,
-                CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
-            ) || *power != Quantity::zero()
-                || *toughness != Quantity::zero()
-                || keywords != &[KeywordAbility::Deathtouch]
-                || !restrictions.is_empty()))
-        || (*scope == CreatureScope::Equipped && !equipment)
-        || (*scope == CreatureScope::Enchanted && !aura)
-        || (*scope == CreatureScope::Controller
-            && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
-        || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
-        || keywords.contains(&KeywordAbility::ProtectionFromEverything)
-        || keywords.iter().any(|k| {
-            k.basic_landwalk_type().is_some() || (!attached && k.fixed_protection_color().is_some())
-        })
-        || keywords.contains(&KeywordAbility::Flash)
-        || (keywords.contains(&KeywordAbility::Indestructible)
-            && (!equipment
-                || *scope != CreatureScope::Equipped
-                || *power != Quantity::zero()
-                || *toughness != Quantity::zero()
-                || keywords != &[KeywordAbility::Indestructible]
-                || !restrictions.is_empty()))
-        || keywords
-            .iter()
-            .enumerate()
-            .any(|(n, k)| keywords[..n].contains(k))
-        || restrictions
-            .iter()
-            .enumerate()
-            .any(|(n, k)| restrictions[..n].contains(k)))
+    attachment_modifiers::scope_valid(effect, equipment)
+        && !(!attached && (power.is_negative() || toughness.is_negative())
+            || (power == &Quantity::zero()
+                && toughness == &Quantity::zero()
+                && keywords.is_empty()
+                && restrictions.is_empty())
+            || (*scope == CreatureScope::Source
+                && (kind != CardKind::Creature
+                    || *power != Quantity::zero()
+                    || *toughness != Quantity::zero()
+                    || !keywords.is_empty()
+                    || (restrictions != &[CreatureRestriction::CantBlock]
+                        && source_combat_restrictions::restriction(effect).is_none())))
+            || (*scope != CreatureScope::Source
+                && restrictions.contains(&CreatureRestriction::CanBlockOnlyFlying))
+            || (*scope == CreatureScope::AttackingController
+                && (!matches!(
+                    kind,
+                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
+                ) || *power != Quantity::zero()
+                    || *toughness != Quantity::zero()
+                    || keywords != &[KeywordAbility::Deathtouch]
+                    || !restrictions.is_empty()))
+            || (*scope == CreatureScope::Equipped && !equipment)
+            || (*scope == CreatureScope::Enchanted && !aura)
+            || (*scope == CreatureScope::Controller
+                && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
+            || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
+            || keywords.contains(&KeywordAbility::ProtectionFromEverything)
+            || keywords.iter().any(|k| {
+                k.basic_landwalk_type().is_some()
+                    || (!attached && k.fixed_protection_color().is_some())
+            })
+            || keywords.contains(&KeywordAbility::Flash)
+            || (keywords.contains(&KeywordAbility::Indestructible)
+                && (!equipment
+                    || *scope != CreatureScope::Equipped
+                    || *power != Quantity::zero()
+                    || *toughness != Quantity::zero()
+                    || keywords != &[KeywordAbility::Indestructible]
+                    || !restrictions.is_empty()))
+            || keywords
+                .iter()
+                .enumerate()
+                .any(|(n, k)| keywords[..n].contains(k))
+            || restrictions
+                .iter()
+                .enumerate()
+                .any(|(n, k)| restrictions[..n].contains(k)))
 }
 
 /// Nonserialized target domain of a complete admitted Aura-control definition.
@@ -3068,6 +3144,9 @@ impl Definition {
                 TriggerCondition::DelayedControllerCreatureEntry => {
                     Capability::DelayedControllerCreatureEntryV1
                 }
+                TriggerCondition::DelayedControllerSpellCast => {
+                    Capability::DelayedControllerSpellCastV1
+                }
                 TriggerCondition::SagaChapter { .. } => Capability::SagaChaptersV1,
                 TriggerCondition::SelfSpellCast
                     if is_canonical_cascade_program(&ability.program) =>
@@ -3110,6 +3189,7 @@ impl Definition {
                     Capability::ControlledLandEntryV1
                 }
                 TriggerCondition::SelfBecomesTapped => Capability::SourceTapTriggerV1,
+                TriggerCondition::ManaTapped { .. } => Capability::ManaTapTriggerV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
@@ -3235,6 +3315,9 @@ impl Definition {
                 StaticEffect::EntersTappedUnlessRevealLandTypes { .. } => {
                     Capability::RevealLandEntryV1
                 }
+                StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
+                    Capability::RestrictedManaV1
+                }
                 StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
                     Capability::ConditionalLandTypeEntryV1
                 }
@@ -3285,11 +3368,22 @@ impl Definition {
             };
             set.insert(static_capability);
         }
+        if let Some(back) = self.modal_land_back() {
+            set.insert(Capability::ModalLandFacesV1);
+            set.extend(back.capabilities.iter().copied());
+        }
+        if let Some(back) = self.transform_back() {
+            set.insert(Capability::TransformV1);
+            set.extend(back.capabilities.iter().copied());
+        }
         set
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.composed {
             return composition::validate(self);
+        }
+        if modal_land::validate(self)? || transform_face::validate(self)? {
+            return Ok(());
         }
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
@@ -3302,10 +3396,15 @@ impl Definition {
         permanent_entry::validate(self)?;
         cast_subtype::validate(self)?;
         combat_window::validate(self)?;
+        optional_block::validate(self)?;
+        mana_tap_observer::validate(self)?;
+        optional_trigger::validate(self)?;
+        source_damage_counters::validate(self)?;
         resolution_mana::validate(self)?;
         impulse_play::validate(self)?;
         predefined_tokens::validate(self)?;
         attachment_modifiers::validate(self)?;
+        let sets_target_color = target_color::validate(self)?;
         cast_entry::validate_source(self, fixed_activations)?;
         optional_costs::validate_definition(self)?;
         let basic_land_fetch = basic_land_fetch::validate_definition(self)?;
@@ -3353,7 +3452,9 @@ impl Definition {
         land_entry_gain_life::validate(self)?;
         land_entry_scry::validate(self)?;
         land_reclamation::validate(self)?;
-        controlled_land_entry::validate(self)?;
+        if !proliferate::validate(self)? {
+            controlled_land_entry::validate(self)?;
+        }
         other_land_entry::validate(self)?;
         opponent_count_entry::validate(self)?;
         reveal_land_entry::validate(self)?;
@@ -3811,7 +3912,10 @@ impl Definition {
             return Err("unsupported complete opponent-land mana family".into());
         }
         mana_life_gain::validate(self)?;
-        mana_spend::validate(self)?;
+        let paid_restricted_land = paid_restricted_land::validate(self)?;
+        if !paid_restricted_land {
+            mana_spend::validate(self)?;
+        }
         let hybrid_filter = hybrid_filter_mana::validate(self)?;
         if self.mana_abilities.len() > 1
             || self
@@ -3819,7 +3923,7 @@ impl Definition {
                 .iter()
                 .any(|ability| ability.self_damage.is_some())
         {
-            if !hybrid_filter && !disjoint_pain_mana_family(self) {
+            if !hybrid_filter && !paid_restricted_land && !disjoint_pain_mana_family(self) {
                 return Err("unsupported complete disjoint pain-mana family".into());
             }
         } else {
@@ -4063,6 +4167,10 @@ impl Definition {
             }) {
                 return Err("attachment instruction requires equip or Aura return trigger".into());
             }
+            if sets_target_color {
+                validate_instruction_program(&ability.program)?;
+                continue;
+            }
             if c.kind == CardKind::Artifact
                 && !equipment
                 && !matches!(ability.cost, ActivationCost::Composite { .. })
@@ -4274,7 +4382,9 @@ impl Definition {
                 validate_instruction_program(p)?;
                 continue;
             }
-            if ability.condition == TriggerCondition::SelfBecomesTapped {
+            if ability.condition == TriggerCondition::SelfBecomesTapped
+                || matches!(ability.condition, TriggerCondition::ManaTapped { .. })
+            {
                 // The complete source and trigger shape was checked above.
                 validate_instruction_program(p)?;
                 continue;
@@ -4430,12 +4540,15 @@ impl Definition {
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::CreatePredefinedTokens { .. }
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
+                            | Instruction::Proliferate { .. }
                             | Instruction::PutPlusOneCounters { .. }
                             | Instruction::DrawCards { .. }
                             | Instruction::DrawControllerCards { .. }
                             | Instruction::UntapControllerLands { .. }
                             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
+                            | Instruction::ChooseOptional { .. }
+                            | Instruction::SearchRecipientBasicLand { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::GrantHandCastCascade { .. }
@@ -4472,6 +4585,7 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessOpponentCount { .. }
                     | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandType { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
                     | StaticEffect::ModifySourceByDistinctPermanentColors { .. }
                     | StaticEffect::ControllerScopedCreatureStats { .. }
@@ -4619,6 +4733,7 @@ impl Definition {
                     | StaticEffect::EntersTappedUnlessOpponentCount { .. }
                     | StaticEffect::EntersTappedUnlessRevealLandTypes { .. }
                     | StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
+                    | StaticEffect::EntersTappedUnlessControllerLandType { .. }
                     | StaticEffect::EntersTappedUnlessPayLife { .. }
             ) {
                 if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
@@ -5469,7 +5584,8 @@ fn validate_program_bindings(
     }
     for instruction in &p.instructions {
         let binding = match instruction {
-            Instruction::ExileResolvingSpell { .. }
+            Instruction::TransformSource { .. }
+            | Instruction::ExileResolvingSpell { .. }
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
@@ -5691,6 +5807,15 @@ fn validate_program_bindings(
                 }
                 None
             }
+            Instruction::ChooseOptional {
+                chooser: recipient, ..
+            }
+            | Instruction::SearchRecipientBasicLand { recipient, .. } => match recipient {
+                EffectRecipient::Controller => None,
+                EffectRecipient::TargetController { target_slot } => {
+                    Some(reference(p, *target_slot)?)
+                }
+            },
             Instruction::SearchBasicLands { maximum, .. } => {
                 if *maximum == 0 || *maximum > 2 {
                     return Err("unsupported basic land search maximum".into());
@@ -5713,6 +5838,7 @@ fn validate_program_bindings(
                 None
             }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. }
+            | Instruction::RegisterControllerSpellCastThisTurn { .. }
             | Instruction::Hideaway { .. }
             | Instruction::PlayHideawayLinked { .. }
             | Instruction::GrantHandCastCascade { .. }
@@ -5721,7 +5847,22 @@ fn validate_program_bindings(
             | Instruction::Demonstrate { .. }
             | Instruction::LookTopMayRevealForMana { .. }
             | Instruction::RevealAndCast { .. }
+            | Instruction::Proliferate { .. }
             | Instruction::PutSourcePlusOneCountersForCastColors { .. } => None,
+            Instruction::SetTargetColor { target_slot, .. } => {
+                let domain = p
+                    .targets
+                    .get(*target_slot as usize)
+                    .ok_or("missing color target")?
+                    .domain;
+                if !matches!(
+                    domain,
+                    TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                ) {
+                    return Err("color effect requires a battlefield target".into());
+                }
+                Some((*target_slot, domain))
+            }
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
             }
@@ -5863,10 +6004,16 @@ fn validate_program_bindings(
                         | TargetDomain::PlayerOrPlaneswalker
                         | TargetDomain::BattlefieldCreature),
                     ) => Some((*target_slot, domain)),
+                    Some(TargetDomain::BattlefieldPermanent)
+                        if chapter && saga_damage_target(&p.targets[*target_slot as usize]) =>
+                    {
+                        Some((*target_slot, TargetDomain::BattlefieldPermanent))
+                    }
                     _ => return Err("unbound fixed damage target".into()),
                 }
             }
-            Instruction::DealDamageToController { amount, .. } => {
+            Instruction::DealDamageToController { amount, .. }
+            | Instruction::DealDamageToManaActivator { amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("damage quantity must be positive".into());
                 }
@@ -6333,7 +6480,9 @@ fn add_program_requirements_for_source_pump(
         ) {
             set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
-        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. } = instruction {
+        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }
+        | Instruction::RegisterControllerSpellCastThisTurn { program, .. } = instruction
+        {
             add_program_requirements(set, program);
         }
         if matches!(
@@ -6376,6 +6525,7 @@ fn add_program_requirements_for_source_pump(
             ]);
         }
         set.insert(match instruction {
+            Instruction::TransformSource { .. } => Capability::TransformV1,
             Instruction::ExileResolvingSpell { .. } => Capability::ExileResolvingSpellV1,
             Instruction::ProtectControllerUntilNextTurn { .. } => {
                 Capability::ControllerProtectionUntilNextTurnV1
@@ -6392,6 +6542,9 @@ fn add_program_requirements_for_source_pump(
             }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
                 Capability::DelayedControllerCreatureEntryV1
+            }
+            Instruction::RegisterControllerSpellCastThisTurn { .. } => {
+                Capability::DelayedControllerSpellCastV1
             }
             Instruction::Hideaway { .. } => Capability::HideawayV1,
             Instruction::PlayHideawayLinked { .. } => Capability::LinkedExilePlayV1,
@@ -6448,7 +6601,10 @@ fn add_program_requirements_for_source_pump(
             Instruction::SearchColoredLibrary { .. } => Capability::ColoredLibrarySearchV1,
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
-            Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::ChooseOptional { .. } => Capability::OptionalEffectBlockV1,
+            Instruction::SearchBasicLands { .. } | Instruction::SearchRecipientBasicLand { .. } => {
+                Capability::BasicLandSearchV1
+            }
             Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
             Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
                 Capability::AnnouncedXEffectsV1
@@ -6475,6 +6631,8 @@ fn add_program_requirements_for_source_pump(
                 Capability::CastSpellColorCountersV1
             }
             Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
+            Instruction::Proliferate { .. } => Capability::ProliferateV1,
+            Instruction::SetTargetColor { .. } => Capability::TargetColorSetV1,
             Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
             Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
@@ -6548,9 +6706,9 @@ fn add_program_requirements_for_source_pump(
             Instruction::CopyControlledCreatureSpell { .. } => {
                 Capability::ControlledCreatureSpellCopyV1
             }
-            Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
-                Capability::NoncombatDamageV1
-            }
+            Instruction::DealDamage { .. }
+            | Instruction::DealDamageToController { .. }
+            | Instruction::DealDamageToManaActivator { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
@@ -7998,6 +8156,8 @@ pub fn catalog_schema() -> serde_json::Value {
     hybrid_filter_mana::extend_schema(&mut schema);
     mana_life_gain::extend_schema(&mut schema);
     mana_spend::extend_schema(&mut schema);
+    paid_restricted_land::extend_schema(&mut schema);
+    attachment_modifiers::extend_schema(&mut schema);
     listed_mana_choice::extend_schema(&mut schema);
     same_color_mana::extend_schema(&mut schema);
     source_tap_damage::extend_schema(&mut schema);
@@ -8050,6 +8210,9 @@ pub fn catalog_schema() -> serde_json::Value {
     resolution_mana::extend_schema(&mut schema);
     cast_subtype::extend_schema(&mut schema);
     combat_window::extend_schema(&mut schema);
+    optional_block::extend_schema(&mut schema);
+    mana_tap_observer::extend_schema(&mut schema);
+    source_damage_counters::extend_schema(&mut schema);
     impulse_play::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
@@ -8079,9 +8242,13 @@ pub fn catalog_schema() -> serde_json::Value {
     land_entry_gain_life::extend_schema(&mut schema);
     land_entry_scry::extend_schema(&mut schema);
     controlled_land_entry::extend_schema(&mut schema);
+    proliferate::extend_schema(&mut schema);
+    target_color::extend_schema(&mut schema);
     land_reclamation::extend_schema(&mut schema);
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
+    modal_land::extend_schema(&mut schema);
+    transform_face::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     hand_cast_cascade::extend_schema(&mut schema);
@@ -8292,7 +8459,10 @@ mod tests {
             CastManaValueSweepV1,
             RandomBottomV1,
             SagaChaptersV1,
+            ModalLandFacesV1,
+            TransformV1,
             DelayedControllerCreatureEntryV1,
+            DelayedControllerSpellCastV1,
             NormalLayoutV1,
             ColorHybridCostV1,
             PhyrexianCostV1,
@@ -8408,6 +8578,8 @@ mod tests {
             CreatureTokensV1,
             MultiTypeCreatureTokensV1,
             PlusOneCountersV1,
+            ProliferateV1,
+            TargetColorSetV1,
             DividedPlusOneCountersV1,
             DestroyCreatureV1,
             GraveyardRecursionV1,
@@ -8464,6 +8636,8 @@ mod tests {
             CastColorPredicateV1,
             CastSubtypePredicateV1,
             TemporaryCombatRestrictionV1,
+            OptionalEffectBlockV1,
+            ManaTapTriggerV1,
             LibraryPlayWindowV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
@@ -8901,6 +9075,8 @@ mod tests {
         definitions.push(resolution_mana::witness());
         definitions.push(cast_subtype::witness());
         definitions.push(combat_window::witness());
+        definitions.push(optional_block::witness());
+        definitions.push(mana_tap_observer::witness());
         definitions.push(impulse_play::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());
@@ -8918,10 +9094,15 @@ mod tests {
         definitions.push(land_entry_gain_life::witness());
         definitions.push(land_entry_scry::witness());
         definitions.push(controlled_land_entry::witness());
+        definitions.push(proliferate::witness());
+        definitions.push(target_color::witness());
         definitions.push(land_reclamation::witness());
         definitions.push(entry_copy::registry_witness());
         definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());
+        definitions.push(saga::spell_cast_witness());
+        definitions.push(modal_land::witness());
+        definitions.push(transform_face::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));

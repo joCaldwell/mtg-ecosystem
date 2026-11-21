@@ -24,7 +24,9 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
   outcomes; queries never mint handles/history or mutate semantics.
 - Use focused checks with actual executed selectors and explicit omissions.
   Default compilation/compiler-contract tests do not qualify runtime games/host.
-  One native owner uses the shared Cargo lock; runners already own it internally.
+  One native owner per worktree target holds its Cargo lock; runners own it internally.
+  Compiler work uses the [inner loop](../../docs/game-engine-development.md#inner-loop-and-single-final-gate);
+  whole-archive scans and `check:engine:fast` run once, before publishing.
 - Preserve unrelated work and ignored source/evidence/cache paths. Commit/push
   coherent focused checkpoints; no incidental merge, mechanic or pool expansion.
   [Storage](../../docs/game-engine-storage.md) governs cleanup and retirement.

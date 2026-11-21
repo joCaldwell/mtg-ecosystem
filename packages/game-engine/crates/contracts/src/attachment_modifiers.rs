@@ -1,5 +1,5 @@
 //! Signed stat and fixed-color protection grants from continuous attachments.
-//! CR 301.5f, 303.4m, 613.1f, 613.4c, 702.16.
+//! CR 301.5f, 303.4m, 611.3a, 613.1f, 613.4c, 702.11b and 702.16.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use serde_json::{Value, json};
@@ -30,7 +30,59 @@ fn signed(text: &str) -> Option<(Quantity, Value)> {
     ))
 }
 
+const LEGENDARY_GRANT: &str = "As long as equipped creature is legendary, it has hexproof.";
+
+fn legendary_grant() -> StaticAbility {
+    StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::ModifyCreatures {
+            scope: CreatureScope::EquippedLegendary,
+            power: Quantity::zero(),
+            toughness: Quantity::zero(),
+            keywords: vec![KeywordAbility::Hexproof],
+            restrictions: vec![],
+        },
+    }
+}
+
+pub(super) fn scope_valid(effect: &StaticEffect, equipment: bool) -> bool {
+    !matches!(
+        effect,
+        StaticEffect::ModifyCreatures {
+            scope: CreatureScope::EquippedLegendary,
+            ..
+        }
+    ) || (equipment && *effect == legendary_grant().effect)
+}
+
+pub fn conditional_hexproof(effect: &StaticEffect) -> bool {
+    *effect == legendary_grant().effect
+}
+
+fn printed_conditional(line: &str) -> Option<(StaticAbility, Value)> {
+    if line != LEGENDARY_GRANT
+        && line.strip_suffix(
+            " (It can't be the target of spells or abilities your opponents control.)",
+        ) != Some(LEGENDARY_GRANT)
+    {
+        return None;
+    }
+    Some((
+        legendary_grant(),
+        json!({"kind":"static","effect":{"static":"conditional",
+            "condition":{"condition":"is-filter","what":{"ref":"equipped","noun":"creature"},
+                "filter":{"supertypes":["legendary"]}},
+            "effect":{"static":"modify","what":{"ref":"it"},"modifiers":[
+                {"modifier":"abilities","abilities":[{"gained":"keyword","keyword":{"keyword":"hexproof"}}]}
+            ]}
+        }}),
+    ))
+}
+
 pub fn printed(line: &str) -> Option<(StaticAbility, Value)> {
+    if let Some(grant) = printed_conditional(line) {
+        return Some(grant);
+    }
     let (scope, reference, tail) = if let Some(tail) = line.strip_prefix("Equipped creature ") {
         (CreatureScope::Equipped, "equipped", tail)
     } else {
@@ -91,14 +143,114 @@ pub fn printed(line: &str) -> Option<(StaticAbility, Value)> {
     ))
 }
 
+fn equipment_stat_grant(text: &str) -> Option<(StaticAbility, Value)> {
+    let stats = text
+        .strip_prefix("Equipped creature gets ")?
+        .strip_suffix('.')?;
+    let (p, t) = stats.split_once('/')?;
+    let (power, p) = signed(p)?;
+    let (toughness, t) = signed(t)?;
+    Some((
+        StaticAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            effect: StaticEffect::ModifyCreatures {
+                scope: CreatureScope::Equipped,
+                power,
+                toughness,
+                keywords: vec![],
+                restrictions: vec![],
+            },
+        },
+        json!({"kind":"static","effect":{"static":"modify","what":{"ref":"equipped","noun":"creature"},
+        "modifiers":[{"modifier":"pt","power":p,"toughness":t}]}}),
+    ))
+}
+
+pub fn equip_ability(mana: ManaCost, source_block: u32) -> ActivatedAbility {
+    ActivatedAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        cost: ActivationCost::Mana { cost: mana },
+        program: SpellProgram {
+            optional_additional_costs: vec![],
+            additional_sacrifice: None,
+            timing: SpellTiming::MainPhase,
+            resolution: SpellResolution::Instructions,
+            functioning_zone: FunctioningZone::Stack,
+            targets: vec![TargetSpec {
+                slot: 0,
+                selection_id: "equip-creature".into(),
+                chooser: Chooser::Controller,
+                stage: EvaluationStage::Announcement,
+                filter: None,
+                domain: TargetDomain::ControlledBattlefieldCreature,
+            }],
+            instructions: vec![Instruction::AttachEquipment {
+                target_slot: 0,
+                source_block,
+            }],
+            modes: vec![],
+        },
+    }
+}
+
+fn validate_conditional_equipment(d: &Definition, text: &str, ast: &[Value]) -> Option<()> {
+    let [stat_line, gate_line, equip_line] = text.lines().collect::<Vec<_>>().try_into().ok()?;
+    let (stats, stats_ast) = equipment_stat_grant(stat_line)?;
+    let (gate, gate_ast) = printed_conditional(gate_line)?;
+    let mana = equip_line.strip_prefix("Equip {")?.strip_suffix('}')?;
+    let generic: Quantity = mana.parse().ok()?;
+    if generic.is_negative()
+        || generic.to_string() != mana
+        || d.static_abilities != [stats, gate]
+        || ast
+            != [
+                stats_ast,
+                gate_ast,
+                json!({"kind":"keywords","keywords":[
+                    {"keyword":"equip","cost":[{"cost":"mana","symbols":[mana]}]}
+                ]}),
+            ]
+        || !d.mana_abilities.is_empty()
+        || !d.triggered.is_empty()
+        || !d.keywords.is_empty()
+    {
+        return None;
+    }
+    let [activation] = d.activated.as_slice() else {
+        return None;
+    };
+    if *activation
+        != equip_ability(
+            ManaCost {
+                generic,
+                colored: vec![],
+            },
+            2,
+        )
+        || d.source_labels.as_ref().is_some_and(|l| {
+            l.blocks != [stat_line, LEGENDARY_GRANT, equip_line]
+                || l.statics != [0, 1]
+                || l.activated != [2]
+                || !l.mana.is_empty()
+                || !l.triggered.is_empty()
+                || !l.spell_modes.is_empty()
+        })
+    {
+        return None;
+    }
+    Some(())
+}
+
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let actual = d
         .static_abilities
         .iter()
-        .filter(|a| advanced(&a.effect))
+        .filter(|a| advanced(&a.effect) || conditional_hexproof(&a.effect))
         .count();
     if actual == 0
         && !d.provenance.source_json.contains(" creature gets ")
+        && !d.provenance.source_json.contains(LEGENDARY_GRANT)
+        && !d.provenance.source_json.contains(r"\u")
         && !d
             .provenance
             .source_json
@@ -126,7 +278,10 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         return Err(fail.into());
     }
     let ast: Vec<Value> = strict_read(&d.provenance.abilities_json)?;
-    if ast.len() != text.lines().count() {
+    if ast.len() != text.lines().count()
+        || (text.contains(LEGENDARY_GRANT)
+            && validate_conditional_equipment(d, text, &ast).is_none())
+    {
         return Err(fail.into());
     }
     for (block, (ability, raw)) in expected {
@@ -144,4 +299,27 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub(super) fn extend_schema(schema: &mut Value) {
+    let scope = json!({"required":["effect"],"properties":{"effect":{
+        "type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{
+            "required":["scope"],"properties":{"scope":{"const":"equipped_legendary"}}
+        }}
+    }}});
+    let has_scope = json!({"required":["static_abilities"],"properties":{
+        "static_abilities":{"contains":scope}
+    }});
+    let has_print = json!({"properties":{"provenance":{"properties":{"source_json":{
+        "pattern":r"As long as equipped creature is legendary, it has hexproof\."
+    }}}}});
+    schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
+        "if":{"anyOf":[has_print.clone(),has_scope]},
+        "then":{"allOf":[has_print,{"required":["static_abilities"],"properties":{
+            "characteristics":{"properties":{"kind":{"const":"artifact"},"subtypes":{"const":["Equipment"]}}},
+            "capabilities":{"contains":{"const":Capability::AttachmentsV1}},
+            "static_abilities":{"contains":{"const":legendary_grant()},"maxContains":1,"items":{"if":scope,
+                "then":{"const":legendary_grant()}}}
+        }}]}
+    }));
 }

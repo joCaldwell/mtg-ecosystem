@@ -251,7 +251,7 @@ fn natural_pending_trigger_snapshots_reject_rehashed_provenance_forgeries() {
     type Mutation = fn(&mut serde_json::Value);
     let mutations: Vec<Mutation> = vec![
         |t| t["controller"] = serde_json::json!(3),
-        |t| t["ability"] = serde_json::json!(99),
+        |t| t["ability"]["index"] = serde_json::json!(99),
         |t| t["id"] = serde_json::json!(99),
         |t| t["source"]["card"] = serde_json::json!(999),
         |t| t["source_facts"]["owner"] = serde_json::json!(3),

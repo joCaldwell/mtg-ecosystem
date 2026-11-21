@@ -650,6 +650,8 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
     };
     let spell_kind = matches!(kind, CardKind::Instant | CardKind::Sorcery);
     let mut definition = Definition {
+        modal_land: None,
+        transform_faces: None,
         source_labels: None,
         composed: true,
         x_mana_cost: false,

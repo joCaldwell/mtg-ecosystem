@@ -239,6 +239,11 @@ impl Game {
                         .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
                         .ok_or("missing stack mana value")?;
                     mana_value = self.stack_mana_value(entry)?;
+                } else if let Some(value) = self
+                    .bound_object_target(entry, slot)
+                    .and_then(|object| self.physical_transform_mana_value(*object))
+                {
+                    mana_value = value;
                 }
                 Ok(Some(TargetFacts {
                     controller,

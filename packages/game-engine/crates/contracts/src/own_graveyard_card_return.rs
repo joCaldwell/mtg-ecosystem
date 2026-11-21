@@ -3,7 +3,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-const SPELL_TEXT: &str = "Return target card from your graveyard to your hand.";
+pub(super) const SPELL_TEXT: &str = "Return target card from your graveyard to your hand.";
 const ENTRY_TEXT: &str =
     "When this creature enters, you may return target card from your graveyard to your hand.";
 const INVALID: &str = "requires the complete own-graveyard card return spell or self-entry trigger";
@@ -12,7 +12,7 @@ fn selection(entry: bool) -> &'static str {
     if entry { "line:0:8" } else { "line:0:1" }
 }
 
-fn abilities(entry: bool) -> Value {
+pub(super) fn abilities(entry: bool) -> Value {
     let target = json!({"ref":"target","filter":{"cls":"card","zone":{"zone":"graveyard","owner":"your"}},
         "count":{"amount":"fixed","value":1},"selectionId":selection(entry)});
     let mut step = json!({"effect":"return-to-hand","what":target,"to":"your"});
@@ -252,7 +252,17 @@ pub(super) fn extend_schema(s: &mut Value) {
             "characteristics":{"properties":{"basic":{"const":false},"legendary":{"const":false},"snow":{"const":false},
                 "additional_types":{"maxItems":0},"mana_cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}}}}}
         },"oneOf":[spell(CardKind::Instant,SpellTiming::Instant,CastInstantV1),
-            spell(CardKind::Sorcery,SpellTiming::MainPhase,CastSorceryV1),entry]}
+            spell(CardKind::Sorcery,SpellTiming::MainPhase,CastSorceryV1),entry,
+            {"required":["modal_land"],"properties":{
+                "spell":program_schema(false,SpellTiming::MainPhase),
+                "triggered":{"maxItems":0},
+                "characteristics":{"properties":{"kind":{"const":"sorcery"},"subtypes":{"maxItems":0},
+                    "power":{"type":"null"},"toughness":{"type":"null"}}},
+                "capabilities":{"allOf":[{"contains":{"const":OwnGraveyardCardReturnV1}},
+                    {"contains":{"const":CastSorceryV1}},{"contains":{"const":ModalLandFacesV1}}]},
+                "provenance":source(SPELL_TEXT),"source_labels":labels(SPELL_TEXT,&[])
+            }}
+        ]}
     }));
 }
 

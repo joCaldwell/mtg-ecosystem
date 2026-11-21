@@ -882,7 +882,7 @@ fn private_pacifism_after_attack_or_block_preserves_combat_and_damage() {
             declare(&mut g, &[(0, 1)], &[(1, 0)]);
             request(&mut g);
             let aura = object(&g, 2);
-            g.move_object_for(aura, Zone::Battlefield, BatchCause::Setup)
+            g.move_object_for(aura, Zone::Battlefield, BatchCause::Fixture)
                 .unwrap();
             let aura = object(&g, 2);
             let enchanted = object(&g, if on_attacker { 0 } else { 1 });

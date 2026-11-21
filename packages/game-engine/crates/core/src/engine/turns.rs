@@ -104,6 +104,14 @@ impl Game {
     // player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
+        self.validate_land_face(player, card, false)
+    }
+    pub(super) fn validate_land_face(
+        &self,
+        player: PlayerId,
+        card: CardId,
+        back: bool,
+    ) -> Result<(), String> {
         if !self.main_phase_action(player) {
             return Err(
                 "land play requires unused active-player main-phase land play and empty stack"
@@ -117,6 +125,13 @@ impl Game {
             .get(&card)
             .ok_or("invalid land source")?;
         let definition = self.definition(card)?;
+        let definition = if back {
+            definition
+                .modal_land_back()
+                .ok_or("card has no playable back land")?
+        } else {
+            definition
+        };
         if definition.characteristics.kind != CardKind::Land
             || !definition.capabilities.contains(&Capability::LandPlayV1)
             || self.state.rules.cards[&card].owner != player
@@ -133,13 +148,15 @@ impl Game {
         player: PlayerId,
         decision_id: u64,
         card: CardId,
+        back_face: bool,
     ) -> Result<(), String> {
-        self.validate_land_play(player, card)?;
+        self.validate_land_face(player, card, back_face)?;
         let object = self.object_id(card).ok_or("missing land source")?;
         if self.begin_land_entry(
             EntryOrigin::LandPlay {
                 player,
                 decision_id,
+                back_face,
             },
             vec![object],
         )? {

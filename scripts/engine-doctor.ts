@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -93,8 +92,7 @@ export function inspectEngine(options: Options): Check[] {
       else add("upstream", match[1] === "0" && match[2] === "0" ? "ok" : "warn", `ahead ${match[1]}, behind ${match[2]} relative to locally stored upstream; remote freshness unknown`, "Fetch explicitly when needed; inspect divergence before integrating. Never force-push shared work.");
     }
   }
-  const sharedLock = path.join(os.homedir(), ".local/share/mtg-ecosystem/engine-verification/cargo.lock");
-  add("native coordination", "ok", `Standalone Cargo commands require the shared advisory lock (${sharedLock}); check:engine owns its lock internally.`);
+  add("native coordination", "ok", "Native commands take the selected target's advisory lock (python3 scripts/engine-cache.py lock); worktrees with separate targets never wait on each other. check:engine and engine:dev own it internally.");
   return checks;
 }
 

@@ -124,7 +124,9 @@ fn uses(p: &SpellProgram) -> bool {
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let error = "mana production requires its complete exact ordinary spell and cost";
-    if d.activated.iter().any(|a| uses(&a.program)) || d.triggered.iter().any(|a| uses(&a.program))
+    if d.activated.iter().any(|a| uses(&a.program)) || d.triggered.iter().any(|a| uses(&a.program) && !matches!(
+            a.condition, TriggerCondition::SagaChapter { .. }
+        ))
         || d.static_abilities.iter().any(|a| matches!(&a.effect,StaticEffect::Bestow{program,..}|StaticEffect::GrantSpellCascade{program,..} if uses(program))) {
         return Err(error.into());
     }
@@ -174,11 +176,14 @@ pub(super) fn extend_schema(s: &mut Value) {
     let free = json!({"$ref":"#/$defs/ResolutionManaFreeProgram"});
     s["$defs"]["ResolutionManaFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":op}},
         "modes":{"items":{"properties":{"program":free}}}}});
+    // The Saga gate separately ties the fixed program and chapter condition to
+    // the complete printed chapter family. Other trigger contexts remain fenced.
+    let chapter = json!({"$ref":"#/$defs/SagaFixedManaChapter"});
     let cap = json!({"contains":{"const":Capability::ResolutionManaV1}});
     s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "properties":{
             "activated":{"items":{"properties":{"program":free}}},
-            "triggered":{"items":{"properties":{"program":free}}},
+            "triggered":{"items":{"anyOf":[{"properties":{"program":free}},chapter]}},
             "static_abilities":{"items":{"properties":{"effect":{"properties":{
                 "bestow":{"properties":{"program":free}}},"grant_spell_cascade":{"properties":{"program":free}}
             }}}}},
@@ -189,7 +194,11 @@ pub(super) fn extend_schema(s: &mut Value) {
                 "instructions":{"minItems":1,"maxItems":1,"items":op},
                 "targets":{"maxItems":0},"modes":{"maxItems":0},"optional_additional_costs":{"maxItems":0}
             }}}},
-        "else":{"properties":{"capabilities":{"not":cap}}}
+        "else":{
+            "if":{"required":["triggered"],"properties":{"triggered":{"contains":chapter}}},
+            "then":{"properties":{"capabilities":cap}},
+            "else":{"properties":{"capabilities":{"not":cap}}}
+        }
     }));
 }
 

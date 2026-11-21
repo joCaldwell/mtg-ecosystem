@@ -237,6 +237,35 @@ impl Game {
         self.retain_source_facts(&fact);
         Ok(())
     }
+    // CR 608.2h/113.7a: a rules step works on its own copy of the resolving
+    // frame. When that step moves the ability's source or trigger entrant, the
+    // live stack entry receives the departure's last-known information; the
+    // copy written back afterwards must carry the same facts, never the stale
+    // ones. Only the two fields a departure rewrites are taken from the entry.
+    pub(super) fn refresh_resolving_lki(&self, spell: &mut StackInstance) {
+        let Some(live) = self
+            .state
+            .rules
+            .stack
+            .iter()
+            .find(|entry| entry.id == spell.id)
+        else {
+            return;
+        };
+        if spell.source_facts != live.source_facts {
+            spell.source_facts.clone_from(&live.source_facts);
+        }
+        if let (
+            StackKind::Triggered { witness, .. },
+            StackKind::Triggered {
+                witness: current, ..
+            },
+        ) = (&mut spell.kind, &live.kind)
+            && witness != current
+        {
+            witness.clone_from(current);
+        }
+    }
     pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         for trigger in &mut self.state.rules.pending_triggers {
@@ -594,12 +623,8 @@ impl Game {
             _ => return Err("expected directed damage instruction".into()),
         };
         let index = slot as usize;
-        let target = match self
-            .program_for(spell)?
-            .targets
-            .get(index)
-            .map(|spec| spec.domain)
-        {
+        let spec = self.program_for(spell)?.targets.get(index);
+        let target = match spec.map(|spec| spec.domain) {
             Some(TargetDomain::AnyDamageTarget) => *self
                 .bound_damage_target(spell, index)
                 .ok_or("missing damage binding")?,
@@ -629,6 +654,22 @@ impl Game {
                     .get(index)
                     .ok_or("missing creature damage binding")?,
             },
+            Some(TargetDomain::BattlefieldPermanent)
+                if matches!(
+                    spell.kind,
+                    StackKind::Triggered {
+                        witness: TriggerEventWitness::LoreAdded { .. },
+                        ..
+                    }
+                ) && spec.is_some_and(mtg_contracts::saga_damage_target) =>
+            {
+                TargetEntity::Object {
+                    object: *spell
+                        .targets
+                        .get(index)
+                        .ok_or("missing chapter damage binding")?,
+                }
+            }
             _ => return Err("unsupported directed damage target domain".into()),
         };
         Ok((slot, amount, block, target))
@@ -768,6 +809,23 @@ impl Game {
                     },
                     true,
                 )
+            }
+            Instruction::DealDamageToManaActivator {
+                amount,
+                source_block,
+            } => {
+                let player = Self::mana_tap_activator(&frame.spell)?;
+                if !self.is_live(player) {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
+                }
+                let damage = NoncombatDamageOccurrence {
+                    source: self.source_facts(&frame.spell)?,
+                    controller: frame.spell.controller,
+                    recipient: DamageRecipient::Player { player },
+                    amount,
+                };
+                return self.prepare_noncombat_damage(frame, damage, source_block);
             }
             Instruction::DealDamageToController {
                 amount,

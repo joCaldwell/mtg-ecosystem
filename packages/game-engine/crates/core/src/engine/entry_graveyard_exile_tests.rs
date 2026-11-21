@@ -4,6 +4,53 @@ use super::targeted_discard_tests::public_answer;
 use super::*;
 use std::io::{BufRead, BufReader};
 
+// The contract authenticates this land shape against its archived source and
+// AST, so the synthetic definition carries provenance that says the same thing.
+fn synthetic_source(land: &mut Definition) {
+    let text = [
+        "This land enters tapped.",
+        "When this land enters, exile target player's graveyard.",
+        "{T}: Add {B}.",
+    ]
+    .join("\n");
+    let mut source: serde_json::Value = serde_json::from_str(&land.provenance.source_json).unwrap();
+    source["name"] = land.name.clone().into();
+    source["oracle_id"] = land.oracle_id.clone().into();
+    source["color_identity"] = serde_json::json!(["B"]);
+    source["produced_mana"] = serde_json::json!(["B"]);
+    source["oracle_text"] = text.into();
+    land.provenance.source_json = source.to_string();
+    land.provenance.source_sha256 = mtg_contracts::sha256(land.provenance.source_json.as_bytes());
+    let this = serde_json::json!({"ref": "this", "noun": "land"});
+    land.provenance.abilities_json = serde_json::json!([
+        {"kind": "static", "effect": {"static": "enters-tapped", "what": this}},
+        {
+            "kind": "triggered",
+            "trigger": {"trigger": "enters", "what": this},
+            "effects": [{"steps": [{
+                "effect": "exile",
+                "what": {
+                    "ref": "zone-cards",
+                    "zone": "graveyard",
+                    "owner": {"player": "target-player", "selectionId": "line:1:6"}
+                }
+            }]}]
+        },
+        {
+            "kind": "activated",
+            "costs": [{"cost": "tap-self"}],
+            "effects": [{"steps": [{
+                "effect": "add-mana",
+                "who": {"player": "you"},
+                "mana": {"mana": "fixed", "symbols": ["B"]}
+            }]}]
+        }
+    ])
+    .to_string();
+    land.provenance.ast_sha256 =
+        mtg_contracts::sha256(format!("[{}]", land.provenance.abilities_json).as_bytes());
+}
+
 fn setup() -> Prepared {
     let mut rows = vec![
         ("Command Tower", 0, 0, true),
@@ -62,6 +109,7 @@ fn setup() -> Prepared {
             };
             land.mana_abilities[0].source_block = 2;
             land.capabilities = land.requirements();
+            synthetic_source(land);
             prepared.config.cards[0].oracle_id = land.oracle_id.clone();
             catalog
                 .definitions

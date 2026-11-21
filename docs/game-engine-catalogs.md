@@ -2,7 +2,7 @@
 
 Fixture paths below are relative to `packages/game-engine/`. Use frozen source
 records, not refreshed card facts. [Development](game-engine-development.md#cargo-coordination-and-cache-integration)
-owns the pinned environment/shared Cargo lock for native commands.
+owns the pinned environment/per-worktree Cargo lock for native commands.
 
 ## Catalog source and commands
 

@@ -53,6 +53,12 @@ use hideaway::HideawayLink;
 mod impulse_play;
 #[cfg(test)]
 mod impulse_play_tests;
+mod mana_tap_observer;
+#[cfg(test)]
+mod mana_tap_observer_tests;
+mod optional_block;
+#[cfg(test)]
+mod optional_block_tests;
 mod random_discard;
 mod removal;
 #[cfg(test)]
@@ -63,6 +69,8 @@ mod resolution_mana;
 mod sacrifice;
 #[cfg(test)]
 mod sacrifice_tests;
+#[cfg(test)]
+mod source_damage_counters_tests;
 #[cfg(test)]
 mod tap_source_destroy_tests;
 #[cfg(test)]
@@ -98,7 +106,9 @@ mod equipped_events_tests;
 #[cfg(test)]
 mod phase1_sequences_tests;
 mod predefined_token_templates;
+mod proliferate;
 mod resolution_payment;
+mod target_color;
 use resolution_payment::{ResolutionPayment, ResolutionPaymentStage};
 mod colored_search;
 mod entry_copy;
@@ -447,9 +457,8 @@ pub use trace::*;
 mod control;
 mod controlled_land_entry;
 mod land_reclamation;
-mod restricted_mana;
-use restricted_mana::ManaConsumer;
 mod multiplayer;
+mod restricted_mana;
 pub use multiplayer::*;
 mod permitted_history;
 mod stored_history;
@@ -684,6 +693,13 @@ pub struct Prepared {
     profile_digest: String,
 }
 impl Prepared {
+    fn has_target_color_set(&self) -> bool {
+        self.catalog
+            .definitions
+            .iter()
+            .any(|d| d.capabilities.contains(&Capability::TargetColorSetV1))
+    }
+
     fn has_nonland_color_grant(&self) -> bool {
         self.catalog.definitions.iter().any(|d| {
             d.capabilities
@@ -1089,6 +1105,8 @@ struct ManaActivationUndo {
     color: Color,
     amount: Quantity,
     mana_was_absent: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tap_triggers: Vec<TriggerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     permanent: Option<Box<PermanentManaUndo>>,
 }
@@ -1297,6 +1315,9 @@ pub enum Response {
     PlayHideawayLinked {
         object: Option<ObjectId>,
     },
+    PlayHideawayLinkedBackLand {
+        object: ObjectId,
+    },
     EntryCopy {
         object: Option<ObjectId>,
     },
@@ -1375,6 +1396,13 @@ pub enum Response {
     OptionalEffect {
         perform: bool,
     },
+    ChooseColor {
+        color: Color,
+    },
+    Proliferate {
+        object: ObjectId,
+        include: bool,
+    },
     OptionalRecursion {
         perform: bool,
     },
@@ -1452,6 +1480,10 @@ pub enum Response {
     PlayLand {
         card: CardId,
     },
+    PlayBackLand {
+        card: CardId,
+    },
+
     ActivateMana {
         object: ObjectId,
     },
@@ -1638,6 +1670,16 @@ pub enum Request {
         decision_id: u64,
         player: PlayerId,
     },
+    ChooseColor {
+        decision_id: u64,
+        player: PlayerId,
+        target: ObjectId,
+    },
+    Proliferate {
+        decision_id: u64,
+        player: PlayerId,
+        candidate: ObjectId,
+    },
     OptionalRecursion {
         decision_id: u64,
         player: PlayerId,
@@ -1810,6 +1852,8 @@ impl Request {
             | Self::SearchLandBattlefield { decision_id, .. }
             | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
+            | Self::ChooseColor { decision_id, .. }
+            | Self::Proliferate { decision_id, .. }
             | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
             | Self::OpeningPlacement { decision_id, .. }
@@ -1864,6 +1908,8 @@ impl Request {
             | Self::SearchLandBattlefield { player, .. }
             | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
+            | Self::ChooseColor { player, .. }
+            | Self::Proliferate { player, .. }
             | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
             | Self::OpeningPlacement { player, .. }
@@ -1897,6 +1943,9 @@ impl Request {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proposal", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProposedEvent {
+    Transform {
+        object: ObjectId,
+    },
     RevealLibraryCard {
         player: PlayerId,
         object: ObjectId,
@@ -2016,6 +2065,11 @@ pub enum ProposedEvent {
     ApplyCounterPlacementEffect {
         effect: CounterPlacementEffectKey,
     },
+    ProliferateCounters {
+        object: ObjectId,
+        plus_one: Quantity,
+        lore: bool,
+    },
     PutPlusOneCounters {
         object: ObjectId,
         amount: Quantity,
@@ -2129,6 +2183,8 @@ pub enum ProposedEvent {
         amount: Quantity,
         source: Option<ObjectId>,
         remove_zero: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tap_triggers: Vec<TriggerId>,
     },
     Tap {
         object: ObjectId,
@@ -2165,6 +2221,9 @@ pub struct MoveOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventOutcome {
+    Transformed {
+        object: ObjectId,
+    },
     LifeFrozenUntilNextTurn {
         player: PlayerId,
     },
@@ -2277,6 +2336,13 @@ pub enum EventOutcome {
         objects: Vec<ObjectId>,
         controller: PlayerId,
         token: Box<mtg_contracts::CreatureToken>,
+    },
+    Proliferated {
+        object: ObjectId,
+        previous_plus_one: Quantity,
+        current_plus_one: Quantity,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lore: Option<LoreChange>,
     },
     PlusOneCountersPlaced {
         object: ObjectId,
@@ -2450,6 +2516,10 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 enum InstructionOutcome {
+    OptionalBlock {
+        accepted_by: Option<PlayerId>,
+    },
+    OptionalSkipped,
     DelayedChapterRegistered {
         issuer: StackId,
     },
@@ -2669,6 +2739,8 @@ pub struct Game {
     catalog_has_land_type_grant: bool,
     catalog_has_land_reclamation: bool,
     catalog_has_nonland_color_grant: bool,
+    catalog_has_target_color_set: bool,
+    catalog_has_mana_tap_observer: bool,
     // Admitted metadata is immutable for this executor and all staged forks.
     prepared: Arc<Prepared>,
     // Derived accelerator only, never state: catalog row for each physical
@@ -2770,6 +2842,7 @@ impl Game {
                 mana_ability_uses: BTreeSet::new(),
                 tokens: Arc::default(),
                 entry_copies: BTreeMap::new(),
+                back_face_objects: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(|config| {
@@ -2849,6 +2922,8 @@ impl Game {
                 .iter()
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
+            catalog_has_target_color_set: prepared.has_target_color_set(),
+            catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: Self::definition_index(&prepared.catalog, &state.rules.cards),
             prepared: Arc::new(prepared),
             state,
@@ -2875,6 +2950,8 @@ impl Game {
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
             catalog_has_land_reclamation: self.catalog_has_land_reclamation,
             catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
+            catalog_has_target_color_set: self.catalog_has_target_color_set,
+            catalog_has_mana_tap_observer: self.catalog_has_mana_tap_observer,
             prepared: self.prepared.clone(),
             definition_index: self.definition_index.clone(),
             state: self.state.clone(),
@@ -3111,7 +3188,8 @@ impl Game {
                     .ok_or_else(|| "missing triggered program".to_string()),
                 grant => self.effective_cascade_program(grant),
             },
-            StackKind::Activated { ability, .. } => definition
+            StackKind::Activated { ability, .. } => self
+                .activation_definition(stack.source)?
                 .activated
                 .get(*ability as usize)
                 .map(|ability| &ability.program)
@@ -3494,6 +3572,11 @@ impl Game {
             {
                 self.validate_land_play(player, *card)
             }
+            (Frame::Priority, Response::PlayBackLand { card })
+                if self.state.rules.priority == player =>
+            {
+                self.validate_land_face(player, *card, true)
+            }
             (Frame::Priority, Response::Pass) if self.state.rules.priority == player => Ok(()),
             (Frame::Priority, Response::ActivateMana { object })
                 if self.state.rules.priority == player =>
@@ -3736,7 +3819,10 @@ impl Game {
                         self.activate_ability(input.player, input.decision_id, object, ability)?
                     }
                     Response::PlayLand { card } => {
-                        self.play_land(input.player, input.decision_id, card)?;
+                        self.play_land(input.player, input.decision_id, card, false)?;
+                    }
+                    Response::PlayBackLand { card } => {
+                        self.play_land(input.player, input.decision_id, card, true)?;
                     }
                     Response::ActivateMana { object } => {
                         self.begin_payment_mana(&input, object, Frame::Priority)?;
@@ -3947,6 +4033,7 @@ impl Game {
                         .cursor
                         .checked_add(1)
                         .ok_or("instruction cursor resource limit")?;
+                    self.refresh_resolving_lki(&mut frame.spell);
                     self.state.rules.frame = Frame::Resolve { frame };
                 } else {
                     if stack.kind.is_spell()
@@ -4185,6 +4272,8 @@ impl Game {
                 .iter()
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
+            catalog_has_target_color_set: prepared.has_target_color_set(),
+            catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: Self::definition_index(&prepared.catalog, &s.state.rules.cards),
             prepared: Arc::new(prepared),
             state: s.state,
@@ -4291,6 +4380,7 @@ impl Game {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
+        self.validate_back_face_objects()?;
         self.validate_entry_copy_identities()?;
         self.validate_attachment_state()?;
         self.validate_control_state()?;

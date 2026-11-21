@@ -111,6 +111,13 @@ library steps also compose in supported self-entry and declared-attack
 triggers, and in paid source-sacrifice activations. The stack invocation's
 controller receives each look decision during resolution.
 
+Optional blocks keep their decision at resolution (CR 603.5, 608.2d). When an
+exile spell offers its target's controller a basic-land search, that player is
+bound before exile. Acceptance starts a private search and always shuffles that
+library, including a search that finds nothing (CR 701.23b, 701.24a). Declining
+skips the search and shuffle. The same decision can guard fixed life gain in
+admitted creature-entry and upkeep triggers.
+
 Departures preserve original seating and Commander history; all simultaneous
 losers leave before cleanup/adjudication. Never resurrect their objects/mana.
 Surviving activators retain paid abilities when a borrowed source's owner leaves.
@@ -224,6 +231,24 @@ doubling compares the provider's current controller with the source's current or
 exact-LKI facts (CR 609.7c).
 
 ## Movement, sacrifice and board-wide effects
+
+The modal land subset binds two fixed-mana land faces, or an ordinary
+own-graveyard return sorcery followed by a fixed-mana land. Each back-land play
+uses its own accepted action, including a linked Hideaway play. Entry
+replacements use the chosen land, and only the battlefield incarnation retains
+that face. Direct entry uses the front. An entry copy freezes the donor's
+chosen face. Owner-visible hand and priority views keep the front
+characteristics, and concealed objects keep their normal visibility rules
+([CR 712.8d/f, 712.11–14](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
+Casting a front-face sorcery uses the existing payment and reversal path.
+The transforming subset supports complete artifact-creature faces with
+Defender and a fixed self-transform activation on the front and Flying on the
+back. Resolution preserves incarnation, counters, marked damage and
+attachments. An already stacked second activation retains its front program
+and does nothing after the first transform (CR 701.27f). The physical
+permanent retains front-face mana value, and a single-face copy of its back
+uses the copied face's values (CR 202.3b and 707.2).
+Back-face spells and other transforming programs remain open.
 
 Indestructible takes precedence over destruction. A paid regeneration shield
 replaces destruction when permitted, tapping its source, clearing damage and
@@ -379,14 +404,20 @@ probes hold the synthetic controls.
 
 ## Trigger families and event witnesses
 
-Single-face noncreature Sagas with chapters I–III can compose fixed token
-creation, +1/+1 counters on a controlled creature, and a combined fixed
-stat/trample grant on a controlled creature. The complete printed chapter,
-AST and ordered controller/target graph determine each program. Chapter
-targets are chosen at trigger placement and checked again at resolution.
-Lore entry and advancement follow CR 714.3a and 714.3c. The Saga is sacrificed
-after its final threshold once all pending or stacked chapters from that
-incarnation have left the stack (CR 714.4).
+Single-face noncreature Sagas can compose up to four consecutive chapters,
+including a printed clause shared by consecutive chapter symbols. Fixed token
+creation, counters and temporary stat and trample grants share the existing
+effect programs. Filtered chapter damage and destruction check opposing control
+at target announcement and resolution. Fixed mana chapters grant mana on
+resolution. An untargeted exile-play chapter uses the existing exact-successor
+permission. A delayed cast chapter registers a controlled-creature counter
+trigger for each spell the registration controller successfully casts that
+turn. It survives the Saga leaving the battlefield, and announces its target
+when placed on the stack (CR 603.3d, 603.7, 608.2b).
+The complete printed text, AST and ordered binding graph determine each
+program. Lore entry and advancement follow CR 714.3a and 714.3c. The Saga is
+sacrificed after the final threshold once every pending or stacked chapter
+from that incarnation has left the stack (CR 714.4).
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
@@ -394,6 +425,11 @@ controllers, actors, incarnations and witnesses. Power-filtered entries use
 derived post-event power; intervening conditions recheck at resolution. Source
 status uses current incarnation or departure-refreshed LKI. Cast triggers collect
 after successful payment; declared attacks use the real declaration batch.
+
+Mana-tap damage observers require a tap-cost mana ability to produce mana
+(CR 106.12a, 605.1b). Each matching observer keeps the activating player and
+joins the usual APNAP placement after the mana window. Reversing the mana
+activation also cancels its pending triggers (CR 733.1).
 Intrinsic landwalk and fixed-color protection can share a card with separately
 proved entry effects and fixed paid creature activations. Entry triggers on
 artifacts, Equipment and Auras use the entering incarnation. Supported entry
@@ -412,6 +448,12 @@ values each turn. Caster and grant provenance freeze at collection, surviving
 grantor departure; whole batches preflight IDs, fanout, ledger and retained
 payloads atomically. Cast witnesses freeze pre-completion firstness; failed
 payments never consume it.
+
+A source-relative combat-damage trigger can place fixed +1/+1 counters on
+the creature that dealt the damage. The instruction retains that battlefield
+incarnation, including when the source also has supported intrinsic keywords
+(CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
+counters.
 
 Grouped combat-damage triggers fire once per observer, ability, occurrence and
 damaged player, using trigger-time appearance and frozen membership. Opponent

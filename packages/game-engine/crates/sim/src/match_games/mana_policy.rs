@@ -28,27 +28,47 @@ struct Planner<'a> {
     sources: Vec<Source<'a>>,
     used: Vec<bool>,
     pool: BTreeMap<Color, Quantity>,
+    spell_only: BTreeMap<Color, Quantity>,
     plan: Vec<PlannedMana>,
     filter_retries: usize,
 }
 impl Planner<'_> {
-    fn fund(&mut self, cost: &ManaCost) -> bool {
+    fn balance(&self, color: &Color, nested: bool) -> Quantity {
+        let mut amount = self.pool.get(color).cloned().unwrap_or_default();
+        if !nested && let Some(spell) = self.spell_only.get(color) {
+            amount.add(spell);
+        }
+        amount
+    }
+
+    fn can_fund(&self, cost: &ManaCost, nested: bool) -> bool {
+        let mut pool = self.pool.clone();
+        if !nested {
+            for (color, amount) in &self.spell_only {
+                pool.entry(*color).or_default().add(amount);
+            }
+        }
+        spend(cost, &pool).is_some()
+    }
+
+    fn fund(&mut self, cost: &ManaCost, nested: bool) -> bool {
         let mut required = BTreeMap::<Color, Quantity>::new();
         for c in &cost.colored {
             required.entry(*c).or_default().add(&1.into());
         }
         for _ in 0..=self.sources.len() {
-            if spend(cost, &self.pool).is_some() {
+            if self.can_fund(cost, nested) {
                 return true;
             }
             let deficit = required
                 .iter()
-                .find(|(c, n)| self.pool.get(c).is_none_or(|amount| amount < *n))
+                .find(|(c, n)| self.balance(c, nested) < **n)
                 .map(|(c, _)| *c);
             // Prefer rocks/dorks to lands. Fixed multi-symbol production is
             // evaluated at its full quantity, including the Signet's input cost.
             let chosen = (0..self.sources.len())
                 .filter(|i| !self.used[self.sources[*i].object_index])
+                .filter(|i| !nested || !spell_only_source(&self.sources[*i].production))
                 .filter(|i| deficit.is_none_or(|c| self.sources[*i].colors.contains(&c)))
                 .min_by_key(|i| {
                     (
@@ -90,7 +110,7 @@ impl Planner<'_> {
                         continue;
                     }
                     let mut need = required.get(c).cloned().unwrap_or_default();
-                    need.subtract(&self.pool.get(c).cloned().unwrap_or_default());
+                    need.subtract(&self.balance(c, nested));
                     amounts[i] = need.max(Quantity::zero()).min(left.clone());
                     left.subtract(&amounts[i]);
                 }
@@ -117,8 +137,13 @@ impl Planner<'_> {
                     | ManaProduction::RestrictedFixed { symbols, .. } => symbols.as_slice(),
                     _ => color.as_slice(),
                 };
+                let pool = if spell_only_source(&source.production) {
+                    &mut self.spell_only
+                } else {
+                    &mut self.pool
+                };
                 for &c in symbols {
-                    self.pool.entry(c).or_default().add(&source.amount);
+                    pool.entry(c).or_default().add(&source.amount);
                 }
                 None
             };
@@ -149,7 +174,7 @@ impl Planner<'_> {
             });
             let checkpoint =
                 alternate.map(|_| (self.used.clone(), self.pool.clone(), self.plan.len()));
-            if !self.fund(&cost) {
+            if !self.fund(&cost, true) {
                 // Charge retries across the entire search, including any
                 // recursively attempted branch that is rolled back.
                 let (used, pool, length) = checkpoint?;
@@ -159,7 +184,7 @@ impl Planner<'_> {
                 self.plan.truncate(length);
                 funded = alternate?;
                 cost = self.sources[funded].cost.clone()?;
-                if !self.fund(&cost) {
+                if !self.fund(&cost, true) {
                     return None;
                 }
             }
@@ -170,6 +195,10 @@ impl Planner<'_> {
         Some(funded)
     }
 }
+fn spell_only_source(mana: &ManaProduction) -> bool {
+    matches!(mana, ManaProduction::RestrictedFixed { spend, .. } if !spend.permits_activation(false))
+}
+
 fn commander_colors<'a>(catalog: &'a Catalog, view: &PermittedView) -> &'a [Color] {
     view.commanders
         .iter()
@@ -307,14 +336,30 @@ fn production(
 
 #[derive(Clone, Copy)]
 pub(super) enum ManaPurpose {
-    Activate,
-    CastColorless,
+    Activate { battlefield_creature: bool },
+    Cast(mtg_contracts::ManaSpellTraits),
 }
 
 impl ManaPurpose {
+    pub(super) fn activation(view: &PermittedView, source: &ObjectHandle) -> Self {
+        Self::Activate {
+            battlefield_creature: view.objects.iter().any(|o| {
+                &o.handle == source
+                    && controlled_permanent(view, o)
+                    && o.characteristics
+                        .as_ref()
+                        .is_some_and(|c| c.has_type(CardKind::Creature))
+            }),
+        }
+    }
+
     fn permits(self, spend: mtg_contracts::ManaSpendRestriction) -> bool {
-        matches!(self, Self::Activate)
-            || spend == mtg_contracts::ManaSpendRestriction::ColorlessSpellOrActivatedAbility
+        match self {
+            Self::Activate {
+                battlefield_creature,
+            } => spend.permits_activation(battlefield_creature),
+            Self::Cast(spell) => spend.permits_spell(spell),
+        }
     }
 }
 
@@ -417,14 +462,26 @@ pub(super) fn plan_for(
             }
         }
     }
+    let player = view.players.iter().find(|p| p.player == view.viewer)?;
+    let mut nested_pool = pool;
+    let mut spell_only = BTreeMap::<Color, Quantity>::new();
+    for unit in &player.restricted_mana {
+        if !unit.restriction.permits_activation(false)
+            && purpose.is_some_and(|purpose| purpose.permits(unit.restriction))
+        {
+            nested_pool.get_mut(&unit.color)?.subtract(&unit.amount);
+            spell_only.entry(unit.color).or_default().add(&unit.amount);
+        }
+    }
     let mut planner = Planner {
         filter_retries: sources.len(),
         sources,
         used: vec![false; view.objects.len()],
-        pool,
+        pool: nested_pool,
+        spell_only,
         plan: vec![],
     };
-    planner.fund(cost).then(|| planner.plan.into())
+    planner.fund(cost, false).then(|| planner.plan.into())
 }
 
 /// Plan against the complete fixed price as each printed hybrid pip is
@@ -534,6 +591,7 @@ mod tests {
             }],
             used: vec![false],
             pool: BTreeMap::new(),
+            spell_only: BTreeMap::new(),
             plan: vec![],
             filter_retries: 1,
         };
@@ -541,7 +599,7 @@ mod tests {
             generic: 0.into(),
             colored: vec![Color::W, Color::U],
         };
-        assert!(planner.fund(&cost));
+        assert!(planner.fund(&cost, false));
         assert_eq!(
             planner.plan[0].combination,
             Some([1_i64, 1, 0, 0, 0].map(Quantity::from))
@@ -556,6 +614,7 @@ mod tests {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
             mtg_core::VisibleObject {
                 copied_values: None,
+                display_face: None,
                 face_down: false,
                 exiled_by: None,
                 phased_out: false,
@@ -690,13 +749,17 @@ mod tests {
             ],
             used: vec![false; 2],
             pool: BTreeMap::new(),
+            spell_only: BTreeMap::new(),
             plan: vec![],
             filter_retries: 3,
         };
-        assert!(planner.fund(&ManaCost {
-            generic: 0.into(),
-            colored: vec![Color::U, Color::U]
-        }));
+        assert!(planner.fund(
+            &ManaCost {
+                generic: 0.into(),
+                colored: vec![Color::U, Color::U]
+            },
+            false
+        ));
         assert_eq!(planner.plan.len(), 2);
         assert_eq!(planner.plan[0].source, land);
         assert_eq!(planner.plan[1].source, filter);

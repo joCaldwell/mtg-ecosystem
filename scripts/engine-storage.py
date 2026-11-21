@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,14 @@ import subprocess
 import sys
 
 GIB = 1024 ** 3
-DEFAULT_LOCK = Path.home() / '.local/share/mtg-ecosystem/engine-verification/cargo.lock'
+
+
+def worktree_lock(worktree):
+    """The native lock of a worktree's default Cargo target (engine-cache.py owns the key)."""
+    spec = importlib.util.spec_from_file_location('engine_cache', Path(__file__).with_name('engine-cache.py'))
+    cache = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cache)
+    return cache.worktree_lock(Path(worktree).absolute())
 
 
 def git(root, *args):
@@ -92,7 +100,8 @@ def active_processes(root):
 
 
 @contextlib.contextmanager
-def cargo_lock(filename=DEFAULT_LOCK):
+def cargo_lock(filename):
+    filename = Path(filename)
     no_symlinks(filename)
     filename.parent.mkdir(parents=True, exist_ok=True)
     with filename.open('a') as handle:
@@ -113,10 +122,11 @@ def incremental_plan(worktree, max_bytes=2 * GIB):
         return []
     no_symlinks(target)
     # Cargo's standard layouts and the dedicated engine:dev cache only.
-    profiles = [target / name for name in ('debug', 'release')]
+    # Includes the default per-worktree target/engine and legacy target/engine-dev.
+    names = ('debug', 'release', 'quick')
+    profiles = [target / name for name in names]
     profiles += [entry / name for entry in target.iterdir() if entry.is_dir()
-                 and entry.name not in ('debug', 'release') for name in ('debug', 'release')]
-    profiles.append(target / 'engine-dev' / 'quick')
+                 and entry.name not in names for name in names]
     rows = []
     for profile in profiles:
         candidate = profile / 'incremental'
@@ -133,10 +143,10 @@ def incremental_plan(worktree, max_bytes=2 * GIB):
     return rows if sum(row['allocated_bytes'] for row in rows) > max_bytes else []
 
 
-def prune_incremental(worktree, max_bytes=2 * GIB, apply=False, lock=DEFAULT_LOCK, allow_uninspectable=False):
+def prune_incremental(worktree, max_bytes=2 * GIB, apply=False, lock=None, allow_uninspectable=False):
     if max_bytes < 0:
         raise ValueError('max-bytes must be nonnegative')
-    with cargo_lock(lock):
+    with cargo_lock(lock or worktree_lock(worktree)):
         rows = incremental_plan(worktree, max_bytes)
         target = Path(worktree).absolute() / 'target'
         activity = active_processes(target) if rows else {'active': [], 'uninspectable': []}

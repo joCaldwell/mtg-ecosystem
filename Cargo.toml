@@ -26,9 +26,13 @@ unsafe_code = "forbid"
 overflow-checks = true
 
 # Optimize runtime-heavy verification while retaining development checks.
+# Line tables keep backtrace locations; full debug info cost ~18% compiler CPU
+# and ~2.6 GiB peak rustc RSS (generated/phase1-cargo-speedup receipts).
+# Incremental comes from the dev profile default.
 # https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.test]
 opt-level = 2
+debug = "line-tables-only"
 debug-assertions = true
 overflow-checks = true
 

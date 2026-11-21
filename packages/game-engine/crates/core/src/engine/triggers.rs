@@ -98,6 +98,10 @@ pub enum TriggerEventWitness {
         movement: Option<MoveOutcome>,
         entrant: Box<ObjectBefore>,
     },
+    DelayedSpellCast {
+        registration: Box<DelayedChapterRegistration>,
+        cast: Box<CastOccurrence>,
+    },
     DelayedCreatureEntered {
         registration: Box<DelayedChapterRegistration>,
         movement: Option<MoveOutcome>,
@@ -141,6 +145,10 @@ pub enum TriggerEventWitness {
     TokenEntered {
         object: ObjectId,
     },
+    ManaTapped {
+        land: Box<ObjectBefore>,
+        player: PlayerId,
+    },
     Tapped {
         object: ObjectId,
         controller: PlayerId,
@@ -171,21 +179,23 @@ impl TriggerEventWitness {
                 m.previous
             }),
             Self::TokenEntered { object } | Self::Tapped { object, .. } => Some(*object),
+            Self::ManaTapped { land, .. } => Some(land.object),
             Self::CreatureEnteredWithPower { entrant, .. } => Some(entrant.object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::Equipped {
                 occurrence: event, ..
             } => event.subject(),
-            Self::StepBegan { .. } | Self::SpellCast { .. } | Self::GroupedDamageDealt { .. } => {
-                None
-            }
+            Self::StepBegan { .. }
+            | Self::SpellCast { .. }
+            | Self::DelayedSpellCast { .. }
+            | Self::GroupedDamageDealt { .. } => None,
         }
     }
     pub(super) fn event_player(&self) -> Option<PlayerId> {
         match self {
             Self::StepBegan { active, .. } => *active,
-            Self::SpellCast { cast } => Some(cast.caster),
+            Self::SpellCast { cast } | Self::DelayedSpellCast { cast, .. } => Some(cast.caster),
             _ => None,
         }
     }
@@ -600,8 +610,14 @@ impl Game {
                     .unwrap_or_default(),
             };
             let mut lore = vec![];
-            if let EventOutcome::TurnTransitioned { lore: changes, .. } = &occurrence.actual {
-                lore.extend(changes.iter().cloned());
+            match &occurrence.actual {
+                EventOutcome::TurnTransitioned { lore: changes, .. } => {
+                    lore.extend(changes.iter().cloned())
+                }
+                EventOutcome::Proliferated {
+                    lore: Some(change), ..
+                } => lore.push(change.clone()),
+                _ => {}
             }
             for witness in &witnesses {
                 if let TriggerEventWitness::Moved { movement } = witness
@@ -720,7 +736,7 @@ impl Game {
             witness,
         )
     }
-    fn collect_trigger_witness(
+    pub(super) fn collect_trigger_witness(
         &mut self,
         before: Option<(&Game, &BatchCause)>,
         event: TriggerOccurrenceId,
@@ -815,7 +831,7 @@ impl Game {
                         equipped = observers.observe_equipped(object, &definition.condition, &witness);
                         equipped.is_some()
                     }
-                    TriggerCondition::DelayedControllerCreatureEntry => false,
+                    TriggerCondition::DelayedControllerCreatureEntry | TriggerCondition::DelayedControllerSpellCast => false,
                     TriggerCondition::SagaChapter {number} => matches!(&witness, TriggerEventWitness::LoreAdded{change} if change.object==object.id && change.controller==object.controller && change.crosses(*number)),
                     TriggerCondition::ControlledLandEntersBattlefield => {
                         if enters && entry_facts.is_none() {
@@ -925,6 +941,9 @@ impl Game {
                                 .is_ok_and(|s| s.controller != object.controller)
                     }
                     TriggerCondition::SelfDies => creature && dies && Some(object.id) == subject,
+                    TriggerCondition::ManaTapped { filter } => {
+                        matches!(&witness, TriggerEventWitness::ManaTapped { land, .. } if filter.matches(&land.characteristics))
+                    }
                     TriggerCondition::SelfBecomesTapped => {
                         matches!(&witness, TriggerEventWitness::Tapped { object: tapped, .. } if *tapped == object.id)
                     }
@@ -1103,6 +1122,41 @@ impl Game {
                 }
             }
         }
+        if let TriggerEventWitness::SpellCast { cast } = &witness {
+            for registration in &self.state.rules.delayed_chapters {
+                let issuer = &registration.issuer;
+                if issuer.controller != cast.caster
+                    || registration.turn != cast.history.turn_number
+                    || !self.is_live(issuer.controller)
+                {
+                    continue;
+                }
+                let chapter = registration.chapter()?;
+                if self.delayed_chapter(issuer.source, chapter)?.0
+                    != TriggerCondition::DelayedControllerSpellCast
+                {
+                    continue;
+                }
+                let facts = issuer
+                    .source_facts
+                    .clone()
+                    .ok_or("missing delayed source facts")?;
+                matched.push((
+                    None,
+                    facts,
+                    EffectiveTriggerAbility::DelayedChapter {
+                        chapter,
+                        issuer: issuer.id,
+                    },
+                    None,
+                    TriggerEventWitness::DelayedSpellCast {
+                        registration: Box::new(registration.clone()),
+                        cast: cast.clone(),
+                    },
+                    None,
+                ));
+            }
+        }
         if witness.enters()
             && let Some(entrant) = witness.subject()
             && self.is_battlefield_creature(entrant)
@@ -1110,7 +1164,13 @@ impl Game {
             let entrant = self.object_before(entrant)?;
             for registration in &self.state.rules.delayed_chapters {
                 let issuer = &registration.issuer;
-                if issuer.controller != entrant.controller || !self.is_live(issuer.controller) {
+                if issuer.controller != entrant.controller
+                    || !self.is_live(issuer.controller)
+                    || self
+                        .delayed_chapter(issuer.source, registration.chapter()?)?
+                        .0
+                        != TriggerCondition::DelayedControllerCreatureEntry
+                {
                     continue;
                 }
                 let facts = issuer
@@ -1173,14 +1233,16 @@ impl Game {
                 .ok_or("trigger ID resource limit")?;
             let source = source_facts.object;
             let controller = match &witness {
-                TriggerEventWitness::DelayedCreatureEntered { registration, .. } => {
+                TriggerEventWitness::DelayedCreatureEntered { registration, .. }
+                | TriggerEventWitness::DelayedSpellCast { registration, .. } => {
                     registration.issuer.controller
                 }
                 _ => source_facts.controller,
             };
             let consumed = source_facts.clone();
             let source_handles = match &witness {
-                TriggerEventWitness::DelayedCreatureEntered { registration, .. } => {
+                TriggerEventWitness::DelayedCreatureEntered { registration, .. }
+                | TriggerEventWitness::DelayedSpellCast { registration, .. } => {
                     registration.source_handles()?.to_vec()
                 }
                 _ => self.capture_trigger_source_handles(source)?,
@@ -1655,6 +1717,12 @@ impl Game {
                 definition.program.instructions.as_slice(),
                 [Instruction::Hideaway { .. }]
             );
+        // A chapter's captured lore occurrence fixes its controller. The same
+        // incarnation's final characteristics can refresh when it leaves.
+        let departed_chapter = matches!(definition.condition, TriggerCondition::SagaChapter { .. })
+            && !self
+                .current(source)
+                .is_ok_and(|o| o.present_on_battlefield());
         if controller.0 >= 4
             || fact.object != source
             || fact.owner
@@ -1688,7 +1756,8 @@ impl Game {
                     | TriggerCondition::SagaChapter { .. }
                     | TriggerCondition::SpellCastWithOrigin { .. }
             ) && fact.controller != controller
-                && !departed_hideaway)
+                && !departed_hideaway
+                && !departed_chapter)
             || handles.len() != 4
         {
             return Err("snapshot trigger source invariant".into());
@@ -1744,6 +1813,41 @@ impl Game {
                 .get(&entrant.object.card)
                 .is_some_and(|c| c.owner == entrant.owner))
     }
+    fn valid_cast_facts(&self, cast: &CastOccurrence) -> Result<bool, String> {
+        self.validate_characteristic_identity(
+            cast.spell.object,
+            cast.spell.zone,
+            &cast.spell.characteristics,
+        )?;
+        Ok(cast.history.turn_number > 0
+            && cast.history.turn_number <= self.state.rules.turn.number
+            && (!cast.history.first_from_exile || cast.cast_from == Zone::Exile)
+            && (!cast.history.first_overall
+                || cast.cast_from != Zone::Exile
+                || cast.history.first_from_exile)
+            && cast.stack_id.0 < self.state.rules.next_stack_id
+            && cast.caster.0 < 4
+            && cast.spell.controller == cast.caster
+            && cast.spell.default_controller.0 < 4
+            && cast.spell.zone == Zone::Stack
+            && !self
+                .state
+                .rules
+                .tokens
+                .contains_key(&cast.spell.object.card)
+            && !cast.spell.characteristics.has_type(CardKind::Land)
+            && self
+                .state
+                .rules
+                .cards
+                .get(&cast.spell.object.card)
+                .is_some_and(|c| c.owner == cast.spell.owner)
+            && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
+                || cast.cast_from == Zone::Exile)
+            && (!cast.priority_paid_exile || cast.cast_from == Zone::Exile)
+            && cast.x.as_ref().is_none_or(|x| !x.is_negative()))
+    }
+
     fn validate_trigger_witness(
         &self,
         source: ObjectId,
@@ -1777,6 +1881,24 @@ impl Game {
                     && self.valid_equipped_witness(source, condition, attachment, event)
             }
 
+            TriggerEventWitness::DelayedSpellCast { registration, cast } => {
+                self.validate_delayed_registration(registration)?;
+                let issuer = &registration.issuer;
+                *condition == TriggerCondition::DelayedControllerSpellCast
+                    && matches!(ability, EffectiveTriggerAbility::DelayedChapter {chapter, issuer:id}
+                        if id == issuer.id && chapter == registration.chapter()?)
+                    // The registration retains its original facts. The invocation's
+                    // same-incarnation LKI can refresh on departure (CR 113.7a).
+                    && facts.object == issuer.source
+                    && registration.source_handles()? == handles
+                    && source == issuer.source
+                    && controller == issuer.controller
+                    && cast.caster == controller
+                    && cast.history.turn_number == registration.turn
+                    && issuer.id < cast.stack_id
+                    && self.valid_cast_facts(cast)?
+                    && death_controller.is_none()
+            }
             TriggerEventWitness::DelayedCreatureEntered {
                 registration,
                 movement,
@@ -1789,7 +1911,8 @@ impl Game {
                     entrant.zone,
                     &entrant.characteristics,
                 )?;
-                matches!(ability,EffectiveTriggerAbility::DelayedChapter {chapter,issuer:id} if id==issuer.id && chapter==registration.chapter()?)
+                *condition == TriggerCondition::DelayedControllerCreatureEntry
+                    && matches!(ability,EffectiveTriggerAbility::DelayedChapter {chapter,issuer:id} if id==issuer.id && chapter==registration.chapter()?)
                     && issuer.source_facts.as_ref() == Some(facts)
                     && registration.source_handles()? == handles
                     && source == issuer.source
@@ -1959,38 +2082,7 @@ impl Game {
                 // Accepted-input replay proves the actual declaration/facts.
             }
             TriggerEventWitness::SpellCast { cast } => {
-                self.validate_characteristic_identity(
-                    cast.spell.object,
-                    cast.spell.zone,
-                    &cast.spell.characteristics,
-                )?;
-                cast.history.turn_number > 0
-                    && cast.history.turn_number <= self.state.rules.turn.number
-                    && (!cast.history.first_from_exile || cast.cast_from == Zone::Exile)
-                    && (!cast.history.first_overall
-                        || cast.cast_from != Zone::Exile
-                        || cast.history.first_from_exile)
-                    && cast.stack_id.0 < self.state.rules.next_stack_id
-                    && cast.caster.0 < 4
-                    && cast.spell.controller == cast.caster
-                    && cast.spell.default_controller.0 < 4
-                    && cast.spell.zone == Zone::Stack
-                    && !self
-                        .state
-                        .rules
-                        .tokens
-                        .contains_key(&cast.spell.object.card)
-                    && !cast.spell.characteristics.has_type(CardKind::Land)
-                    && self
-                        .state
-                        .rules
-                        .cards
-                        .get(&cast.spell.object.card)
-                        .is_some_and(|c| c.owner == cast.spell.owner)
-                    && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
-                        || cast.cast_from == Zone::Exile)
-                    && (!cast.priority_paid_exile || cast.cast_from == Zone::Exile)
-                    && cast.x.as_ref().is_none_or(|x| !x.is_negative())
+                self.valid_cast_facts(cast)?
                     && cast_matches(condition, cast, source, controller)
                     && death_controller.is_none()
             }
@@ -2016,6 +2108,24 @@ impl Game {
                     && object.incarnation == 0
                     && *condition == TriggerCondition::OtherCreatureEntersBattlefield
                     && *object != source
+            }
+            TriggerEventWitness::ManaTapped { land, player } => {
+                self.validate_characteristic_identity(
+                    land.object,
+                    land.zone,
+                    &land.characteristics,
+                )?;
+                player.0 < 4
+                    && land.controller.0 < 4
+                    && land.zone == Zone::Battlefield
+                    && self
+                        .state
+                        .rules
+                        .cards
+                        .get(&land.object.card)
+                        .is_some_and(|c| c.owner == land.owner)
+                    && death_controller.is_none()
+                    && matches!(condition, TriggerCondition::ManaTapped { filter } if filter.matches(&land.characteristics))
             }
             TriggerEventWitness::Tapped {
                 object,
@@ -2072,6 +2182,7 @@ impl Game {
                     && (match condition {
                         TriggerCondition::SelfSpellCast
                         | TriggerCondition::DelayedControllerCreatureEntry
+                        | TriggerCondition::DelayedControllerSpellCast
                         | TriggerCondition::SagaChapter { .. }
                         | TriggerCondition::StepBegan { .. }
                         | TriggerCondition::SpellCast { .. }
@@ -2079,6 +2190,7 @@ impl Game {
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
                         | TriggerCondition::SelfBecomesTapped
+                        | TriggerCondition::ManaTapped { .. }
                         | TriggerCondition::GroupedDamageDealt { .. }
                         | TriggerCondition::EquippedCombatDamage
                         | TriggerCondition::EquippedDies
@@ -2129,9 +2241,11 @@ impl Game {
         witness: &TriggerEventWitness,
     ) -> bool {
         match (event, witness) {
-            (TriggerOccurrenceId::Cast(id), TriggerEventWitness::SpellCast { cast }) => {
-                id.cast == cast.stack_id && id.cast.0 < self.state.rules.next_stack_id
-            }
+            (
+                TriggerOccurrenceId::Cast(id),
+                TriggerEventWitness::SpellCast { cast }
+                | TriggerEventWitness::DelayedSpellCast { cast, .. },
+            ) => id.cast == cast.stack_id && id.cast.0 < self.state.rules.next_stack_id,
             (
                 TriggerOccurrenceId::Batch(id),
                 TriggerEventWitness::DelayedCreatureEntered { registration, .. },
@@ -2139,8 +2253,11 @@ impl Game {
                 matches!(&registration.issuer.kind, StackKind::Triggered {event:TriggerOccurrenceId::Batch(origin),..} if origin.batch < id.batch && id.batch < self.state.rules.next_batch_id)
             }
             (TriggerOccurrenceId::Batch(id), w) => {
-                !matches!(w, TriggerEventWitness::SpellCast { .. })
-                    && id.batch < self.state.rules.next_batch_id
+                !matches!(
+                    w,
+                    TriggerEventWitness::SpellCast { .. }
+                        | TriggerEventWitness::DelayedSpellCast { .. }
+                ) && id.batch < self.state.rules.next_batch_id
             }
             _ => false,
         }
@@ -2207,7 +2324,11 @@ impl Game {
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     ) && !(t.domain == TargetDomain::ControlledBattlefieldCreature
-                        && matches!(witness, TriggerEventWitness::LoreAdded { .. }))
+                        && matches!(
+                            witness,
+                            TriggerEventWitness::LoreAdded { .. }
+                                | TriggerEventWitness::DelayedSpellCast { .. }
+                        ))
                 }))
             || !entry.stack_targets.is_empty()
             || entry.total_cost

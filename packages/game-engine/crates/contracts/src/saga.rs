@@ -4,7 +4,9 @@ use serde_json::{Value, json};
 use std::num::NonZeroU32;
 
 mod composed;
+mod ordinary;
 pub use composed::FixedChapter;
+pub use ordinary::{OrdinaryChapter, damage_target as saga_damage_target};
 
 pub struct LifeChapter {
     pub numbers: Vec<NonZeroU32>,
@@ -12,10 +14,24 @@ pub struct LifeChapter {
     pub source_block: u32,
 }
 pub enum ChapterEffect {
-    Gain { amount: u32 },
-    DrawLose { draw: u32, loss: u32 },
-    DelayedEntry { loss: u32, gain: u32 },
+    Gain {
+        amount: u32,
+    },
+    DrawLose {
+        draw: u32,
+        loss: u32,
+    },
+    DelayedEntry {
+        loss: u32,
+        gain: u32,
+    },
     Fixed(FixedChapter),
+    Ordinary(OrdinaryChapter),
+    Impulse {
+        effects: Value,
+        program: SpellProgram,
+    },
+    DelayedCastCounter,
 }
 fn program(instructions: Vec<Instruction>) -> SpellProgram {
     SpellProgram {
@@ -33,6 +49,13 @@ impl LifeChapter {
     pub fn abilities(&self) -> impl Iterator<Item = TriggeredAbility> + '_ {
         self.numbers.iter().map(|&number| {
             let block = self.source_block;
+            let triggered = |program| TriggeredAbility {
+                condition: TriggerCondition::SagaChapter { number },
+                functioning_zone: FunctioningZone::Battlefield,
+                intervening_if: None,
+                death_filter: None,
+                program,
+            };
             let gain = |amount| Instruction::GainLife {
                 recipient: LifeRecipient::Controller,
                 amount: Quantity::from(i64::from(amount)),
@@ -58,6 +81,27 @@ impl LifeChapter {
                     steps
                 }
                 ChapterEffect::Fixed(ref chapter) => chapter.instructions(block),
+                ChapterEffect::Ordinary(ref chapter) => return triggered(chapter.program(block)),
+                ChapterEffect::Impulse { ref program, .. } => return triggered(program.clone()),
+                ChapterEffect::DelayedCastCounter => {
+                    let mut child = program(vec![Instruction::PutPlusOneCounters {
+                        on: CounterRecipient::Target { target_slot: 0 },
+                        amount: 1.into(),
+                        source_block: block,
+                    }]);
+                    child.targets.push(TargetSpec {
+                        slot: 0,
+                        selection_id: format!("line:{block}:21"),
+                        domain: TargetDomain::ControlledBattlefieldCreature,
+                        chooser: Chooser::Controller,
+                        stage: EvaluationStage::Announcement,
+                        filter: None,
+                    });
+                    vec![Instruction::RegisterControllerSpellCastThisTurn {
+                        source_block: block,
+                        program: Box::new(child),
+                    }]
+                }
                 ChapterEffect::DelayedEntry { loss, gain: life } => {
                     vec![Instruction::RegisterControllerCreatureEntryThisTurn {
                         source_block: block,
@@ -81,20 +125,30 @@ impl LifeChapter {
                     filter: None,
                 });
             }
-            TriggeredAbility {
-                condition: TriggerCondition::SagaChapter { number },
-                functioning_zone: FunctioningZone::Battlefield,
-                intervening_if: None,
-                death_filter: None,
-                program,
-            }
+            triggered(program)
         })
     }
     pub fn ast(&self) -> Value {
+        if let ChapterEffect::Impulse { effects, .. } = &self.effect {
+            return json!({"kind":"chapter","chapters":self.numbers,"effects":effects});
+        }
         let step = |effect: &str, player: &str, n: u32| json!({"effect":effect,"who":{"player":player},"amount":{"amount":"fixed","value":n}});
         let steps = match self.effect {
             ChapterEffect::Gain { amount } => vec![step("gain-life", "you", amount)],
             ChapterEffect::Fixed(ref chapter) => chapter.steps(self.source_block),
+            ChapterEffect::Ordinary(ref chapter) => vec![chapter.step(self.source_block)],
+            ChapterEffect::Impulse { .. } => unreachable!(),
+            ChapterEffect::DelayedCastCounter => vec![json!({
+                "effect":"create-delayed-trigger",
+                "trigger":{"trigger":"cast","who":{"player":"you"},"what":{"cls":"spell"}},
+                "occurrence":"each","duration":{"duration":"this-turn"},"targets":"delayed-ability",
+                "effects":[{"steps":[{"effect":"put-counters",
+                    "on":{"ref":"target","filter":{"types":["creature"],"control":"you"},
+                        "count":{"amount":"fixed","value":1},
+                        "selectionId":format!("line:{}:21", self.source_block)},
+                    "counter":{"type":"+1/+1"},"count":{"amount":"fixed","value":1}
+                }]}]
+            })],
             ChapterEffect::DrawLose { draw, loss } => {
                 vec![step("draw", "you", draw), step("lose-life", "you", loss)]
             }
@@ -113,8 +167,19 @@ fn number(digits: &str) -> Result<u32, String> {
         .filter(|n| *n > 0 && n.to_string() == digits)
         .ok_or_else(|| "invalid fixed chapter amount".into())
 }
-fn effect(line: &str) -> Result<ChapterEffect, String> {
+fn effect(line: &str, source_block: u32) -> Result<ChapterEffect, String> {
     let invalid = || "unsupported complete chapter instruction".to_owned();
+    if let Some((effects, program)) = impulse_play::chapter(line, source_block) {
+        return Ok(ChapterEffect::Impulse { effects, program });
+    }
+    if line
+        == "Whenever you cast a spell this turn, put a +1/+1 counter on target creature you control."
+    {
+        return Ok(ChapterEffect::DelayedCastCounter);
+    }
+    if let Some(program) = OrdinaryChapter::parse(line) {
+        return Ok(ChapterEffect::Ordinary(program));
+    }
     if let Some(program) = FixedChapter::parse(line) {
         return Ok(ChapterEffect::Fixed(program));
     }
@@ -157,17 +222,28 @@ fn effect(line: &str) -> Result<ChapterEffect, String> {
         gain: number(gain)?,
     })
 }
-pub fn chapter_lines(text: &str) -> &str {
-    let Some((reminder, rest)) = text.split_once('\n') else {
-        return text;
-    };
-    let prefix = "(As this Saga enters and after your draw step, ";
-    let suffix = "add a lore counter. Sacrifice after III.)";
-    if reminder.strip_prefix(prefix) == Some(suffix) {
-        rest
-    } else {
-        text
+fn chapter_number(symbol: &str) -> Option<u32> {
+    match symbol {
+        "I" => Some(1),
+        "II" => Some(2),
+        "III" => Some(3),
+        "IV" => Some(4),
+        _ => None,
     }
+}
+
+fn reminder(text: &str) -> Option<(u32, &str)> {
+    let (first, rest) = text.split_once('\n')?;
+    let symbol = first
+        .strip_prefix(
+            "(As this Saga enters and after your draw step, add a lore counter. Sacrifice after ",
+        )?
+        .strip_suffix(".)")?;
+    Some((chapter_number(symbol)?, rest))
+}
+
+pub fn chapter_lines(text: &str) -> &str {
+    reminder(text).map_or(text, |(_, lines)| lines)
 }
 pub fn life_chapters(text: &str) -> Result<Vec<LifeChapter>, String> {
     let lines = chapter_lines(text);
@@ -177,35 +253,33 @@ pub fn life_chapters(text: &str) -> Result<Vec<LifeChapter>, String> {
         let (symbols, clause) = line.split_once(" — ").ok_or("invalid chapter line")?;
         let mut numbers = vec![];
         for symbol in symbols.split(", ") {
-            let n = match symbol {
-                "I" => 1,
-                "II" => 2,
-                "III" => 3,
-                _ => return Err("unsupported chapter symbol".into()),
-            };
+            let n = chapter_number(symbol).ok_or("unsupported chapter symbol")?;
             if n != next {
                 return Err("expected consecutive printed chapter symbols".into());
             }
             next += 1;
             numbers.push(NonZeroU32::new(n).unwrap());
         }
+        let source_block = u32::try_from(block).map_err(|_| "chapter block overflow")?;
         chapters.push(LifeChapter {
             numbers,
-            effect: effect(clause)?,
-            source_block: u32::try_from(block).map_err(|_| "chapter block overflow")?,
+            effect: effect(clause, source_block)?,
+            source_block,
         });
     }
-    if lines != text && next != 4 {
+    if reminder(text).is_some_and(|(last, _)| next != last + 1) {
         return Err("reminder and final chapter disagree".into());
     }
     Ok(chapters)
 }
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let raw = &d.provenance.source_json;
-    let typed = d
-        .capabilities
-        .contains(&Capability::DelayedControllerCreatureEntryV1)
-        || d.characteristics.subtypes.iter().any(|s| s == "Saga")
+    let typed = d.capabilities.iter().any(|c| {
+        matches!(
+            c,
+            Capability::DelayedControllerCreatureEntryV1 | Capability::DelayedControllerSpellCastV1
+        )
+    }) || d.characteristics.subtypes.iter().any(|s| s == "Saga")
         || d.capabilities.contains(&Capability::SagaChaptersV1)
         || d.triggered
             .iter()
@@ -287,6 +361,31 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
+    witness_from(include_str!(
+        "../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"
+    ))
+}
+
+#[cfg(test)]
+pub(super) fn spell_cast_witness() -> Definition {
+    let mut definition = witness_from(include_str!(
+        "../../../tests/fixtures/phase1-r3/showdown-of-the-skalds.json"
+    ));
+    let origin = accepted_manifest(include_str!(
+        "../../../tests/fixtures/archive-manifest-phase1-r3.json"
+    ))
+    .unwrap();
+    definition.provenance.archive_manifest_sha256 = origin.manifest_sha256.clone();
+    definition.provenance.parser_sha256 = origin.parser_source_sha256.clone();
+    definition.characteristics.mana_cost = ManaCost {
+        generic: 2.into(),
+        colored: vec![Color::R, Color::W],
+    };
+    definition
+}
+
+#[cfg(test)]
+fn witness_from(archive: &str) -> Definition {
     use serde_json::value::RawValue;
     #[derive(Deserialize)]
     struct Archive {
@@ -301,8 +400,6 @@ pub(super) fn witness() -> Definition {
     struct Parsed {
         abilities: Box<RawValue>,
     }
-    let archive =
-        include_str!("../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json");
     let bytes: Archive = serde_json::from_str(archive).unwrap();
     let record: Value = serde_json::from_str(archive).unwrap();
     let source = &record["source"];
@@ -310,6 +407,7 @@ pub(super) fn witness() -> Definition {
     d.name = source["name"].as_str().unwrap().into();
     d.oracle_id = source["oracle_id"].as_str().unwrap().into();
     d.provenance.printing_id = source["id"].as_str().unwrap().into();
+    d.provenance.source_index = record["sourceIndex"].as_u64().unwrap().try_into().unwrap();
     d.provenance.source_json = bytes.source.get().to_owned();
     d.provenance.source_sha256 = record["sourceSha256"].as_str().unwrap().into();
     d.provenance.abilities_json = bytes.faces[0].result.abilities.get().to_owned();
@@ -352,6 +450,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         TargetPlayerDrawV1,
         SacrificeV1,
         DelayedControllerCreatureEntryV1,
+        DelayedControllerSpellCastV1,
         CreatureTokensV1,
         CreatureTargetV1,
         PlusOneCountersV1,
@@ -359,6 +458,10 @@ pub(super) fn extend_schema(schema: &mut Value) {
         TemporaryPowerToughnessV1,
         AttachmentsV1,
         TrampleV1,
+        NoncombatDamageV1,
+        PermanentRemovalV1,
+        ResolutionManaV1,
+        LibraryPlayWindowV1,
     ];
     let fixed = |op: &str, recipient: &str, field: &str| json!({"type":"object","required":["op","recipient",field],"properties":{"op":{"const":op},"recipient":{"const":recipient},(field):{"pattern":"^[1-9][0-9]*$"}}});
     let gain = fixed("gain_life", "controller", "amount");
@@ -382,7 +485,27 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "op":{"const":"create_creature_tokens"},"count":{"const":1}
         }}),
     ]));
-    let programs = json!({"oneOf":variants});
+    let mana = sequence(vec![ordinary::mana_shape()]);
+    schema["$defs"]["SagaFixedManaChapter"] = json!({"allOf":[chapter],
+        "required":["program"],"properties":{"program":{
+            "required":["instructions"],
+            "properties":{"instructions":mana,"targets":{"maxItems":0},"modes":{"maxItems":0}}
+        }}
+    });
+    variants.push(mana);
+    let impulse = sequence(vec![json!({
+        "required":["op","count","window"],"properties":{
+            "op":{"const":"exile_library_for_play"},"count":{"minimum":2},
+            "window":{"enum":["this_turn","through_next_controller_turn"]}
+        }
+    })]);
+    schema["$defs"]["SagaImpulseChapter"] = json!({"allOf":[chapter],
+        "required":["program"],"properties":{"program":{
+            "required":["instructions"],
+            "properties":{"instructions":impulse,"targets":{"maxItems":0},"modes":{"maxItems":0}}
+        }}
+    });
+    variants.push(impulse);
     let target = json!({"required":["slot","domain","chooser","stage","selection_id"],"properties":{
         "slot":{"const":0},"domain":{"const":"controlled_battlefield_creature"},
         "selection_id":{"minLength":1},"chooser":{"const":"controller"},
@@ -407,33 +530,107 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "required":["op","on","amount"],"properties":{"op":{"const":"put_plus_one_counters"},
             "on":{"const":{"recipient":"target","target_slot":0}},"amount":{"pattern":"^[1-9][0-9]*$"}}
     })]));
+    let mut delayed_counter = counter_program.clone();
+    delayed_counter["properties"]["instructions"]["prefixItems"][0]["properties"]["amount"] =
+        json!({"const":"1"});
+    let delayed_cast = json!({"required":["op","program"],"properties":{
+        "op":{"const":"register_controller_spell_cast_this_turn"},"program":delayed_counter
+    }});
+    variants.push(sequence(vec![delayed_cast]));
+    let programs = json!({"oneOf":variants});
     schema["$defs"]["SagaTargetedGrantProgram"] = grant_program.clone();
     schema["$defs"]["SagaTargetedGrantChapter"] = json!({"allOf":[chapter],
         "required":["program"],"properties":{"program":{"$ref":"#/$defs/SagaTargetedGrantProgram"}}});
+    let removal = |kind: CardKind, instruction| {
+        json!({
+            "required":["targets","instructions"],"properties":{
+                "targets":{"minItems":1,"maxItems":1,"items":ordinary::removal_target(kind)},
+                "instructions":sequence(vec![instruction])
+            }
+        })
+    };
+    let damage_program = removal(
+        CardKind::Creature,
+        json!({
+            "required":["op","target_slot","amount"],"properties":{
+                "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}
+            }
+        }),
+    );
+    let destroy_program = removal(
+        CardKind::Artifact,
+        json!({
+            "required":["op","target_slot"],"properties":{
+                "op":{"const":"destroy_permanent"},"target_slot":{"const":0},"optional":{"const":false},
+            "regeneration_forbidden":{"const":false}
+            }
+        }),
+    );
     let chapter_programs = json!({"oneOf":[
         {"properties":{"targets":{"maxItems":0},"instructions":programs}},
-        grant_program, counter_program
+        grant_program, counter_program, damage_program, destroy_program
     ]});
-    let registration_chapter = json!({
-        "required":["program"],"properties":{"program":{
-            "required":["instructions"],"properties":{"instructions":{"contains":{
-                "required":["op"],"properties":{"op":{"const":"register_controller_creature_entry_this_turn"}}
-            }}}
-        }}
-    });
+    let chapter_order: Vec<_> = (1..=4).map(|n| json!({
+        "required":["condition"],"properties":{"condition":{"const":{"saga_chapter":{"number":n}}}}
+    })).collect();
+    let registration_chapter = |operation| {
+        json!({
+            "required":["program"],"properties":{"program":{
+                "required":["instructions"],"properties":{"instructions":{"contains":{
+                    "required":["op"],"properties":{"op":{"const":operation}}
+                }}}
+            }}
+        })
+    };
+    let free = json!({"$ref":"#/$defs/SagaDelayedCastFreeProgram"});
+    schema["$defs"]["SagaDelayedCastFreeProgram"] = json!({"properties":{
+        "instructions":{"items":{"not":{"required":["op"],"properties":{
+            "op":{"const":"register_controller_spell_cast_this_turn"}
+        }}}},
+        "modes":{"items":{"properties":{"program":free}}}
+    }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
-        "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"const":SagaChaptersV1}}}},
+        "properties":{
+            "spell":free,
+            "activated":{"items":{"properties":{"program":free}}},
+            "triggered":{"items":{"anyOf":[chapter,{"properties":{"program":free}}]}},
+            "static_abilities":{"items":{"properties":{"effect":{"properties":{
+                "bestow":{"properties":{"program":free}},
+                "grant_spell_cascade":{"properties":{"program":free}}
+            }}}}}
+        },
+        "if":{"anyOf":[{"properties":{"capabilities":{"contains":{"enum":[SagaChaptersV1,DelayedControllerSpellCastV1]}}}},
             {"required":["triggered"],"properties":{"triggered":{"contains":chapter}}},
             {"properties":{"characteristics":{"properties":{"subtypes":{"contains":{"const":"Saga"}}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""layout"\s*:\s*"saga""#}}}}}]},
         "then":{"required":["triggered","spell"],"allOf":[{
-            "if":{"properties":{"triggered":{"contains":registration_chapter}}},
+            "if":{"properties":{"triggered":{"contains":registration_chapter("register_controller_creature_entry_this_turn")}}},
             "then":{"properties":{"capabilities":{"allOf":[
                 {"contains":{"const":SacrificeV1}},{"contains":{"const":DelayedControllerCreatureEntryV1}}
             ]}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{
                 "enum":[SacrificeV1,DelayedControllerCreatureEntryV1]
             }}}}}
+        },
+        {
+            "if":{"properties":{"triggered":{"contains":registration_chapter("register_controller_spell_cast_this_turn")}}},
+            "then":{"properties":{"capabilities":{"allOf":[
+                {"contains":{"const":DelayedControllerSpellCastV1}},
+                {"contains":{"const":PlusOneCountersV1}},{"contains":{"const":AttachmentsV1}}
+            ]}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":DelayedControllerSpellCastV1}}}}}
+        },
+        {
+            "if":{"properties":{"triggered":{"contains":registration_chapter("deal_damage")}}},
+            "then":{"properties":{"capabilities":{"contains":{"const":NoncombatDamageV1}}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":NoncombatDamageV1}}}}}
+        },
+        {
+            "if":{"properties":{"triggered":{"contains":{"anyOf":[
+                registration_chapter("deal_damage"),registration_chapter("destroy_permanent")
+            ]}}}},
+            "then":{"properties":{"capabilities":{"contains":{"const":PermanentRemovalV1}}}},
+            "else":{"properties":{"capabilities":{"not":{"contains":{"const":PermanentRemovalV1}}}}}
         }],"properties":{
             "capabilities":{"minItems":4,"maxItems":allowed.len(),"allOf":[{"contains":{"const":SagaChaptersV1}},{"contains":{"const":TriggeredAbilityV1}},{"contains":{"const":CastEnchantmentV1}}],"uniqueItems":true,"items":{"enum":allowed}},
             "characteristics":{"properties":{"kind":{"const":"enchantment"},"subtypes":{"const":["Saga"]},"basic":{"const":false},
@@ -441,7 +638,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "x_mana_cost":{"const":false},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},"keywords":{"maxItems":0},
             "spell":{"type":"object","properties":{"resolution":{"const":"permanent"},"timing":{"const":"main_phase"},"functioning_zone":{"const":"stack"},
                 "instructions":{"maxItems":0},"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}},
-            "triggered":{"minItems":1,"maxItems":3,"items":{"allOf":[chapter],"properties":{"functioning_zone":{"const":"battlefield"},
+            "triggered":{"minItems":1,"maxItems":4,"allOf":[{"prefixItems":chapter_order}],"items":{"allOf":[chapter],"properties":{"functioning_zone":{"const":"battlefield"},
                 "intervening_if":{"type":"null"},"death_filter":{"type":"null"},"program":{"allOf":[chapter_programs],"properties":{"functioning_zone":{"const":"stack"},
                 "timing":{"const":"instant"},"resolution":{"const":"instructions"},"modes":{"maxItems":0},
                 "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}},

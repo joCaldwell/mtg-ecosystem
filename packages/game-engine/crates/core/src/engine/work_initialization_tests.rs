@@ -79,7 +79,7 @@ fn initialization_and_first_body_prefix_recover_for_every_query_kind() {
             assert_eq!(matches!(work.data.task, Task::Initialize), !initialized);
             let saved = game.save_work(&work).unwrap();
             let envelope: serde_json::Value = serde_json::from_str(&saved).unwrap();
-            assert_eq!(envelope["work_version"], 48);
+            assert_eq!(envelope["work_version"], 50);
             let cold = restored.restore_work(&saved).unwrap();
             assert_eq!(cold.data, work.data);
             assert!(cold.belongs_to_viewer(PlayerId(0)));
