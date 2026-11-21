@@ -733,11 +733,18 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
     Ok(())
 }
 
-/// Publish the marker/capability equivalence so a schema consumer rejects a
-/// composed definition that hides its capability, and the reverse.
+/// Publish composed definitions in the executable schema.
+///
+/// `$defs/Definition` keeps every family shape rule and now excludes the
+/// marker and its capability. A catalog entry marked `composed` is instead
+/// checked against `$defs/ComposedDefinition`: the plain structural schema of
+/// the Rust IR types (closed enums, required fields, no unknown fields),
+/// without any family shape rule, plus the marker/capability equivalence.
+/// The matrix itself is enforced by `validate`, as family semantics are.
 pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
-    use serde_json::json;
+    use serde_json::{Value, json};
     let cap = json!({"contains":{"const":Capability::ComposedAbilityV1}});
+    let marked = json!({"required":["composed"],"properties":{"composed":{"const":true}}});
     schema["$defs"]["Definition"]
         .as_object_mut()
         .expect("definition schema")
@@ -745,11 +752,42 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
         .or_insert_with(|| json!([]))
         .as_array_mut()
         .expect("definition allOf")
-        .push(json!({
-            "if":{"required":["composed"],"properties":{"composed":{"const":true}}},
-            "then":{"properties":{"capabilities":cap}},
-            "else":{"properties":{"capabilities":{"not":cap}}}
-        }));
+        .push(json!({"not":marked,"properties":{"capabilities":{"not":cap}}}));
+    fn rename(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                if let Some(Value::String(reference)) = object.get_mut("$ref")
+                    && let Some(name) = reference.strip_prefix("#/$defs/")
+                {
+                    *reference = format!("#/$defs/Composed{name}");
+                }
+                object.values_mut().for_each(rename);
+            }
+            Value::Array(items) => items.iter_mut().for_each(rename),
+            _ => {}
+        }
+    }
+    let plain = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
+    for (name, definition) in plain["$defs"].as_object().expect("derived definitions") {
+        let mut definition = definition.clone();
+        rename(&mut definition);
+        schema["$defs"][format!("Composed{name}")] = definition;
+    }
+    schema["$defs"]["ComposedDefinition"]
+        .as_object_mut()
+        .expect("composed definition schema")
+        .entry("allOf")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .expect("composed definition allOf")
+        .push(json!({"properties":{"capabilities":cap}}));
+    let items = &mut schema["properties"]["definitions"]["items"];
+    assert_eq!(*items, json!({"$ref":"#/$defs/Definition"}));
+    *items = json!({
+        "if":marked,
+        "then":{"$ref":"#/$defs/ComposedDefinition"},
+        "else":{"$ref":"#/$defs/Definition"}
+    });
 }
 
 #[cfg(test)]
@@ -928,18 +966,30 @@ mod tests {
     #[test]
     fn schema_publishes_the_marker_capability_equivalence() {
         let schema = catalog_schema();
-        let rules = schema["$defs"]["Definition"]["allOf"].as_array().unwrap();
-        assert!(rules.iter().any(|rule| {
-            rule["if"]["properties"]["composed"]["const"] == true
-                && rule["then"]["properties"]["capabilities"]["contains"]["const"]
-                    == "composed_ability_v1"
-                && rule["else"]["properties"]["capabilities"]["not"]["contains"]["const"]
+        // A catalog entry is a composed definition exactly when it is marked.
+        let items = &schema["properties"]["definitions"]["items"];
+        assert_eq!(items["if"]["properties"]["composed"]["const"], true);
+        assert_eq!(items["then"]["$ref"], "#/$defs/ComposedDefinition");
+        assert_eq!(items["else"]["$ref"], "#/$defs/Definition");
+        // Family definitions exclude the marker and its capability.
+        let family = schema["$defs"]["Definition"]["allOf"].as_array().unwrap();
+        assert!(family.iter().any(|rule| {
+            rule["not"]["properties"]["composed"]["const"] == true
+                && rule["properties"]["capabilities"]["not"]["contains"]["const"]
                     == "composed_ability_v1"
         }));
+        // Composed definitions keep the strict structural IR and require it.
+        let composed = &schema["$defs"]["ComposedDefinition"];
+        assert_eq!(composed["additionalProperties"], false);
+        assert_eq!(composed["properties"]["composed"]["type"], "boolean");
+        assert!(composed["allOf"].as_array().unwrap().iter().any(|rule| {
+            rule["properties"]["capabilities"]["contains"]["const"] == "composed_ability_v1"
+        }));
         assert_eq!(
-            schema["$defs"]["Definition"]["properties"]["composed"]["type"],
-            "boolean"
+            composed["properties"]["activated"]["items"]["$ref"],
+            "#/$defs/ComposedActivatedAbility"
         );
+        assert!(schema["$defs"]["ComposedInstruction"].is_object());
     }
 
     fn program(instructions: Vec<Instruction>, targets: Vec<TargetSpec>) -> SpellProgram {
