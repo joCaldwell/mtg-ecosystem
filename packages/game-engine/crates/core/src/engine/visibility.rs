@@ -426,6 +426,17 @@ pub enum PlayerRequest {
         token: DecisionToken,
         player: PlayerId,
     },
+    ChooseColor {
+        token: DecisionToken,
+        player: PlayerId,
+        target: ObjectHandle,
+        colors: Vec<Color>,
+    },
+    Proliferate {
+        token: DecisionToken,
+        player: PlayerId,
+        candidate: ObjectHandle,
+    },
     OptionalRecursion {
         token: DecisionToken,
         player: PlayerId,
@@ -609,6 +620,8 @@ impl PlayerRequest {
             | Self::SearchLandBattlefield { token, .. }
             | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
+            | Self::ChooseColor { token, .. }
+            | Self::Proliferate { token, .. }
             | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
             | Self::OpeningPlacement { token, .. }
@@ -736,6 +749,13 @@ pub enum PlayerResponse {
     },
     OptionalEffect {
         perform: bool,
+    },
+    ChooseColor {
+        color: Color,
+    },
+    Proliferate {
+        object: ObjectHandle,
+        include: bool,
     },
     OptionalRecursion {
         perform: bool,
@@ -2287,6 +2307,17 @@ impl Game {
                     player: viewer,
                     candidates,
                 },
+                Request::ChooseColor { target, .. } => PlayerRequest::ChooseColor {
+                    token,
+                    player: viewer,
+                    target: self.handle_for(viewer, target)?,
+                    colors: MANA_COMBINATION_COLORS.to_vec(),
+                },
+                Request::Proliferate { candidate, .. } => PlayerRequest::Proliferate {
+                    token,
+                    player: viewer,
+                    candidate: self.handle_for(viewer, candidate)?,
+                },
                 Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
                     token,
                     player: viewer,
@@ -3133,6 +3164,11 @@ impl Game {
             }
             PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
                 opponent: *opponent,
+            }),
+            PlayerResponse::ChooseColor { color } => Ok(Response::ChooseColor { color: *color }),
+            PlayerResponse::Proliferate { object, include } => Ok(Response::Proliferate {
+                object: self.resolve_handle(viewer, object)?,
+                include: *include,
             }),
             PlayerResponse::OptionalRecursion { perform } => {
                 Ok(Response::OptionalRecursion { perform: *perform })

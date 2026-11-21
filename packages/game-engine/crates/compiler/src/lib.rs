@@ -102,6 +102,7 @@ mod library_selection_tests;
 mod linked_hideaway;
 mod listed_mana;
 mod mana_life_gain;
+mod mana_tap_observer;
 mod modal_land;
 mod nonland_exile_life;
 mod normalization;
@@ -109,17 +110,22 @@ mod opponent_count_entry;
 mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
+mod optional_block;
 mod optional_costs;
+mod optional_entry_search;
+mod optional_trigger;
 mod ordinary_sequence;
 mod other_land_entry;
 mod own_graveyard_card_return;
 mod paid_counted_draw;
+mod paid_restricted_land;
 mod pain_mana;
 mod permanent_entry;
 #[cfg(test)]
 mod phase1_sequences_tests;
 mod power_entry_draw;
 mod power_filtered_removal;
+mod proliferate;
 mod repeated_target_modes;
 mod resolution_mana;
 mod restricted_mana;
@@ -134,12 +140,14 @@ mod self_spell_protection;
 mod set_exile;
 mod source_attack_pump;
 mod source_combat_restrictions;
+mod source_damage_counters;
 mod source_dies_nonland_destroy;
 mod source_regeneration;
 mod source_tap_damage;
 mod spell_cascade_grants;
 mod static_permanent_indestructible;
 mod successor_tuck;
+mod target_color;
 mod target_compensation;
 use optional_costs::KickedCondition;
 mod artifact_loss;
@@ -1292,6 +1300,12 @@ enum SourceStaticEffect {
         what: serde_json::Value,
         modifiers: Vec<serde_json::Value>,
     },
+    Conditional {
+        #[serde(rename = "condition")]
+        _condition: serde_json::Value,
+        #[serde(rename = "effect")]
+        _effect: serde_json::Value,
+    },
     Replacement {
         replacement: SourceReplacement,
     },
@@ -1695,6 +1709,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         Some(program) => Some(program),
         None => impulse_play::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
     };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => optional_block::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
+    };
     let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
         matches!(
@@ -1710,7 +1728,13 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             (!intrinsic_keywords.is_empty() && types.kind == CardKind::Creature)
                 .then_some("creature")
         });
-    let abilities = if has_conditional_fetch {
+    let abilities = if let Some(ability) =
+        proliferate::lower(&source, &result, &shape, &binding, types.kind)?
+    {
+        vec![ability]
+    } else if let Some(activation) = target_color::lower(&source, &shape, &result, &binding)? {
+        vec![Ability::BoundActivation(activation)]
+    } else if has_conditional_fetch {
         fetched_land_untap::decoded_activation(&canonical_abilities)?
     } else if let Some(program) = composition {
         vec![Ability::ComposedSpell(program)]
@@ -1741,6 +1765,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
         vec![ability]
+    } else if let Some(ability) = mana_tap_observer::lower(&source, &shape, &result, &binding)? {
+        vec![ability]
     } else if controlled_creature_spell_copy::candidate(&source) {
         vec![Ability::ControlledCreatureSpellCopy]
     } else {
@@ -1751,6 +1777,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     || (types.kind == CardKind::Creature
                         && mtg_contracts::permanent_entry::each_creature_sacrifice(&l.text))
                     || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
+                    || mtg_contracts::source_damage_counters::candidate(&l.text)
+                    || mtg_contracts::optional_trigger::candidate(&l.text, types.kind)
                     || mtg_contracts::cast_subtype::candidate(&l.text)
                     || (types.kind == CardKind::Land
                         && mtg_contracts::combat_window::split_activation(&l.text).is_some())
@@ -1786,6 +1814,35 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                             noun,
                         )?
                     {
+                        return Ok(a);
+                    }
+                    if let Some(a) = source_damage_counters::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                    )? {
+                        return Ok(a);
+                    }
+                    if let Some(a) = optional_entry_search::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                        types.kind,
+                    )? {
+                        return Ok(a);
+                    }
+                    if let Some(a) = optional_trigger::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                        types.kind,
+                    )? {
                         return Ok(a);
                     }
                     if let Some(a) =
@@ -1836,7 +1893,15 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     let land_reclamation = land_reclamation::bound(&source, &shape, &result, &binding)?;
     let restricted_mana = restricted_mana::lower(&source, &shape, &result, &binding)?;
     let mana_life_gain = mana_life_gain::lower(&source, &shape, &result, &binding)?;
-    restricted_mana::reject_unbound(&abilities, restricted_mana.is_some())?;
+    let paid_restricted_land = paid_restricted_land::lower(&source, &shape, &result, &binding)?;
+    let has_paid_restricted_land = paid_restricted_land.is_some();
+    let mana_haste = restricted_mana
+        .as_ref()
+        .is_some_and(|ability| ability.source_block == 1);
+    restricted_mana::reject_unbound(
+        &abilities,
+        restricted_mana.is_some() || has_paid_restricted_land,
+    )?;
     let mut opponent_entry_mana = opponent_count_entry::bind(
         &abilities,
         result.abilities.get(),
@@ -1897,13 +1962,15 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
     }
     for (block, ability) in abilities.iter().enumerate() {
         if let Ability::Static { effect, .. } = ability {
-            conditional_lands::bind(
-                effect,
-                &binding,
-                &r.oracle_identity,
-                source_block(block)?,
-                &source,
-            )?;
+            if !has_paid_restricted_land {
+                conditional_lands::bind(
+                    effect,
+                    &binding,
+                    &r.oracle_identity,
+                    source_block(block)?,
+                    &source,
+                )?;
+            }
             spell_cascade_grants::bind(
                 effect,
                 &binding,
@@ -1920,7 +1987,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             )?;
         }
     }
-    conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
+    if !has_paid_restricted_land {
+        conditional_lands::validate_binding_closure(&abilities, &binding, &r.oracle_identity)?;
+    }
     let basic_ramp_spell = basic_land_fetch::spell(&result, &shape, &binding, &source)?;
     if basic_fetch.is_none() {
         typed_fetchland::bind(&abilities, &binding, &r.oracle_identity, &source)?;
@@ -2100,6 +2169,7 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         .chain(color_mana)
         .chain(granted_mana)
         .chain(restricted_mana)
+        .chain(paid_restricted_land.into_iter().flatten())
         .chain(mana_life_gain)
         .collect();
     labels
@@ -2197,6 +2267,9 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
             abilities_json: result.abilities.get().into(),
         },
     };
+    if mana_haste {
+        definition.keywords.push(KeywordAbility::Haste);
+    }
     match kind {
         CardKind::Sorcery | CardKind::Instant if basic_ramp_spell.is_some() => {
             definition.spell = basic_ramp_spell;
@@ -2276,6 +2349,12 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     }
                 }
                 &abilities[abilities.len()..]
+            } else if has_paid_restricted_land {
+                labels.statics.push(0);
+                definition
+                    .static_abilities
+                    .push(mtg_contracts::paid_restricted_land::entry());
+                &[]
             } else if has_linked_hideaway {
                 use mtg_contracts::linked_hideaway;
                 labels.triggered.push(0);
@@ -2411,32 +2490,12 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                                     ));
                                 }
                                 labels.activated.push(source_block(block)?);
-                                definition.activated.push(ActivatedAbility {
-                                    functioning_zone: FunctioningZone::Battlefield,
-                                    cost: ActivationCost::Mana {
-                                        cost: c.mana.unwrap(),
-                                    },
-                                    program: SpellProgram {
-                                        optional_additional_costs: vec![],
-                                        additional_sacrifice: None,
-                                        timing: SpellTiming::MainPhase,
-                                        resolution: SpellResolution::Instructions,
-                                        functioning_zone: FunctioningZone::Stack,
-                                        targets: vec![TargetSpec {
-                                            slot: 0,
-                                            selection_id: "equip-creature".into(),
-                                            chooser: Chooser::Controller,
-                                            stage: EvaluationStage::Announcement,
-                                            filter: None,
-                                            domain: TargetDomain::ControlledBattlefieldCreature,
-                                        }],
-                                        instructions: vec![Instruction::AttachEquipment {
-                                            target_slot: 0,
-                                            source_block: block as u32,
-                                        }],
-                                        modes: vec![],
-                                    },
-                                });
+                                definition.activated.push(
+                                    mtg_contracts::attachment_modifiers::equip_ability(
+                                        c.mana.unwrap(),
+                                        source_block(block)?,
+                                    ),
+                                );
                                 continue;
                             }
                             if keyword.keyword == "enchant"

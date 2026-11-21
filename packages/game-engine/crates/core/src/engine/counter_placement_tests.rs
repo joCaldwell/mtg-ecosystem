@@ -897,3 +897,182 @@ fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
         assert_eq!(g.trace, trace);
     }
 }
+
+#[test]
+fn proliferate_landfall_chooses_nontargeted_incarnations_and_places_simultaneously() {
+    let mut p = prepared();
+    let result = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/b45fdeab-00cc-4422-af9f-66f30a880a7c.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}");
+    };
+    let sage = definition.oracle_id.clone();
+    let result = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/synthetic-saga-life.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition: saga } = result else {
+        panic!("{result:?}");
+    };
+    let saga_id = saga.oracle_id.clone();
+    let c = Arc::make_mut(&mut p.catalog);
+    c.definitions.extend([*definition, *saga]);
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(c).unwrap();
+    let land = CardId(p.config.cards.len() as u32);
+    let saga_card = CardId(land.0 + 2);
+    p.config.cards.extend([
+        CardSetup {
+            id: land,
+            oracle_id: FOREST.into(),
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: Zone::Hand { owner: PlayerId(0) },
+        },
+        CardSetup {
+            id: CardId(land.0 + 1),
+            oracle_id: sage,
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: Zone::Battlefield,
+        },
+        CardSetup {
+            id: saga_card,
+            oracle_id: saga_id,
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: Zone::Hand { owner: PlayerId(0) },
+        },
+    ]);
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    let own = paid(&mut g);
+    let opponent = object(&g, 8);
+    announce(&mut g, 4, vec![TargetEntity::Object { object: opponent }]);
+    drive(&mut g, true, &[], 1, true);
+    assert_eq!(g.current(opponent).unwrap().plus_one_counters, 2.into());
+    announce(&mut g, saga_card.0, vec![]);
+    drive(&mut g, true, &[], 1, true);
+    let saga = object(&g, saga_card.0);
+    assert_eq!(g.current(saga).unwrap().lore_counters, 1.into());
+    let mut own_after = g.current(own).unwrap().plus_one_counters.clone();
+    own_after.add(&4.into());
+    answer(&mut g, Response::PlayLand { card: land });
+
+    for expected in [own, opponent, saga] {
+        loop {
+            let r = counter_request(&mut g, 1);
+            if let Request::Proliferate { candidate, .. } = r {
+                assert_eq!(candidate, expected);
+                let viewer = r.player();
+                assert!(matches!(
+                    g.player_decision_for(PlayerId(1), Budget::unlimited()),
+                    QueryResult::Complete(QueryValue::Decision(None))
+                ));
+                let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::Proliferate {
+                    token,
+                    candidate,
+                    ..
+                }))) = g.player_decision_for(viewer, Budget::unlimited())
+                else {
+                    panic!("missing scoped proliferate decision")
+                };
+                let response = PlayerResponse::Proliferate {
+                    object: candidate,
+                    include: true,
+                };
+                let QueryResult::Complete(QueryValue::Validated(receipt)) =
+                    g.check_player_response(viewer, token, response, Budget::unlimited())
+                else {
+                    panic!("invalid scoped proliferate response");
+                };
+                g.submit(receipt).unwrap();
+                check(&g);
+                break;
+            }
+            answer(&mut g, Response::Pass);
+        }
+    }
+    drive(&mut g, true, &[], 1, true);
+    assert_eq!(g.current(own).unwrap().plus_one_counters, own_after);
+    assert_eq!(g.current(saga).unwrap().lore_counters, 2.into());
+    assert_eq!(g.current(opponent).unwrap().plus_one_counters, 4.into());
+    assert!(g.trace().records.iter().any(|record| matches!(&record.record,
+        EvidenceRecord::Batch {batch} if matches!(&batch.group,
+            EventGroup::Simultaneous {occurrences} if occurrences.len() == 3
+                && occurrences.iter().all(|e| matches!(e, ProposedEvent::ProliferateCounters {..}))
+        ))));
+    assert!(g.trace().records.iter().any(|record| matches!(&record.record,
+        EvidenceRecord::Batch {batch} if batch.occurrences.iter().any(|row| matches!(&row.actual,
+            EventOutcome::Proliferated {lore: Some(change), ..}
+                if change.object == saga && change.before == 1.into() && change.after == 2.into()
+        )))));
+    check(&g);
+}
+
+#[test]
+fn proliferate_follows_the_modifier_before_state_based_actions() {
+    let mut p = prepared();
+    let result = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/e4912bc3-bee9-4a2f-a13e-3a99018f8a65.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}");
+    };
+    let id = p.config.cards.len() as u32;
+    p.config.cards.push(CardSetup {
+        id: CardId(id),
+        oracle_id: definition.oracle_id.clone(),
+        owner: PlayerId(0),
+        controller: PlayerId(0),
+        zone: Zone::Hand { owner: PlayerId(0) },
+    });
+    let c = Arc::make_mut(&mut p.catalog);
+    c.definitions.push(*definition);
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    p.catalog_digest = digest(c).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::with_trace(p, TraceMode::Detailed);
+    let opponent = object(&g, 8);
+    let target = vec![TargetEntity::Object { object: opponent }];
+    announce(&mut g, 4, target.clone());
+    drive(&mut g, true, &[], 1, true);
+    assert_eq!(g.current(opponent).unwrap().plus_one_counters, 2.into());
+
+    announce(&mut g, id, target);
+    let mut selected = false;
+    for _ in 0..100 {
+        let r = counter_request(&mut g, 1);
+        if let Request::Proliferate { candidate, .. } = r {
+            assert_eq!(candidate, opponent);
+            assert_eq!(
+                g.characteristics(opponent).unwrap().toughness,
+                Some(0.into())
+            );
+            check(&g);
+            answer(
+                &mut g,
+                Response::Proliferate {
+                    object: opponent,
+                    include: true,
+                },
+            );
+            selected = true;
+            break;
+        }
+        answer(&mut g, Response::Pass);
+    }
+    assert!(selected, "missing proliferate choice");
+    drive(&mut g, true, &[], 1, true);
+    assert_eq!(g.current(opponent).unwrap().plus_one_counters, 4.into());
+    assert_eq!(
+        g.characteristics(opponent).unwrap().toughness,
+        Some(2.into())
+    );
+    check(&g);
+}

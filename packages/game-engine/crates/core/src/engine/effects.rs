@@ -120,6 +120,11 @@ pub enum ResolvedEffectKind {
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
     },
+    SetColor {
+        target: ObjectId,
+        color: Color,
+        timestamp: u64,
+    },
     CombatRestriction {
         target: ObjectId,
         restriction: CreatureRestriction,
@@ -317,23 +322,40 @@ impl Game {
         if !target.present_on_battlefield() {
             return Ok(base);
         }
-        self.battlefield_color_layer_with_sources(base, target.controller, sources)
+        let all_colors = self.static_all_colors_timestamp(&base, target.controller, sources)?;
+        let mut base = base;
+        if self.catalog_has_target_color_set
+            && let Some((timestamp, color)) = self.latest_color_set(object)
+            && all_colors.is_none_or(|static_timestamp| timestamp > static_timestamp)
+        {
+            base.to_mut().colors = vec![color];
+        } else if all_colors.is_some() {
+            base.to_mut().colors = MANA_COMBINATION_COLORS.to_vec();
+        }
+        Ok(base)
     }
 
     pub(super) fn battlefield_color_layer<'a>(
         &self,
-        base: std::borrow::Cow<'a, Characteristics>,
-        controller: PlayerId,
-    ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
-        self.battlefield_color_layer_with_sources(base, controller, None)
-    }
-
-    fn battlefield_color_layer_with_sources<'a>(
-        &self,
         mut base: std::borrow::Cow<'a, Characteristics>,
         controller: PlayerId,
-        sources: Option<&[CardId]>,
     ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
+        if self
+            .static_all_colors_timestamp(&base, controller, None)?
+            .is_some()
+        {
+            base.to_mut().colors = MANA_COMBINATION_COLORS.to_vec();
+        }
+        Ok(base)
+    }
+
+    fn static_all_colors_timestamp(
+        &self,
+        base: &Characteristics,
+        controller: PlayerId,
+        sources: Option<&[CardId]>,
+    ) -> Result<Option<u64>, String> {
+        let mut latest = None;
         if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
             for source in self
                 .battlefield_static_sources(sources)
@@ -348,12 +370,15 @@ impl Game {
                             && a.functioning_zone == FunctioningZone::Battlefield
                     })
                 {
-                    base.to_mut().colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
-                    break;
+                    let timestamp = source.keyword_timestamp.unwrap_or(0);
+                    if !self.catalog_has_target_color_set {
+                        return Ok(Some(timestamp));
+                    }
+                    latest = latest.max(Some(timestamp));
                 }
             }
         }
-        Ok(base)
+        Ok(latest)
     }
 
     pub(super) fn permanent_colors(
@@ -757,6 +782,16 @@ impl Game {
             }
             _ => return Err("unexpected effect instruction".into()),
         };
+        self.commit_resolved_effect(frame, kind, block)
+    }
+
+    pub(super) fn commit_resolved_effect(
+        &mut self,
+        frame: Resolving,
+        kind: ResolvedEffectKind,
+        block: u32,
+    ) -> Result<(), String> {
+        let consumes_choice = matches!(kind, ResolvedEffectKind::SetColor { .. });
         let handles = match &frame.spell.kind {
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
@@ -765,7 +800,8 @@ impl Game {
         let target_handles = match &kind {
             ResolvedEffectKind::GrantKeywords { target, .. }
             | ResolvedEffectKind::CombatRestriction { target, .. }
-            | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+            | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+            | ResolvedEffectKind::SetColor { target, .. } => {
                 self.capture_trigger_source_handles(*target)?
             }
             ResolvedEffectKind::PreventNextDamage {
@@ -802,6 +838,9 @@ impl Game {
                 source_block: block,
             },
         )?;
+        if consumes_choice {
+            self.state.rules.pending = None;
+        }
         self.finish_instruction(
             frame,
             InstructionOutcome::Effect {
@@ -1520,8 +1559,20 @@ impl Game {
                 {
                     return Err("invalid effect creation identity".into());
                 }
-                let Frame::Resolve { frame } = &self.state.rules.frame else {
-                    return Err("effect outside resolving instruction".into());
+                let frame = match (&self.state.rules.frame, &effect.kind) {
+                    (
+                        Frame::ResolutionChoice {
+                            frame,
+                            choice: ResolutionChoice::SetColor { source_block },
+                        },
+                        ResolvedEffectKind::SetColor { .. },
+                    ) if *source_block == effect.origin.source_block => frame,
+                    (Frame::Resolve { frame }, kind)
+                        if !matches!(kind, ResolvedEffectKind::SetColor { .. }) =>
+                    {
+                        frame
+                    }
+                    _ => return Err("effect outside resolving instruction".into()),
                 };
                 if frame.spell.mode != effect.origin.mode
                     || frame.spell.kind.activated_index() != effect.origin.activated_ability
@@ -1538,6 +1589,25 @@ impl Game {
                     .get(frame.cursor as usize)
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
+                    (
+                        Instruction::SetTargetColor {
+                            target_slot: 0,
+                            source_block,
+                        },
+                        ResolvedEffectKind::SetColor {
+                            target,
+                            color,
+                            timestamp,
+                        },
+                    ) => {
+                        *timestamp == self.state.rules.next_batch_id
+                            && Some(*target) == self.target_color_target(frame)
+                            && self.target_color_pending(frame)? == *color
+                            && *source_block == effect.origin.source_block
+                            && frame.spell.kind.activated_index().is_some()
+                            && frame.spell.paid.is_some()
+                            && self.top()? == &frame.spell
+                    }
                     (
                         Instruction::ExileLibraryForPlay {
                             count,
@@ -1823,7 +1893,8 @@ impl Game {
                     }
                     ResolvedEffectKind::GrantKeywords { target, .. }
                     | ResolvedEffectKind::CombatRestriction { target, .. }
-                    | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                    | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                    | ResolvedEffectKind::SetColor { target, .. } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
                                 self.handle_for(PlayerId(v), *target).as_ref()
@@ -2163,6 +2234,25 @@ impl Game {
             let mut bound = false;
             for (program, instruction) in instructions {
                 bound |= match (instruction, &e.kind) {
+                    (
+                        Instruction::SetTargetColor {
+                            target_slot: 0,
+                            source_block,
+                        },
+                        ResolvedEffectKind::SetColor {
+                            target,
+                            color,
+                            timestamp,
+                        },
+                    ) => {
+                        *color != Color::C
+                            && *timestamp > 0
+                            && *timestamp <= self.state.rules.next_batch_id
+                            && e.origin.activated_ability.is_some()
+                            && *source_block == e.origin.source_block
+                            && self.state.rules.cards.contains_key(&target.card)
+                            && e.target_handles.len() == 4
+                    }
                     (
                         Instruction::RegenerateSource { source_block },
                         ResolvedEffectKind::RegenerationShield,
@@ -2547,6 +2637,13 @@ pub enum VisibleEffect {
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
+    SetColor {
+        handle: EffectHandle,
+        origin: VisibleEffectSource,
+        target: VisibleTarget,
+        color: Color,
+        expires_in_cleanup_of_turn: u64,
+    },
     CombatRestriction {
         handle: EffectHandle,
         origin: VisibleEffectSource,
@@ -2798,6 +2895,13 @@ impl Game {
             ResolvedEffectKind::RegenerationShield => VisibleEffect::RegenerationShield {
                 handle,
                 origin,
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
+            ResolvedEffectKind::SetColor { target, color, .. } => VisibleEffect::SetColor {
+                handle,
+                origin,
+                target: target_view(*target)?,
+                color: *color,
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
             ResolvedEffectKind::RemoveIndestructibleSet { targets, .. } => {
@@ -3169,6 +3273,13 @@ impl Game {
         {
             base.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
         }
+        if base.colors != c.colors
+            && zone == Zone::Battlefield
+            && matches!(c.colors.as_slice(), [color] if *color != Color::C)
+            && self.catalog_has_target_color_set
+        {
+            base.colors.clone_from(&c.colors);
+        }
         base.power = c.power.clone();
         base.toughness = c.toughness.clone();
         if base != *c {
@@ -3423,6 +3534,17 @@ impl Game {
                             *source_block,
                             TargetEntity::Player {
                                 player: self.removal_target_controller(frame, *target_slot)?,
+                            },
+                        ),
+                        Instruction::DealDamageToManaActivator {
+                            amount,
+                            source_block,
+                        } => (
+                            None,
+                            amount,
+                            *source_block,
+                            TargetEntity::Player {
+                                player: Self::mana_tap_activator(&frame.spell)?,
                             },
                         ),
                         Instruction::DealDamageToController {

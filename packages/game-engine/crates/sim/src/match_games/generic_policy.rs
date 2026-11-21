@@ -1727,10 +1727,11 @@ impl Strategy<'_> {
             v,
             cost.clone(),
             &d.characteristics.hybrid_mana,
-            d.characteristics
-                .colors
-                .is_empty()
-                .then_some(mana_policy::ManaPurpose::CastColorless),
+            Some(mana_policy::ManaPurpose::Cast(
+                mtg_contracts::ManaSpellTraits::from_characteristics(
+                    o.characteristics.as_ref().unwrap_or(&d.characteristics),
+                ),
+            )),
         )?;
         self.payment.announced_cost = unchanged_cost.then_some(cost);
         self.hybrid_choices = choices;
@@ -1795,6 +1796,12 @@ impl Strategy<'_> {
         let Some((d, p)) = self.top_program(v) else {
             return false;
         };
+        if p.instructions.iter().any(|i| {
+            matches!(i, I::ChooseOptional { source_block, .. }
+            if block == Some(*source_block))
+        }) {
+            return true;
+        }
         let instruction = block
             .and_then(|block| p.instructions.iter().find(|i| i.source_block() == block))
             .or_else(|| match p.instructions.as_slice() {
@@ -2085,7 +2092,7 @@ impl Strategy<'_> {
             v,
             &cost,
             if tap || sac { Some(&o.handle) } else { None },
-            Some(mana_policy::ManaPurpose::Activate),
+            Some(mana_policy::ManaPurpose::activation(v, &o.handle)),
         )?;
         self.payment.exclude = (tap || sac).then(|| o.handle.clone());
         self.payment.announced_cost = Some(cost);

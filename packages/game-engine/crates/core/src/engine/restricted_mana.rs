@@ -5,17 +5,17 @@ use super::*;
 
 #[derive(Clone, Copy)]
 pub(super) enum ManaConsumer {
-    Spell { colorless: bool },
-    Activation,
+    Spell(ManaSpellTraits),
+    Activation { battlefield_creature: bool },
 }
 
 impl ManaConsumer {
     fn permits(self, restriction: ManaSpendRestriction) -> bool {
-        match restriction {
-            ManaSpendRestriction::ActivatedAbility => matches!(self, Self::Activation),
-            ManaSpendRestriction::ColorlessSpellOrActivatedAbility => {
-                matches!(self, Self::Activation | Self::Spell { colorless: true })
-            }
+        match self {
+            Self::Spell(spell) => restriction.permits_spell(spell),
+            Self::Activation {
+                battlefield_creature,
+            } => restriction.permits_activation(battlefield_creature),
         }
     }
 }
@@ -42,35 +42,49 @@ pub(super) fn debit(pool: &mut Vec<RestrictedMana>, unit: &RestrictedMana) -> Re
     Ok(())
 }
 
-pub(super) const MAX_RESTRICTED_BUCKETS: usize = 2 * 6;
+pub(super) const MAX_RESTRICTED_BUCKETS: usize = 4 * 6;
 
 pub(super) fn valid_buckets(pool: &[RestrictedMana]) -> bool {
     pool.len() <= MAX_RESTRICTED_BUCKETS
-        && pool.iter().all(|unit| unit.amount > Quantity::zero())
+        && pool
+            .iter()
+            .all(|unit| unit.amount > Quantity::zero() && unit.restriction.is_canonical())
         && pool.windows(2).all(|pair| pair[0].key() < pair[1].key())
 }
 
 impl Game {
+    pub(super) fn activation_mana_consumer(&self, source: ObjectId) -> ManaConsumer {
+        ManaConsumer::Activation {
+            battlefield_creature: self
+                .current(source)
+                .is_ok_and(|object| object.present_on_battlefield())
+                && self
+                    .characteristics(source)
+                    .is_ok_and(|c| c.has_type(CardKind::Creature)),
+        }
+    }
+
     pub(super) fn announced_mana_consumer(
         &self,
         stack: &StackInstance,
     ) -> Result<ManaConsumer, String> {
         match stack.kind {
             StackKind::Spell => {
-                let colors = self
+                let traits = self
                     .characteristics(stack.source)
-                    .map(|c| c.colors)
+                    .map(|characteristics| ManaSpellTraits::from_characteristics(&characteristics))
                     .or_else(|error| {
                         stack
                             .source_facts
                             .as_ref()
-                            .map(|facts| facts.characteristics.colors.clone())
+                            .map(|facts| {
+                                ManaSpellTraits::from_characteristics(&facts.characteristics)
+                            })
                             .ok_or(error)
                     })?;
-                let colorless = colors.is_empty();
-                Ok(ManaConsumer::Spell { colorless })
+                Ok(ManaConsumer::Spell(traits))
             }
-            StackKind::Activated { .. } => Ok(ManaConsumer::Activation),
+            StackKind::Activated { .. } => Ok(self.activation_mana_consumer(stack.source)),
             _ => Err("mana allocation requires a spell or activated ability".into()),
         }
     }
@@ -83,7 +97,7 @@ impl Game {
             Frame::ManaAbility { activation }
                 if activation.player == player && activation.stage == ManaStage::Spend =>
             {
-                Ok(ManaConsumer::Activation)
+                Ok(self.activation_mana_consumer(activation.source))
             }
             Frame::SpendMana { cast } | Frame::Payment { cast } | Frame::SacrificeCost { cast }
                 if self

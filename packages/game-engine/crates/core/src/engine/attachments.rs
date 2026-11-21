@@ -185,6 +185,7 @@ impl Game {
         let creature = characteristics
             .as_ref()
             .is_some_and(|c| c.kind == CardKind::Creature);
+        let legendary = characteristics.as_ref().is_some_and(|c| c.legendary);
         let subtypes = characteristics
             .as_ref()
             .map(|c| c.subtypes.as_slice())
@@ -239,6 +240,9 @@ impl Game {
                                                         .combat
                                                         .iter()
                                                         .any(|attacker| attacker.attacker == target)
+                                            }
+                                            CreatureScope::EquippedLegendary => {
+                                                legendary && o.attached_to == Some(target)
                                             }
                                             CreatureScope::Equipped | CreatureScope::Enchanted => {
                                                 o.attached_to == Some(target)

@@ -108,10 +108,21 @@ const liveGuards: CheckPhase[] = [
 ];
 export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"] };
 
-export function nativeEnvironment(root: string): NodeJS.ProcessEnv {
-  const selected = spawnSync("python3", ["-B", "scripts/engine-cache.py", "path"], { cwd: root, encoding: "utf8" });
+// Each worktree selects its own target (explicit CARGO_TARGET_DIR wins). Cargo
+// profiles own incrementality: dev/test/quick are incremental and release is
+// not, so CARGO_INCREMENTAL stays unset unless the caller chose a value.
+export function nativeEnvironment(root: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const selected = spawnSync("python3", ["-B", "scripts/engine-cache.py", "path"], { cwd: root, env: base, encoding: "utf8" });
   if (selected.status !== 0) throw new Error("Cannot select Cargo target; run engine:doctor.");
-  return { ...process.env, CARGO_TARGET_DIR: selected.stdout.trim(), CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL ?? "0" };
+  return { ...base, CARGO_TARGET_DIR: selected.stdout.trim() };
+}
+
+// The advisory lock of the selected target. Worktrees with distinct targets never
+// wait on each other; commands sharing one target serialize.
+export function nativeLock(root: string, env: NodeJS.ProcessEnv) {
+  const selected = spawnSync("python3", ["-B", "scripts/engine-cache.py", "lock"], { cwd: root, env, encoding: "utf8" });
+  if (selected.status !== 0 || !path.isAbsolute(selected.stdout.trim())) throw new Error("Cannot select the Cargo target lock; run engine:doctor.");
+  return selected.stdout.trim();
 }
 
 export function pinnedRust(root: string) {
