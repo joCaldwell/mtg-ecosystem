@@ -43,6 +43,8 @@ pub(super) enum EntryOrigin {
         progress: Box<LinkedPlayProgress>,
         object: ObjectId,
         receipt: HideawayLink,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        back_face: bool,
     },
     Copy {
         frame: Resolving,
@@ -51,6 +53,8 @@ pub(super) enum EntryOrigin {
     LandPlay {
         player: PlayerId,
         decision_id: u64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        back_face: bool,
     },
     Search {
         frame: Resolving,
@@ -60,6 +64,19 @@ pub(super) enum EntryOrigin {
     },
 }
 impl EntryOrigin {
+    fn back_face(&self) -> bool {
+        matches!(
+            self,
+            Self::LandPlay {
+                back_face: true,
+                ..
+            } | Self::LinkedPlay {
+                back_face: true,
+                ..
+            }
+        )
+    }
+
     pub(super) fn player(&self) -> PlayerId {
         match self {
             Self::LandPlay { player, .. } => *player,
@@ -76,6 +93,7 @@ impl EntryOrigin {
 pub(super) struct PreparedEntryAuthority {
     player: PlayerId,
     donor: Option<ObjectId>,
+    back_face: bool,
     from_land_play: bool,
     put_by_effect: bool,
     force_tapped: bool,
@@ -89,6 +107,9 @@ impl PreparedEntryAuthority {
 
     pub(super) fn land_play(&self, player: PlayerId) -> bool {
         self.from_land_play && self.player == player
+    }
+    pub(super) fn back_face(&self, object: ObjectId) -> bool {
+        self.back_face && self.entries.contains_key(&object)
     }
     pub(super) fn donor(&self, object: ObjectId) -> Option<ObjectId> {
         self.donor.filter(|_| self.entries.contains_key(&object))
@@ -177,7 +198,11 @@ impl Game {
             self.current(*object)?;
         }
         match origin {
-            EntryOrigin::LandPlay { decision_id, .. } => {
+            EntryOrigin::LandPlay {
+                decision_id,
+                back_face,
+                ..
+            } => {
                 if objects.len() != 1 || *decision_id >= self.state.rules.revision {
                     return Err("invalid entry landplay origin".into());
                 }
@@ -185,7 +210,7 @@ impl Game {
                 // priority or consuming its pending boolean on the real state.
                 let mut validation = self.fork();
                 validation.state.rules.frame = Frame::Priority;
-                validation.validate_land_play(player, objects[0].card)?;
+                validation.validate_land_face(player, objects[0].card, *back_face)?;
             }
             EntryOrigin::Copy { frame, selection } => {
                 self.validate_copy_entry(frame, objects, selection)?;
@@ -201,11 +226,12 @@ impl Game {
                 progress,
                 object,
                 receipt,
+                back_face,
             } => {
                 self.validate_linked_play(progress, None)?;
                 if !progress.receipt_matches(receipt, *object)
                     || objects != [*object]
-                    || !self.linked_land_playable(player, *object)?
+                    || !self.linked_land_face_playable(player, *object, *back_face)?
                 {
                     return Err("invalid linked land play".into());
                 }
@@ -219,6 +245,7 @@ impl Game {
         }
         let offers = self.entry_offers(objects)?;
         if (offers.is_empty()
+            && !origin.back_face()
             && !matches!(
                 origin,
                 EntryOrigin::Cascade { .. }
@@ -264,7 +291,8 @@ impl Game {
         if !matches!(
             origin,
             EntryOrigin::Cascade { .. } | EntryOrigin::LinkedPlay { .. } | EntryOrigin::Copy { .. }
-        ) && self.entry_offers(&objects)?.is_empty()
+        ) && !origin.back_face()
+            && self.entry_offers(&objects)?.is_empty()
         {
             return Ok(false);
         }
@@ -351,6 +379,7 @@ impl Game {
             EntryOrigin::LandPlay {
                 player,
                 decision_id,
+                ..
             } => Ok(BatchCause::LandPlay {
                 player: *player,
                 decision_id: *decision_id,
@@ -498,6 +527,7 @@ impl Game {
         // life losses; no battlefield, control or entry can change its prior facts.
         Ok(Some(PreparedEntryAuthority {
             donor: self.entry_copy_model(objects[0]),
+            back_face: origin.back_face(),
             from_land_play: matches!(
                 origin,
                 EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. }
@@ -593,9 +623,10 @@ impl Game {
             progress,
             object,
             receipt,
+            back_face,
         } = &origin
             && (!self.is_live(origin.player())
-                || !self.linked_land_playable(origin.player(), *object)?)
+                || !self.linked_land_face_playable(origin.player(), *object, *back_face)?)
         {
             self.state.rules.pending = None;
             // Entry has not committed. A surviving land returns to its
@@ -631,11 +662,14 @@ impl Game {
                 }
             };
         }
-        if let EntryOrigin::LandPlay { player, .. } = &origin {
+        if let EntryOrigin::LandPlay {
+            player, back_face, ..
+        } = &origin
+        {
             let mut validation = self.fork();
             validation.state.rules.frame = Frame::Priority;
             if validation
-                .validate_land_play(*player, objects[0].card)
+                .validate_land_face(*player, objects[0].card, *back_face)
                 .is_err()
             {
                 self.state.rules.pending = None;

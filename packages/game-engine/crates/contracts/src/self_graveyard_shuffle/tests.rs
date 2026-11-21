@@ -40,6 +40,8 @@ pub(crate) fn definition() -> Definition {
     let archive = accepted_manifest(HEADER).unwrap();
     let name = source["name"].as_str().unwrap();
     Definition {
+        modal_land: None,
+        transform_faces: None,
         source_labels: Some(SourceLabels {
             text: printed_text(name),
             blocks: vec![PROTECTION_TEXT.into(), REPLACEMENT_TEXT.into()],

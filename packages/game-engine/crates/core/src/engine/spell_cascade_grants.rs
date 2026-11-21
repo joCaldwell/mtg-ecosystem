@@ -44,7 +44,8 @@ fn trigger_grant_charge(
     grant: Option<&CascadeGrantProvenance>,
 ) -> usize {
     let history = match witness {
-        TriggerEventWitness::DelayedCreatureEntered { .. } => {
+        TriggerEventWitness::DelayedSpellCast { .. }
+        | TriggerEventWitness::DelayedCreatureEntered { .. } => {
             stored_history::payload_charge(witness)
         }
         TriggerEventWitness::ManaTapped { .. } => stored_history::payload_charge(witness),
@@ -159,12 +160,13 @@ impl Game {
     ) -> Result<Cow<'_, mtg_contracts::TriggeredAbility>, String> {
         match ability {
             EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                let (condition, program) = self.delayed_chapter(source, chapter)?;
                 Ok(Cow::Owned(mtg_contracts::TriggeredAbility {
                     functioning_zone: FunctioningZone::Battlefield,
-                    condition: TriggerCondition::DelayedControllerCreatureEntry,
+                    condition,
                     intervening_if: None,
                     death_filter: None,
-                    program: self.delayed_chapter_program(source, chapter)?.clone(),
+                    program: program.clone(),
                 }))
             }
             EffectiveTriggerAbility::Intrinsic { index } => self

@@ -44,8 +44,7 @@ pub(super) fn bind(
     let mut graph = Bindings::new(id, source);
     for (chapter, ability) in chapters.iter().zip(abilities) {
         let Ability::Chapter {
-            chapters: numbers,
-            effects,
+            chapters: numbers, ..
         } = ability
         else {
             return Err(invalid());
@@ -55,7 +54,6 @@ pub(super) fn bind(
             .iter()
             .map(|n| n.get())
             .eq(numbers.iter().copied())
-            || effects.len() != 1
         {
             return Err(invalid());
         }
@@ -79,6 +77,25 @@ pub(super) fn bind(
                     &you,
                     fixed,
                     &raw[chapter.source_block as usize],
+                )?;
+            }
+            mtg_contracts::ChapterEffect::Impulse { .. } => {
+                impulse_play::bind_block(&mut graph, &base, &raw[chapter.source_block as usize]);
+            }
+            mtg_contracts::ChapterEffect::DelayedCastCounter => {
+                bind_delayed_cast(
+                    &mut graph,
+                    &step,
+                    &you,
+                    &raw[chapter.source_block as usize]["effects"][0]["steps"][0],
+                )?;
+            }
+            mtg_contracts::ChapterEffect::Ordinary(ref effect) => {
+                bind_ordinary_chapter(
+                    &mut graph,
+                    &base,
+                    effect,
+                    &raw[chapter.source_block as usize]["effects"][0]["steps"][0],
                 )?;
             }
             mtg_contracts::ChapterEffect::Gain { .. } => {
@@ -137,6 +154,118 @@ pub(super) fn bind(
         "requires exact complete chapter actor and event graph",
     )?;
     Ok(Some(chapters))
+}
+
+fn bind_delayed_cast(
+    graph: &mut Bindings<'_>,
+    step: &str,
+    you: &str,
+    raw: &Value,
+) -> Result<(), Failure> {
+    let delayed = graph.node(
+        step,
+        "delayed-triggered",
+        "ability",
+        json!({"source":graph.id("/source","object"),"face":graph.id("/faces/0","face"),
+            "abilityKind":"delayed-triggered","you":you,"rules":["603.7"]}),
+    );
+    let event = |g: &mut Bindings<'_>, at: &str, op: &str, input: &str| {
+        g.node(
+            at,
+            "event",
+            "event",
+            json!({"scope":delayed,"operation":op,"inputs":[input],
+            "availability":"when-performed","rules":["608.2c"]}),
+        );
+    };
+    let trigger = format!("{step}/trigger");
+    let player = json!({"player":"you"});
+    graph.reference(&format!("{trigger}/who"), &player, you, "109.5");
+    event(graph, &trigger, "trigger:cast", you);
+    graph.result(
+        &trigger,
+        "objects",
+        "same-objects",
+        Some(&json!({"cls":"spell"})),
+    );
+
+    let child = format!("{step}/effects/0/steps/0");
+    let target = format!("{child}/on");
+    let expr = &raw["effects"][0]["steps"][0]["on"];
+    let selection = expr["selectionId"]
+        .as_str()
+        .ok_or_else(|| unsupported("binding", "missing delayed cast target"))?;
+    graph.reference(&format!("{child}/who"), &player, you, "109.5");
+    graph.reference(&format!("{target}/filter/control"), &player, you, "109.5");
+    let selected = graph.target(&delayed, &target, expr, selection);
+    event(graph, &child, "put-counters", &selected);
+    graph.result(&child, "quantity", "measured-quantity", None);
+    Ok(())
+}
+
+fn bind_ordinary_chapter(
+    graph: &mut Bindings<'_>,
+    base: &str,
+    effect: &OrdinaryChapter,
+    raw: &Value,
+) -> Result<(), Failure> {
+    let step = format!("{base}/effects/0/steps/0");
+    let scope = graph.id(base, "ability");
+    let you = graph.id(base, "you");
+    let damage = matches!(effect, OrdinaryChapter::DamageOpponentCreature(_));
+    let (op, target_path, expr) = match effect {
+        OrdinaryChapter::DamageOpponentCreature(_) => {
+            let source = graph.id("/source", "object");
+            graph.reference(&format!("{step}/source"), &raw["source"], &source, "201.5");
+            ("damage", "to/ref", &raw["to"]["ref"])
+        }
+        OrdinaryChapter::DestroyOpponentArtifact => ("destroy", "what", &raw["what"]),
+        OrdinaryChapter::FixedMana { .. } => {
+            graph.reference(&format!("{step}/who"), &raw["who"], &you, "109.5");
+            graph.event(base, &step, "add-mana", &you, false);
+            return Ok(());
+        }
+    };
+    let target_path = format!("{step}/{target_path}");
+    let control = format!("{target_path}/filter/control");
+    let opponents = graph.node(
+        &control,
+        "opponents",
+        "derived-player",
+        json!({"scope":scope,"role":"opponents","of":you,"rules":["102.2","109.5"]}),
+    );
+    graph.reference(
+        &control,
+        &json!({"implicit":"opponents"}),
+        &opponents,
+        "102.2",
+    );
+    let selection = expr["selectionId"]
+        .as_str()
+        .ok_or_else(|| unsupported("binding", "missing chapter target selection"))?;
+    let chosen = graph.target(&scope, &target_path, expr, selection);
+    if damage {
+        graph.node(
+            &step,
+            "event",
+            "event",
+            json!({"scope":scope,"operation":op,"inputs":[graph.id("/source","object"),chosen],
+                "availability":"when-performed","rules":["608.2c"]}),
+        );
+    }
+    let participant = if damage { 1 } else { 0 };
+    graph.node(
+        &format!("{step}/participant-{participant}"),
+        "controller-of-described",
+        "derived-player",
+        json!({"scope":scope,"role":"controller","of":chosen,"rules":["108.4"]}),
+    );
+    if damage {
+        graph.result(&step, "quantity", "measured-quantity", None);
+    } else {
+        graph.event(base, &step, op, &chosen, false);
+    }
+    Ok(())
 }
 
 fn bind_fixed_chapter(
@@ -296,4 +425,105 @@ fn fixed_saga_chapters_keep_tokens_counters_and_grant_in_their_blocks() {
     forged_ir.triggered[2].program.targets[0].domain = TargetDomain::BattlefieldCreature;
     forged_ir.capabilities = forged_ir.requirements();
     assert!(forged_ir.validate().is_err());
+}
+
+#[test]
+fn shared_chapter_mana_damage_and_destroy_use_exact_operands() {
+    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    const ROW: &str =
+        include_str!("../../../tests/fixtures/phase1-r3/burn-burn-tree-and-fern.json");
+    let result = compile(HEADER, ROW);
+    let CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}");
+    };
+    let [damage, destroy, third, fourth] = definition.triggered.as_slice() else {
+        panic!("expected four independent chapter abilities");
+    };
+    assert!(saga_damage_target(&damage.program.targets[0]));
+    assert!(matches!(
+        destroy.program.instructions.as_slice(),
+        [Instruction::DestroyPermanent {
+            target_slot: 0,
+            optional: false,
+            regeneration_forbidden: false,
+            source_block: 1
+        }]
+    ));
+    assert_eq!(third.program, fourth.program);
+    assert_ne!(third.condition, fourth.condition);
+    let forged = tests::changed_source(ROW, |row| {
+        let nodes = row["binding"]["nodes"].as_array_mut().unwrap();
+        nodes.iter_mut().find(|n| n["role"] == "opponents").unwrap()["role"] = json!("controller");
+    });
+    assert!(
+        matches!(compile(HEADER, &forged), CompileResult::Unsupported { path, .. } if path == "binding")
+    );
+    let mut forged_ir = (*definition).clone();
+    forged_ir.triggered[3].condition = third.condition.clone();
+    assert!(forged_ir.validate().is_err());
+    let mut forged_ir = *definition;
+    forged_ir.triggered[0].program.targets[0]
+        .filter
+        .as_mut()
+        .unwrap()
+        .opponent = false;
+    assert!(forged_ir.validate().is_err());
+}
+
+#[test]
+fn shared_chapter_mana_and_exile_programs_bind_the_delayed_cast_separately() {
+    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    const ROW: &str = include_str!("../../../tests/fixtures/phase1-r3/showdown-of-the-skalds.json");
+    let result = compile(HEADER, ROW);
+    let CompileResult::Lowered { definition } = result else {
+        panic!("{result:?}");
+    };
+    let [exile, second, third] = definition.triggered.as_slice() else {
+        panic!("expected three chapters")
+    };
+    assert!(matches!(
+        exile.program.instructions.as_slice(),
+        [Instruction::ExileLibraryForPlay {
+            count: 4,
+            window: PlayWindow::ThroughNextControllerTurn,
+            source_block: 0
+        }]
+    ));
+    assert_eq!(second.program, third.program);
+    let [
+        Instruction::RegisterControllerSpellCastThisTurn {
+            program,
+            source_block: 1,
+        },
+    ] = second.program.instructions.as_slice()
+    else {
+        panic!("expected a new deferred target occurrence");
+    };
+    assert!(second.program.targets.is_empty());
+    assert_eq!(
+        program.targets[0].domain,
+        TargetDomain::ControlledBattlefieldCreature
+    );
+    assert_eq!(program.targets[0].selection_id, "line:1:21");
+    let program = program.clone();
+    let mut lowered = *definition;
+    lowered.triggered[1].program.instructions[0] =
+        Instruction::RegisterControllerCreatureEntryThisTurn {
+            program,
+            source_block: 1,
+        };
+    lowered.capabilities = lowered.requirements();
+    assert!(lowered.validate().is_err());
+
+    let forged = tests::changed_source(ROW, |row| {
+        let references = row["binding"]["references"].as_array_mut().unwrap();
+        references
+            .iter_mut()
+            .find(|row| row["path"].as_str().unwrap().ends_with("/trigger/who"))
+            .unwrap()["target"] = json!("unbound");
+    });
+    assert!(!matches!(
+        compile(HEADER, &forged),
+        CompileResult::Lowered { .. }
+    ));
 }

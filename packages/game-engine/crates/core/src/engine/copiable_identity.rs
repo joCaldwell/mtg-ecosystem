@@ -12,6 +12,8 @@ use super::*;
 pub(super) struct EntryCopy {
     donor: ObjectId,
     definition_card: CardId,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    back_face: bool,
     entry_sequence: u64,
 }
 
@@ -36,6 +38,79 @@ impl Game {
             .map_or(object.card, |(_, root)| root)
     }
 
+    pub(super) fn back_face_sequence(&self, object: ObjectId) -> Option<u64> {
+        self.state
+            .rules
+            .back_face_objects
+            .get(&object.card)?
+            .get(&object.incarnation)
+            .copied()
+    }
+
+    fn copiable_back_side(&self, object: ObjectId) -> bool {
+        self.entry_copy(object).map_or_else(
+            || self.back_face_sequence(object).is_some(),
+            |record| record.back_face,
+        )
+    }
+
+    fn back_definition(&self, card: CardId) -> Result<Option<&Definition>, String> {
+        let root = self.definition(card)?;
+        Ok(root.modal_land_back().or_else(|| root.transform_back()))
+    }
+
+    pub(super) fn record_back_face(&mut self, successor: ObjectId) -> Result<(), String> {
+        if self.back_definition(successor.card)?.is_none()
+            || self.back_face_sequence(successor).is_some()
+        {
+            return Err("invalid modal back entry".into());
+        }
+        let sequence = self.state.rules.next_event_sequence;
+        let charge = stored_history::payload_charge(&(successor, sequence));
+        let requested = self.history_charge().saturating_add(charge);
+        if requested > capacities::HISTORY_LIMIT {
+            return Err(self.capacity_error(RuleFault::HistoryCapacityExceeded {
+                capacity: capacities::HISTORY_LIMIT,
+                requested,
+            }));
+        }
+        self.state.rules.retained_auxiliary_charge = self
+            .state
+            .rules
+            .retained_auxiliary_charge
+            .saturating_add(charge);
+        self.state
+            .rules
+            .back_face_objects
+            .entry(successor.card)
+            .or_default()
+            .insert(successor.incarnation, sequence);
+        Ok(())
+    }
+
+    pub(super) fn validate_back_face_objects(&self) -> Result<(), String> {
+        for (&card, incarnations) in &self.state.rules.back_face_objects {
+            let root = self.definition(card)?;
+            if incarnations.is_empty() || self.back_definition(card)?.is_none() {
+                return Err("invalid back face history owner".into());
+            }
+            let mut last = None;
+            for (&incarnation, &sequence) in incarnations {
+                let object = ObjectId { card, incarnation };
+                if (incarnation == 0 && root.transform_faces.is_none())
+                    || sequence >= self.state.rules.next_event_sequence
+                    || last.is_some_and(|previous| sequence <= previous)
+                    || !self.could_be_battlefield_incarnation(object)
+                    || self.entry_copy(object).is_some()
+                {
+                    return Err("invalid retained back face history".into());
+                }
+                last = Some(sequence);
+            }
+        }
+        Ok(())
+    }
+
     /// Base characteristics and intrinsic abilities of this exact incarnation,
     /// including after departure. This lookup alone does not establish presence
     /// or authorize an action. The observer/stack/event owns its ObjectId.
@@ -43,7 +118,48 @@ impl Game {
         &self,
         object: impl std::borrow::Borrow<ObjectId>,
     ) -> Result<&Definition, String> {
-        self.definition(self.copiable_definition_card(*object.borrow()))
+        let object = *object.borrow();
+        let (definition_card, back) = self.entry_copy(object).map_or_else(
+            || (object.card, self.back_face_sequence(object).is_some()),
+            |copy| (copy.definition_card, copy.back_face),
+        );
+        let root = self.definition(definition_card)?;
+        if back {
+            return self
+                .back_definition(definition_card)?
+                .ok_or_else(|| "missing copied back face".into());
+        }
+        Ok(root)
+    }
+
+    /// The supported changing face has activations only on the front. A
+    /// previously announced activation keeps that program after a transform.
+    pub(super) fn activation_definition(&self, object: ObjectId) -> Result<&Definition, String> {
+        let physical = self.definition(object.card)?;
+        if physical.transform_faces.is_some() && self.entry_copy(object).is_none() {
+            Ok(physical)
+        } else {
+            self.copiable_definition(object)
+        }
+    }
+
+    pub(super) fn may_transform_source(&self, object: ObjectId) -> bool {
+        !self.copiable_back_side(object)
+            && self.entry_copy(object).is_none()
+            && self
+                .current(object)
+                .is_ok_and(|o| o.present_on_battlefield())
+            && self
+                .definition(object.card)
+                .is_ok_and(|d| d.transform_faces.is_some())
+    }
+
+    /// The actual transforming object keeps the front face's mana value.
+    /// An ordinary card or token copying only the back face has value zero.
+    pub(super) fn physical_transform_mana_value(&self, object: ObjectId) -> Option<Quantity> {
+        let definition = self.definition(object.card).ok()?;
+        (definition.transform_faces.is_some() && self.entry_copy(object).is_none())
+            .then(|| definition.characteristics.printed_mana_value())
     }
 
     /// Inside the staged entry leaf, before installing its battlefield
@@ -75,6 +191,7 @@ impl Game {
         let row = EntryCopy {
             donor,
             definition_card,
+            back_face: self.copiable_back_side(donor),
             // The existing trace-independent sequence orders even ordered
             // sibling movement leaves in the same batch.
             entry_sequence: self.state.rules.next_event_sequence,
@@ -153,6 +270,13 @@ impl Game {
                         .entry_copy(row.donor)
                         .is_some_and(|prior| prior.entry_sequence >= row.entry_sequence)
                     || self.copiable_definition_card(row.donor) != row.definition_card
+                    || self.entry_copy(row.donor).map_or_else(
+                        || {
+                            self.back_face_sequence(row.donor)
+                                .is_some_and(|sequence| sequence < row.entry_sequence)
+                        },
+                        |prior| prior.back_face,
+                    ) != row.back_face
                 {
                     return Err("invalid entry copy definition lineage".into());
                 }
@@ -163,3 +287,7 @@ impl Game {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "modal_land_tests.rs"]
+mod modal_land_tests;

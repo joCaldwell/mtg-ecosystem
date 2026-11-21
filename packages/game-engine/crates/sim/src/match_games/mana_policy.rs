@@ -614,6 +614,7 @@ mod tests {
             let d = catalog.definitions.iter().find(|d| d.name == name).unwrap();
             mtg_core::VisibleObject {
                 copied_values: None,
+                display_face: None,
                 face_down: false,
                 exiled_by: None,
                 phased_out: false,

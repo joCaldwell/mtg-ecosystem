@@ -54,8 +54,13 @@ pub mod combat_window;
 #[cfg(test)]
 mod composition_fixtures;
 mod entry_copy;
+pub mod modal_land;
 mod saga;
-pub use saga::{ChapterEffect, FixedChapter, LifeChapter, chapter_lines, life_chapters};
+pub mod transform_face;
+pub use saga::{
+    ChapterEffect, FixedChapter, LifeChapter, OrdinaryChapter, chapter_lines, life_chapters,
+    saga_damage_target,
+};
 pub mod fixed_color_protection;
 mod fixed_creature_activation;
 pub mod fixed_creature_damage;
@@ -505,7 +510,10 @@ pub enum Capability {
     StaticDamageReplacementV1,
     ControlledCreatureDamageReplacementV1,
     SagaChaptersV1,
+    ModalLandFacesV1,
+    TransformV1,
     DelayedControllerCreatureEntryV1,
+    DelayedControllerSpellCastV1,
     NormalLayoutV1,
     ColorHybridCostV1,
     PhyrexianCostV1,
@@ -959,12 +967,19 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    TransformSource {
+        source_block: u32,
+    },
     LookTopMayRevealForMana {
         minimum_symbols: Quantity,
         mana: Quantity,
         source_block: u32,
     },
     RegisterControllerCreatureEntryThisTurn {
+        program: Box<SpellProgram>,
+        source_block: u32,
+    },
+    RegisterControllerSpellCastThisTurn {
         program: Box<SpellProgram>,
         source_block: u32,
     },
@@ -1518,9 +1533,11 @@ impl Instruction {
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
+            Self::TransformSource { source_block } => *source_block,
             Self::ExileLibraryForPlay { source_block, .. }
             | Self::LookTopMayRevealForMana { source_block, .. }
             | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
+            | Self::RegisterControllerSpellCastThisTurn { source_block, .. }
             | Self::Hideaway { source_block, .. }
             | Self::PlayHideawayLinked { source_block, .. }
             | Self::GrantHandCastCascade { source_block }
@@ -2181,6 +2198,7 @@ pub enum CascadeThreshold {
 pub enum TriggerCondition {
     ControlledLandEntersBattlefield,
     DelayedControllerCreatureEntry,
+    DelayedControllerSpellCast,
     SagaChapter {
         number: std::num::NonZeroU32,
     },
@@ -2447,6 +2465,7 @@ impl TriggerCondition {
             Self::DamageDealt { .. } => "damage_dealt",
             Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
             Self::DelayedControllerCreatureEntry => "delayed_controller_creature_entry",
+            Self::DelayedControllerSpellCast => "delayed_controller_spell_cast",
             Self::SagaChapter { .. } => "saga_chapter",
             Self::SelfSpellCast => "self_spell_cast",
             Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
@@ -2636,6 +2655,10 @@ impl<'de> Deserialize<'de> for KeywordAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal_land: Option<Box<modal_land::ModalLand>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform_faces: Option<Box<transform_face::TransformFaces>>,
     /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_labels: Option<SourceLabels>,
@@ -3111,6 +3134,9 @@ impl Definition {
                 TriggerCondition::DelayedControllerCreatureEntry => {
                     Capability::DelayedControllerCreatureEntryV1
                 }
+                TriggerCondition::DelayedControllerSpellCast => {
+                    Capability::DelayedControllerSpellCastV1
+                }
                 TriggerCondition::SagaChapter { .. } => Capability::SagaChaptersV1,
                 TriggerCondition::SelfSpellCast
                     if is_canonical_cascade_program(&ability.program) =>
@@ -3332,9 +3358,20 @@ impl Definition {
             };
             set.insert(static_capability);
         }
+        if let Some(back) = self.modal_land_back() {
+            set.insert(Capability::ModalLandFacesV1);
+            set.extend(back.capabilities.iter().copied());
+        }
+        if let Some(back) = self.transform_back() {
+            set.insert(Capability::TransformV1);
+            set.extend(back.capabilities.iter().copied());
+        }
         set
     }
     pub fn validate(&self) -> Result<(), String> {
+        if modal_land::validate(self)? || transform_face::validate(self)? {
+            return Ok(());
+        }
         saga::validate(self)?;
         let fixed_activations = fixed_creature_activation::validate(self)?;
         let source_regeneration = source_regeneration::validate(self)?;
@@ -5523,7 +5560,8 @@ fn validate_instruction_program_with_chapter(
     }
     for instruction in &p.instructions {
         let binding = match instruction {
-            Instruction::ExileResolvingSpell { .. }
+            Instruction::TransformSource { .. }
+            | Instruction::ExileResolvingSpell { .. }
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
@@ -5776,6 +5814,7 @@ fn validate_instruction_program_with_chapter(
                 None
             }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. }
+            | Instruction::RegisterControllerSpellCastThisTurn { .. }
             | Instruction::Hideaway { .. }
             | Instruction::PlayHideawayLinked { .. }
             | Instruction::GrantHandCastCascade { .. }
@@ -5941,6 +5980,11 @@ fn validate_instruction_program_with_chapter(
                         | TargetDomain::PlayerOrPlaneswalker
                         | TargetDomain::BattlefieldCreature),
                     ) => Some((*target_slot, domain)),
+                    Some(TargetDomain::BattlefieldPermanent)
+                        if chapter && saga_damage_target(&p.targets[*target_slot as usize]) =>
+                    {
+                        Some((*target_slot, TargetDomain::BattlefieldPermanent))
+                    }
                     _ => return Err("unbound fixed damage target".into()),
                 }
             }
@@ -6412,7 +6456,9 @@ fn add_program_requirements_for_source_pump(
         ) {
             set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
-        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. } = instruction {
+        if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }
+        | Instruction::RegisterControllerSpellCastThisTurn { program, .. } = instruction
+        {
             add_program_requirements(set, program);
         }
         if matches!(
@@ -6455,6 +6501,7 @@ fn add_program_requirements_for_source_pump(
             ]);
         }
         set.insert(match instruction {
+            Instruction::TransformSource { .. } => Capability::TransformV1,
             Instruction::ExileResolvingSpell { .. } => Capability::ExileResolvingSpellV1,
             Instruction::ProtectControllerUntilNextTurn { .. } => {
                 Capability::ControllerProtectionUntilNextTurnV1
@@ -6471,6 +6518,9 @@ fn add_program_requirements_for_source_pump(
             }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. } => {
                 Capability::DelayedControllerCreatureEntryV1
+            }
+            Instruction::RegisterControllerSpellCastThisTurn { .. } => {
+                Capability::DelayedControllerSpellCastV1
             }
             Instruction::Hideaway { .. } => Capability::HideawayV1,
             Instruction::PlayHideawayLinked { .. } => Capability::LinkedExilePlayV1,
@@ -8173,6 +8223,8 @@ pub fn catalog_schema() -> serde_json::Value {
     land_reclamation::extend_schema(&mut schema);
     land_sacrifice_draw::extend_schema(&mut schema);
     saga::extend_schema(&mut schema);
+    modal_land::extend_schema(&mut schema);
+    transform_face::extend_schema(&mut schema);
     hand_cast::extend_schema(&mut schema);
     cast_mana_value_sweep::extend_schema(&mut schema);
     hand_cast_cascade::extend_schema(&mut schema);
@@ -8381,7 +8433,10 @@ mod tests {
             CastManaValueSweepV1,
             RandomBottomV1,
             SagaChaptersV1,
+            ModalLandFacesV1,
+            TransformV1,
             DelayedControllerCreatureEntryV1,
+            DelayedControllerSpellCastV1,
             NormalLayoutV1,
             ColorHybridCostV1,
             PhyrexianCostV1,
@@ -8995,6 +9050,9 @@ mod tests {
         definitions.push(entry_copy::registry_witness());
         definitions.push(land_sacrifice_draw::witness());
         definitions.push(saga::witness());
+        definitions.push(saga::spell_cast_witness());
+        definitions.push(modal_land::witness());
+        definitions.push(transform_face::witness());
         definitions.push(hand_cast::witness());
         definitions.push(cast_mana_value_sweep::tests::witness());
         definitions.push(own_graveyard_card_return::witness(CardKind::Creature));

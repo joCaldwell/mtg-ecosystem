@@ -1138,3 +1138,265 @@ fn paid_fixed_saga_chapters_create_select_and_sacrifice_after_resolution() {
     }
     panic!("fixed chapter Saga did not complete");
 }
+
+#[test]
+fn paid_four_chapter_saga_filters_removal_and_resolves_shared_mana_twice() {
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
+        include_str!("../../../../tests/fixtures/phase1-r3/burn-burn-tree-and-fern.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("{compiled:?}");
+    };
+    let mut p = prepared(false, false);
+    let owner = PlayerId(0);
+    let opponent = PlayerId(1);
+    let saga = CardId(1);
+    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let mut place = |name: &str, player| {
+        let id = CardId(p.config.cards.len() as u32);
+        let oracle_id = p
+            .catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .oracle_id
+            .clone();
+        p.config.cards.push(CardSetup {
+            id,
+            owner: player,
+            controller: player,
+            zone: Zone::Battlefield,
+            oracle_id,
+        });
+        id
+    };
+    let mountains: Vec<_> = (0..4).map(|_| place("Mountain", owner)).collect();
+    let enemy = place("Grizzly Bears", opponent);
+    let own_artifact = place("Sol Ring", owner);
+    let enemy_artifact = place("Sol Ring", opponent);
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::new(p);
+    answer(&mut g, Response::Cast { card: saga });
+    for card in mountains {
+        let object = g.object_id(card).unwrap();
+        answer(&mut g, Response::ActivateMana { object });
+    }
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    if matches!(settle(&mut g), Request::SpendMana { .. }) {
+        answer(
+            &mut g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::R, 4.into())]),
+            },
+        );
+    }
+    let mut saw_third = false;
+    for _ in 0..500 {
+        let request = settle(&mut g);
+        let source = g.object_id(saga).unwrap();
+        if g.current(source).unwrap().zone == (Zone::Graveyard { owner }) {
+            assert!(saw_third);
+            assert_eq!(
+                g.state.rules.players[0].mana.get(&Color::R),
+                Some(&1.into())
+            );
+            assert_eq!(g.state.rules.turn.number, 13);
+            assert_eq!(
+                g.current(g.object_id(enemy).unwrap()).unwrap().zone,
+                Zone::Graveyard { owner: opponent }
+            );
+            assert_eq!(
+                g.current(g.object_id(enemy_artifact).unwrap())
+                    .unwrap()
+                    .zone,
+                Zone::Graveyard { owner: opponent }
+            );
+            assert_eq!(
+                g.current(g.object_id(own_artifact).unwrap()).unwrap().zone,
+                Zone::Battlefield
+            );
+            recover(&g);
+            return;
+        }
+        if g.state.rules.turn.number == 9
+            && g.state.rules.players[0].mana.get(&Color::R) == Some(&1.into())
+        {
+            assert_eq!(g.current(source).unwrap().lore_counters, 3.into());
+            saw_third = true;
+        }
+        if let Request::Targets { candidates, .. } = request {
+            let allowed = match g.state.rules.turn.number {
+                1 => enemy,
+                5 => enemy_artifact,
+                n => panic!("unexpected target selection on turn {n}"),
+            };
+            assert_eq!(candidates, [g.object_id(allowed).unwrap()]);
+            answer(
+                &mut g,
+                Response::Targets {
+                    objects: candidates,
+                },
+            );
+        } else {
+            passive(&mut g);
+        }
+    }
+    panic!("four chapter Saga did not complete");
+}
+
+#[test]
+fn paid_fixed_saga_showdown_delays_cast_triggers_past_final_sacrifice() {
+    let compiled = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
+        include_str!("../../../../tests/fixtures/phase1-r3/showdown-of-the-skalds.json"),
+    );
+    let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
+        panic!("{compiled:?}");
+    };
+    let mut p = prepared(false, false);
+    let owner = PlayerId(0);
+    let saga = CardId(1);
+    p.config.cards[1].oracle_id = definition.oracle_id.clone();
+    let mut add = |name: &str, zone| {
+        let id = CardId(p.config.cards.len() as u32);
+        let oracle_id = p
+            .catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == name)
+            .unwrap()
+            .oracle_id
+            .clone();
+        p.config.cards.push(CardSetup {
+            id,
+            owner,
+            controller: owner,
+            zone,
+            oracle_id,
+        });
+        id
+    };
+    let mountains: Vec<_> = (0..3).map(|_| add("Mountain", Zone::Battlefield)).collect();
+    let plains = add("Plains", Zone::Battlefield);
+    let ally = add("Isamaru, Hound of Konda", Zone::Battlefield);
+    let spells: Vec<_> = (0..2)
+        .map(|_| add("Raging Goblin", Zone::Hand { owner }))
+        .collect();
+    for _ in 0..8 {
+        add("Plains", Zone::Library { owner });
+    }
+    let catalog = Arc::make_mut(&mut p.catalog);
+    catalog.definitions.push(*definition);
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    catalog.validate().unwrap();
+    p.catalog_digest = digest(catalog).unwrap();
+    p.profile_digest = digest(&p.config).unwrap();
+
+    let mut g = Game::new(p);
+    answer(&mut g, Response::Cast { card: saga });
+    for card in mountains.iter().copied().chain([plains]) {
+        let object = g.object_id(card).unwrap();
+        answer(&mut g, Response::ActivateMana { object });
+    }
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    if matches!(settle(&mut g), Request::SpendMana { .. }) {
+        answer(
+            &mut g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::R, 3.into()), (Color::W, 1.into())]),
+            },
+        );
+    }
+    while !g.state.rules.stack.is_empty() {
+        passive(&mut g);
+        settle(&mut g);
+    }
+    let old_saga = g.object_id(saga).unwrap();
+    let Some(effect) = g
+        .state
+        .rules
+        .effects
+        .iter()
+        .find(|e| matches!(e.kind, ResolvedEffectKind::PlayExiled { .. }))
+    else {
+        panic!("first chapter grants the exact successor permission");
+    };
+    let ResolvedEffectKind::PlayExiled { objects, .. } = &effect.kind else {
+        unreachable!()
+    };
+    assert_eq!(objects.len(), 4);
+    assert!(
+        objects
+            .iter()
+            .all(|&id| g.may_play_exile(owner, id) && !g.may_play_exile(PlayerId(1), id))
+    );
+    let exiles = objects.clone();
+    recover(&g);
+
+    for (turn, spell) in [5, 9].into_iter().zip(spells) {
+        to_step(&mut g, turn, TurnStep::PrecombatMain);
+        while !g.state.rules.stack.is_empty() {
+            passive(&mut g);
+            settle(&mut g);
+        }
+        assert!(
+            g.state
+                .rules
+                .delayed_chapters
+                .iter()
+                .any(|registration| registration.issuer.source == old_saga)
+        );
+        if turn == 9 {
+            assert_eq!(
+                g.current(g.object_id(saga).unwrap()).unwrap().zone,
+                Zone::Graveyard { owner }
+            );
+            assert!(exiles.iter().all(|&id| !g.may_play_exile(owner, id)));
+        }
+        let mountain = g.object_id(mountains[0]).unwrap();
+        answer(&mut g, Response::Cast { card: spell });
+        answer(&mut g, Response::ActivateMana { object: mountain });
+        answer(&mut g, Response::FinishMana { undo_mana: false });
+        if matches!(settle(&mut g), Request::SpendMana { .. }) {
+            answer(
+                &mut g,
+                Response::SpendMana {
+                    spending: BTreeMap::from([(Color::R, 1.into())]),
+                },
+            );
+        }
+        let Request::Targets { candidates, .. } = settle(&mut g) else {
+            panic!("cast must announce a delayed target")
+        };
+        let ally = g.object_id(ally).unwrap();
+        assert!(candidates.contains(&ally));
+        recover(&g);
+        answer(
+            &mut g,
+            Response::Targets {
+                objects: vec![ally],
+            },
+        );
+        while !g.state.rules.stack.is_empty() {
+            passive(&mut g);
+            settle(&mut g);
+        }
+        assert_eq!(
+            g.current(ally).unwrap().plus_one_counters,
+            if turn == 5 { 1.into() } else { 2.into() }
+        );
+        recover(&g);
+    }
+}

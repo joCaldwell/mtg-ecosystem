@@ -317,7 +317,7 @@ impl Game {
         ability: u32,
         source_handles: &[ObjectHandle],
     ) -> Result<(), String> {
-        let definition = self.copiable_definition(entry.source)?;
+        let definition = self.activation_definition(entry.source)?;
         let activated = definition
             .activated
             .get(ability as usize)

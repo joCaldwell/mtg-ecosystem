@@ -18,6 +18,7 @@ pub enum ActionScope {
 pub enum ActionInitiation {
     Pass,
     PlayLand { object: ObjectHandle },
+    PlayBackLand { object: ObjectHandle },
     Cast { card: ObjectHandle },
     Bestow { card: ObjectHandle },
     ActivateMana { object: ObjectHandle },
@@ -29,6 +30,9 @@ impl ActionInitiation {
         match self {
             Self::Pass => PlayerResponse::Pass,
             Self::PlayLand { object } => PlayerResponse::PlayLand {
+                object: object.clone(),
+            },
+            Self::PlayBackLand { object } => PlayerResponse::PlayBackLand {
                 object: object.clone(),
             },
             Self::Bestow { card } => PlayerResponse::Bestow { card: card.clone() },
@@ -171,6 +175,7 @@ struct ObjectCandidates {
     index: usize,
     activated: usize,
     bestow: bool,
+    back_land: bool,
 }
 
 impl Game {
@@ -367,6 +372,10 @@ impl Game {
                         .definition(id.card)
                         .is_ok_and(|d| mtg_contracts::bestow_alternative(d).is_some()),
                 activated,
+                back_land: priority
+                    && self
+                        .definition(id.card)
+                        .is_ok_and(|d| d.modal_land.is_some()),
             });
         }
         let object = work.object.as_mut().ok_or(ActionUnavailable::Invariant)?;
@@ -379,6 +388,12 @@ impl Game {
                 index if object.bestow && index == 3 + object.activated => {
                     ActionInitiation::Bestow { card: handle }
                 }
+                index
+                    if object.back_land
+                        && index == 3 + object.activated + usize::from(object.bestow) =>
+                {
+                    ActionInitiation::PlayBackLand { object: handle }
+                }
                 index => ActionInitiation::ActivateAbility {
                     object: handle,
                     ability: u32::try_from(index - 3).map_err(|_| ActionUnavailable::Invariant)?,
@@ -390,7 +405,7 @@ impl Game {
         object.index += 1;
         if object.index
             == if priority {
-                3 + object.activated + usize::from(object.bestow)
+                3 + object.activated + usize::from(object.bestow) + usize::from(object.back_land)
             } else {
                 1
             }
@@ -441,6 +456,7 @@ impl Game {
                 None,
             ),
             ActionInitiation::PlayLand { .. } => ("Play land", None),
+            ActionInitiation::PlayBackLand { .. } => ("Play back face as land", None),
             ActionInitiation::Cast { card } | ActionInitiation::Bestow { card } => (
                 if matches!(action, ActionInitiation::Bestow { .. }) {
                     "Cast for bestow cost"

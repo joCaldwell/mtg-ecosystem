@@ -145,6 +145,15 @@ impl Game {
         source: ObjectId,
         chapter: u32,
     ) -> Result<&SpellProgram, String> {
+        self.delayed_chapter(source, chapter)
+            .map(|(_, program)| program)
+    }
+
+    pub(super) fn delayed_chapter(
+        &self,
+        source: ObjectId,
+        chapter: u32,
+    ) -> Result<(TriggerCondition, &SpellProgram), String> {
         let ability = self
             .copiable_definition(source)?
             .triggered
@@ -153,12 +162,15 @@ impl Game {
         if !matches!(ability.condition, TriggerCondition::SagaChapter { .. }) {
             return Err("delayed issuer is not a chapter".into());
         }
-        let [Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }] =
-            ability.program.instructions.as_slice()
-        else {
-            return Err("missing printed delayed entry instruction".into());
-        };
-        Ok(program)
+        match ability.program.instructions.as_slice() {
+            [Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }] => {
+                Ok((TriggerCondition::DelayedControllerCreatureEntry, program))
+            }
+            [Instruction::RegisterControllerSpellCastThisTurn { program, .. }] => {
+                Ok((TriggerCondition::DelayedControllerSpellCast, program))
+            }
+            _ => Err("missing printed delayed chapter instruction".into()),
+        }
     }
     pub(super) fn validate_delayed_registration(
         &self,
