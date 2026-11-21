@@ -221,6 +221,10 @@ impl Game {
         }
     }
 
+    // Paying an additional sacrifice cost can move the permanent whose ability
+    // owns this cast. `cast` is the step's private copy, so the owner it
+    // resumes is reconciled with its live stack entry when the step commits
+    // its frame lease (CR 608.2h/113.7a).
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
         let during_resolution = !matches!(cast.completion, CastCompletion::Priority);
         match self.pay_announcement_costs(&cast)? {
@@ -248,21 +252,6 @@ impl Game {
                         CastOwner::LinkedPlay {
                             progress, object, ..
                         } => {
-                            // Paying an additional sacrifice cost can move the
-                            // granting permanent while the child is announced.
-                            if let Some(issuer) = self
-                                .state
-                                .rules
-                                .stack
-                                .iter()
-                                .find(|s| s.id == progress.frame.stack_id)
-                            {
-                                progress
-                                    .frame
-                                    .spell
-                                    .source_facts
-                                    .clone_from(&issuer.source_facts);
-                            }
                             progress.complete_cast(*object, completed.stack_id);
                         }
                         CastOwner::Cascade(progress) => {

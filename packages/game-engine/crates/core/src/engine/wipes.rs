@@ -8,50 +8,14 @@ use mtg_contracts::{ObjectSet, SetMove, WipeAmount};
 // Shared resource bounds: docs/game-engine-capacity-policy.md.
 
 impl Game {
+    // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
     pub(super) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
             .objects
             .values()
             .filter(|o| {
-                if *set == ObjectSet::GraveyardCards {
-                    return matches!(o.zone, Zone::Graveyard { .. })
-                        && !self.state.rules.tokens.contains_key(&o.id.card);
-                }
-                if !o.present_on_battlefield() {
-                    return false;
-                }
-
-                let Ok(d) = self.copiable_definition(o.id) else {
-                    return false;
-                };
-                let creature = self.target_is_creature(o.id);
-                match set {
-                    ObjectSet::GraveyardCards => false,
-                    ObjectSet::Artifacts => d.characteristics.has_type(CardKind::Artifact),
-                    ObjectSet::Creatures => creature,
-                    ObjectSet::NonlandPermanents => !d.characteristics.has_type(CardKind::Land),
-                    ObjectSet::OpponentNonlandPermanents => {
-                        // CR 109.5, 205.2b, 608.2h, 806.1: use current control
-                        // and exclude every permanent with the land type.
-                        o.controller != controller
-                            && self.is_live(o.controller)
-                            && !d.characteristics.has_type(CardKind::Land)
-                    }
-                    ObjectSet::Enchantments => d.characteristics.has_type(CardKind::Enchantment),
-                    ObjectSet::AttackingCreatures => {
-                        creature && self.state.rules.combat.iter().any(|a| a.attacker == o.id)
-                    }
-                    ObjectSet::ControllerCreatures => creature && o.controller == controller,
-                    ObjectSet::ControllerPermanents => o.controller == controller,
-                    ObjectSet::OpponentCreatures => creature && o.controller != controller,
-                    ObjectSet::FlyingCreatures => {
-                        creature && self.has_keyword(o.id, KeywordAbility::Flying)
-                    }
-                    ObjectSet::NonflyingCreatures => {
-                        creature && !self.has_keyword(o.id, KeywordAbility::Flying)
-                    }
-                }
+                crate::query::matches_object_set(&self.object_facts(o), controller, set).is_yes()
             })
             .map(|o| o.id)
             .collect()

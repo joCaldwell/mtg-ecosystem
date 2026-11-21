@@ -36,170 +36,24 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
         entry.source_facts = Some(fact.clone());
     }
 }
-fn update_source_appearances(tx: &mut DamageTransaction, fact: &ObjectBefore) {
-    for entry in &mut tx.entries {
+fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &ObjectBefore) {
+    for entry in entries {
         if entry.source.object == fact.object {
             entry.source_appearance = Some(Box::new(fact.clone()));
         }
-    }
-}
-fn update_source_appearance_frame(frame: &mut Frame, fact: &ObjectBefore) {
-    match frame {
-        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-            update_source_appearances(transaction, fact);
-        }
-        Frame::Stabilize { resume, .. } => update_source_appearance_frame(resume, fact),
-        Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-            CommanderContinuation::StateBased { resume }
-            | CommanderContinuation::StateBasedBatch { resume, .. } => {
-                update_source_appearance_frame(resume, fact)
-            }
-            _ => {}
-        },
-        _ => {}
-    }
-}
-fn resolving_entry(frame: &Frame) -> Option<&StackInstance> {
-    match frame {
-        Frame::PlayHideawayLinked { progress }
-        | Frame::LandEntry {
-            origin: EntryOrigin::LinkedPlay { progress, .. },
-            ..
-        } => Some(&progress.frame.spell),
-        Frame::RevealAndCast { progress } => Some(&progress.frame.spell),
-        Frame::HandCast { frame, .. } => Some(&frame.spell),
-        Frame::Cascade { progress }
-        | Frame::LandEntry {
-            origin: EntryOrigin::Cascade { progress },
-            ..
-        } => Some(&progress.frame.spell),
-        Frame::LandEntry {
-            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
-            ..
-        }
-        | Frame::Resolve { frame }
-        | Frame::ResolutionChoice { frame, .. }
-        | Frame::ForcedSacrifice { frame, .. }
-        | Frame::OptionalDamage { frame } => Some(&frame.spell),
-        Frame::GraveyardGroup { tx } => tx.finish.frame().map(|f| &f.spell),
-        Frame::GraveyardReplacement { transaction } => Some(&transaction.frame.spell),
-        Frame::CounterPlacement { transaction } => Some(&transaction.frame.spell),
-        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-            match transaction.continuation.as_ref() {
-                DamageContinuation::Instruction { frame } => Some(&frame.spell),
-                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
-            }
-        }
-        Frame::Stabilize { resume, .. } => resolving_entry(resume),
-        Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-            CommanderContinuation::GraveyardShuffle { frame, .. }
-            | CommanderContinuation::HandReturn { frame, .. }
-            | CommanderContinuation::LookTopMana { frame, .. }
-            | CommanderContinuation::LibrarySelect { frame, .. }
-            | CommanderContinuation::BoardReturn { frame, .. }
-            | CommanderContinuation::SpellMove { frame, .. }
-            | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
-            CommanderContinuation::StateBased { resume }
-            | CommanderContinuation::StateBasedBatch { resume, .. } => resolving_entry(resume),
-            CommanderContinuation::CascadeBottom { progress } => Some(&progress.frame.spell),
-            CommanderContinuation::Draw { .. } => None,
-        },
-        _ => None,
-    }
-}
-fn update_frame(frame: &mut Frame, fact: &ObjectBefore) {
-    match frame {
-        Frame::PlayHideawayLinked { progress }
-        | Frame::LandEntry {
-            origin: EntryOrigin::LinkedPlay { progress, .. },
-            ..
-        } => update_entry(&mut progress.frame.spell, fact),
-        Frame::AdditionalCosts { cast }
-        | Frame::AnnounceX { cast }
-        | Frame::Modes { cast }
-        | Frame::Targets { cast }
-        | Frame::EntityTargets { cast }
-        | Frame::StackTargets { cast }
-        | Frame::PlayerTargets { cast }
-        | Frame::Mana { cast }
-        | Frame::SpendMana { cast }
-        | Frame::SacrificeCost { cast }
-        | Frame::Payment { cast } => {
-            if let CastCompletion::Resolution {
-                progress: CastOwner::LinkedPlay { progress, .. },
-                ..
-            } = &mut cast.completion
-            {
-                update_entry(&mut progress.frame.spell, fact);
-            }
-        }
-        Frame::ManaSourceChoice { resume, .. } => update_frame(resume, fact),
-        Frame::ManaAbility { activation } => update_frame(&mut activation.resume, fact),
-        Frame::RevealAndCast { progress } => update_entry(&mut progress.frame.spell, fact),
-        Frame::HandCast { frame, .. } => update_entry(&mut frame.spell, fact),
-        Frame::Cascade { progress }
-        | Frame::LandEntry {
-            origin: EntryOrigin::Cascade { progress },
-            ..
-        } => update_entry(&mut progress.frame.spell, fact),
-        Frame::LandEntry {
-            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
-            ..
-        }
-        | Frame::Resolve { frame }
-        | Frame::ResolutionChoice { frame, .. }
-        | Frame::ForcedSacrifice { frame, .. }
-        | Frame::OptionalDamage { frame } => update_entry(&mut frame.spell, fact),
-        Frame::GraveyardGroup { tx } => {
-            if let Some(frame) = tx.finish.frame_mut() {
-                update_entry(&mut frame.spell, fact);
-            }
-        }
-        Frame::GraveyardReplacement { transaction } => {
-            update_entry(&mut transaction.frame.spell, fact)
-        }
-        Frame::CounterPlacement { transaction } => update_entry(&mut transaction.frame.spell, fact),
-        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-            // CR 608.2h/702.2e/702.15c: every prepared source departure
-            // retains its actual last appearance, even without scoped effects.
-            // The simultaneous event path replaces this with its common prior
-            // view after all independent leaves, preserving grant/source LKI.
-            update_source_appearances(transaction, fact);
-            if let DamageContinuation::Instruction { frame } = transaction.continuation.as_mut() {
-                update_entry(&mut frame.spell, fact);
-            } else if let DamageContinuation::Mana { activation, .. } =
-                transaction.continuation.as_mut()
-            {
-                update_frame(&mut activation.resume, fact);
-            }
-            // Assigned damage retains its frozen assignment source facts.
-        }
-        Frame::Stabilize { resume, .. } => update_frame(resume, fact),
-        Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
-            CommanderContinuation::GraveyardShuffle { frame, .. }
-            | CommanderContinuation::HandReturn { frame, .. }
-            | CommanderContinuation::LookTopMana { frame, .. }
-            | CommanderContinuation::LibrarySelect { frame, .. }
-            | CommanderContinuation::BoardReturn { frame, .. }
-            | CommanderContinuation::SpellMove { frame, .. }
-            | CommanderContinuation::ResolutionDraw { frame, .. } => {
-                update_entry(&mut frame.spell, fact)
-            }
-            CommanderContinuation::StateBased { resume }
-            | CommanderContinuation::StateBasedBatch { resume, .. } => update_frame(resume, fact),
-            CommanderContinuation::CascadeBottom { progress } => {
-                update_entry(&mut progress.frame.spell, fact)
-            }
-            CommanderContinuation::Draw { .. } => {}
-        },
-        _ => {}
     }
 }
 impl Game {
     /// The typed control transition owns this refresh. A changed controller
     /// cannot be excused merely by recomputing or discarding assignment facts.
     pub(super) fn retain_damage_control_facts(&mut self, fact: &ObjectBefore) {
-        update_source_appearance_frame(&mut self.state.rules.frame, fact);
+        self.state
+            .rules
+            .frame
+            .for_each_held_mut(&mut |held| match held {
+                frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
+                frame::HeldMut::Invocation { hold: _, entry: _ } => {}
+            });
     }
     pub(super) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
         let o = self.current(object)?;
@@ -237,35 +91,10 @@ impl Game {
         self.retain_source_facts(&fact);
         Ok(())
     }
-    // CR 608.2h/113.7a: a rules step works on its own copy of the resolving
-    // frame. When that step moves the ability's source or trigger entrant, the
-    // live stack entry receives the departure's last-known information; the
-    // copy written back afterwards must carry the same facts, never the stale
-    // ones. Only the two fields a departure rewrites are taken from the entry.
-    pub(super) fn refresh_resolving_lki(&self, spell: &mut StackInstance) {
-        let Some(live) = self
-            .state
-            .rules
-            .stack
-            .iter()
-            .find(|entry| entry.id == spell.id)
-        else {
-            return;
-        };
-        if spell.source_facts != live.source_facts {
-            spell.source_facts.clone_from(&live.source_facts);
-        }
-        if let (
-            StackKind::Triggered { witness, .. },
-            StackKind::Triggered {
-                witness: current, ..
-            },
-        ) = (&mut spell.kind, &live.kind)
-            && witness != current
-        {
-            witness.clone_from(current);
-        }
-    }
+    // CR 608.2h/113.7a: the live stack entry, every pending trigger and every
+    // copy the suspended frame holds receive a departure's last-known facts.
+    // A rule step works on its own copy of that frame; `Game::commit_frame`
+    // reconciles whatever the step installs, so no stale copy is written back.
     pub(super) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         for trigger in &mut self.state.rules.pending_triggers {
@@ -277,7 +106,17 @@ impl Game {
         for entry in &mut self.state.rules.stack {
             update_entry(entry, fact);
         }
-        update_frame(&mut self.state.rules.frame, fact);
+        // CR 608.2h/702.2e/702.15c: every invocation copy and every prepared
+        // damage source the frame holds retains this departure's actual last
+        // appearance. The simultaneous event path then replaces appearances
+        // with its common prior view. Assigned damage keeps its frozen facts.
+        self.state
+            .rules
+            .frame
+            .for_each_held_mut(&mut |held| match held {
+                frame::HeldMut::Invocation { hold: _, entry } => update_entry(entry, fact),
+                frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
+            });
     }
     pub(super) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         if self
@@ -954,7 +793,7 @@ impl Game {
             .rules
             .stack
             .iter()
-            .chain(resolving_entry(&self.state.rules.frame))
+            .chain(self.state.rules.frame.resolving_invocation())
             .any(|entry| {
                 entry.source == damage.source.object
                     && entry.controller == damage.controller

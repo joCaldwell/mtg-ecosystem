@@ -252,10 +252,12 @@ fn target_plans(
         .objects
         .iter()
         .filter(|o| {
-            o.zone == Zone::Battlefield
-                && o.characteristics
-                    .as_ref()
-                    .is_some_and(|c| c.kind == CardKind::Creature)
+            mtg_core::query::matches_target_domain(
+                &mtg_core::query::in_view(view, o),
+                view.viewer,
+                TargetDomain::BattlefieldCreature,
+            )
+            .is_yes()
         })
         .collect::<Vec<_>>();
     objects.sort_by(|a, b| {

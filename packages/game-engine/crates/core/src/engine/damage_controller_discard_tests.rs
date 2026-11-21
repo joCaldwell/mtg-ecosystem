@@ -5,7 +5,7 @@ const LOCKE: &str = "bdcb7aed-3595-4c7e-b9da-543e92de919a";
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
 const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
-fn prepared(empty: bool, commander: bool) -> Prepared {
+pub(super) fn prepared(empty: bool, commander: bool) -> Prepared {
     let mut c = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
@@ -84,7 +84,7 @@ fn prepared(empty: bool, commander: bool) -> Prepared {
         match_config: None,
     }
 }
-fn settle(g: &mut Game) -> Request {
+pub(super) fn settle(g: &mut Game) -> Request {
     for _ in 0..500 {
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => return r,
@@ -94,11 +94,11 @@ fn settle(g: &mut Game) -> Request {
     }
     panic!("step witness budget")
 }
-fn answer(g: &mut Game, response: Response) {
+pub(super) fn answer(g: &mut Game, response: Response) {
     let r = settle(g);
     g.respond(r.player(), r.decision_id(), response).unwrap();
 }
-fn passive(g: &mut Game) {
+pub(super) fn passive(g: &mut Game) {
     let r = settle(g);
     let (player, decision_id) = (r.player(), r.decision_id());
     let response = match r {
@@ -115,7 +115,7 @@ fn passive(g: &mut Game) {
     };
     g.respond(player, decision_id, response).unwrap();
 }
-fn recover(g: &Game) {
+pub(super) fn recover(g: &Game) {
     let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     assert!(restored.state == g.state);
     assert_eq!(restored.trace, g.trace);
@@ -129,7 +129,7 @@ fn recover(g: &Game) {
     assert!(replayed.state == g.state);
     assert_eq!(replayed.trace, g.trace);
 }
-fn to_step(g: &mut Game, number: u64, step: TurnStep) {
+pub(super) fn to_step(g: &mut Game, number: u64, step: TurnStep) {
     for _ in 0..500 {
         let _ = settle(g);
         if g.state.rules.turn.number == number && g.state.rules.turn.step == step {
@@ -148,7 +148,7 @@ fn view(g: &Game, player: u8) -> Observation {
     o
 }
 
-fn placed(g: &mut Game) {
+pub(super) fn placed(g: &mut Game) {
     to_step(g, 1, TurnStep::DeclareAttackers);
     let source = g.object_id(CardId(0)).unwrap();
     answer(
@@ -167,7 +167,7 @@ fn placed(g: &mut Game) {
     }
     panic!("missing Locke Cole trigger");
 }
-fn begin_resolution(g: &mut Game) -> Request {
+pub(super) fn begin_resolution(g: &mut Game) -> Request {
     for _ in 0..g.live_players().len() {
         answer(g, Response::Pass);
     }

@@ -7,6 +7,7 @@ use mtg_contracts::{
     SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount,
     compound_indestructible_parameters,
 };
+use mtg_core::query::{self, Tri};
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
 
 fn zero_cost() -> ManaCost {
@@ -382,6 +383,9 @@ impl Strategy<'_> {
             _ => false,
         })
     }
+    // Core decides legality; this ranks only objects that inhabit the domain
+    // and satisfy the filter under the shared evaluators. An unknown answer is
+    // settled by core's own candidate list, never by a guess.
     fn object_matches(
         &self,
         v: &PermittedView,
@@ -389,46 +393,31 @@ impl Strategy<'_> {
         t: &TargetSpec,
         authoritative_candidate: bool,
     ) -> bool {
-        let Some(c) = &o.characteristics else {
+        // Graveyard-group cards are chosen with their owner, never ranked here.
+        if o.characteristics.is_none()
+            || matches!(t.domain, TargetDomain::PlayerGraveyardCards { .. })
+        {
             return false;
+        }
+        let facts = query::in_view(v, o);
+        let settled = |answer: Tri| match answer {
+            Tri::Yes => true,
+            Tri::No => false,
+            Tri::Unknown => authoritative_candidate,
         };
-        if t.domain == TargetDomain::OwnGraveyardCard {
-            return o.zone == (Zone::Graveyard { owner: v.viewer }) && o.token.is_none();
+        if !settled(query::matches_target_domain(&facts, v.viewer, t.domain)) {
+            return false;
         }
-        if t.domain == TargetDomain::OwnGraveyardCreatureCard {
-            return o.zone == (Zone::Graveyard { owner: v.viewer }) && c.kind == CardKind::Creature;
+        if matches!(
+            t.domain,
+            TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard
+        ) {
+            return true;
         }
-        o.zone == Zone::Battlefield
-            && !o.phased_out
-            && self.targetable(v, o)
-            && match t.domain {
-                TargetDomain::ControlledBattlefieldCreature => {
-                    o.controller == v.viewer && c.kind == CardKind::Creature
-                }
-                TargetDomain::CreatureOrPlaneswalker
-                | TargetDomain::BattlefieldCreature
-                | TargetDomain::AnyDamageTarget => c.kind == CardKind::Creature,
-                TargetDomain::BlockingBattlefieldCreature => {
-                    c.kind == CardKind::Creature
-                        // Public attacker links prove some blockers, but cannot
-                        // prove an orphan blocker's retained status. Once core
-                        // offers a target, its candidate list supplies that proof.
-                        && (authoritative_candidate
-                            || v.combat.iter().any(|a| a.blockers.contains(&o.handle)))
-                }
-                TargetDomain::ControlledBattlefieldPermanent => o.controller == v.viewer,
-                TargetDomain::BattlefieldPermanent => true,
-                _ => false,
-            }
-            && t.filter.as_ref().is_none_or(|f| {
-                (!f.opponent || o.controller != v.viewer)
-                    && (!f.tapped || o.tapped)
-                    // The primary kind selects execution; rules filters use
-                    // every card type (pinned CR205.2b), including additional types.
-                    && (f.types.is_empty() || f.types.iter().any(|kind| c.has_type(*kind)))
-                    && !f.non_types.iter().any(|kind| c.has_type(*kind))
-                    && !c.colors.iter().any(|c| f.non_colors.contains(c))
-            })
+        self.targetable(v, o)
+            && t.filter
+                .as_ref()
+                .is_none_or(|f| settled(query::matches_permanent_filter(&facts, v.viewer, f)))
     }
     pub(super) fn object_target(
         &self,
@@ -801,7 +790,6 @@ impl Strategy<'_> {
             let spec = incoming.targets.get(*target_slot as usize)?;
             let filter = spec.filter.as_ref()?;
             v.objects.iter().find(|o| {
-                let Some(c) = &o.characteristics else { return false };
                 &o.handle == handle
                     && o.controller == v.viewer && o.tapped
                     && candidates.is_none_or(|cs| cs.contains(handle))
@@ -810,11 +798,13 @@ impl Strategy<'_> {
                     // caster. Hexproof can already protect our permanent.
                     && !o.keywords.contains(&KeywordAbility::Shroud)
                     && (o.controller == threat.controller || !o.keywords.contains(&KeywordAbility::Hexproof))
-                    && (!filter.opponent || o.controller != threat.controller)
-                        && (filter.types.is_empty()
-                            || filter.types.iter().any(|kind| c.has_type(*kind)))
-                        && !filter.non_types.iter().any(|kind| c.has_type(*kind))
-                    && !c.colors.iter().any(|color| filter.non_colors.contains(color))
+                    // The incoming filter is relative to its own controller.
+                    && query::matches_permanent_filter(
+                        &query::in_view(v, o),
+                        threat.controller,
+                        filter,
+                    )
+                    .is_yes()
             })
         }).max_by_key(|o| (self.value(o), o.handle.0.as_str())).map(|o| o.handle.clone())
     }
@@ -863,17 +853,7 @@ impl Strategy<'_> {
                     s.spell.is_some()
                         && t.filter.as_ref().is_none_or(|f| {
                             self.entry_program(v, s).is_some_and(|(d, _)| {
-                                (f.types.is_empty()
-                                    || f.types.iter().any(|kind| d.characteristics.has_type(*kind)))
-                                    && !f
-                                        .non_types
-                                        .iter()
-                                        .any(|kind| d.characteristics.has_type(*kind))
-                                    && !d
-                                        .characteristics
-                                        .colors
-                                        .iter()
-                                        .any(|c| f.non_colors.contains(c))
+                                query::spell_matches_filter(&d.characteristics, f)
                             })
                         })
                 }
@@ -901,12 +881,7 @@ impl Strategy<'_> {
         v.objects
             .iter()
             .filter(|o| {
-                o.controller == v.viewer
-                    && o.zone == Zone::Battlefield
-                    && o.characteristics.as_ref().is_some_and(|c| {
-                        (f.types.is_empty() || f.types.iter().any(|kind| c.has_type(*kind)))
-                            && f.subtypes.iter().all(|s| c.subtypes.contains(s))
-                    })
+                query::matches_sacrifice_filter(&query::in_view(v, o), v.viewer, f).is_yes()
             })
             .collect()
     }
@@ -1262,41 +1237,7 @@ impl Strategy<'_> {
             .or_else(|| candidates.first().cloned())
     }
     fn in_set(&self, v: &PermittedView, o: &VisibleObject, set: &ObjectSet) -> bool {
-        if *set == ObjectSet::GraveyardCards {
-            return matches!(o.zone, Zone::Graveyard { .. }) && o.token.is_none();
-        }
-        let Some(c) = &o.characteristics else {
-            return false;
-        };
-        o.zone == Zone::Battlefield
-            && match set {
-                ObjectSet::Creatures => c.kind == CardKind::Creature,
-                ObjectSet::ControllerCreatures => {
-                    c.kind == CardKind::Creature && o.controller == v.viewer
-                }
-                ObjectSet::ControllerPermanents => o.controller == v.viewer,
-                ObjectSet::NonlandPermanents => c.kind != CardKind::Land,
-                ObjectSet::OpponentNonlandPermanents => {
-                    o.controller != v.viewer
-                        && v.players.iter().any(|p| {
-                            p.player == o.controller && p.status == mtg_core::PlayerStatus::Live
-                        })
-                        && !c.has_type(CardKind::Land)
-                }
-                ObjectSet::GraveyardCards => false,
-                ObjectSet::Artifacts => c.has_type(CardKind::Artifact),
-                ObjectSet::Enchantments => c.has_type(CardKind::Enchantment),
-                ObjectSet::AttackingCreatures => v.combat.iter().any(|a| a.attacker == o.handle),
-                ObjectSet::OpponentCreatures => {
-                    c.kind == CardKind::Creature && o.controller != v.viewer
-                }
-                ObjectSet::FlyingCreatures => {
-                    c.kind == CardKind::Creature && o.keywords.contains(&KeywordAbility::Flying)
-                }
-                ObjectSet::NonflyingCreatures => {
-                    c.kind == CardKind::Creature && !o.keywords.contains(&KeywordAbility::Flying)
-                }
-            }
+        query::matches_object_set(&query::in_view(v, o), v.viewer, set).is_yes()
     }
     fn wipe_amount(
         &self,
@@ -1599,12 +1540,13 @@ impl Strategy<'_> {
                 v.objects
                     .iter()
                     .filter(|o| {
-                        o.controller == v.viewer
-                            && o.zone == Zone::Battlefield
-                            && self.targetable(v, o)
-                            && o.characteristics
-                                .as_ref()
-                                .is_some_and(|c| c.kind == CardKind::Creature)
+                        self.targetable(v, o)
+                            && query::matches_target_domain(
+                                &query::in_view(v, o),
+                                v.viewer,
+                                TargetDomain::ControlledBattlefieldCreature,
+                            )
+                            .is_yes()
                     })
                     .map(|o| PlayerTargetEntity::Object {
                         object: o.handle.clone(),

@@ -35,6 +35,13 @@ footprints; unsupported composition faults. Freeze all loss candidates before
 simultaneous departures/cleanup/adjudication. Restore must prove fault reachability.
 Capacity/budget suspension never invents a win/draw, truncation or partial mutation.
 
+The live stack entry owns an invocation's last-known source facts; a frame holds
+copies (CR 608.2h, 113.7a). `engine/frame.rs` traverses those copies with no
+wildcard arm, so a new frame, continuation or completion variant fails to compile
+until it is classified. A departure updates every copy the suspended frame holds,
+and each rule step then reconciles the frame it installed with its owners. A
+permission freezes its issuer; later last-known facts never rewrite that evidence.
+
 `Game::with_trace` selects Off/Compact/Detailed. Diagnostics enter neither semantic
 hashes nor permitted views; `events()` populates only in Detailed, while `trace()`
 is trusted evidence. Trace/budget choices cannot change rules behavior.
@@ -502,7 +509,13 @@ admissions whose membership comes from strict profile/catalog JSON.
 
 Develop policy uses permitted observations and public IR features. It may
 estimate value but never determines legality or inspects hidden state; new
-behaviors need their own public-policy witnesses. Paid accepted-pod prefixes,
+behaviors need their own public-policy witnesses. Core and policy share the
+`mtg_core::query` predicates for permanent, sacrifice and stack-spell filters and
+board-wide sets: core reads derived state through a private adapter, a policy
+reads only `VisibleObject` and `PermittedView`, and an unpublished fact answers
+`Unknown`. The module also states each target domain's inhabitants for policies;
+core's own target legality, with hexproof, shroud, protection and per-ability
+restrictions, remains the authority. Paid accepted-pod prefixes,
 private board setups, synthetic IR controls and fixed-index completion games stay
 separately labeled in [evidence](game-engine-evidence.md), which owns producers,
 proof locations and omissions; [catalogs](game-engine-catalogs.md) own

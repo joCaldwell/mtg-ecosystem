@@ -76,12 +76,6 @@ pub(super) struct GraveyardGroup {
 }
 
 impl GroupFinish {
-    pub(super) fn frame(&self) -> Option<&Resolving> {
-        match self {
-            Self::Instruction { frame, .. } => Some(frame),
-            _ => None,
-        }
-    }
     pub(super) fn frame_mut(&mut self) -> Option<&mut Resolving> {
         match self {
             Self::Instruction { frame, .. } => Some(frame),
