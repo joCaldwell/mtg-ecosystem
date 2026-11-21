@@ -36,6 +36,21 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
         entry.source_facts = Some(fact.clone());
     }
 }
+/// Whether `update_entry` would write `entry` for this departure.
+fn reads_last_known(entry: &StackInstance, fact: &ObjectBefore) -> bool {
+    (entry.source == fact.object && entry.source_facts.is_some())
+        || matches!(
+            &entry.kind,
+            StackKind::Triggered {
+                witness: TriggerEventWitness::CreatureEnteredWithPower {
+                    entrant,
+                    last_appearance: Some(_),
+                    ..
+                },
+                ..
+            } if entrant.object == fact.object && fact.zone == Zone::Battlefield
+        )
+}
 fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &ObjectBefore) {
     for entry in entries {
         if entry.source.object == fact.object {
@@ -102,7 +117,18 @@ impl Game {
                 trigger.source_facts = fact.clone();
             }
         }
-        for entry in rules.stack.iter_mut().chain(rules.detached.values_mut()) {
+        // The stack is shared with the staged copy's origin: write it only
+        // when an entry holds facts of this object.
+        if rules
+            .stack
+            .iter()
+            .any(|entry| reads_last_known(entry, fact))
+        {
+            for entry in rules.stack.iter_mut() {
+                update_entry(entry, fact);
+            }
+        }
+        for entry in rules.detached.values_mut() {
             update_entry(entry, fact);
         }
         // CR 608.2h/702.2e/702.15c: every prepared damage source the frame

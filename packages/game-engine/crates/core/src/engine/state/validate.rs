@@ -20,6 +20,25 @@ impl Game {
             return Err("life freeze requires a live player and a supporting catalog".into());
         }
         let s = &self.state;
+        // An invocation has one owner: its stack entry, or the detached entry
+        // of an invocation the frame still resumes (CR 608.2m).
+        if s.rules.detached.iter().any(|(id, entry)| {
+            entry.id != *id
+                || id.0 >= s.rules.next_stack_id
+                || s.rules.stack.iter().any(|stacked| stacked.id == *id)
+                || !s.rules.frame.holds(*id)
+        }) {
+            return Err("snapshot detached invocation ownership invariant".into());
+        }
+        let mut unowned = false;
+        s.rules.frame.for_each_held(&mut |held| {
+            if let frame::Held::Invocation { hold: _, id } = held {
+                unowned |= self.entry(id).is_err();
+            }
+        });
+        if unowned {
+            return Err("snapshot frame names an invocation without an owner".into());
+        }
         if s.rules.objects.values().any(|object| {
             object.battlefield_entry_turn.is_some_and(|turn| {
                 object.zone != Zone::Battlefield || turn == 0 || turn > s.rules.turn.number
