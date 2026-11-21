@@ -56,7 +56,9 @@ if(!fs.existsSync(path.join(source,'packages/game-server/Cargo.toml')))throw new
 const scratch=retentionScratch();
 const evidence=fs.mkdtempSync(path.join(store,'server-'));
 const home=path.join(scratch,'cargo-home'),target=path.join(scratch,'target');fs.mkdirSync(home);
-const env={...process.env,CARGO_HOME:home,CARGO_TARGET_DIR:target,CARGO_NET_OFFLINE:'true',CARGO_ENCODED_RUSTFLAGS:native.rustflags,CARGO_PROFILE_RELEASE_OPT_LEVEL:native.opt_level,CARGO_PROFILE_RELEASE_DEBUG:native.debug,CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:native.debug_assertions,CARGO_BUILD_JOBS:'2'};
+// Cargo defaults to the available logical CPUs and honors caller overrides.
+// https://doc.rust-lang.org/cargo/reference/config.html#buildjobs
+const env={...process.env,CARGO_HOME:home,CARGO_TARGET_DIR:target,CARGO_NET_OFFLINE:'true',CARGO_ENCODED_RUSTFLAGS:native.rustflags,CARGO_PROFILE_RELEASE_OPT_LEVEL:native.opt_level,CARGO_PROFILE_RELEASE_DEBUG:native.debug,CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:native.debug_assertions};
 // The predecessor already pins all Cargo/vendor bytes; independently recheck it
 // before and after compiling the server from the same retained workspace.
 const vendor=path.join(store,'vendor');check(vendor,engine.dependency_files);
