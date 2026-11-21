@@ -27,7 +27,7 @@ fn kernel_game(rows: &[(&str, u8, u8)], extras: &[&str], mode: TraceMode) -> Gam
     .into_iter()
     .chain(extras.iter().copied())
     {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {

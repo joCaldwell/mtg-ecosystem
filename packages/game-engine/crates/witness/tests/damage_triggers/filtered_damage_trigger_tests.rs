@@ -24,7 +24,7 @@ fn catalog() -> Catalog {
         ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(manifest, raw)
+            mtg_witness::compile(manifest, raw)
         else {
             panic!("complete filtered-damage source must lower");
         };

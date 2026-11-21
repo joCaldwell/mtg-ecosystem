@@ -757,168 +757,177 @@ fn develop_search(g: &mut Game, name: &str, cost: usize) -> CardId {
     }
     panic!("search development bound")
 }
-#[test]
-fn search_zero_one_two_private_handles_shuffle_and_pending_restore() {
-    for (name, maximum, cost) in [("Rampant Growth", 1, 2), ("Explosive Vegetation", 2, 4)] {
-        let p = search_prepared(name);
-        for count in 0..=maximum {
-            traces(p.clone(), |g| {
-                let spell = develop_search(g, name, cost);
-                announce(g, spell.0, vec![]);
-                for _ in 0..10 {
-                    let r = request(g);
-                    if matches!(r, Request::SearchLands { .. }) {
-                        break;
-                    }
-                    g.respond(r.player(), r.decision_id(), Response::Pass)
-                        .unwrap();
-                }
+fn search_zero_one_two_private_handles_shuffle_and_pending_restore(case: usize) {
+    let (name, maximum, cost) = [("Rampant Growth", 1, 2), ("Explosive Vegetation", 2, 4)]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let p = search_prepared(name);
+    for count in 0..=maximum {
+        traces(p.clone(), |g| {
+            let spell = develop_search(g, name, cost);
+            announce(g, spell.0, vec![]);
+            for _ in 0..10 {
                 let r = request(g);
-                let Request::SearchLands {
-                    player,
-                    candidates,
-                    maximum: m,
-                    ..
-                } = &r
-                else {
-                    panic!("search choice")
-                };
-                assert_eq!(*m, maximum);
-                assert_eq!(*player, PlayerId(0));
-                assert!(candidates.len() > 2);
-                check(g); // independently replay from setup to this private choice
-                let before = g
-                    .state
+                if matches!(r, Request::SearchLands { .. }) {
+                    break;
+                }
+                g.respond(r.player(), r.decision_id(), Response::Pass)
+                    .unwrap();
+            }
+            let r = request(g);
+            let Request::SearchLands {
+                player,
+                candidates,
+                maximum: m,
+                ..
+            } = &r
+            else {
+                panic!("search choice")
+            };
+            assert_eq!(*m, maximum);
+            assert_eq!(*player, PlayerId(0));
+            assert!(candidates.len() > 2);
+            check(g); // independently replay from setup to this private choice
+            let before = g
+                .state
+                .rules
+                .match_state
+                .as_ref()
+                .unwrap()
+                .random
+                .word_position;
+            let library_before = g.state.rules.libraries[&PlayerId(0)].clone();
+            let mut alternate = g.fork();
+            alternate
+                .state
+                .rules
+                .libraries
+                .get_mut(&PlayerId(0))
+                .unwrap()
+                .reverse();
+            Arc::make_mut(&mut alternate.state.rules.cards)
+                .get_mut(&candidates[0].card)
+                .unwrap()
+                .oracle_id = SWAMP.into();
+            for seat in 1..4 {
+                assert_eq!(observation(g, seat), observation(&alternate, seat));
+            }
+            let own = observation(g, 0);
+            let Some(PlayerRequest::SearchLands {
+                candidates: visible,
+                ..
+            }) = &own.decision
+            else {
+                panic!("private request")
+            };
+            assert_eq!(visible.len(), candidates.len());
+            assert!(
+                own.view
+                    .objects
+                    .iter()
+                    .all(|o| !matches!(o.zone, Zone::Library { .. }))
+            );
+            for seat in 1..4 {
+                let other = observation(g, seat);
+                assert!(other.decision.is_none());
+                assert!(
+                    other
+                        .view
+                        .objects
+                        .iter()
+                        .all(|o| !matches!(o.zone, Zone::Library { .. }))
+                );
+                for c in visible {
+                    assert!(g.resolve_search_handle(PlayerId(seat), &c.handle).is_err());
+                }
+            }
+            assert!(
+                g.check_response(
+                    PlayerId(1),
+                    r.decision_id(),
+                    Response::SearchLands { objects: vec![] }
+                )
+                .is_err()
+            );
+            assert!(
+                g.check_response(
+                    PlayerId(0),
+                    r.decision_id(),
+                    Response::SearchLands {
+                        objects: vec![candidates[0]; 2]
+                    }
+                )
+                .is_err()
+            );
+            let handles = visible
+                .iter()
+                .take(count as usize)
+                .map(|c| c.handle.clone())
+                .collect::<Vec<_>>();
+            let response = PlayerResponse::SearchLands {
+                objects: handles.clone(),
+            };
+            let mut work = match g.check_player_response(
+                PlayerId(0),
+                own.decision.as_ref().unwrap().token().clone(),
+                response,
+                Budget::new(1),
+            ) {
+                QueryResult::Incomplete { work, .. } => work,
+                _ => panic!("query work"),
+            };
+            let saved = g.save_work(&work).unwrap();
+            work = g.restore_work(&saved).unwrap();
+            let QueryResult::Complete(QueryValue::Validated(validated)) =
+                g.resume_work(work, Budget::unlimited())
+            else {
+                panic!("search validation")
+            };
+            let found = candidates
+                .iter()
+                .take(count as usize)
+                .copied()
+                .collect::<Vec<_>>();
+            g.submit(validated).unwrap();
+            resolve(g, vec![]);
+            assert_eq!(
+                g.state.rules.libraries[&PlayerId(0)].len(),
+                library_before.len() - count as usize
+            );
+            assert!(
+                g.state
                     .rules
                     .match_state
                     .as_ref()
                     .unwrap()
                     .random
-                    .word_position;
-                let library_before = g.state.rules.libraries[&PlayerId(0)].clone();
-                let mut alternate = g.fork();
-                alternate
-                    .state
-                    .rules
-                    .libraries
-                    .get_mut(&PlayerId(0))
-                    .unwrap()
-                    .reverse();
-                Arc::make_mut(&mut alternate.state.rules.cards)
-                    .get_mut(&candidates[0].card)
-                    .unwrap()
-                    .oracle_id = SWAMP.into();
-                for seat in 1..4 {
-                    assert_eq!(observation(g, seat), observation(&alternate, seat));
-                }
-                let own = observation(g, 0);
-                let Some(PlayerRequest::SearchLands {
-                    candidates: visible,
-                    ..
-                }) = &own.decision
-                else {
-                    panic!("private request")
-                };
-                assert_eq!(visible.len(), candidates.len());
-                assert!(
-                    own.view
-                        .objects
-                        .iter()
-                        .all(|o| !matches!(o.zone, Zone::Library { .. }))
-                );
-                for seat in 1..4 {
-                    let other = observation(g, seat);
-                    assert!(other.decision.is_none());
-                    assert!(
-                        other
-                            .view
-                            .objects
-                            .iter()
-                            .all(|o| !matches!(o.zone, Zone::Library { .. }))
-                    );
-                    for c in visible {
-                        assert!(g.resolve_search_handle(PlayerId(seat), &c.handle).is_err());
-                    }
-                }
-                assert!(
-                    g.check_response(
-                        PlayerId(1),
-                        r.decision_id(),
-                        Response::SearchLands { objects: vec![] }
-                    )
-                    .is_err()
-                );
-                assert!(
-                    g.check_response(
-                        PlayerId(0),
-                        r.decision_id(),
-                        Response::SearchLands {
-                            objects: vec![candidates[0]; 2]
-                        }
-                    )
-                    .is_err()
-                );
-                let handles = visible
-                    .iter()
-                    .take(count as usize)
-                    .map(|c| c.handle.clone())
-                    .collect::<Vec<_>>();
-                let response = PlayerResponse::SearchLands {
-                    objects: handles.clone(),
-                };
-                let mut work = match g.check_player_response(
-                    PlayerId(0),
-                    own.decision.as_ref().unwrap().token().clone(),
-                    response,
-                    Budget::new(1),
-                ) {
-                    QueryResult::Incomplete { work, .. } => work,
-                    _ => panic!("query work"),
-                };
-                let saved = g.save_work(&work).unwrap();
-                work = g.restore_work(&saved).unwrap();
-                let QueryResult::Complete(QueryValue::Validated(validated)) =
-                    g.resume_work(work, Budget::unlimited())
-                else {
-                    panic!("search validation")
-                };
-                let found = candidates
-                    .iter()
-                    .take(count as usize)
-                    .copied()
-                    .collect::<Vec<_>>();
-                g.submit(validated).unwrap();
-                resolve(g, vec![]);
-                assert_eq!(
-                    g.state.rules.libraries[&PlayerId(0)].len(),
-                    library_before.len() - count as usize
-                );
-                assert!(
-                    g.state
-                        .rules
-                        .match_state
-                        .as_ref()
-                        .unwrap()
-                        .random
-                        .word_position
-                        .0
-                        > before.0
-                );
-                for id in found {
-                    let o = g.current(g.object_id(id.card).unwrap()).unwrap();
-                    assert_eq!(o.zone, Zone::Battlefield);
-                    assert!(o.tapped);
-                }
-                for h in handles {
-                    assert!(g.resolve_search_handle(PlayerId(0), &h).is_err());
-                }
-                assert_ne!(g.state.rules.libraries[&PlayerId(0)], library_before);
-                for seat in 0..4 {
-                    assert_eq!(observation(g, seat).view.players[0].library_shuffles, 1);
-                }
-            });
-        }
+                    .word_position
+                    .0
+                    > before.0
+            );
+            for id in found {
+                let o = g.current(g.object_id(id.card).unwrap()).unwrap();
+                assert_eq!(o.zone, Zone::Battlefield);
+                assert!(o.tapped);
+            }
+            for h in handles {
+                assert!(g.resolve_search_handle(PlayerId(0), &h).is_err());
+            }
+            assert_ne!(g.state.rules.libraries[&PlayerId(0)], library_before);
+            for seat in 0..4 {
+                assert_eq!(observation(g, seat).view.players[0].library_shuffles, 1);
+            }
+        });
     }
+}
+#[test]
+fn search_zero_one_two_private_handles_shuffle_and_pending_restore_case0() {
+    search_zero_one_two_private_handles_shuffle_and_pending_restore(0);
+}
+#[test]
+fn search_zero_one_two_private_handles_shuffle_and_pending_restore_case1() {
+    search_zero_one_two_private_handles_shuffle_and_pending_restore(1);
 }
 #[test]
 fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
@@ -1741,7 +1750,7 @@ fn hybrid_controller_grants_apply_from_the_kept_hand_before_normal_play() {
 }
 fn opening_enchantment_witness(raw: &str, grants: bool) {
     let mut p = search_prepared("Rampant Growth");
-    let compiled = mtg_compiler::compile(mtg_compiler::fixtures::MANIFEST, raw);
+    let compiled = mtg_witness::compile(mtg_compiler::fixtures::MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}")
     };

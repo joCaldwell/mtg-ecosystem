@@ -9,7 +9,7 @@ fn prepared(already_tapped: bool) -> Prepared {
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
     .unwrap();
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/d4bbdd0c-e578-49ed-b2f7-b1decb04ee87.json"),
     ) else {

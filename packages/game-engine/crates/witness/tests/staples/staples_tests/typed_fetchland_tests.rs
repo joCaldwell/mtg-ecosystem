@@ -13,7 +13,7 @@ const POOL: &str =
 const CINDER: &str =
     include_str!("../../../../../tests/fixtures/ramos/dfac0258-e148-4d7d-8ded-fc2466d9caa6.json");
 fn lower(raw: &str) -> Definition {
-    match mtg_compiler::compile(
+    match mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     ) {
@@ -516,7 +516,7 @@ fn borrowed_fetch() -> Game {
         .unwrap()
         .id
         .card;
-    let annex = match mtg_compiler::compile(
+    let annex = match mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../../tests/fixtures/5f1f49dd-b7ce-494a-9b4b-ac702d3664c5.json"),
     ) {

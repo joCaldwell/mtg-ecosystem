@@ -8,7 +8,7 @@ fn prepared() -> Prepared {
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
     .unwrap();
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         mtg_compiler::fixtures::MANIFEST,
         include_str!("../../../../tests/fixtures/righteousness.json"),
     ) else {

@@ -34,8 +34,7 @@ pub(super) fn prepared(rows: &[(&str, u8, u8, Zone)]) -> Prepared {
             "../../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
         ),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(header, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(header, raw)
         else {
             panic!("complete archived source must lower");
         };

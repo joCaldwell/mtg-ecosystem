@@ -19,7 +19,7 @@ fn prepared(
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
     .unwrap();
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
         include_str!(
             "../../../../tests/fixtures/cards-data-d2ce/34fd461b-a913-4a60-9477-ce2bd5c6fc5a.json"

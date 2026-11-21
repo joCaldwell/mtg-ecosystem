@@ -6,7 +6,7 @@ fn keyword_removal_wipe_paid_capture_and_recovery() {
     let manifest = include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json");
     let raw =
         include_str!("../../../../tests/fixtures/ramos/8d90ffb5-63da-48d5-a5a2-7b61062556f6.json");
-    let compiled = mtg_compiler::compile(manifest, raw);
+    let compiled = mtg_witness::compile(manifest, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");
     };
@@ -29,7 +29,7 @@ fn keyword_removal_wipe_paid_capture_and_recovery() {
             ),
         ),
     ] {
-        let result = mtg_compiler::compile(header, raw);
+        let result = mtg_witness::compile(header, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("{result:?}");
         };

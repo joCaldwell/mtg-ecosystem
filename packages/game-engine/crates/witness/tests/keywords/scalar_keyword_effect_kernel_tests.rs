@@ -24,7 +24,7 @@ fn resolving_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
     } else {
         include_str!("../../../../tests/fixtures/533d6b9f-a145-44c4-9d16-74fcd9c0ae2f.json")
     };
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         raw,
     ) else {

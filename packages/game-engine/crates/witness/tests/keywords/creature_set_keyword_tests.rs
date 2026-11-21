@@ -94,7 +94,7 @@ fn prepared(rows: &[Row]) -> Prepared {
         .map(|s| s.raw)
         .chain(EXTRAS.iter().map(|(_, raw)| *raw))
     {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {

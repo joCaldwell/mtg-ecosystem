@@ -14,7 +14,7 @@ fn prepared(rows: &[(&str, u8, u8, bool)], commander: bool) -> Prepared {
         include_str!("../../../../tests/fixtures/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"),
         include_str!("../../../../tests/fixtures/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {
@@ -373,7 +373,7 @@ fn paid_creature_or_planeswalker_return_filters_lands_and_uses_card_owner() {
     use mtg_witness::equipped as helpers;
     let raw =
         include_str!("../../../../tests/fixtures/synthetic-creature-planeswalker-return.json");
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         raw,
     );

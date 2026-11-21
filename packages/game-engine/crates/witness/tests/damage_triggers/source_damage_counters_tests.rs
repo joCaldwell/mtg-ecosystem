@@ -14,7 +14,7 @@ fn prepared() -> Prepared {
         ],
         &[],
     );
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
         MARAUDERS,
     );

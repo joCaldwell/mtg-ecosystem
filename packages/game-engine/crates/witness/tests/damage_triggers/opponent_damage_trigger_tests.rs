@@ -12,7 +12,7 @@ fn catalog() -> Catalog {
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
     .unwrap();
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
         include_str!(
             "../../../../tests/fixtures/cards-data-d2ce/5dee663f-9e2e-4503-8086-fc51664fdf29.json"
@@ -190,45 +190,58 @@ fn legacy(g: &mut Game, recipient: DamageRecipient, amount: i64) -> Result<Event
         BatchCause::Fixture,
     )
 }
-#[test]
-fn opponent_damage_exact_source_combat_replay_and_departures() {
-    for mode in modes() {
-        for departing in [None, Some(0), Some(1), Some(2)] {
-            let mut g = game(mode);
-            to_step(&mut g, 1, TurnStep::DeclareAttackers);
-            let source = object(&g);
-            answer(
-                &mut g,
-                Response::Attackers {
-                    attacks: vec![(source, PlayerId(1))],
-                },
-            );
-            pending(&mut g);
-            let frozen = witness(&g);
-            assert!(
-                matches!(&frozen, TriggerEventWitness::DamageDealt { kind: DamageKind::Combat, damage, transaction: Some(_), .. }
+fn opponent_damage_exact_source_combat_replay_and_departures(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    for departing in [None, Some(0), Some(1), Some(2)] {
+        let mut g = game(mode);
+        to_step(&mut g, 1, TurnStep::DeclareAttackers);
+        let source = object(&g);
+        answer(
+            &mut g,
+            Response::Attackers {
+                attacks: vec![(source, PlayerId(1))],
+            },
+        );
+        pending(&mut g);
+        let frozen = witness(&g);
+        assert!(
+            matches!(&frozen, TriggerEventWitness::DamageDealt { kind: DamageKind::Combat, damage, transaction: Some(_), .. }
                 if damage.source.object == source && damage.source.owner == PlayerId(2) && damage.controller == PlayerId(0) && damage.amount == 2.into())
-            );
-            assert_eq!(g.state.rules.pending_triggers.len(), 1);
-            recover(&g);
-            if let Some(player) = departing {
-                g.concede(PlayerId(player)).unwrap();
-            }
-            placed(&mut g);
-            recover(&g);
-            if departing == Some(0) {
-                assert!(g.state.rules.stack.is_empty());
-                continue;
-            }
-            assert!(
-                matches!(&g.top().unwrap().kind, StackKind::Triggered { witness, .. } if witness == &frozen)
-            );
-            let n = g.state.rules.libraries[&PlayerId(0)].len();
-            resolve(&mut g);
-            assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), n - 1);
-            recover(&g);
+        );
+        assert_eq!(g.state.rules.pending_triggers.len(), 1);
+        recover(&g);
+        if let Some(player) = departing {
+            g.concede(PlayerId(player)).unwrap();
         }
+        placed(&mut g);
+        recover(&g);
+        if departing == Some(0) {
+            assert!(g.state.rules.stack.is_empty());
+            continue;
+        }
+        assert!(
+            matches!(&g.top().unwrap().kind, StackKind::Triggered { witness, .. } if witness == &frozen)
+        );
+        let n = g.state.rules.libraries[&PlayerId(0)].len();
+        resolve(&mut g);
+        assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), n - 1);
+        recover(&g);
     }
+}
+#[test]
+fn opponent_damage_exact_source_combat_replay_and_departures_off() {
+    opponent_damage_exact_source_combat_replay_and_departures(0);
+}
+#[test]
+fn opponent_damage_exact_source_combat_replay_and_departures_compact() {
+    opponent_damage_exact_source_combat_replay_and_departures(1);
+}
+#[test]
+fn opponent_damage_exact_source_combat_replay_and_departures_detailed() {
+    opponent_damage_exact_source_combat_replay_and_departures(2);
 }
 #[test]
 fn opponent_damage_private_noncombat_leaf_multiplicity_and_negative_recipients() {

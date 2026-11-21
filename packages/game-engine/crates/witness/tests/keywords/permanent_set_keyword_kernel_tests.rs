@@ -35,7 +35,7 @@ fn prepared(keywords: &[KeywordAbility]) -> Prepared {
         ],
         false,
     );
-    let mtg_compiler::CompileResult::Lowered { mut definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { mut definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/24882fa2-3fe9-4c1b-aa3d-0e6488b9db27.json"),
     ) else {

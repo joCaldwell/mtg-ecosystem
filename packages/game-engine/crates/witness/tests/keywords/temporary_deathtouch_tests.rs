@@ -19,7 +19,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
         .collect();
     let mut p = mtg_witness::equipped::prepared(&placeholders, false);
     let mut c = (*p.catalog).clone();
-    let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/b75fb789-6a78-4d23-b872-7627b478fb6f.json"),
     ) else {
@@ -33,7 +33,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
     c.definitions.push(*d);
     let mtg_compiler::CompileResult::Lowered {
         definition: frostfang,
-    } = mtg_compiler::compile(
+    } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!(
             "../../../../tests/fixtures/cards-data-d2ce/b99ada26-9a61-4175-9fb8-15a106960220.json"

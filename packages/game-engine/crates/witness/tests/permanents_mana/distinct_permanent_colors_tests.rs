@@ -57,7 +57,7 @@ fn prepared() -> Prepared {
                     .record_sha256
                     .contains(&sha256(raw.trim_end().as_bytes()))
             );
-            let result = mtg_compiler::compile(MANIFEST, raw);
+            let result = mtg_witness::compile(MANIFEST, raw);
             let mtg_compiler::CompileResult::Lowered { definition } = result else {
                 panic!("{result:?}");
             };

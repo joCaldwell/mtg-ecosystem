@@ -35,7 +35,7 @@ fn prepared(rows: &[(&str, bool)], name: &str, raw: &str) -> Prepared {
         .map(|(n, hand)| (if *n == name { "Giant Growth" } else { *n }, *hand))
         .collect();
     let mut p = mtg_witness::equipped::prepared(&placeholders, false);
-    let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         raw,
     ) else {

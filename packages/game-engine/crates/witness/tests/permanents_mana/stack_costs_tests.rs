@@ -110,7 +110,7 @@ fn void_rend_paid_counter_attempt_and_nonland_destruction() {
         sha256(raw.as_bytes()),
         "096021d12aefd92519068bb66cd3e4d4287fa0178499858e25196685594d3eab"
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     ) else {

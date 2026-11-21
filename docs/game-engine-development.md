@@ -126,20 +126,58 @@ Engine commands (prefix with `sh scripts/engine-env.sh`):
 | Command | Executes | Omits |
 | --- | --- | --- |
 | `npm run check:engine` | Live guards, formatting, locked workspace library check | Binaries (`mtg-sim`, `mtg-server`), other non-library targets, archive agreement, all tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
-| `npm run check:engine:fast` | Live guards, archive agreement, formatting, workspace all-target check, contracts/compiler library tests | Harness self-tests, other Rust tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
+| `npm run check:engine:fast` | Live guards, archive agreement, formatting, workspace all-target check, contracts/compiler/core library tests | Harness self-tests, core/witness integration binaries, simulator/server tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
+| `npm run check:engine:core` | Live guards, contracts/compiler/core library tests, every core `testkit` and `mtg-witness` integration binary | Archive agreement, formatting, Clippy, simulator/server tests, executable Node contracts/demo, SDK, release/profile/replay/retention |
 | `npm run check:engine:source` | Live guards/archive agreement; no Cargo/lock | Harness self-tests, native/executable runtime |
 | `npm run check:engine:contracts` | Live guards/source/schema/catalog preflight and invalid-shape/version negatives | Harness self-tests, runtime Node/demo, Rust tests/lints; cold cache may compile release mtg-sim |
 | `npm run check:engine:tooling` | Harness self-tests/live guards; no Cargo/lock | Engine behavior/native/executable/SDK acceptance |
 | `npm run check:engine:full` | Formatting, Clippy, workspace tests, harness tests, complete Node contracts/demo | SDK, ignored diagnostics, separate release/profile/replay/offline-retention |
 
-`--quick` (default), `--fast`, `--source`, `--contracts`, `--tooling`, `--full`
-are exclusive. `--plan` executes nothing. Live guards check structure/docs;
+`--quick` (default), `--fast`, `--core`, `--source`, `--contracts`, `--tooling`,
+`--full` are exclusive. `--plan` executes nothing. Live guards check structure/docs;
 native modes admit cache under lock. Harness suites cover environment, dependencies/artifacts, storage,
 retention, worktrees and executable preservation using tiny fixtures/fake workers.
 Run affected harness tests when their inputs change. Python suites need explicit
 filenames (discovery misses hyphens). Node wrapper rejects empty/skipped/TODO-only
 selections; archive selector must track renames. Standard Rust tests use opt-level 2
 with assertions, overflow checks and line-table debug info. Use package checks for changed binary targets.
+
+### Engine test topology
+
+| Target | Holds | Run |
+| --- | --- | --- |
+| `mtg-core --lib` | Production code and narrow private-field/forgery unit anchors | `cargo test --locked -p mtg-core --lib` |
+| `crates/core/tests/<bin>/main.rs` | White-box scenario binaries (`state_recovery`, `search_work`, `rules_kernel`, `trigger_kernel`) | `cargo test --locked -p mtg-core --features testkit --test '*'` |
+| `crates/core/tests/*.rs` | Public-API adversarial/admission binaries | the same command |
+| `crates/witness/tests/<bin>/main.rs` | Dev-only `mtg-witness`: exact frozen source compiled by mtg-compiler | `cargo test --locked -p mtg-witness --test '*'` |
+
+`testkit` is never a default feature, and only test crates enable it
+(structure-checked). It exposes the namespace in-source tests saw: internals are
+`pub` inside the private engine module, `lib.rs` re-exports an explicit public
+list, and `testkit_fields!` plus generated `*Testkit` traits reach private
+fields/methods of public types without widening the production API. Add
+white-box tests to the matching binary (its `use super::*` reaches
+`mtg_core::testkit`); compiler-backed tests and shared drivers go in
+`mtg-witness`, never core dev-dependencies. Build identity excludes both.
+
+Each binary is one rustc unit: a test edit rebuilds only its binary, and a
+compiler edit rebuilds no mtg-core unit. Cargo's `--tests` selects every
+`test = true` target, including the lib, so `--lib --tests` runs the unit binary
+twice; select integration binaries with `--test '*'` or `--test NAME`. Without
+`--features testkit` core scenario binaries are skipped (required-features); a
+workspace build enables it through mtg-witness. `cargo test` runs binaries one at
+a time; `check:engine:core` instead builds once and runs
+`scripts/engine-test-binaries.py`: at most four binaries at once, largest first,
+each with `--test-threads` so binaries x threads stays within `--workers`
+(default min(CPUs, 16)), reporting wall time and peak total RSS. Concurrency
+comes only from separate `#[test]` functions under that budget; test helpers
+must not spawn their own thread pools, since nested pools multiplied resident
+400-card games past 13 GiB in one binary. For one test while coding:
+
+```sh
+npm run engine:dev -- test -p mtg-core --features testkit --test rules_kernel FILTER
+npm run engine:dev -- test -p mtg-witness --test cascade FILTER
+```
 
 ## Cargo coordination and cache integration
 

@@ -42,7 +42,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
         .collect();
     let mut p = mtg_witness::equipped::prepared(&placeholders, false);
     if rows.iter().any(|(name, _)| *name == "Dive Down") {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest.json"),
             include_str!("../../../../tests/fixtures/2f990b54-fbf3-4949-85bb-9ba39710e72a.json"),
         ) else {
@@ -63,7 +63,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
     // Compare whole lowered definitions, including Rancor's graveyard trigger;
     // neither a hand-written Aura fragment nor a name-based runtime override.
     for (name, raw, _, _) in AURAS {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest.json"),
             raw,
         ) else {

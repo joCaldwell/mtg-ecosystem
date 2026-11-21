@@ -12,7 +12,7 @@ fn prepared(rows: &[(&str, u8, u8)]) -> Prepared {
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
     .unwrap();
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
         include_str!(
             "../../../../tests/fixtures/cards-data-d2ce/b99ada26-9a61-4175-9fb8-15a106960220.json"

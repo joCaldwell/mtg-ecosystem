@@ -12,7 +12,7 @@ fn avacyn_paid_static_indestructible_ends_on_departure() {
         sha256(raw.trim_end().as_bytes()),
         "1e3889b435b776572907a40d9ad5f67ecf15a29ee4806ece95f04b6fa7c1af0e"
     );
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     );
@@ -130,7 +130,7 @@ fn scoped_static_stats_use_live_controller_subtype_and_other_source() {
         sha256(raw.trim_end().as_bytes()),
         "92d1384cfc1b583c71f14a7090946293b2baab24aac8700aca7c8894a4accf28"
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         raw,
     ) else {

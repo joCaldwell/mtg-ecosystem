@@ -80,72 +80,98 @@ pub(super) fn witness(g: &Game, original: StackId) -> &triggers::CastOccurrence 
         })
         .unwrap()
 }
-#[test]
-fn m4d_nexus_self_cast_no_observer_history_and_paid_later_spell() {
-    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        let mut g = Game::with_trace(root("Maelstrom Nexus", &["Forest"], &[]), mode);
-        assert_eq!(flags(&g, 0), (false, false));
-        let nexus = paid(&mut g, "Maelstrom Nexus");
-        assert!(grants(&g, nexus).is_empty());
-        assert_eq!(flags(&g, 0), (true, false));
-        public_proof(&g);
-        settle(&mut g);
-        let ramos = paid(&mut g, "Ramos, Dragon Engine");
-        assert!(grants(&g, ramos).is_empty());
-        public_proof(&g);
-        let mut lie = g.fork();
-        lie.state.rules.cast_history[0] = triggers::TurnCastHistory::default();
-        assert!(Game::restore(lie.prepared.as_ref().clone(), &lie.snapshot().unwrap()).is_err());
-    }
+fn m4d_nexus_self_cast_no_observer_history_and_paid_later_spell(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let mut g = Game::with_trace(root("Maelstrom Nexus", &["Forest"], &[]), mode);
+    assert_eq!(flags(&g, 0), (false, false));
+    let nexus = paid(&mut g, "Maelstrom Nexus");
+    assert!(grants(&g, nexus).is_empty());
+    assert_eq!(flags(&g, 0), (true, false));
+    public_proof(&g);
+    settle(&mut g);
+    let ramos = paid(&mut g, "Ramos, Dragon Engine");
+    assert!(grants(&g, ramos).is_empty());
+    public_proof(&g);
+    let mut lie = g.fork();
+    lie.state.rules.cast_history[0] = triggers::TurnCastHistory::default();
+    assert!(Game::restore(lie.prepared.as_ref().clone(), &lie.snapshot().unwrap()).is_err());
 }
 #[test]
-fn m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant() {
-    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        let mut g = Game::with_trace(
-            root(
-                "Bloodbraid Elf",
-                &["Grizzly Bears"],
-                &["Maelstrom Nexus", "Wild-Magic Sorcerer"],
-            ),
-            mode,
-        );
-        let original = paid(&mut g, "Bloodbraid Elf");
-        assert_eq!(grants(&g, original).len(), 1);
-        assert!(witness(&g, original).history.first_overall);
-        assert!(!witness(&g, original).history.first_from_exile);
-        public_proof(&g);
-        offer(&mut g);
-        answer(&mut g, Response::OptionalEffect { perform: true });
-        m3c_tests::finish_announcement(&mut g, false, None, None);
-        let child = g
-            .state
-            .rules
-            .stack
-            .iter()
-            .find(|s| s.kind.is_spell() && s.cast_from == Zone::Exile)
-            .unwrap()
-            .id;
-        assert_eq!(grants(&g, child).len(), 1);
-        let cast = witness(&g, child);
-        assert!(!cast.history.first_overall);
-        assert!(cast.history.first_from_exile);
-        assert_eq!(flags(&g, 0), (true, true));
-        public_proof(&g);
-        // Source provenance and firstness remain historical after later ledger use.
-        let mut lie = g.fork();
-        for s in &mut lie.state.rules.stack {
-            if let StackKind::Triggered {
-                witness: TriggerEventWitness::SpellCast { cast },
-                ..
-            } = &mut s.kind
-            {
-                if cast.stack_id == child {
-                    cast.history.first_from_exile = false;
-                }
+fn m4d_nexus_self_cast_no_observer_history_and_paid_later_spell_off() {
+    m4d_nexus_self_cast_no_observer_history_and_paid_later_spell(0);
+}
+#[test]
+fn m4d_nexus_self_cast_no_observer_history_and_paid_later_spell_compact() {
+    m4d_nexus_self_cast_no_observer_history_and_paid_later_spell(1);
+}
+#[test]
+fn m4d_nexus_self_cast_no_observer_history_and_paid_later_spell_detailed() {
+    m4d_nexus_self_cast_no_observer_history_and_paid_later_spell(2);
+}
+fn m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let mut g = Game::with_trace(
+        root(
+            "Bloodbraid Elf",
+            &["Grizzly Bears"],
+            &["Maelstrom Nexus", "Wild-Magic Sorcerer"],
+        ),
+        mode,
+    );
+    let original = paid(&mut g, "Bloodbraid Elf");
+    assert_eq!(grants(&g, original).len(), 1);
+    assert!(witness(&g, original).history.first_overall);
+    assert!(!witness(&g, original).history.first_from_exile);
+    public_proof(&g);
+    offer(&mut g);
+    answer(&mut g, Response::OptionalEffect { perform: true });
+    m3c_tests::finish_announcement(&mut g, false, None, None);
+    let child = g
+        .state
+        .rules
+        .stack
+        .iter()
+        .find(|s| s.kind.is_spell() && s.cast_from == Zone::Exile)
+        .unwrap()
+        .id;
+    assert_eq!(grants(&g, child).len(), 1);
+    let cast = witness(&g, child);
+    assert!(!cast.history.first_overall);
+    assert!(cast.history.first_from_exile);
+    assert_eq!(flags(&g, 0), (true, true));
+    public_proof(&g);
+    // Source provenance and firstness remain historical after later ledger use.
+    let mut lie = g.fork();
+    for s in &mut lie.state.rules.stack {
+        if let StackKind::Triggered {
+            witness: TriggerEventWitness::SpellCast { cast },
+            ..
+        } = &mut s.kind
+        {
+            if cast.stack_id == child {
+                cast.history.first_from_exile = false;
             }
         }
-        assert!(Game::restore(lie.prepared.as_ref().clone(), &lie.snapshot().unwrap()).is_err());
     }
+    assert!(Game::restore(lie.prepared.as_ref().clone(), &lie.snapshot().unwrap()).is_err());
+}
+#[test]
+fn m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant_off() {
+    m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant(0);
+}
+#[test]
+fn m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant_compact() {
+    m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant(1);
+}
+#[test]
+fn m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant_detailed() {
+    m4d_first_hand_then_genuine_free_exile_child_has_only_sorcerer_grant(2);
 }
 #[test]
 fn m4d_prior_exile_before_sorcerer_entry_and_source_self_exile_consume() {

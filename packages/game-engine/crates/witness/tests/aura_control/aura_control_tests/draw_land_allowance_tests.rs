@@ -9,7 +9,7 @@ const SPELL: CardId = CardId(0);
 const OTHER_LAND: CardId = CardId(6);
 
 fn prepared_urban_evolution() -> Prepared {
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!(
             "../../../../../tests/fixtures/ramos/c715e525-fc3a-4cab-94a0-04e0a22a5013.json"

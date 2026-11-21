@@ -66,7 +66,7 @@ fn finish_stack(g: &mut Game, viewer: PlayerId) -> PermittedView {
 
 #[test]
 fn nonland_exile_life_paid_public_resolution_and_fizzle() {
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/ad09b3c3-c8e7-481c-8c45-e7f234935117.json"),
     ) else {

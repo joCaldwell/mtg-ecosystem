@@ -22,7 +22,7 @@ fn prepared(library_len: u32) -> Prepared {
             ),
         ),
     ] {
-        let compiled = mtg_compiler::compile(header, raw);
+        let compiled = mtg_witness::compile(header, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
             panic!("{compiled:?}");
         };

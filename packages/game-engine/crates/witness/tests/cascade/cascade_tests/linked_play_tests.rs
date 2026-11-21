@@ -27,7 +27,7 @@ fn scenario(hit: &str) -> Prepared {
         panic!("expected one frozen source")
     };
     let mtg_compiler::CompileResult::Lowered { definition } =
-        mtg_compiler::compile(manifest, record)
+        mtg_witness::compile(manifest, record)
     else {
         panic!("complete Mosswort Bridge source must lower");
     };

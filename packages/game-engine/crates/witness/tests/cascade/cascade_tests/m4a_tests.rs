@@ -540,183 +540,197 @@ fn real_setup(seed: u8) -> Prepared {
     p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
     p
 }
-#[test]
-fn m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay() {
-    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        let mut found = None;
-        for seed in 0..128 {
-            let mut g = Game::with_trace(real_setup(seed), mode);
-            for _ in 0..4 {
-                answer(&mut g, Response::Mulligan { take: false });
-            }
-            request(&mut g);
-            if g.state.rules.objects.values().any(|o| {
-                o.zone == (Zone::Hand { owner: PlayerId(0) })
-                    && g.definition(o.id.card).unwrap().name == "Apex Devastator"
-            }) {
-                found = Some(g);
-                break;
-            }
+fn m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let mut found = None;
+    for seed in 0..128 {
+        let mut g = Game::with_trace(real_setup(seed), mode);
+        for _ in 0..4 {
+            answer(&mut g, Response::Mulligan { take: false });
         }
-        let mut g = found.expect("deterministic opening Apex witness");
-        let mut developed = false;
-        for _ in 0..4000 {
-            let r = request(&mut g);
-            let response = match &r {
-                Request::Priority {
-                    player: PlayerId(0),
-                    ..
-                } if g.active_player() == Some(PlayerId(0))
-                    && matches!(
-                        g.turn().step,
-                        TurnStep::PrecombatMain | TurnStep::PostcombatMain
-                    ) =>
-                {
-                    let lands = g
+        request(&mut g);
+        if g.state.rules.objects.values().any(|o| {
+            o.zone == (Zone::Hand { owner: PlayerId(0) })
+                && g.definition(o.id.card).unwrap().name == "Apex Devastator"
+        }) {
+            found = Some(g);
+            break;
+        }
+    }
+    let mut g = found.expect("deterministic opening Apex witness");
+    let mut developed = false;
+    for _ in 0..4000 {
+        let r = request(&mut g);
+        let response = match &r {
+            Request::Priority {
+                player: PlayerId(0),
+                ..
+            } if g.active_player() == Some(PlayerId(0))
+                && matches!(
+                    g.turn().step,
+                    TurnStep::PrecombatMain | TurnStep::PostcombatMain
+                ) =>
+            {
+                let lands = g
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(0))
+                    .count();
+                if lands >= 10 {
+                    developed = true;
+                    break;
+                }
+                if g.turn().lands_played == 0 {
+                    let card = g
                         .state
                         .rules
                         .objects
                         .values()
-                        .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(0))
-                        .count();
-                    if lands >= 10 {
-                        developed = true;
-                        break;
-                    }
-                    if g.turn().lands_played == 0 {
-                        let card = g
-                            .state
-                            .rules
-                            .objects
-                            .values()
-                            .find(|o| {
-                                o.zone == (Zone::Hand { owner: PlayerId(0) })
-                                    && g.definition(o.id.card)
-                                        .unwrap()
-                                        .characteristics
-                                        .has_type(CardKind::Land)
-                            })
-                            .unwrap()
-                            .id
-                            .card;
-                        Response::PlayLand { card }
-                    } else {
-                        Response::Pass
-                    }
-                }
-                Request::Priority { .. } => Response::Pass,
-                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-                Request::Discard {
-                    count, candidates, ..
-                } => Response::Discard {
-                    objects: candidates
-                        .iter()
-                        .filter(|o| g.definition(o.card).unwrap().name != "Apex Devastator")
-                        .take(*count)
-                        .copied()
-                        .collect(),
-                },
-                other => panic!("real development {other:?}"),
-            };
-            g.respond(r.player(), r.decision_id(), response).unwrap();
-        }
-        assert!(developed);
-        let original = paid(&mut g, "Apex Devastator");
-        let sibling_count = sibling_ids(&g, original).len();
-        assert_eq!(sibling_count, 4);
-        let shuffles = g
-            .state
-            .rules
-            .match_state
-            .as_ref()
-            .unwrap()
-            .library_shuffles
-            .clone();
-        let mut verifier = SnapshotVerifier::new(g.prepared.as_ref().clone(), mode);
-        let mut groups = BTreeSet::new();
-        let mut offered = 0;
-        let mut privacy_checked = false;
-        for _ in 0..2500 {
-            if sibling_ids(&g, original).is_empty() {
-                break;
-            }
-            if let Frame::Cascade { progress } = &g.state.rules.frame {
-                if progress.stage == cascade::CascadeStage::Randomize
-                    && groups.insert(progress.frame.stack_id)
-                {
-                    verifier.verify(&g.snapshot().unwrap()).unwrap();
-                    let mut generous = g.fork();
-                    let expected = generous.advance(Budget::unlimited());
-                    let actual = loop {
-                        match g.advance(Budget::new(1)) {
-                            Advance::Suspended { .. } => {
-                                verifier.verify(&g.snapshot().unwrap()).unwrap();
-                                privacy_checked |= private_bottom(&g);
-                            }
-                            other => break other,
-                        }
-                    };
-                    assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
-                    assert_eq!(g.state, generous.state);
-                    assert_eq!(g.trace, generous.trace);
-                    continue;
-                }
-                if progress.stage == cascade::CascadeStage::Bottom {
-                    let mut forged = g.fork();
-                    let mut frame = serde_json::to_value(&forged.state.rules.frame).unwrap();
-                    let permutation = frame["progress"]["permutation"].as_array_mut().unwrap();
-                    if permutation.len() > 1 {
-                        permutation.swap(0, 1);
-                        forged.state.rules.frame = serde_json::from_value(frame).unwrap();
-                        assert_bad_restore(&forged);
-                        for viewer in [PlayerId(0), PlayerId(1), PlayerId(2), PlayerId(3)] {
-                            assert_eq!(
-                                observe_counted(&g, viewer),
-                                observe_counted(&forged, viewer)
-                            );
-                        }
-                    }
+                        .find(|o| {
+                            o.zone == (Zone::Hand { owner: PlayerId(0) })
+                                && g.definition(o.id.card)
+                                    .unwrap()
+                                    .characteristics
+                                    .has_type(CardKind::Land)
+                        })
+                        .unwrap()
+                        .id
+                        .card;
+                    Response::PlayLand { card }
+                } else {
+                    Response::Pass
                 }
             }
-            match g.advance(Budget::new(1)) {
-                Advance::Suspended { .. } => (),
-                Advance::AwaitingDecision(r) => {
-                    verifier.verify(&g.snapshot().unwrap()).unwrap();
-                    let response = match r {
-                        Request::Priority { .. } => Response::Pass,
-                        Request::OptionalEffect { .. } => {
-                            offered += 1;
-                            Response::OptionalEffect { perform: false }
-                        }
-                        other => panic!("real siblings {other:?}"),
-                    };
-                    g.respond(r.player(), r.decision_id(), response).unwrap();
-                }
-                other => panic!("real cascade {other:?}"),
-            }
-        }
-        assert_eq!(groups.len(), 4);
-        assert!(privacy_checked);
-        assert_eq!(
-            offered,
-            if g.state
-                .rules
-                .objects
-                .values()
-                .any(|o| g.definition(o.id.card).unwrap().name == "Grizzly Bears"
-                    && o.zone == (Zone::Library { owner: PlayerId(0) }))
-            {
-                4
-            } else {
-                0
-            }
-        );
-        assert_eq!(
-            g.state.rules.match_state.as_ref().unwrap().library_shuffles,
-            shuffles
-        );
-        prove(&g);
+            Request::Priority { .. } => Response::Pass,
+            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+            Request::Discard {
+                count, candidates, ..
+            } => Response::Discard {
+                objects: candidates
+                    .iter()
+                    .filter(|o| g.definition(o.card).unwrap().name != "Apex Devastator")
+                    .take(*count)
+                    .copied()
+                    .collect(),
+            },
+            other => panic!("real development {other:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
     }
+    assert!(developed);
+    let original = paid(&mut g, "Apex Devastator");
+    let sibling_count = sibling_ids(&g, original).len();
+    assert_eq!(sibling_count, 4);
+    let shuffles = g
+        .state
+        .rules
+        .match_state
+        .as_ref()
+        .unwrap()
+        .library_shuffles
+        .clone();
+    let mut verifier = mtg_witness::OrderedVerifier::new(g.prepared.as_ref().clone(), mode);
+    let mut groups = BTreeSet::new();
+    let mut offered = 0;
+    let mut privacy_checked = false;
+    for _ in 0..2500 {
+        if sibling_ids(&g, original).is_empty() {
+            break;
+        }
+        if let Frame::Cascade { progress } = &g.state.rules.frame {
+            if progress.stage == cascade::CascadeStage::Randomize
+                && groups.insert(progress.frame.stack_id)
+            {
+                verifier.verify(g.snapshot().unwrap());
+                let mut generous = g.fork();
+                let expected = generous.advance(Budget::unlimited());
+                let actual = loop {
+                    match g.advance(Budget::new(1)) {
+                        Advance::Suspended { .. } => {
+                            verifier.verify(g.snapshot().unwrap());
+                            privacy_checked |= private_bottom(&g);
+                        }
+                        other => break other,
+                    }
+                };
+                assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+                assert_eq!(g.state, generous.state);
+                assert_eq!(g.trace, generous.trace);
+                continue;
+            }
+            if progress.stage == cascade::CascadeStage::Bottom {
+                let mut forged = g.fork();
+                let mut frame = serde_json::to_value(&forged.state.rules.frame).unwrap();
+                let permutation = frame["progress"]["permutation"].as_array_mut().unwrap();
+                if permutation.len() > 1 {
+                    permutation.swap(0, 1);
+                    forged.state.rules.frame = serde_json::from_value(frame).unwrap();
+                    assert_bad_restore(&forged);
+                    for viewer in [PlayerId(0), PlayerId(1), PlayerId(2), PlayerId(3)] {
+                        assert_eq!(
+                            observe_counted(&g, viewer),
+                            observe_counted(&forged, viewer)
+                        );
+                    }
+                }
+            }
+        }
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => (),
+            Advance::AwaitingDecision(r) => {
+                verifier.verify(g.snapshot().unwrap());
+                let response = match r {
+                    Request::Priority { .. } => Response::Pass,
+                    Request::OptionalEffect { .. } => {
+                        offered += 1;
+                        Response::OptionalEffect { perform: false }
+                    }
+                    other => panic!("real siblings {other:?}"),
+                };
+                g.respond(r.player(), r.decision_id(), response).unwrap();
+            }
+            other => panic!("real cascade {other:?}"),
+        }
+    }
+    verifier.finish();
+    assert_eq!(groups.len(), 4);
+    assert!(privacy_checked);
+    assert_eq!(
+        offered,
+        if g.state
+            .rules
+            .objects
+            .values()
+            .any(|o| g.definition(o.id.card).unwrap().name == "Grizzly Bears"
+                && o.zone == (Zone::Library { owner: PlayerId(0) }))
+        {
+            4
+        } else {
+            0
+        }
+    );
+    assert_eq!(
+        g.state.rules.match_state.as_ref().unwrap().library_shuffles,
+        shuffles
+    );
+    prove(&g);
+}
+#[test]
+fn m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay_off() {
+    m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay(0);
+}
+#[test]
+fn m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay_compact() {
+    m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay(1);
+}
+#[test]
+fn m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay_detailed() {
+    m4a_real_setup_four_private_bottom_groups_three_traces_and_budget_replay(2);
 }
 #[test]
 fn m4a_paid_apex_four_same_block_siblings_one_ramos_and_apnap_observer() {

@@ -15,7 +15,7 @@ fn prepared() -> Prepared {
         ],
         &[],
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(HEADER, PATH)
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(HEADER, PATH)
     else {
         panic!("exact R3 source");
     };

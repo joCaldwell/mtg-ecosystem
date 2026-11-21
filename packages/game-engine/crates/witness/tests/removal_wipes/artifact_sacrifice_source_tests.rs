@@ -23,8 +23,7 @@ fn prepared(rows: &[(&str, u8, u8, bool)]) -> Prepared {
             ),
         ),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(header, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(header, raw)
         else {
             panic!("complete artifact sacrifice source must lower");
         };
@@ -723,7 +722,7 @@ fn fixed_artifact_modal_activation_announces_child_before_root_payment() {
 fn counted_artifact_compiled_modes_freeze_target_then_pay_root_set() {
     let header = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
     let raw = include_str!("../../../../tests/fixtures/synthetic-counted-artifact-modal.json");
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(header, raw)
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(header, raw)
     else {
         panic!("synthetic artifact")
     };
@@ -834,7 +833,7 @@ fn fixed_set_exile_moves_one_zone_batch_and_preserves_commander_choice() {
         .lines()
         .enumerate()
     {
-        let parsed = mtg_compiler::compile(manifest, raw);
+        let parsed = mtg_witness::compile(manifest, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = parsed else {
             panic!("{parsed:?}")
         };
@@ -919,7 +918,7 @@ fn fixed_set_exile_moves_one_zone_batch_and_preserves_commander_choice() {
 fn paid_set_exile_subset_resolves_printed_order_and_recovers() {
     let raw =
         include_str!("../../../../tests/fixtures/ramos/4eb813fd-2d5a-4b02-8193-662681ef4e7d.json");
-    let parsed = mtg_compiler::compile(
+    let parsed = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     );

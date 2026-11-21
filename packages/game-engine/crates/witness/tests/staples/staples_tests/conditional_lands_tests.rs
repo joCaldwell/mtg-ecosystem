@@ -16,7 +16,7 @@ const CLAIM: &str =
 const FARSEEK: &str =
     include_str!("../../../../../tests/fixtures/ramos/495e52e6-4c2b-4574-9474-eadbdcc8b4ac.json");
 fn lower(raw: &str) -> Definition {
-    let r = mtg_compiler::compile(
+    let r = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     );
@@ -571,89 +571,112 @@ fn natural_search(g: &mut Game, name: &str, basics: usize) -> Request {
     }
     panic!("natural setup did not reach search");
 }
-#[test]
-fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle() {
-    for (raw, name, basics, second) in [
+fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle(case: usize) {
+    let (raw, name, basics, second) = [
         (LORE, "Nature's Lore", 0, false),
         (LORE, "Nature's Lore", 1, false),
         (LORE, "Nature's Lore", 2, false),
         (FARSEEK, "Farseek", 2, false),
         (CLAIM, "Skyshroud Claim", 1, true),
         (CLAIM, "Skyshroud Claim", 2, true),
-    ] {
-        for reverse in if second {
-            &[false, true][..]
-        } else {
-            &[false][..]
-        } {
-            traces(natural_prepared(raw), |g| {
-                let r = natural_search(g, name, basics);
-                let Request::SearchLands { candidates, .. } = &r else {
-                    panic!()
-                };
-                let cinder = named(g, "Cinder Glade");
-                assert!(candidates.contains(&cinder));
-                let mut selected = vec![cinder];
-                if second {
-                    selected.push(
-                        *candidates
-                            .iter()
-                            .find(|o| g.definition(o.card).unwrap().name == "Forest")
-                            .unwrap(),
-                    );
-                }
-                if *reverse {
-                    selected.reverse();
-                }
-                let own = observation(g, 0);
-                let PlayerRequest::SearchLands {
-                    candidates: visible,
-                    ..
-                } = own.decision.unwrap()
-                else {
-                    panic!()
-                };
-                let handles = selected
-                    .iter()
-                    .map(|id| {
-                        visible
-                            .iter()
-                            .find(|c| {
-                                g.resolve_search_handle(PlayerId(0), &c.handle).unwrap() == *id
-                            })
-                            .unwrap()
-                            .handle
-                            .clone()
-                    })
-                    .collect();
-                for seat in 1..4 {
-                    let view = observation(g, seat);
-                    assert!(view.decision.is_none());
-                    assert!(
-                        view.view
-                            .objects
-                            .iter()
-                            .all(|o| !matches!(o.zone, Zone::Library { .. }))
-                    );
-                }
-                public(g, PlayerResponse::SearchLands { objects: handles });
-                check(g);
-                let _ = request(g);
-                let entered = named(g, "Cinder Glade");
-                assert_ne!(entered, cinder);
-                assert_eq!(
-                    g.current(entered).unwrap().tapped,
-                    name == "Farseek" || basics < 2
+    ]
+    .into_iter()
+    .nth(case)
+    .unwrap();
+    for reverse in if second {
+        &[false, true][..]
+    } else {
+        &[false][..]
+    } {
+        traces(natural_prepared(raw), |g| {
+            let r = natural_search(g, name, basics);
+            let Request::SearchLands { candidates, .. } = &r else {
+                panic!()
+            };
+            let cinder = named(g, "Cinder Glade");
+            assert!(candidates.contains(&cinder));
+            let mut selected = vec![cinder];
+            if second {
+                selected.push(
+                    *candidates
+                        .iter()
+                        .find(|o| g.definition(o.card).unwrap().name == "Forest")
+                        .unwrap(),
                 );
-                assert_eq!(g.current(entered).unwrap().default_controller, PlayerId(0));
-                assert_eq!(
-                    g.state.rules.match_state.as_ref().unwrap().library_shuffles[0],
-                    1
+            }
+            if *reverse {
+                selected.reverse();
+            }
+            let own = observation(g, 0);
+            let PlayerRequest::SearchLands {
+                candidates: visible,
+                ..
+            } = own.decision.unwrap()
+            else {
+                panic!()
+            };
+            let handles = selected
+                .iter()
+                .map(|id| {
+                    visible
+                        .iter()
+                        .find(|c| g.resolve_search_handle(PlayerId(0), &c.handle).unwrap() == *id)
+                        .unwrap()
+                        .handle
+                        .clone()
+                })
+                .collect();
+            for seat in 1..4 {
+                let view = observation(g, seat);
+                assert!(view.decision.is_none());
+                assert!(
+                    view.view
+                        .objects
+                        .iter()
+                        .all(|o| !matches!(o.zone, Zone::Library { .. }))
                 );
-                check(g);
-            });
-        }
+            }
+            public(g, PlayerResponse::SearchLands { objects: handles });
+            check(g);
+            let _ = request(g);
+            let entered = named(g, "Cinder Glade");
+            assert_ne!(entered, cinder);
+            assert_eq!(
+                g.current(entered).unwrap().tapped,
+                name == "Farseek" || basics < 2
+            );
+            assert_eq!(g.current(entered).unwrap().default_controller, PlayerId(0));
+            assert_eq!(
+                g.state.rules.match_state.as_ref().unwrap().library_shuffles[0],
+                1
+            );
+            check(g);
+        });
     }
+}
+#[test]
+fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle_case0() {
+    conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle(0);
+}
+#[test]
+fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle_case1() {
+    conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle(1);
+}
+#[test]
+fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle_case2() {
+    conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle(2);
+}
+#[test]
+fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle_case3() {
+    conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle(3);
+}
+#[test]
+fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle_case4() {
+    conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle(4);
+}
+#[test]
+fn conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle_case5() {
+    conditional_lands_paid_lore_claim_farseek_common_prior_entry_and_shuffle(5);
 }
 #[test]
 fn conditional_lands_ramos_paid_counter_mana_stays_immediate_and_payable_cast_keeps_receipts() {

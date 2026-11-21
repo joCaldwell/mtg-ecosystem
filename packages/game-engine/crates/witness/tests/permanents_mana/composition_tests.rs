@@ -37,7 +37,7 @@ fn prepared(rows: &[Row], sources: &[&str]) -> Prepared {
     let mut p = prepared_with_sources(&[], &[]);
     let mut catalog = (*p.catalog).clone();
     for raw in sources {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(R3, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(R3, raw)
         else {
             panic!("composed frozen source must lower")
         };

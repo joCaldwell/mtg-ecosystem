@@ -4,7 +4,7 @@ use mtg_witness::equipped::{
 };
 #[test]
 fn paid_repeated_modes_resolve_all_five_printed_effects_and_preserve_duplicate_targets() {
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!(
             "../../../../../tests/fixtures/ramos/164651c5-b831-4070-8491-16d30ac8395b.json"
@@ -388,7 +388,7 @@ fn paid_mixed_target_modes_place_counters_then_shuffle_opposing_graveyard_and_re
 #[test]
 fn paid_exact_two_targeted_modes_bind_distinct_occurrences_and_replay_print_order() {
     let raw = include_str!("../../../../../tests/fixtures/synthetic-fixed-target-modes.json");
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         raw,
     );

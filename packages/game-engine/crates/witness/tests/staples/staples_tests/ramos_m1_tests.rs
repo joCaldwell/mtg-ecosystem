@@ -15,7 +15,7 @@ const NAMES: [&str; 6] = [
     "Colossal Dreadmaw",
 ];
 fn source() -> Definition {
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!(
             "../../../../../tests/fixtures/ramos/3ed41d2d-211b-4013-8562-8c64d54cc43a.json"

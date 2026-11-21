@@ -17,7 +17,7 @@ fn tap_catalog() -> Catalog {
         include_str!("../../../../tests/fixtures/3608f1f7-8dc5-4dd1-ae91-c830e1de9529.json"),
         include_str!("../../../../tests/fixtures/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {
@@ -370,7 +370,7 @@ fn paid_creature_source_tap_checks_target_and_pays_before_resolution() {
         "4f16034cdfdd8b8cf0bec6de688533a427eb89b882205497497a08aaf84b56ea"
     );
     let mtg_compiler::CompileResult::Lowered { definition } =
-        mtg_compiler::compile(manifest, record)
+        mtg_witness::compile(manifest, record)
     else {
         panic!("complete Half-Elf Monk source must lower");
     };
@@ -591,7 +591,7 @@ fn assert_city_damage(g: &Game, city: ObjectId, controller: PlayerId) {
 
 #[test]
 fn city_of_brass_paid_taps_queue_damage_for_trigger_controller() {
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/f25351e3-539b-4bbc-b92d-6480acf4d722.json"),
     );

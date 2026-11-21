@@ -210,41 +210,47 @@ fn m4d_nexus_bounce_reentry_preserves_consumed_player_history() {
     assert!(witness(&g, opponent_turn_cast).history.first_overall);
     public_proof(&g);
 }
-#[test]
-fn m4d_countered_original_or_grant_never_restores_firstness() {
-    for counter_original in [false, true] {
-        let mut g = Game::new(prepared(
-            "Apex Devastator",
-            &["Grizzly Bears"],
-            &["Maelstrom Nexus"],
-        ));
-        let original = paid(&mut g, "Apex Devastator");
-        let grant = grants(&g, original)[0].id;
-        answer(&mut g, Response::Pass);
-        assert_eq!(request(&mut g).player(), PlayerId(1));
-        let counter = paid_by(
-            &mut g,
-            if counter_original {
-                "Counterspell"
-            } else {
-                "Stifle"
-            },
-            PlayerId(1),
-            Some(if counter_original { original } else { grant }),
-        );
-        m4a_tests::resolve_entry(&mut g, counter);
-        assert_eq!(flags(&g, 0), (true, false));
-        assert_eq!(flags(&g, 1), (true, false));
-        assert_eq!(
-            g.state.rules.stack.iter().any(|s| s.id == grant),
-            counter_original
-        );
+fn m4d_countered_original_or_grant_never_restores_firstness(case: usize) {
+    let counter_original = [false, true].into_iter().nth(case).unwrap();
+    let mut g = Game::new(prepared(
+        "Apex Devastator",
+        &["Grizzly Bears"],
+        &["Maelstrom Nexus"],
+    ));
+    let original = paid(&mut g, "Apex Devastator");
+    let grant = grants(&g, original)[0].id;
+    answer(&mut g, Response::Pass);
+    assert_eq!(request(&mut g).player(), PlayerId(1));
+    let counter = paid_by(
+        &mut g,
         if counter_original {
-            offer(&mut g);
-            assert_eq!(witness(&g, original).history.first_overall, true);
-        }
-        public_proof(&g);
+            "Counterspell"
+        } else {
+            "Stifle"
+        },
+        PlayerId(1),
+        Some(if counter_original { original } else { grant }),
+    );
+    m4a_tests::resolve_entry(&mut g, counter);
+    assert_eq!(flags(&g, 0), (true, false));
+    assert_eq!(flags(&g, 1), (true, false));
+    assert_eq!(
+        g.state.rules.stack.iter().any(|s| s.id == grant),
+        counter_original
+    );
+    if counter_original {
+        offer(&mut g);
+        assert_eq!(witness(&g, original).history.first_overall, true);
     }
+    public_proof(&g);
+}
+#[test]
+fn m4d_countered_original_or_grant_never_restores_firstness_false() {
+    m4d_countered_original_or_grant_never_restores_firstness(0);
+}
+#[test]
+fn m4d_countered_original_or_grant_never_restores_firstness_true() {
+    m4d_countered_original_or_grant_never_restores_firstness(1);
 }
 #[test]
 fn m4d_departed_active_consumed_seat_keeps_bits_until_real_turn_transition() {

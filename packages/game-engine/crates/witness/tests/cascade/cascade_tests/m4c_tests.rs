@@ -194,45 +194,60 @@ pub(super) fn public_proof(g: &Game) {
         state
     );
 }
-#[test]
-fn m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster() {
-    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        let mut g = Game::with_trace(root("Imoti, Celebrant of Bounty", &["Forest"], false), mode);
-        let first = paid(&mut g, "Imoti, Celebrant of Bounty");
-        assert!(grants(&g, first).is_empty());
-        assert!(g.state.rules.stack.iter().any(|s| matches!(
-            s.kind,
-            StackKind::Triggered {
-                ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
-                ..
-            }
-        ) && s.source == g.state.rules.stack[0].source));
-        settle(&mut g);
-        public_proof(&g);
-        let original = paid(&mut g, "Ramos, Dragon Engine");
-        let a = grants(&g, original);
-        assert_eq!(a.len(), 1);
-        let StackKind::Triggered {
-            grant: Some(provenance),
+fn m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster(
+    case: usize,
+) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let mut g = Game::with_trace(root("Imoti, Celebrant of Bounty", &["Forest"], false), mode);
+    let first = paid(&mut g, "Imoti, Celebrant of Bounty");
+    assert!(grants(&g, first).is_empty());
+    assert!(g.state.rules.stack.iter().any(|s| matches!(
+        s.kind,
+        StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
             ..
-        } = &a[0].kind
-        else {
-            panic!()
-        };
-        assert_eq!(
-            a[0].source,
-            g.state
-                .rules
-                .stack
-                .iter()
-                .find(|s| s.id == original)
-                .unwrap()
-                .source
-        );
-        assert_ne!(a[0].source, provenance.source_facts.object);
-        assert_eq!(a[0].controller, PlayerId(0));
-        public_proof(&g);
-    }
+        }
+    ) && s.source == g.state.rules.stack[0].source));
+    settle(&mut g);
+    public_proof(&g);
+    let original = paid(&mut g, "Ramos, Dragon Engine");
+    let a = grants(&g, original);
+    assert_eq!(a.len(), 1);
+    let StackKind::Triggered {
+        grant: Some(provenance),
+        ..
+    } = &a[0].kind
+    else {
+        panic!()
+    };
+    assert_eq!(
+        a[0].source,
+        g.state
+            .rules
+            .stack
+            .iter()
+            .find(|s| s.id == original)
+            .unwrap()
+            .source
+    );
+    assert_ne!(a[0].source, provenance.source_facts.object);
+    assert_eq!(a[0].controller, PlayerId(0));
+    public_proof(&g);
+}
+#[test]
+fn m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster_off() {
+    m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster(0);
+}
+#[test]
+fn m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster_compact() {
+    m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster(1);
+}
+#[test]
+fn m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster_detailed() {
+    m4c_paid_imoti_intrinsic_then_paid_ramos_has_granted_rules_source_and_frozen_caster(2);
 }
 #[test]
 fn m4c_paid_five_mana_nonqualifier_and_apex_native_four_plus_grant_are_independent() {
@@ -265,26 +280,43 @@ fn m4c_paid_five_mana_nonqualifier_and_apex_native_four_plus_grant_are_independe
     assert_eq!(intrinsic, BTreeSet::from([0, 1, 2, 3]));
     public_proof(&g);
 }
+fn m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade(case: usize) {
+    let (minimum, count, expected) = [(0, 2, 2), (6, 2, 2), (11, 2, 0), (2, 17, 17)]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let mut p = root("Apex Devastator", &["Forest"], true);
+    synthetic_grants(&mut p, minimum.into(), count, false);
+    let bound = p.catalog.cast_trigger_fanout_bound(400).unwrap();
+    assert!(bound >= 400 * count);
+    let mut g = Game::new(p);
+    let original = paid(&mut g, "Apex Devastator");
+    assert_eq!(grants(&g, original).len(), expected);
+    let keys: BTreeSet<_> = grants(&g, original)
+        .iter()
+        .map(|s| match s.kind {
+            StackKind::Triggered { ability, .. } => ability,
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(keys.len(), expected);
+    public_proof(&g);
+}
 #[test]
-fn m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade() {
-    for (minimum, count, expected) in [(0, 2, 2), (6, 2, 2), (11, 2, 0), (2, 17, 17)] {
-        let mut p = root("Apex Devastator", &["Forest"], true);
-        synthetic_grants(&mut p, minimum.into(), count, false);
-        let bound = p.catalog.cast_trigger_fanout_bound(400).unwrap();
-        assert!(bound >= 400 * count);
-        let mut g = Game::new(p);
-        let original = paid(&mut g, "Apex Devastator");
-        assert_eq!(grants(&g, original).len(), expected);
-        let keys: BTreeSet<_> = grants(&g, original)
-            .iter()
-            .map(|s| match s.kind {
-                StackKind::Triggered { ability, .. } => ability,
-                _ => unreachable!(),
-            })
-            .collect();
-        assert_eq!(keys.len(), expected);
-        public_proof(&g);
-    }
+fn m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade_case0() {
+    m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade(0);
+}
+#[test]
+fn m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade_case1() {
+    m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade(1);
+}
+#[test]
+fn m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade_case2() {
+    m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade(2);
+}
+#[test]
+fn m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade_case3() {
+    m4c_synthetic_static_vectors_thresholds_and_grantor_without_intrinsic_cascade(3);
 }
 #[test]
 fn m4c_normalized_grant_keys_omissions_duplicates_swaps_and_controller_forgeries_require_replay() {
@@ -414,40 +446,46 @@ fn m4c_normalized_grant_keys_omissions_duplicates_swaps_and_controller_forgeries
         );
     }
 }
-#[test]
-fn m4c_granted_and_original_countered_independently_and_threshold_comes_from_original() {
-    for counter_original in [false, true] {
-        let mut g = Game::new(root("Apex Devastator", &["Grizzly Bears"], true));
-        let original = paid(&mut g, "Apex Devastator");
-        let granted = grants(&g, original)[0].id;
-        let before = g.state.rules.stack.len();
-        answer(&mut g, Response::Pass);
-        assert_eq!(request(&mut g).player(), PlayerId(1));
-        let counter = paid_by(
-            &mut g,
-            if counter_original {
-                "Counterspell"
-            } else {
-                "Stifle"
-            },
-            PlayerId(1),
-            Some(if counter_original { original } else { granted }),
-        );
-        m4a_tests::resolve_entry(&mut g, counter);
-        assert_eq!(g.state.rules.stack.len(), before - 1);
-        assert_eq!(
-            g.state.rules.stack.iter().any(|s| s.id == granted),
-            counter_original
-        );
+fn m4c_granted_and_original_countered_independently_and_threshold_comes_from_original(case: usize) {
+    let counter_original = [false, true].into_iter().nth(case).unwrap();
+    let mut g = Game::new(root("Apex Devastator", &["Grizzly Bears"], true));
+    let original = paid(&mut g, "Apex Devastator");
+    let granted = grants(&g, original)[0].id;
+    let before = g.state.rules.stack.len();
+    answer(&mut g, Response::Pass);
+    assert_eq!(request(&mut g).player(), PlayerId(1));
+    let counter = paid_by(
+        &mut g,
         if counter_original {
-            offer(&mut g);
-            let Frame::Cascade { progress } = &g.state.rules.frame else {
-                panic!()
-            };
-            assert_eq!(serde_json::to_value(progress).unwrap()["threshold"], "10");
-        }
-        public_proof(&g);
+            "Counterspell"
+        } else {
+            "Stifle"
+        },
+        PlayerId(1),
+        Some(if counter_original { original } else { granted }),
+    );
+    m4a_tests::resolve_entry(&mut g, counter);
+    assert_eq!(g.state.rules.stack.len(), before - 1);
+    assert_eq!(
+        g.state.rules.stack.iter().any(|s| s.id == granted),
+        counter_original
+    );
+    if counter_original {
+        offer(&mut g);
+        let Frame::Cascade { progress } = &g.state.rules.frame else {
+            panic!()
+        };
+        assert_eq!(serde_json::to_value(progress).unwrap()["threshold"], "10");
     }
+    public_proof(&g);
+}
+#[test]
+fn m4c_granted_and_original_countered_independently_and_threshold_comes_from_original_false() {
+    m4c_granted_and_original_countered_independently_and_threshold_comes_from_original(0);
+}
+#[test]
+fn m4c_granted_and_original_countered_independently_and_threshold_comes_from_original_true() {
+    m4c_granted_and_original_countered_independently_and_threshold_comes_from_original(1);
 }
 
 #[test]
@@ -560,51 +598,57 @@ fn m4c_direct_collector_history_failure_publishes_no_handles_ids_or_pending_payl
     assert_eq!(g.state, state);
     assert_eq!(g.trace, trace);
 }
-#[test]
-fn m4c_lower_threshold_synthetic_descriptor_child_additional_costs_keep_exact_parent() {
+fn m4c_lower_threshold_synthetic_descriptor_child_additional_costs_keep_exact_parent(case: usize) {
     // Blow is MV3: this is explicitly a lower-threshold descriptor control,
     // never an Imoti-Min6 positive. Child selected kicker remains genuine M3.
-    for kick in [false, true] {
-        let mut p = root("Apex Devastator", &["Dismantling Blow"], true);
-        synthetic_grants(&mut p, 0.into(), 1, false);
-        replace(&mut p, PlayerId(0), "Arcane Signet", Zone::Battlefield);
-        p.profile_digest = digest(&p.config).unwrap();
-        let mut g = Game::new(p);
-        let original = paid(&mut g, "Apex Devastator");
-        let granted = grants(&g, original)[0].id;
-        // Put this granted sibling on top through the real ordering choice in
-        // an independent pending-boundary test below; here canonical native
-        // siblings use the same owned child machinery and all remain distinct.
-        offer(&mut g);
-        let Frame::Cascade { progress } = &g.state.rules.frame else {
-            panic!()
-        };
-        let owner = progress.frame.stack_id;
-        assert!(owner == granted || g.state.rules.stack.iter().any(|s| s.id == granted));
-        answer(&mut g, Response::OptionalEffect { perform: true });
-        assert!(matches!(request(&mut g), Request::AdditionalCosts { .. }));
-        public_proof(&g);
-        m3c_tests::finish_announcement(&mut g, kick, None, None);
-        assert!(!g.state.rules.stack.iter().any(|s| s.id == owner));
-        let child = g
-            .state
-            .rules
-            .stack
-            .iter()
-            .rev()
-            .find(|s| s.kind.is_spell())
-            .unwrap();
-        assert_eq!(
-            g.definition(child.source.card).unwrap().name,
-            "Dismantling Blow"
-        );
-        assert_eq!(grants(&g, child.id).len(), 1); // Free mana cost is still MV3 >= synthetic zero.
-        assert_eq!(
-            child.selected_additional_costs.as_ref().unwrap().len(),
-            usize::from(kick)
-        );
-        public_proof(&g);
-    }
+    let kick = [false, true].into_iter().nth(case).unwrap();
+    let mut p = root("Apex Devastator", &["Dismantling Blow"], true);
+    synthetic_grants(&mut p, 0.into(), 1, false);
+    replace(&mut p, PlayerId(0), "Arcane Signet", Zone::Battlefield);
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    let original = paid(&mut g, "Apex Devastator");
+    let granted = grants(&g, original)[0].id;
+    // Put this granted sibling on top through the real ordering choice in
+    // an independent pending-boundary test below; here canonical native
+    // siblings use the same owned child machinery and all remain distinct.
+    offer(&mut g);
+    let Frame::Cascade { progress } = &g.state.rules.frame else {
+        panic!()
+    };
+    let owner = progress.frame.stack_id;
+    assert!(owner == granted || g.state.rules.stack.iter().any(|s| s.id == granted));
+    answer(&mut g, Response::OptionalEffect { perform: true });
+    assert!(matches!(request(&mut g), Request::AdditionalCosts { .. }));
+    public_proof(&g);
+    m3c_tests::finish_announcement(&mut g, kick, None, None);
+    assert!(!g.state.rules.stack.iter().any(|s| s.id == owner));
+    let child = g
+        .state
+        .rules
+        .stack
+        .iter()
+        .rev()
+        .find(|s| s.kind.is_spell())
+        .unwrap();
+    assert_eq!(
+        g.definition(child.source.card).unwrap().name,
+        "Dismantling Blow"
+    );
+    assert_eq!(grants(&g, child.id).len(), 1); // Free mana cost is still MV3 >= synthetic zero.
+    assert_eq!(
+        child.selected_additional_costs.as_ref().unwrap().len(),
+        usize::from(kick)
+    );
+    public_proof(&g);
+}
+#[test]
+fn m4c_lower_threshold_synthetic_descriptor_child_additional_costs_keep_exact_parent_false() {
+    m4c_lower_threshold_synthetic_descriptor_child_additional_costs_keep_exact_parent(0);
+}
+#[test]
+fn m4c_lower_threshold_synthetic_descriptor_child_additional_costs_keep_exact_parent_true() {
+    m4c_lower_threshold_synthetic_descriptor_child_additional_costs_keep_exact_parent(1);
 }
 
 #[test]
@@ -834,176 +878,180 @@ fn m4c_complete_reduced_act_and_free_wanderer_preserve_original_mana_value() {
     public_proof(&g);
 }
 
-#[test]
-fn m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo() {
+fn m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo(case: usize) {
     // Imoti's actual minimum SIX applies to Apex, never to MV3 Blow. Blow's
     // selected kicker belongs to the free child of that granted invocation.
-    for undo in [false, true] {
-        let mut p = root("Apex Devastator", &["Dismantling Blow"], true);
-        for name in ["Bloodbraid Elf", "Shardless Agent", "Healing Salve"] {
-            replace(&mut p, PlayerId(0), name, Zone::Hand { owner: PlayerId(0) });
-        }
-        for name in std::iter::repeat_n("Forest", 12).chain(["Mountain", "Mountain"]) {
-            replace(&mut p, PlayerId(0), name, Zone::Battlefield);
-        }
-        for _ in 0..2 {
-            replace(&mut p, PlayerId(0), "Golgari Signet", Zone::Battlefield);
-        }
-        replace(&mut p, PlayerId(0), "Arcane Signet", Zone::Battlefield);
-        p.profile_digest = digest(&p.config).unwrap();
-        let mut g = Game::new(p);
-        paid(&mut g, "Ramos, Dragon Engine");
-        settle(&mut g);
-        paid(&mut g, "Bloodbraid Elf");
-        settle(&mut g);
-        paid(&mut g, "Shardless Agent");
-        settle(&mut g);
-        let salve = g
-            .state
-            .rules
-            .objects
-            .values()
-            .find(|o| g.definition(o.id.card).unwrap().name == "Healing Salve")
+    let undo = [false, true].into_iter().nth(case).unwrap();
+    let mut p = root("Apex Devastator", &["Dismantling Blow"], true);
+    for name in ["Bloodbraid Elf", "Shardless Agent", "Healing Salve"] {
+        replace(&mut p, PlayerId(0), name, Zone::Hand { owner: PlayerId(0) });
+    }
+    for name in std::iter::repeat_n("Forest", 12).chain(["Mountain", "Mountain"]) {
+        replace(&mut p, PlayerId(0), name, Zone::Battlefield);
+    }
+    for _ in 0..2 {
+        replace(&mut p, PlayerId(0), "Golgari Signet", Zone::Battlefield);
+    }
+    replace(&mut p, PlayerId(0), "Arcane Signet", Zone::Battlefield);
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut g = Game::new(p);
+    paid(&mut g, "Ramos, Dragon Engine");
+    settle(&mut g);
+    paid(&mut g, "Bloodbraid Elf");
+    settle(&mut g);
+    paid(&mut g, "Shardless Agent");
+    settle(&mut g);
+    let salve = g
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| g.definition(o.id.card).unwrap().name == "Healing Salve")
+        .unwrap()
+        .id;
+    answer(&mut g, Response::Cast { card: salve.card });
+    m3c_tests::finish_announcement(&mut g, false, None, None);
+    settle(&mut g);
+    let original = paid(&mut g, "Apex Devastator");
+    let granted = grants(&g, original)[0].id;
+    offer(&mut g);
+    let Frame::Cascade { progress } = &g.state.rules.frame else {
+        panic!()
+    };
+    assert_eq!(progress.frame.stack_id, granted);
+    let ramos = g
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| {
+            o.zone == Zone::Battlefield
+                && g.definition(o.id.card).unwrap().name == "Ramos, Dragon Engine"
+        })
+        .unwrap()
+        .id;
+    let counters = g.current(ramos).unwrap().plus_one_counters.clone();
+    assert!(counters >= 5.into());
+    let before = g.state.rules.frame.clone();
+    let resources = g.state.rules.players[0].mana.clone();
+    let casts = g
+        .events()
+        .iter()
+        .filter(|e| matches!(e, Event::SpellCast { .. }))
+        .count();
+    let target = g
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| {
+            o.zone == Zone::Battlefield && g.definition(o.id.card).unwrap().name == "Arcane Signet"
+        })
+        .unwrap()
+        .id;
+    answer(&mut g, Response::OptionalEffect { perform: true });
+    let Request::AdditionalCosts { candidates, .. } = request(&mut g) else {
+        panic!()
+    };
+    answer(
+        &mut g,
+        Response::AdditionalCosts {
+            selected: vec![candidates[0].identity.clone()],
+        },
+    );
+    answer(
+        &mut g,
+        Response::Targets {
+            objects: vec![target],
+        },
+    );
+    assert!(matches!(request(&mut g), Request::Mana { .. }));
+    let signets: Vec<_> = g
+        .state
+        .rules
+        .objects
+        .values()
+        .filter(|o| {
+            o.zone == Zone::Battlefield && g.definition(o.id.card).unwrap().name == "Golgari Signet"
+        })
+        .map(|o| o.id)
+        .collect();
+    answer(&mut g, Response::ActivateMana { object: signets[0] });
+    answer(&mut g, Response::ActivateMana { object: ramos });
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::U, 1.into())]),
+        },
+    );
+    answer(&mut g, Response::ActivateMana { object: signets[1] });
+    answer(&mut g, Response::FinishMana { undo_mana: false });
+    answer(
+        &mut g,
+        Response::SpendMana {
+            spending: BTreeMap::from([(Color::U, 1.into())]),
+        },
+    );
+    assert!(matches!(request(&mut g), Request::Mana { .. }));
+    assert!(
+        !g.can_pay(PlayerId(0), &g.top().unwrap().total_cost)
             .unwrap()
-            .id;
-        answer(&mut g, Response::Cast { card: salve.card });
-        m3c_tests::finish_announcement(&mut g, false, None, None);
-        settle(&mut g);
-        let original = paid(&mut g, "Apex Devastator");
-        let granted = grants(&g, original)[0].id;
-        offer(&mut g);
-        let Frame::Cascade { progress } = &g.state.rules.frame else {
-            panic!()
-        };
-        assert_eq!(progress.frame.stack_id, granted);
-        let ramos = g
-            .state
-            .rules
-            .objects
-            .values()
-            .find(|o| {
-                o.zone == Zone::Battlefield
-                    && g.definition(o.id.card).unwrap().name == "Ramos, Dragon Engine"
-            })
-            .unwrap()
-            .id;
-        let counters = g.current(ramos).unwrap().plus_one_counters.clone();
-        assert!(counters >= 5.into());
-        let before = g.state.rules.frame.clone();
-        let resources = g.state.rules.players[0].mana.clone();
-        let casts = g
-            .events()
+    );
+    public_proof(&g);
+    answer(&mut g, Response::FinishMana { undo_mana: undo });
+    assert!(matches!(request(&mut g), Request::OptionalEffect { .. }));
+    assert_eq!(g.state.rules.frame, before);
+    assert_eq!(
+        g.events()
             .iter()
             .filter(|e| matches!(e, Event::SpellCast { .. }))
-            .count();
-        let target = g
-            .state
-            .rules
-            .objects
-            .values()
-            .find(|o| {
-                o.zone == Zone::Battlefield
-                    && g.definition(o.id.card).unwrap().name == "Arcane Signet"
-            })
-            .unwrap()
-            .id;
-        answer(&mut g, Response::OptionalEffect { perform: true });
-        let Request::AdditionalCosts { candidates, .. } = request(&mut g) else {
-            panic!()
-        };
-        answer(
-            &mut g,
-            Response::AdditionalCosts {
-                selected: vec![candidates[0].identity.clone()],
-            },
-        );
-        answer(
-            &mut g,
-            Response::Targets {
-                objects: vec![target],
-            },
-        );
-        assert!(matches!(request(&mut g), Request::Mana { .. }));
-        let signets: Vec<_> = g
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| {
-                o.zone == Zone::Battlefield
-                    && g.definition(o.id.card).unwrap().name == "Golgari Signet"
-            })
-            .map(|o| o.id)
-            .collect();
-        answer(&mut g, Response::ActivateMana { object: signets[0] });
-        answer(&mut g, Response::ActivateMana { object: ramos });
-        answer(&mut g, Response::FinishMana { undo_mana: false });
-        answer(
-            &mut g,
-            Response::SpendMana {
-                spending: BTreeMap::from([(Color::U, 1.into())]),
-            },
-        );
-        answer(&mut g, Response::ActivateMana { object: signets[1] });
-        answer(&mut g, Response::FinishMana { undo_mana: false });
-        answer(
-            &mut g,
-            Response::SpendMana {
-                spending: BTreeMap::from([(Color::U, 1.into())]),
-            },
-        );
-        assert!(matches!(request(&mut g), Request::Mana { .. }));
-        assert!(
-            !g.can_pay(PlayerId(0), &g.top().unwrap().total_cost)
-                .unwrap()
-        );
-        public_proof(&g);
-        answer(&mut g, Response::FinishMana { undo_mana: undo });
-        assert!(matches!(request(&mut g), Request::OptionalEffect { .. }));
-        assert_eq!(g.state.rules.frame, before);
-        assert_eq!(
-            g.events()
-                .iter()
-                .filter(|e| matches!(e, Event::SpellCast { .. }))
-                .count(),
-            casts
-        );
-        let mut remaining = counters.clone();
-        if !undo {
-            remaining.subtract(&5.into());
-        }
-        assert_eq!(g.current(ramos).unwrap().plus_one_counters, remaining);
-        assert_eq!(g.mana_ability_used(ramos), !undo);
-        if undo {
-            assert_eq!(g.state.rules.players[0].mana, resources);
-        }
-        assert!(
-            signets
-                .iter()
-                .all(|s| g.current(*s).unwrap().tapped == !undo)
-        );
-        public_proof(&g);
-        answer(&mut g, Response::OptionalEffect { perform: true });
-        m3c_tests::finish_announcement(&mut g, false, Some(target), None);
-        let child = g
-            .state
-            .rules
-            .stack
-            .iter()
-            .rev()
-            .find(|s| s.kind.is_spell())
-            .unwrap();
-        assert!(grants(&g, child.id).is_empty()); // Actual Imoti minimum excludes MV3.
-        assert_eq!(
-            g.events()
-                .iter()
-                .filter(|e| matches!(e, Event::SpellCast { .. }))
-                .count(),
-            casts + 1
-        );
-        assert!(!g.state.rules.stack.iter().any(|s| s.id == granted));
-        public_proof(&g);
+            .count(),
+        casts
+    );
+    let mut remaining = counters.clone();
+    if !undo {
+        remaining.subtract(&5.into());
     }
+    assert_eq!(g.current(ramos).unwrap().plus_one_counters, remaining);
+    assert_eq!(g.mana_ability_used(ramos), !undo);
+    if undo {
+        assert_eq!(g.state.rules.players[0].mana, resources);
+    }
+    assert!(
+        signets
+            .iter()
+            .all(|s| g.current(*s).unwrap().tapped == !undo)
+    );
+    public_proof(&g);
+    answer(&mut g, Response::OptionalEffect { perform: true });
+    m3c_tests::finish_announcement(&mut g, false, Some(target), None);
+    let child = g
+        .state
+        .rules
+        .stack
+        .iter()
+        .rev()
+        .find(|s| s.kind.is_spell())
+        .unwrap();
+    assert!(grants(&g, child.id).is_empty()); // Actual Imoti minimum excludes MV3.
+    assert_eq!(
+        g.events()
+            .iter()
+            .filter(|e| matches!(e, Event::SpellCast { .. }))
+            .count(),
+        casts + 1
+    );
+    assert!(!g.state.rules.stack.iter().any(|s| s.id == granted));
+    public_proof(&g);
+}
+#[test]
+fn m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo_false() {
+    m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo(0);
+}
+#[test]
+fn m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo_true() {
+    m4c_genuine_granted_parent_child_kicker_nested_mana_failure_keep_and_undo(1);
 }
 
 pub(super) fn set_post_paid_history_fault(g: &mut Game) {

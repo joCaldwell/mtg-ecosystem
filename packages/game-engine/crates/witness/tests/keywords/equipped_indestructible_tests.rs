@@ -469,7 +469,7 @@ fn paid_phyrexian_symbol_debits_life_on_cast() {
 #[test]
 fn paid_phyrexian_creature_retains_intrinsic_keywords() {
     let mut p = prepared(&[("Darksteel Plate", true), ("Forest", false)], false);
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         mtg_compiler::fixtures::MANIFEST,
         include_str!("../../../../tests/fixtures/phyrexian-keywords-vault-skirge.json"),
     );
@@ -528,7 +528,7 @@ fn hybrid_payment_witness(raw: &str, grants: bool) {
         ],
         false,
     );
-    let result = mtg_compiler::compile(mtg_compiler::fixtures::MANIFEST, raw);
+    let result = mtg_witness::compile(mtg_compiler::fixtures::MANIFEST, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")
     };
@@ -654,7 +654,7 @@ fn paid_omnath_first_main_looks_reveals_and_puts_titanic_ultimatum_in_hand() {
             include_str!("../../../../tests/fixtures/0cd28580-d718-4d0b-96e3-a836c2911c27.json"),
         ),
     ] {
-        let result = mtg_compiler::compile(manifest, raw);
+        let result = mtg_witness::compile(manifest, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("{result:?}")
         };

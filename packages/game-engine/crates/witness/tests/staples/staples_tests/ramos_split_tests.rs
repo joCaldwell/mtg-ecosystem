@@ -8,7 +8,7 @@ use super::*;
 // or call the new catalog admitted. Every subsequent change is an accepted input.
 fn ramos_split_prepared(raw: &str) -> Prepared {
     let mut p = search_prepared("Rampant Growth");
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     ) else {

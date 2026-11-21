@@ -27,8 +27,7 @@ fn prepared(hand: bool, target: &str, commander: bool) -> Prepared {
             ),
         ),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(header, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(header, raw)
         else {
             panic!("complete activated permanent-return source must lower");
         };

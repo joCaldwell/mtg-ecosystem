@@ -518,168 +518,181 @@ fn m3c_selected_zero_mana_declaration_retains_window_synthetic_quantity_control(
     assert!(matches!(request(&mut g),Request::Mana {cost,..} if cost==zero_mana_cost()));
     // Internal zero-quantity control; the exact archived {2}{U} witness is above.
 }
-#[test]
-fn m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays() {
-    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        for undo in [false, true] {
-            let mut p = source_prepared("Bloodbraid Elf", &["Dismantling Blow"]);
-            replace_spare(
-                &mut p,
-                PlayerId(0),
-                "Bloodbraid Elf",
-                Zone::Hand { owner: PlayerId(0) },
-            );
-            replace_spare(
-                &mut p,
-                PlayerId(0),
-                "Healing Salve",
-                Zone::Hand { owner: PlayerId(0) },
-            );
-            for _ in 0..2 {
-                replace_spare(&mut p, PlayerId(0), "Golgari Signet", Zone::Battlefield);
-            }
-            let mut g = Game::with_trace(finish_prepared(p), mode);
-            cast(
-                &mut g,
-                PlayerId(0),
-                "Ramos, Dragon Engine",
-                false,
-                None,
-                None,
-            );
-            resolve_to_empty(&mut g);
-            cast(&mut g, PlayerId(0), "Bloodbraid Elf", false, None, None);
-            to_offer(&mut g);
-            answer(&mut g, Response::OptionalEffect { perform: false });
-            resolve_to_empty(&mut g);
-            cast(&mut g, PlayerId(0), "Healing Salve", false, None, None);
-            resolve_to_empty(&mut g);
-            cast(&mut g, PlayerId(0), "Bloodbraid Elf", false, None, None);
-            to_offer(&mut g);
-            let ramos = named(&g, "Ramos, Dragon Engine", PlayerId(0), Zone::Battlefield);
-            assert_eq!(g.current(ramos).unwrap().plus_one_counters, 5.into());
-            let before = g.state.rules.frame.clone();
-            let resources = g.state.rules.players[0].mana.clone();
-            let occurrence = g
-                .events()
+fn m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    for undo in [false, true] {
+        let mut p = source_prepared("Bloodbraid Elf", &["Dismantling Blow"]);
+        replace_spare(
+            &mut p,
+            PlayerId(0),
+            "Bloodbraid Elf",
+            Zone::Hand { owner: PlayerId(0) },
+        );
+        replace_spare(
+            &mut p,
+            PlayerId(0),
+            "Healing Salve",
+            Zone::Hand { owner: PlayerId(0) },
+        );
+        for _ in 0..2 {
+            replace_spare(&mut p, PlayerId(0), "Golgari Signet", Zone::Battlefield);
+        }
+        let mut g = Game::with_trace(finish_prepared(p), mode);
+        cast(
+            &mut g,
+            PlayerId(0),
+            "Ramos, Dragon Engine",
+            false,
+            None,
+            None,
+        );
+        resolve_to_empty(&mut g);
+        cast(&mut g, PlayerId(0), "Bloodbraid Elf", false, None, None);
+        to_offer(&mut g);
+        answer(&mut g, Response::OptionalEffect { perform: false });
+        resolve_to_empty(&mut g);
+        cast(&mut g, PlayerId(0), "Healing Salve", false, None, None);
+        resolve_to_empty(&mut g);
+        cast(&mut g, PlayerId(0), "Bloodbraid Elf", false, None, None);
+        to_offer(&mut g);
+        let ramos = named(&g, "Ramos, Dragon Engine", PlayerId(0), Zone::Battlefield);
+        assert_eq!(g.current(ramos).unwrap().plus_one_counters, 5.into());
+        let before = g.state.rules.frame.clone();
+        let resources = g.state.rules.players[0].mana.clone();
+        let occurrence = g
+            .events()
+            .iter()
+            .filter(|e| matches!(e, Event::SpellCast { .. }))
+            .count(); // no failed proposal is a cast occurrence
+        let target = named(&g, "Arcane Signet", PlayerId(0), Zone::Battlefield);
+        answer(&mut g, Response::OptionalEffect { perform: true });
+        let Request::AdditionalCosts { candidates, .. } = request(&mut g) else {
+            panic!()
+        };
+        let Some(PlayerRequest::AdditionalCosts {
+            candidates: old_public_costs,
+            ..
+        }) = observe(&g, PlayerId(0)).decision
+        else {
+            panic!()
+        };
+        answer(
+            &mut g,
+            Response::AdditionalCosts {
+                selected: vec![candidates[0].identity.clone()],
+            },
+        );
+        answer(
+            &mut g,
+            Response::Targets {
+                objects: vec![target],
+            },
+        );
+        assert!(matches!(request(&mut g), Request::Mana { .. }));
+        let signets = g
+            .state
+            .rules
+            .objects
+            .values()
+            .filter(|o| {
+                o.zone == Zone::Battlefield
+                    && g.definition(o.id.card).unwrap().name == "Golgari Signet"
+            })
+            .map(|o| o.id)
+            .collect::<Vec<_>>();
+        answer(&mut g, Response::ActivateMana { object: signets[0] });
+        answer(&mut g, Response::ActivateMana { object: ramos });
+        answer(&mut g, Response::FinishMana { undo_mana: false });
+        answer(
+            &mut g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::U, 1.into())]),
+            },
+        );
+        answer(&mut g, Response::ActivateMana { object: signets[1] });
+        answer(&mut g, Response::FinishMana { undo_mana: false });
+        answer(
+            &mut g,
+            Response::SpendMana {
+                spending: BTreeMap::from([(Color::U, 1.into())]),
+            },
+        );
+        assert!(matches!(request(&mut g), Request::Mana { .. }));
+        assert_eq!(g.mana(PlayerId(0), Color::U).unwrap_or_default(), 0.into());
+        assert!(
+            !g.can_pay(PlayerId(0), &g.top().unwrap().total_cost)
+                .unwrap()
+        );
+        prove(&g);
+        answer(&mut g, Response::FinishMana { undo_mana: undo });
+        assert!(matches!(request(&mut g), Request::OptionalEffect { .. }));
+        assert_eq!(g.state.rules.frame, before);
+        assert_eq!(
+            g.events()
                 .iter()
                 .filter(|e| matches!(e, Event::SpellCast { .. }))
-                .count(); // no failed proposal is a cast occurrence
-            let target = named(&g, "Arcane Signet", PlayerId(0), Zone::Battlefield);
-            answer(&mut g, Response::OptionalEffect { perform: true });
-            let Request::AdditionalCosts { candidates, .. } = request(&mut g) else {
-                panic!()
-            };
-            let Some(PlayerRequest::AdditionalCosts {
-                candidates: old_public_costs,
-                ..
-            }) = observe(&g, PlayerId(0)).decision
-            else {
-                panic!()
-            };
-            answer(
-                &mut g,
-                Response::AdditionalCosts {
-                    selected: vec![candidates[0].identity.clone()],
-                },
-            );
-            answer(
-                &mut g,
-                Response::Targets {
-                    objects: vec![target],
-                },
-            );
-            assert!(matches!(request(&mut g), Request::Mana { .. }));
-            let signets = g
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|o| {
-                    o.zone == Zone::Battlefield
-                        && g.definition(o.id.card).unwrap().name == "Golgari Signet"
-                })
-                .map(|o| o.id)
-                .collect::<Vec<_>>();
-            answer(&mut g, Response::ActivateMana { object: signets[0] });
-            answer(&mut g, Response::ActivateMana { object: ramos });
-            answer(&mut g, Response::FinishMana { undo_mana: false });
-            answer(
-                &mut g,
-                Response::SpendMana {
-                    spending: BTreeMap::from([(Color::U, 1.into())]),
-                },
-            );
-            answer(&mut g, Response::ActivateMana { object: signets[1] });
-            answer(&mut g, Response::FinishMana { undo_mana: false });
-            answer(
-                &mut g,
-                Response::SpendMana {
-                    spending: BTreeMap::from([(Color::U, 1.into())]),
-                },
-            );
-            assert!(matches!(request(&mut g), Request::Mana { .. }));
-            assert_eq!(g.mana(PlayerId(0), Color::U).unwrap_or_default(), 0.into());
-            assert!(
-                !g.can_pay(PlayerId(0), &g.top().unwrap().total_cost)
-                    .unwrap()
-            );
-            prove(&g);
-            answer(&mut g, Response::FinishMana { undo_mana: undo });
-            assert!(matches!(request(&mut g), Request::OptionalEffect { .. }));
-            assert_eq!(g.state.rules.frame, before);
-            assert_eq!(
-                g.events()
-                    .iter()
-                    .filter(|e| matches!(e, Event::SpellCast { .. }))
-                    .count(),
-                occurrence
-            );
-            assert!(g.state.rules.pending_triggers.is_empty());
-            assert_eq!(
-                g.current(ramos).unwrap().plus_one_counters,
-                if undo { 5.into() } else { 0.into() }
-            );
-            assert_eq!(g.mana_ability_used(ramos), !undo);
-            assert!(
-                signets
-                    .iter()
-                    .all(|s| g.current(*s).unwrap().tapped == !undo)
-            );
-            if undo {
-                assert_eq!(g.state.rules.players[0].mana, resources);
-            }
-            prove(&g);
-            answer(&mut g, Response::OptionalEffect { perform: true });
-            request(&mut g);
-            let Some(PlayerRequest::AdditionalCosts {
-                token,
-                candidates: new_public_costs,
-                ..
-            }) = observe(&g, PlayerId(0)).decision
-            else {
-                panic!()
-            };
-            assert_ne!(old_public_costs[0].id, new_public_costs[0].id);
-            assert!(matches!(
-                g.check_player_response(
-                    PlayerId(0),
-                    token,
-                    PlayerResponse::AdditionalCosts {
-                        selected: vec![old_public_costs[0].id.clone()]
-                    },
-                    Budget::unlimited()
-                ),
-                QueryResult::Rejected(_)
-            ));
-            finish_announcement(&mut g, false, Some(target), None);
-            assert!(g.state.rules.stack.iter().any(|s| s.kind.is_spell()
-                && g.definition(s.source.card).unwrap().name == "Dismantling Blow"
-                && s.selected_additional_costs == Some(vec![])
-                && s.paid == Some(zero_mana_cost())));
-            prove(&g);
+                .count(),
+            occurrence
+        );
+        assert!(g.state.rules.pending_triggers.is_empty());
+        assert_eq!(
+            g.current(ramos).unwrap().plus_one_counters,
+            if undo { 5.into() } else { 0.into() }
+        );
+        assert_eq!(g.mana_ability_used(ramos), !undo);
+        assert!(
+            signets
+                .iter()
+                .all(|s| g.current(*s).unwrap().tapped == !undo)
+        );
+        if undo {
+            assert_eq!(g.state.rules.players[0].mana, resources);
         }
+        prove(&g);
+        answer(&mut g, Response::OptionalEffect { perform: true });
+        request(&mut g);
+        let Some(PlayerRequest::AdditionalCosts {
+            token,
+            candidates: new_public_costs,
+            ..
+        }) = observe(&g, PlayerId(0)).decision
+        else {
+            panic!()
+        };
+        assert_ne!(old_public_costs[0].id, new_public_costs[0].id);
+        assert!(matches!(
+            g.check_player_response(
+                PlayerId(0),
+                token,
+                PlayerResponse::AdditionalCosts {
+                    selected: vec![old_public_costs[0].id.clone()]
+                },
+                Budget::unlimited()
+            ),
+            QueryResult::Rejected(_)
+        ));
+        finish_announcement(&mut g, false, Some(target), None);
+        assert!(g.state.rules.stack.iter().any(|s| s.kind.is_spell()
+            && g.definition(s.source.card).unwrap().name == "Dismantling Blow"
+            && s.selected_additional_costs == Some(vec![])
+            && s.paid == Some(zero_mana_cost())));
+        prove(&g);
     }
+}
+#[test]
+fn m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays_off() {
+    m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays(0);
+}
+#[test]
+fn m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays_compact() {
+    m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays(1);
+}
+#[test]
+fn m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays_detailed() {
+    m3c_genuine_selected_kicker_nested_signet_ramos_failure_keep_undo_replays(2);
 }
 fn advance_to_turn(g: &mut Game, player: PlayerId, minimum_turn: u64) {
     for _ in 0..300 {
@@ -708,177 +721,188 @@ fn advance_to_turn(g: &mut Game, player: PlayerId, minimum_turn: u64) {
     }
     panic!("natural turn advance");
 }
-#[test]
-fn m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow() {
-    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        for remove_aura in [false, true] {
-            let mut p = source_prepared("Kutzil, Malamet Exemplar", &["Forest", "Forest"]);
-            replace_spare(
-                &mut p,
+fn m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    for remove_aura in [false, true] {
+        let mut p = source_prepared("Kutzil, Malamet Exemplar", &["Forest", "Forest"]);
+        replace_spare(
+            &mut p,
+            PlayerId(0),
+            "Dismantling Blow",
+            Zone::Hand { owner: PlayerId(0) },
+        );
+        for name in [
+            "Island", "Island", "Island", "Island", "Forest", "Forest", "Forest", "Forest",
+            "Forest", "Forest", "Forest", "Forest",
+        ] {
+            replace_spare(&mut p, PlayerId(1), name, Zone::Battlefield);
+        }
+        replace_spare(
+            &mut p,
+            PlayerId(1),
+            "Control Magic",
+            Zone::Hand { owner: PlayerId(1) },
+        );
+        replace_spare(
+            &mut p,
+            PlayerId(1),
+            "Natural Reclamation",
+            Zone::Hand { owner: PlayerId(1) },
+        );
+        // B's real next-turn draw consumes one Forest. Cascade later scans
+        // the sole eligible Bear; at most one remainder
+        // remains. No arbitrary midgame random seed is introduced.
+        let bear = p
+            .catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap()
+            .oracle_id
+            .clone();
+        let third = p
+            .config
+            .cards
+            .iter_mut()
+            .filter(|c| c.owner == PlayerId(1) && c.zone == Zone::Library { owner: PlayerId(1) })
+            .nth(1)
+            .unwrap();
+        third.oracle_id = bear;
+        // Move A's unused physical spare basics into its library before play,
+        // preserving all 100 owners and avoiding an invented cleanup hand.
+        let forest = p
+            .catalog
+            .definitions
+            .iter()
+            .find(|d| d.name == "Forest")
+            .unwrap()
+            .oracle_id
+            .clone();
+        for c in &mut p.config.cards {
+            if c.owner == PlayerId(0)
+                && c.oracle_id == forest
+                && c.zone == (Zone::Hand { owner: PlayerId(0) })
+            {
+                c.zone = Zone::Library { owner: PlayerId(0) };
+            }
+        }
+        let mut g = Game::with_trace(finish_prepared(p), mode);
+        let _kutzil_cast = cast(
+            &mut g,
+            PlayerId(0),
+            "Kutzil, Malamet Exemplar",
+            false,
+            None,
+            None,
+        );
+        resolve_to_empty(&mut g);
+        let kutzil = named(
+            &g,
+            "Kutzil, Malamet Exemplar",
+            PlayerId(0),
+            Zone::Battlefield,
+        );
+        assert!(g.cast_is_prohibited(PlayerId(1)).unwrap());
+        let initial_turn = g.state.rules.turn.number;
+        advance_to_turn(&mut g, PlayerId(1), initial_turn + 1);
+        cast(
+            &mut g,
+            PlayerId(1),
+            "Control Magic",
+            false,
+            Some(kutzil),
+            None,
+        );
+        resolve_to_empty(&mut g);
+        assert_eq!(g.current(kutzil).unwrap().controller, PlayerId(1));
+        advance_to_turn(&mut g, PlayerId(0), initial_turn + 4);
+        assert!(!g.cast_is_prohibited(PlayerId(1)).unwrap());
+        let target = named(&g, "Arcane Signet", PlayerId(0), Zone::Battlefield);
+        let original = cast(
+            &mut g,
+            PlayerId(1),
+            "Natural Reclamation",
+            false,
+            Some(target),
+            None,
+        );
+        let cascade = g.top().unwrap().id;
+        assert!(matches!(g.top().unwrap().kind, StackKind::Triggered { .. }));
+        if remove_aura {
+            let aura = named(&g, "Control Magic", PlayerId(1), Zone::Battlefield);
+            let blow = cast(
+                &mut g,
                 PlayerId(0),
                 "Dismantling Blow",
-                Zone::Hand { owner: PlayerId(0) },
-            );
-            for name in [
-                "Island", "Island", "Island", "Island", "Forest", "Forest", "Forest", "Forest",
-                "Forest", "Forest", "Forest", "Forest",
-            ] {
-                replace_spare(&mut p, PlayerId(1), name, Zone::Battlefield);
-            }
-            replace_spare(
-                &mut p,
-                PlayerId(1),
-                "Control Magic",
-                Zone::Hand { owner: PlayerId(1) },
-            );
-            replace_spare(
-                &mut p,
-                PlayerId(1),
-                "Natural Reclamation",
-                Zone::Hand { owner: PlayerId(1) },
-            );
-            // B's real next-turn draw consumes one Forest. Cascade later scans
-            // the sole eligible Bear; at most one remainder
-            // remains. No arbitrary midgame random seed is introduced.
-            let bear = p
-                .catalog
-                .definitions
-                .iter()
-                .find(|d| d.name == "Grizzly Bears")
-                .unwrap()
-                .oracle_id
-                .clone();
-            let third = p
-                .config
-                .cards
-                .iter_mut()
-                .filter(|c| {
-                    c.owner == PlayerId(1) && c.zone == Zone::Library { owner: PlayerId(1) }
-                })
-                .nth(1)
-                .unwrap();
-            third.oracle_id = bear;
-            // Move A's unused physical spare basics into its library before play,
-            // preserving all 100 owners and avoiding an invented cleanup hand.
-            let forest = p
-                .catalog
-                .definitions
-                .iter()
-                .find(|d| d.name == "Forest")
-                .unwrap()
-                .oracle_id
-                .clone();
-            for c in &mut p.config.cards {
-                if c.owner == PlayerId(0)
-                    && c.oracle_id == forest
-                    && c.zone == (Zone::Hand { owner: PlayerId(0) })
-                {
-                    c.zone = Zone::Library { owner: PlayerId(0) };
-                }
-            }
-            let mut g = Game::with_trace(finish_prepared(p), mode);
-            let _kutzil_cast = cast(
-                &mut g,
-                PlayerId(0),
-                "Kutzil, Malamet Exemplar",
                 false,
-                None,
+                Some(aura),
                 None,
             );
-            resolve_to_empty(&mut g);
-            let kutzil = named(
-                &g,
-                "Kutzil, Malamet Exemplar",
-                PlayerId(0),
-                Zone::Battlefield,
-            );
+            for _ in 0..12 {
+                request(&mut g);
+                if !g.state.rules.stack.iter().any(|s| s.id == blow) {
+                    break;
+                }
+                answer(&mut g, Response::Pass);
+                prove(&g);
+            }
+            assert_eq!(g.current(kutzil).unwrap().controller, PlayerId(0));
             assert!(g.cast_is_prohibited(PlayerId(1)).unwrap());
-            let initial_turn = g.state.rules.turn.number;
-            advance_to_turn(&mut g, PlayerId(1), initial_turn + 1);
-            cast(
-                &mut g,
-                PlayerId(1),
-                "Control Magic",
-                false,
-                Some(kutzil),
-                None,
-            );
-            resolve_to_empty(&mut g);
-            assert_eq!(g.current(kutzil).unwrap().controller, PlayerId(1));
-            advance_to_turn(&mut g, PlayerId(0), initial_turn + 4);
-            assert!(!g.cast_is_prohibited(PlayerId(1)).unwrap());
-            let target = named(&g, "Arcane Signet", PlayerId(0), Zone::Battlefield);
-            let original = cast(
-                &mut g,
-                PlayerId(1),
-                "Natural Reclamation",
-                false,
-                Some(target),
-                None,
-            );
-            let cascade = g.top().unwrap().id;
-            assert!(matches!(g.top().unwrap().kind, StackKind::Triggered { .. }));
-            if remove_aura {
-                let aura = named(&g, "Control Magic", PlayerId(1), Zone::Battlefield);
-                let blow = cast(
-                    &mut g,
-                    PlayerId(0),
-                    "Dismantling Blow",
-                    false,
-                    Some(aura),
-                    None,
-                );
-                for _ in 0..12 {
-                    request(&mut g);
-                    if !g.state.rules.stack.iter().any(|s| s.id == blow) {
-                        break;
-                    }
-                    answer(&mut g, Response::Pass);
-                    prove(&g);
-                }
-                assert_eq!(g.current(kutzil).unwrap().controller, PlayerId(0));
-                assert!(g.cast_is_prohibited(PlayerId(1)).unwrap());
-                assert_eq!(
-                    g.state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|s| s.id == cascade)
-                        .unwrap()
-                        .controller,
-                    PlayerId(1)
-                );
-                assert_eq!(g.state.rules.cards[&kutzil.card].owner, PlayerId(0));
-                // The trigger runs and exiles the actual hit, but cannot offer an
-                // illegal child. The original remains cast and resolves normally.
-                resolve_to_empty(&mut g);
-                assert!(
-                    !g.state
-                        .rules
-                        .objects
-                        .values()
-                        .any(|o| o.zone == Zone::Battlefield
-                            && g.definition(o.id.card).unwrap().name == "Grizzly Bears")
-                );
-            } else {
-                to_offer(&mut g);
-                let r = request(&mut g);
-                assert_eq!(r.player(), PlayerId(1));
-                answer(&mut g, Response::OptionalEffect { perform: true });
-                finish_announcement(&mut g, false, None, None);
-                assert!(g.state.rules.stack.iter().any(|s| s.kind.is_spell()
-                    && s.controller == PlayerId(1)
-                    && g.definition(s.source.card).unwrap().name == "Grizzly Bears"));
-                resolve_to_empty(&mut g);
-            }
-            assert!(!g.state.rules.stack.iter().any(|s| s.id == original));
             assert_eq!(
-                g.zone(g.object_id(target.card).unwrap()),
-                Some(Zone::Graveyard { owner: PlayerId(0) })
+                g.state
+                    .rules
+                    .stack
+                    .iter()
+                    .find(|s| s.id == cascade)
+                    .unwrap()
+                    .controller,
+                PlayerId(1)
             );
-            prove(&g);
+            assert_eq!(g.state.rules.cards[&kutzil.card].owner, PlayerId(0));
+            // The trigger runs and exiles the actual hit, but cannot offer an
+            // illegal child. The original remains cast and resolves normally.
+            resolve_to_empty(&mut g);
+            assert!(
+                !g.state
+                    .rules
+                    .objects
+                    .values()
+                    .any(|o| o.zone == Zone::Battlefield
+                        && g.definition(o.id.card).unwrap().name == "Grizzly Bears")
+            );
+        } else {
+            to_offer(&mut g);
+            let r = request(&mut g);
+            assert_eq!(r.player(), PlayerId(1));
+            answer(&mut g, Response::OptionalEffect { perform: true });
+            finish_announcement(&mut g, false, None, None);
+            assert!(g.state.rules.stack.iter().any(|s| s.kind.is_spell()
+                && s.controller == PlayerId(1)
+                && g.definition(s.source.card).unwrap().name == "Grizzly Bears"));
+            resolve_to_empty(&mut g);
         }
+        assert!(!g.state.rules.stack.iter().any(|s| s.id == original));
+        assert_eq!(
+            g.zone(g.object_id(target.card).unwrap()),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        prove(&g);
     }
+}
+#[test]
+fn m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow_off() {
+    m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow(0);
+}
+#[test]
+fn m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow_compact() {
+    m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow(1);
+}
+#[test]
+fn m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow_detailed() {
+    m3c_paid_instant_cascade_prohibition_returns_current_controller_and_paired_allow(2);
 }
 #[test]
 fn m3c_selection_public_ids_work_budget_prefixes_stale_foreign_and_rehashed_forgery() {

@@ -1894,7 +1894,7 @@ fn legend_rule_uses_controller_choices_owner_graveyards_and_revalidates_departur
 #[test]
 fn conditional_equipped_legendary_hexproof_follows_the_current_attachment() {
     let mut catalog = catalog();
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/c01aafb8-3da5-4eb1-8731-2a223e747d63.json"),
     );
@@ -1942,7 +1942,7 @@ fn target_color_uses_effect_timestamps_and_expires_in_cleanup() {
         include_str!("../../../../tests/fixtures/8fc72080-8d4d-427d-ae30-065bc8ee9a28.json"),
         include_str!("../../../../tests/fixtures/synthetic-nonland-colors.json"),
     ] {
-        let result = mtg_compiler::compile(
+        let result = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         );

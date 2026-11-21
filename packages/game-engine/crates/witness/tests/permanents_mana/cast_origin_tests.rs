@@ -8,7 +8,7 @@ const DRAWN: CardId = CardId(6);
 const OTHER_LIBRARY: CardId = CardId(7);
 
 fn prepared() -> Prepared {
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/95e66851-7aff-4559-91b4-6b8a95c6e1f8.json"),
     );

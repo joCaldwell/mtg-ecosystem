@@ -22,7 +22,7 @@ fn bridge_definition() -> Definition {
     let frozen: serde_json::Value = serde_json::from_str(BRIDGE).unwrap();
     let rebound: serde_json::Value = serde_json::from_str(record).unwrap();
     assert_eq!(rebound["source"], frozen["source"]);
-    match mtg_compiler::compile(manifest, record) {
+    match mtg_witness::compile(manifest, record) {
         mtg_compiler::CompileResult::Lowered { definition } => *definition,
         failure => panic!("complete rebound Mosswort Bridge: {failure:?}"),
     }

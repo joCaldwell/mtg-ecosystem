@@ -16,7 +16,7 @@ fn discard_spell(catalog: &Catalog) -> Definition {
                     == "51eba19037e55f546977cc1760fd0a43e5854896f65b8fca909425945e11d2f4"
             })
             .expect("pinned complete Hymn to Tourach");
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
             hymn,
         ) else {

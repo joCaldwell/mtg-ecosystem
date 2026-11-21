@@ -1530,6 +1530,16 @@ impl ScenarioConfigTestkit for ScenarioConfig {
     }
 }
 
+/// Crate-private `SnapshotVerifier` methods that white-box test binaries call.
+pub trait SnapshotVerifierTestkit {
+    fn verify_game(&mut self, game: Game, digest: String) -> Result<Game, String>;
+}
+impl SnapshotVerifierTestkit for SnapshotVerifier {
+    fn verify_game(&mut self, game: Game, digest: String) -> Result<Game, String> {
+        SnapshotVerifier::verify_game(self, game, digest)
+    }
+}
+
 /// Crate-private `Work` methods that white-box test binaries call.
 pub trait WorkTestkit {
     fn belongs_to_viewer(&self, viewer: PlayerId) -> bool;

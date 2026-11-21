@@ -10,7 +10,7 @@ fn game() -> Game {
     )
     .unwrap();
     let catalog = Arc::make_mut(&mut p.catalog);
-    let mtg_compiler::CompileResult::Lowered { definition: grant } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition: grant } = mtg_witness::compile(
         mtg_compiler::fixtures::MANIFEST,
         include_str!("../../../../tests/fixtures/synthetic-controller-land-types.json"),
     ) else {
@@ -306,7 +306,7 @@ fn controlled_nonland_colors_follow_control_and_freeze_on_departure() {
     let g = game();
     let mut p = (*g.prepared).clone();
     let catalog = Arc::make_mut(&mut p.catalog);
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         mtg_compiler::fixtures::MANIFEST,
         include_str!("../../../../tests/fixtures/synthetic-nonland-colors.json"),
     ) else {

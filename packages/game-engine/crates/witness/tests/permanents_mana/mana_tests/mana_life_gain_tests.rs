@@ -10,7 +10,7 @@ fn fixture() -> Prepared {
     let raw =
         include_str!("../../../../../tests/fixtures/1b3d7fce-e9fe-4176-9d9a-472415826cdd.json");
     let manifest = include_str!("../../../../../tests/fixtures/archive-manifest-current.json");
-    let result = mtg_compiler::compile(manifest, raw);
+    let result = mtg_witness::compile(manifest, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")
     };
@@ -91,7 +91,7 @@ fn mana_life_gain_can_fund_phyrexian_life_after_announcement() {
     p.config.initial.life[0] = 1.into();
     let manifest = mtg_compiler::fixtures::MANIFEST;
     let raw = include_str!("../../../../../tests/fixtures/phyrexian-keywords-vault-skirge.json");
-    let result = mtg_compiler::compile(manifest, raw);
+    let result = mtg_witness::compile(manifest, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")
     };

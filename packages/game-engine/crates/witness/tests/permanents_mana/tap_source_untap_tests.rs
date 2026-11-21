@@ -27,8 +27,7 @@ fn prepared(hand: bool, target: &str) -> Prepared {
             ),
         ),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(header, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(header, raw)
         else {
             panic!("complete tap-source untap source must lower");
         };

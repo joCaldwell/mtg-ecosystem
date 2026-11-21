@@ -14,7 +14,7 @@ fn prepared() -> Prepared {
         "c5fbc3e89be7b8c69fa6b4e2a74deec2509b214a2484e1200f7ef86cf7f64ab2"
     );
     let mut lines = archive.lines();
-    let compiled = mtg_compiler::compile(lines.next().unwrap(), lines.next().unwrap());
+    let compiled = mtg_witness::compile(lines.next().unwrap(), lines.next().unwrap());
     assert!(lines.next().is_none());
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("complete Progenitus source must lower: {compiled:?}");

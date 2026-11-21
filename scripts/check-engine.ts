@@ -8,7 +8,7 @@ const { mode, planOnly, help } = parseCheckArguments(process.argv.slice(2));
 const plan = engineCheckPlans[mode];
 const { phases, needsCargo } = plan;
 if (help) {
-  console.log("Usage: npm run check:engine -- [--quick|--fast|--source|--tooling|--contracts|--full] [--plan]");
+  console.log("Usage: npm run check:engine -- [--quick|--fast|--core|--source|--tooling|--contracts|--full] [--plan]");
   console.log("Default: --quick. --plan prints commands and omissions without executing them.");
   for (const [name, value] of Object.entries(engineCheckPlans)) console.log(`${name}: ${value.coverage}\n  Omits: ${value.omitted}`);
   process.exit(0);

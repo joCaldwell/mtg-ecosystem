@@ -19,7 +19,7 @@ const TARGET: CardId = CardId(2);
 /// offered child is Bone Splinters and an opponent controls its target.
 fn scenario(owner: u8) -> (Game, CardId, CardId) {
     let mut p = prepared(false, false);
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/ac50ef98-1791-4dd4-9c1f-8cea7db7ade5.json"),
     ) else {

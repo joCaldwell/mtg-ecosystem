@@ -14,7 +14,7 @@ pub(super) fn protege_definition() -> Definition {
     );
     let mut lines = archive.lines();
     let mtg_compiler::CompileResult::Lowered { definition } =
-        mtg_compiler::compile(lines.next().unwrap(), lines.next().unwrap())
+        mtg_witness::compile(lines.next().unwrap(), lines.next().unwrap())
     else {
         panic!("complete frozen Protege must lower")
     };

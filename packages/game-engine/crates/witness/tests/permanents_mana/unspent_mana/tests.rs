@@ -84,7 +84,7 @@ fn restricted_mana_converts_colors_without_losing_spend_predicate() {
     let raw =
         include_str!("../../../../../tests/fixtures/215fd0b4-5817-4335-a0ed-1694e44bde41.json");
     let manifest = include_str!("../../../../../tests/fixtures/archive-manifest-current.json");
-    let result = mtg_compiler::compile(manifest, raw);
+    let result = mtg_witness::compile(manifest, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")
     };

@@ -29,7 +29,7 @@ fn prepared() -> Prepared {
             "../../../../../tests/fixtures/ramos/ca0cc02b-b106-4eca-9388-d4b48dd3be49.json"
         ),
     ] {
-        let result = mtg_compiler::compile(
+        let result = mtg_witness::compile(
             include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
             raw,
         );
@@ -907,7 +907,7 @@ fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
 #[test]
 fn proliferate_landfall_chooses_nontargeted_incarnations_and_places_simultaneously() {
     let mut p = prepared();
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../../tests/fixtures/b45fdeab-00cc-4422-af9f-66f30a880a7c.json"),
     );
@@ -915,7 +915,7 @@ fn proliferate_landfall_chooses_nontargeted_incarnations_and_places_simultaneous
         panic!("{result:?}");
     };
     let sage = definition.oracle_id.clone();
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../../tests/fixtures/synthetic-saga-life.json"),
     );
@@ -1022,7 +1022,7 @@ fn proliferate_landfall_chooses_nontargeted_incarnations_and_places_simultaneous
 #[test]
 fn proliferate_follows_the_modifier_before_state_based_actions() {
     let mut p = prepared();
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../../tests/fixtures/e4912bc3-bee9-4a2f-a13e-3a99018f8a65.json"),
     );

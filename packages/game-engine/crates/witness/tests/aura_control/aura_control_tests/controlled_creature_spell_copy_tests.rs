@@ -23,7 +23,7 @@ fn scenario() -> Prepared {
         sha256(row.as_bytes()),
         "2fb5407e0742bb508fc968c9254d3edbcb4e67e1ff773c43ad03a4acc339ce84"
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(manifest, row)
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(manifest, row)
     else {
         panic!("exact Double Major source must lower");
     };

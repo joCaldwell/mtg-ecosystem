@@ -32,7 +32,7 @@ const SOURCES: [(&str, &str, usize, usize, bool); 3] = [
     ),
 ];
 fn source(raw: &str, manifest: &str) -> Definition {
-    let result = mtg_compiler::compile(manifest, raw);
+    let result = mtg_witness::compile(manifest, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")
     };

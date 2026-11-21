@@ -785,7 +785,7 @@ fn printed_replacement_mill_reveals_shuffles_and_resumes_before_draw() {
         (printed.card, *header, *record),
     ];
     for (card, manifest, raw) in specifications {
-        let compiled = mtg_compiler::compile(manifest, raw);
+        let compiled = mtg_witness::compile(manifest, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
             panic!("complete source must lower: {compiled:?}");
         };

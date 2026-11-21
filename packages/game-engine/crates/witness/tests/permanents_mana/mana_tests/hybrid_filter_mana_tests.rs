@@ -14,7 +14,7 @@ fn filter_fixture(input: Color) -> Prepared {
     let raw =
         include_str!("../../../../../tests/fixtures/f1603384-4361-49c9-98aa-7785fc3504c4.json");
     let manifest = include_str!("../../../../../tests/fixtures/archive-manifest-current.json");
-    let result = mtg_compiler::compile(manifest, raw);
+    let result = mtg_witness::compile(manifest, raw);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}")
     };

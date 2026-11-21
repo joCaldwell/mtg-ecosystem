@@ -78,7 +78,7 @@ fn prepared(rows: &[(&str, u8, u8, bool)]) -> Prepared {
     let mut p = mtg_witness::equipped::prepared(&placeholders, false);
     let mut c = (*p.catalog).clone();
     for witness in SOURCES {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             witness.raw,
         ) else {

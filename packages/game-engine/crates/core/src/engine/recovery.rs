@@ -32,7 +32,7 @@ impl SnapshotVerifier {
             Game::read_snapshot_from_reader(self.replay.prepared.as_ref().clone(), source)?;
         self.verify_game(game, digest)
     }
-    pub(super) fn verify_game(&mut self, game: Game, digest: String) -> Result<Game, String> {
+    pub(crate) fn verify_game(&mut self, game: Game, digest: String) -> Result<Game, String> {
         if game.trace.mode != self.replay.trace.mode {
             return Err("snapshot sequence changes trace mode".into());
         }

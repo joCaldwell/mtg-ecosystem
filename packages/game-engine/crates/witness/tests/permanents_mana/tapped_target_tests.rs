@@ -13,7 +13,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         include_str!("../../../../tests/fixtures/5820d760-8ed7-4abf-a959-c06ed86a3730.json"),
         include_str!("../../../../tests/fixtures/ce979f36-84f2-4419-b400-971263494cc6.json"),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {

@@ -26,7 +26,7 @@ fn scenario() -> (Prepared, CardId) {
         sha256(row.as_bytes()),
         "e14b03d2b0721bcdde1a106d0b2966c0713bdf963e2b3d03d10d71c3d2533904"
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(manifest, row)
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(manifest, row)
     else {
         panic!("exact Yidris source must lower");
     };
@@ -74,7 +74,7 @@ fn scenario() -> (Prepared, CardId) {
             ),
         ),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
             row,
         ) else {

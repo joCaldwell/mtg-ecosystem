@@ -8,8 +8,9 @@ import sys
 import tomllib
 
 CRATES = 'packages/game-engine/crates'
-# Deliberate dependency review boundary for deterministic layers. Dev-only
-# compiler adapters in core are legitimate and explicitly separate below.
+# Deliberate dependency review boundary for deterministic layers, including
+# dev-dependencies: compiler-backed witnesses live in the dev-only mtg-witness
+# crate, so mtg-core test builds never compile or wait on mtg-compiler.
 ALLOWED = {
     'mtg-contracts': {'serde', 'serde_json', 'schemars', 'num-bigint', 'num-traits', 'sha2'},
     'mtg-compiler': {'mtg-contracts', 'serde', 'serde_json', 'sha2', 'regex', 'serde_path_to_error'},
@@ -27,8 +28,6 @@ def dependency_errors(root):
         for target, table in tables:
             for kind in ('dependencies', 'build-dependencies', 'dev-dependencies'):
                 permit = allowed | ({'sha2'} if kind == 'build-dependencies' else set())
-                if crate == 'mtg-core' and kind == 'dev-dependencies':
-                    permit |= {'mtg-compiler'}
                 for alias, value in table.get(kind, {}).items():
                     spec = value if isinstance(value, dict) else {}
                     base = workspace.get(alias, {}) if spec.get('workspace') else spec
@@ -44,6 +43,42 @@ def dependency_errors(root):
     return errors
 
 
+# Only these test crates may enable mtg-core's `testkit` harness feature or
+# depend on the dev-only witness crate.
+TESTKIT_CRATES = {'mtg-witness'}
+
+
+def testkit_errors(root):
+    """`testkit` exposes engine internals to external test binaries; production
+    crates and mtg-core defaults never enable it, and nothing depends on
+    mtg-witness. Build identity excludes testkit/witness sources on that basis."""
+    errors = []
+    members = tomllib.loads((root / 'Cargo.toml').read_text())['workspace']['members']
+    for member in members:
+        path = root / member / 'Cargo.toml'
+        manifest = tomllib.loads(path.read_text())
+        name = manifest['package']['name']
+        rel = path.relative_to(root)
+        if name == 'mtg-core' and 'testkit' in manifest.get('features', {}).get('default', []):
+            errors.append(f'{rel}: testkit must never be a default feature')
+        if name in TESTKIT_CRATES:
+            continue
+        for feature, enables in manifest.get('features', {}).items():
+            if any(e.split('/')[-1] == 'testkit' and e.split('/')[0].rstrip('?') in ('mtg-core', 'dep:mtg-core') for e in enables if '/' in e):
+                errors.append(f'{rel}: feature {feature} enables mtg-core/testkit; only {sorted(TESTKIT_CRATES)} may')
+        tables = [manifest, *manifest.get('target', {}).values()]
+        for table in tables:
+            for kind in ('dependencies', 'dev-dependencies', 'build-dependencies'):
+                for alias, value in table.get(kind, {}).items():
+                    spec = value if isinstance(value, dict) else {}
+                    package = spec.get('package', alias)
+                    if package == 'mtg-witness':
+                        errors.append(f'{rel}: {kind} depends on dev-only mtg-witness')
+                    if package == 'mtg-core' and 'testkit' in spec.get('features', []):
+                        errors.append(f'{rel}: {kind} enables mtg-core/testkit; only {sorted(TESTKIT_CRATES)} may')
+    return errors
+
+
 MOD_DECL = re.compile(r'^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;', re.M)
 PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"]+)"\]')
 
@@ -51,12 +86,13 @@ PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"]+)"\]')
 def test_only(name):
     """Mirror of `test_only_source` in contracts `build_input.rs`, per path component."""
     stem = name.removesuffix('.rs')
-    return stem == 'tests' or stem.endswith('_tests')
+    return stem == 'tests' or stem.endswith('_tests') or stem == 'testkit'
 
 
 def test_module_errors(root):
     """Engine build identity omits test-named sources (`build_input.rs`); every
-    such module must therefore be `#[cfg(test)]` or declared inside one."""
+    such module must therefore be `#[cfg(test)]` (a `testkit` module
+    `#[cfg(feature = "testkit")]`) or declared inside one."""
     errors = []
     for path in sorted((root / CRATES).rglob('*.rs')):
         rel = path.relative_to(root)
@@ -75,7 +111,11 @@ def test_module_errors(root):
                 found = PATH_ATTR.search(attribute)
                 if found:
                     target = found.group(1).split('/')[-1]
-            if test_only(target) and not any(re.search(r'cfg\((all\()?test\b', a) for a in attributes):
+            if target.removesuffix('.rs') == 'testkit':
+                if not any(re.fullmatch(r'#\[cfg\(feature\s*=\s*"testkit"\)\]', a) for a in attributes):
+                    line = text[:match.start()].count('\n') + 1
+                    errors.append(f'{rel}:{line}: testkit module must be #[cfg(feature = "testkit")]: engine build identity excludes it')
+            elif test_only(target) and not any(re.search(r'cfg\((all\()?test\b', a) for a in attributes):
                 line = text[:match.start()].count('\n') + 1
                 errors.append(f'{rel}:{line}: test-named module {target} must be #[cfg(test)]: engine build identity excludes test-only sources')
     return errors
@@ -128,11 +168,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
-    errors = dependency_errors(args.root) + test_module_errors(args.root) + artifact_errors(args.root)
+    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + artifact_errors(args.root)
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:
-        print('Engine structure: dependency boundaries, test-only modules and staged artifacts passed')
+        print('Engine structure: dependency boundaries, testkit confinement, test-only modules and staged artifacts passed')
     return bool(errors)
 
 

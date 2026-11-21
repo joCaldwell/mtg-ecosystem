@@ -839,7 +839,7 @@ fn nested_mana_request_names_its_mana_ability_source() {
 
 #[test]
 fn listed_mana_choice_offers_only_printed_colors_and_recovers() {
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         mtg_compiler::fixtures::MANIFEST,
         include_str!("../../../../tests/fixtures/4619de7e-3d6e-4c6b-8e6e-e24db324839d.json"),
     );

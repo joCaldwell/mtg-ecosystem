@@ -10,7 +10,7 @@ pub(super) fn prepared(empty: bool, commander: bool) -> Prepared {
         "../../../../tests/fixtures/expected-wipes-ir.json"
     ))
     .unwrap();
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
         include_str!(
             "../../../../tests/fixtures/cards-data-d2ce/bdcb7aed-3595-4c7e-b9da-543e92de919a.json"
@@ -476,7 +476,7 @@ fn combat_hand_cast_uses_trigger_controller_and_pays_the_child_additional_cost()
     let mut p = prepared(false, false);
     let raw =
         include_str!("../../../../tests/fixtures/ramos/ac50ef98-1791-4dd4-9c1f-8cea7db7ade5.json");
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         raw,
     ) else {
@@ -623,7 +623,7 @@ fn combat_hand_cast_uses_trigger_controller_and_pays_the_child_additional_cost()
 #[test]
 fn paid_saga_tracks_each_chapter_and_waits_for_the_final_stack_exit() {
     let mut p = prepared(false, false);
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/synthetic-saga-life.json"),
     ) else {
@@ -695,7 +695,7 @@ fn paid_saga_tracks_each_chapter_and_waits_for_the_final_stack_exit() {
 }
 
 fn add_thunder_of_unity(p: &mut Prepared) -> String {
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/8419d1d5-bb0e-4a2d-bb6f-67957d035dde.json"),
     );
@@ -886,7 +886,7 @@ fn copied_saga_delayed_effect_keeps_departed_source_identity() {
 
 #[test]
 fn paid_bestow_ordinary_attachment_detachment_and_illegal_target_fallback() {
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/695ee4fe-356d-47fb-9442-d171b618151c.json"),
     );
@@ -1007,7 +1007,7 @@ fn paid_bestow_ordinary_attachment_detachment_and_illegal_target_fallback() {
 #[test]
 fn paid_fixed_saga_chapters_create_select_and_sacrifice_after_resolution() {
     let mut p = prepared(false, false);
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
         include_str!("../../../../tests/fixtures/phase1-r3/origin-of-the-hulk.json"),
     );
@@ -1141,7 +1141,7 @@ fn paid_fixed_saga_chapters_create_select_and_sacrifice_after_resolution() {
 
 #[test]
 fn paid_four_chapter_saga_filters_removal_and_resolves_shared_mana_twice() {
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
         include_str!("../../../../tests/fixtures/phase1-r3/burn-burn-tree-and-fern.json"),
     );
@@ -1256,7 +1256,7 @@ fn paid_four_chapter_saga_filters_removal_and_resolves_shared_mana_twice() {
 
 #[test]
 fn paid_fixed_saga_showdown_delays_cast_triggers_past_final_sacrifice() {
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
         include_str!("../../../../tests/fixtures/phase1-r3/showdown-of-the-skalds.json"),
     );

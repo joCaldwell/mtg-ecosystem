@@ -28,7 +28,7 @@ fn fixture() -> Prepared {
     .into_iter()
     .enumerate()
     {
-        let result = mtg_compiler::compile(manifest, raw);
+        let result = mtg_witness::compile(manifest, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("{result:?}")
         };
@@ -122,7 +122,7 @@ fn restricted_mana_subtypes_pay_the_matching_spell_and_replay() {
         ("Sol Ring", 0, true),
         ("Golgari Signet", 0, false),
     ]);
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../../tests/fixtures/392f6cd3-3895-42b3-8bb9-6b0c6a689a29.json"),
     );
@@ -218,7 +218,7 @@ fn paid_restricted_land_selects_a_branch_and_unwinds_nested_payment() {
     .find(|d| d.name == "Viridian Zealot")
     .unwrap();
     p.config.cards[7].oracle_id.clone_from(&zealot.oracle_id);
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../../tests/fixtures/de75e5dd-8a52-406c-b55c-96d686885500.json"),
     );

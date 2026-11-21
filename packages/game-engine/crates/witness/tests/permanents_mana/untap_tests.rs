@@ -27,8 +27,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
             ),
         ),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(header, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(header, raw)
         else {
             panic!("complete archived untap witness source must lower");
         };

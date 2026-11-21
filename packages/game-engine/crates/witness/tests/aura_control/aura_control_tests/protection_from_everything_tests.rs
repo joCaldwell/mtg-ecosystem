@@ -20,7 +20,7 @@ fn printed_protection_from_everything_orders_colorless_combat_prevention() {
     let header = lines.next().unwrap();
     let record = lines.next().unwrap();
     assert!(lines.next().is_none());
-    let result = mtg_compiler::compile(header, record);
+    let result = mtg_witness::compile(header, record);
     let mtg_compiler::CompileResult::Lowered { definition } = result else {
         panic!("{result:?}");
     };

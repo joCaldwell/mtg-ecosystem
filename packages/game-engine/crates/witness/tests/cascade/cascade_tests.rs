@@ -9,7 +9,7 @@ const AGENT: &str =
 const ELF: &str =
     include_str!("../../../../tests/fixtures/ramos/3f0c9466-5ab9-4205-a84f-b4b27b5a678e.json");
 fn lowered(raw: &str) -> Definition {
-    match mtg_compiler::compile(MANIFEST, raw) {
+    match mtg_witness::compile(MANIFEST, raw) {
         mtg_compiler::CompileResult::Lowered { definition } => *definition,
         other => panic!("complete source: {other:?}"),
     }
@@ -50,7 +50,7 @@ fn prepared_with_records(original: &str, library: &[&str], extra: &[&str]) -> Pr
             c.definitions.push(d);
         }
     }
-    let mtg_compiler::CompileResult::Lowered { definition: kutzil } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition: kutzil } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
         include_str!(
             "../../../../tests/fixtures/cards-data-d2ce/3233af43-7826-4895-b67e-03c6102c2cd5.json"
@@ -60,7 +60,7 @@ fn prepared_with_records(original: &str, library: &[&str], extra: &[&str]) -> Pr
     };
     c.definitions.push(*kutzil);
     for raw in extra {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {
@@ -317,7 +317,7 @@ fn cast_mana_value_sweep_counts_paid_and_free_casts_at_resolution() {
             "2df6ba718258e19da7296786458c8f24f3bf56421272b6e15a63b4baea44a4ab",
         );
         let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(manifest, record)
+            mtg_witness::compile(manifest, record)
         else {
             panic!("the exact source must lower");
         };
@@ -699,214 +699,229 @@ fn finish_seeded_setup(mut p: Prepared, seed: u8) -> Prepared {
     p.profile_digest = digest(&(&p.config, &p.match_config)).unwrap();
     p
 }
-#[test]
-fn cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery() {
-    for trace_mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
-        let mut found = None;
-        for seed in 0..128 {
-            let mut g = Game::with_trace(seeded_prepared(seed), trace_mode);
-            for _ in 0..4 {
-                let r = request(&mut g);
-                assert!(matches!(r, Request::Mulligan { .. }));
-                g.respond(
-                    r.player(),
-                    r.decision_id(),
-                    Response::Mulligan { take: false },
-                )
-                .unwrap();
+fn cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery(
+    case: usize,
+) {
+    let trace_mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let mut found = None;
+    for seed in 0..128 {
+        let mut g = Game::with_trace(seeded_prepared(seed), trace_mode);
+        for _ in 0..4 {
+            let r = request(&mut g);
+            assert!(matches!(r, Request::Mulligan { .. }));
+            g.respond(
+                r.player(),
+                r.decision_id(),
+                Response::Mulligan { take: false },
+            )
+            .unwrap();
+        }
+        request(&mut g);
+        if g.state.rules.objects.values().any(|o| {
+            o.zone == (Zone::Hand { owner: PlayerId(0) })
+                && g.definition(o.id.card).unwrap().name == "Shardless Agent"
+        }) {
+            found = Some(g);
+            break;
+        }
+    }
+    let mut g = found.expect("paid seeded opening witness");
+    for _ in 0..1000 {
+        let r = request(&mut g);
+        if matches!(
+            r,
+            Request::Priority {
+                player: PlayerId(0),
+                ..
             }
-            request(&mut g);
-            if g.state.rules.objects.values().any(|o| {
-                o.zone == (Zone::Hand { owner: PlayerId(0) })
-                    && g.definition(o.id.card).unwrap().name == "Shardless Agent"
-            }) {
-                found = Some(g);
+        ) && g.active_player() == Some(PlayerId(0))
+            && matches!(
+                g.turn().step,
+                TurnStep::PrecombatMain | TurnStep::PostcombatMain
+            )
+        {
+            let lands = g
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(0))
+                .collect::<Vec<_>>();
+            if lands.len() >= 3
+                && lands
+                    .iter()
+                    .any(|o| g.mana_abilities(o.id).unwrap().contains(&Color::G))
+                && lands
+                    .iter()
+                    .any(|o| g.mana_abilities(o.id).unwrap().contains(&Color::U))
+            {
                 break;
             }
-        }
-        let mut g = found.expect("paid seeded opening witness");
-        for _ in 0..1000 {
-            let r = request(&mut g);
-            if matches!(
-                r,
-                Request::Priority {
-                    player: PlayerId(0),
-                    ..
-                }
-            ) && g.active_player() == Some(PlayerId(0))
-                && matches!(
-                    g.turn().step,
-                    TurnStep::PrecombatMain | TurnStep::PostcombatMain
-                )
-            {
-                let lands = g
+            if g.turn().lands_played == 0 {
+                let present = lands
+                    .iter()
+                    .flat_map(|o| g.mana_abilities(o.id).unwrap())
+                    .collect::<Vec<_>>();
+                let land = g
                     .state
                     .rules
                     .objects
                     .values()
-                    .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(0))
-                    .collect::<Vec<_>>();
-                if lands.len() >= 3
-                    && lands
-                        .iter()
-                        .any(|o| g.mana_abilities(o.id).unwrap().contains(&Color::G))
-                    && lands
-                        .iter()
-                        .any(|o| g.mana_abilities(o.id).unwrap().contains(&Color::U))
-                {
+                    .filter(|o| {
+                        o.zone == (Zone::Hand { owner: PlayerId(0) })
+                            && g.definition(o.id.card)
+                                .unwrap()
+                                .characteristics
+                                .has_type(CardKind::Land)
+                    })
+                    .min_by_key(|o| {
+                        usize::from(
+                            g.definition(o.id.card)
+                                .unwrap()
+                                .characteristics
+                                .subtypes
+                                .iter()
+                                .filter_map(|s| mtg_contracts::basic_land_color(s))
+                                .all(|c| present.contains(&c)),
+                        )
+                    })
+                    .unwrap()
+                    .id;
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::PlayLand { card: land.card },
+                )
+                .unwrap();
+                continue;
+            }
+        }
+        let response = match r.clone() {
+            Request::Priority { .. } => Response::Pass,
+            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+            Request::Discard {
+                count, candidates, ..
+            } => Response::Discard {
+                objects: candidates
+                    .into_iter()
+                    .filter(|o| g.definition(o.card).unwrap().name != "Shardless Agent")
+                    .take(count)
+                    .collect(),
+            },
+            other => panic!("seeded development {other:?}"),
+        };
+        g.respond(r.player(), r.decision_id(), response).unwrap();
+    }
+    paid(&mut g, "Shardless Agent");
+    prove(&g);
+    // Real scan may find the one supported hit or exhaust after drawing it.
+    let shuffles = g
+        .state
+        .rules
+        .match_state
+        .as_ref()
+        .unwrap()
+        .library_shuffles
+        .clone();
+    let mut prefix = None;
+    let mut randomized = false;
+    let mut budget_parallel: Option<Game> = None;
+    let mut privacy_checked = false;
+    let mut verifier = mtg_witness::OrderedVerifier::new(g.prepared.as_ref().clone(), trace_mode);
+    for _ in 0..1000 {
+        verifier.verify(g.snapshot().unwrap());
+        let stage = match &g.state.rules.frame {
+            Frame::Cascade { progress } => Some(progress.stage),
+            _ => None,
+        };
+        if stage == Some(cascade::CascadeStage::Randomize) {
+            randomized = true;
+            if budget_parallel.is_none() {
+                budget_parallel = Some(g.fork());
+            }
+            let before = g.state.clone();
+            let _ = g.advance(Budget::new(0));
+            assert_eq!(g.state, before);
+            prefix.get_or_insert(g.state.rules.libraries[&PlayerId(0)].clone());
+        }
+        if stage == Some(cascade::CascadeStage::Bottom) && !privacy_checked {
+            let mut forged = g.fork();
+            let mut value = serde_json::to_value(&forged.state.rules.frame).unwrap();
+            let permutation = value["progress"]["permutation"].as_array_mut().unwrap();
+            assert!(permutation.len() > 1);
+            permutation.reverse();
+            forged.state.rules.frame = serde_json::from_value(value).unwrap();
+            assert!(
+                Game::restore(
+                    forged.prepared.as_ref().clone(),
+                    &forged.snapshot().unwrap()
+                )
+                .is_err()
+            );
+            let mut genuine = g.fork();
+            for viewer in [PlayerId(0), PlayerId(1)] {
+                assert_eq!(
+                    observe_counted(&g, viewer),
+                    observe_counted(&forged, viewer)
+                );
+            }
+            genuine.advance(Budget::new(1));
+            forged.advance(Budget::new(1));
+            for viewer in [PlayerId(0), PlayerId(1)] {
+                assert_eq!(
+                    observe_counted(&genuine, viewer),
+                    observe_counted(&forged, viewer)
+                );
+            }
+            privacy_checked = true;
+        }
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => (),
+            Advance::AwaitingDecision(r) => {
+                if randomized && matches!(r, Request::Priority { .. }) {
                     break;
                 }
-                if g.turn().lands_played == 0 {
-                    let present = lands
-                        .iter()
-                        .flat_map(|o| g.mana_abilities(o.id).unwrap())
-                        .collect::<Vec<_>>();
-                    let land = g
-                        .state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| {
-                            o.zone == (Zone::Hand { owner: PlayerId(0) })
-                                && g.definition(o.id.card)
-                                    .unwrap()
-                                    .characteristics
-                                    .has_type(CardKind::Land)
-                        })
-                        .min_by_key(|o| {
-                            usize::from(
-                                g.definition(o.id.card)
-                                    .unwrap()
-                                    .characteristics
-                                    .subtypes
-                                    .iter()
-                                    .filter_map(|s| mtg_contracts::basic_land_color(s))
-                                    .all(|c| present.contains(&c)),
-                            )
-                        })
-                        .unwrap()
-                        .id;
-                    g.respond(
-                        r.player(),
-                        r.decision_id(),
-                        Response::PlayLand { card: land.card },
-                    )
-                    .unwrap();
-                    continue;
-                }
+                let response = match r.clone() {
+                    Request::Priority { .. } => Response::Pass,
+                    Request::OptionalEffect { .. } => Response::OptionalEffect { perform: false },
+                    other => panic!("seeded cascade {other:?}"),
+                };
+                g.respond(r.player(), r.decision_id(), response).unwrap();
             }
-            let response = match r.clone() {
-                Request::Priority { .. } => Response::Pass,
-                Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-                Request::Discard {
-                    count, candidates, ..
-                } => Response::Discard {
-                    objects: candidates
-                        .into_iter()
-                        .filter(|o| g.definition(o.card).unwrap().name != "Shardless Agent")
-                        .take(count)
-                        .collect(),
-                },
-                other => panic!("seeded development {other:?}"),
-            };
-            g.respond(r.player(), r.decision_id(), response).unwrap();
+            other => panic!("seeded cascade {other:?}"),
         }
-        paid(&mut g, "Shardless Agent");
-        prove(&g);
-        // Real scan may find the one supported hit or exhaust after drawing it.
-        let shuffles = g
-            .state
-            .rules
-            .match_state
-            .as_ref()
-            .unwrap()
-            .library_shuffles
-            .clone();
-        let mut prefix = None;
-        let mut randomized = false;
-        let mut budget_parallel: Option<Game> = None;
-        let mut privacy_checked = false;
-        let mut verifier = SnapshotVerifier::new(g.prepared.as_ref().clone(), trace_mode);
-        for _ in 0..1000 {
-            verifier.verify(&g.snapshot().unwrap()).unwrap();
-            let stage = match &g.state.rules.frame {
-                Frame::Cascade { progress } => Some(progress.stage),
-                _ => None,
-            };
-            if stage == Some(cascade::CascadeStage::Randomize) {
-                randomized = true;
-                if budget_parallel.is_none() {
-                    budget_parallel = Some(g.fork());
-                }
-                let before = g.state.clone();
-                let _ = g.advance(Budget::new(0));
-                assert_eq!(g.state, before);
-                prefix.get_or_insert(g.state.rules.libraries[&PlayerId(0)].clone());
-            }
-            if stage == Some(cascade::CascadeStage::Bottom) && !privacy_checked {
-                let mut forged = g.fork();
-                let mut value = serde_json::to_value(&forged.state.rules.frame).unwrap();
-                let permutation = value["progress"]["permutation"].as_array_mut().unwrap();
-                assert!(permutation.len() > 1);
-                permutation.reverse();
-                forged.state.rules.frame = serde_json::from_value(value).unwrap();
-                assert!(
-                    Game::restore(
-                        forged.prepared.as_ref().clone(),
-                        &forged.snapshot().unwrap()
-                    )
-                    .is_err()
-                );
-                let mut genuine = g.fork();
-                for viewer in [PlayerId(0), PlayerId(1)] {
-                    assert_eq!(
-                        observe_counted(&g, viewer),
-                        observe_counted(&forged, viewer)
-                    );
-                }
-                genuine.advance(Budget::new(1));
-                forged.advance(Budget::new(1));
-                for viewer in [PlayerId(0), PlayerId(1)] {
-                    assert_eq!(
-                        observe_counted(&genuine, viewer),
-                        observe_counted(&forged, viewer)
-                    );
-                }
-                privacy_checked = true;
-            }
-            match g.advance(Budget::new(1)) {
-                Advance::Suspended { .. } => (),
-                Advance::AwaitingDecision(r) => {
-                    if randomized && matches!(r, Request::Priority { .. }) {
-                        break;
-                    }
-                    let response = match r.clone() {
-                        Request::Priority { .. } => Response::Pass,
-                        Request::OptionalEffect { .. } => {
-                            Response::OptionalEffect { perform: false }
-                        }
-                        other => panic!("seeded cascade {other:?}"),
-                    };
-                    g.respond(r.player(), r.decision_id(), response).unwrap();
-                }
-                other => panic!("seeded cascade {other:?}"),
-            }
-        }
-        assert!(randomized && privacy_checked);
-        let mut parallel = budget_parallel.unwrap();
-        let r = parallel.advance(Budget::unlimited());
-        assert!(matches!(
-            r,
-            Advance::AwaitingDecision(Request::Priority { .. })
-        ));
-        assert_eq!(parallel.state, g.state);
-        assert!(g.state.rules.libraries[&PlayerId(0)].starts_with(prefix.as_ref().unwrap()));
-        assert_eq!(
-            g.state.rules.match_state.as_ref().unwrap().library_shuffles,
-            shuffles
-        );
-        prove(&g);
     }
+    verifier.finish();
+    assert!(randomized && privacy_checked);
+    let mut parallel = budget_parallel.unwrap();
+    let r = parallel.advance(Budget::unlimited());
+    assert!(matches!(
+        r,
+        Advance::AwaitingDecision(Request::Priority { .. })
+    ));
+    assert_eq!(parallel.state, g.state);
+    assert!(g.state.rules.libraries[&PlayerId(0)].starts_with(prefix.as_ref().unwrap()));
+    assert_eq!(
+        g.state.rules.match_state.as_ref().unwrap().library_shuffles,
+        shuffles
+    );
+    prove(&g);
+}
+#[test]
+fn cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery_off() {
+    cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery(0);
+}
+#[test]
+fn cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery_compact() {
+    cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery(1);
+}
+#[test]
+fn cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery_detailed()
+{
+    cascade_real_seeded_setup_private_random_bottom_preserves_prefix_history_and_recovery(2);
 }
 #[test]
 fn cascade_strict_equal_above_skips_and_uncastable_first_hit_stops_scan() {
@@ -1785,7 +1800,7 @@ fn cascade_land_entry_paid_averna_before_hit_or_bottom() {
         mtg_contracts::sha256(row.as_bytes()),
         "5472a36613d5d9a84db4d240c6e244a1da42ec3c5a0daa2f30613326c059ae46"
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(manifest, row)
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(manifest, row)
     else {
         panic!("complete Averna source must lower");
     };

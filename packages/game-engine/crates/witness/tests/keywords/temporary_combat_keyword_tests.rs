@@ -76,7 +76,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
     for raw in SOURCES.iter().map(|s| s.raw).chain([include_str!(
         "../../../../tests/fixtures/f5f4dd28-f4ae-4d39-b9b8-6ebfd63c93fe.json"
     )]) {
-        let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_witness::compile(
             include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {

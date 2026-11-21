@@ -23,7 +23,7 @@ fn scenario(hit: bool) -> Prepared {
         mtg_contracts::sha256(row.as_bytes()),
         "e7f74eeafcd6a4ba0a23cdeb1f02cc3b6bbeb643b83bdef426f949904639f49b"
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(manifest, row)
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(manifest, row)
     else {
         panic!("complete Creative Technique must lower");
     };

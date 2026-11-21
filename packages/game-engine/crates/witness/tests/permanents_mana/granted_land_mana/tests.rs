@@ -8,7 +8,7 @@ fn granted_land_mana_pays_cast_and_rechecks_departed_grant() {
     let source = include_str!(
         "../../../../../tests/fixtures/ramos/539f5396-d99a-417d-a84c-dff7930b5900.json"
     );
-    let compiled = mtg_compiler::compile(manifest, source);
+    let compiled = mtg_witness::compile(manifest, source);
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");
     };

@@ -70,7 +70,8 @@ historical versions and the schema-1 reset proof.
 The engine build identity hashes production engine Rust sources/Cargo
 manifests (`mtg_contracts::engine_build_input`), root Cargo manifest/lock,
 toolchain and compiler/target/settings. Test-only sources (`tests/`,
-`examples/`, `benches/`, `tests.rs`, `*_tests.rs`, `*_tests/`), catalog/profile
+`examples/`, `benches/`, `tests.rs`, `*_tests.rs`, `*_tests/`, the `testkit`
+harness module and the dev-only `crates/witness` package), catalog/profile
 fixtures, generated output and server source are excluded; catalog/pod identity
 and `SERVER_BUILD_ID` bind those separately. Retained manifests still pin all
 source/data/server bytes. Data-only catalog additions do not invalidate
@@ -102,10 +103,12 @@ Snapshot/SavedWork shape fingerprints and names the constant to bump. Tests impo
 the constants; only deliberate historical forgeries keep literal versions.
 
 `python3 scripts/engine-structure-check.py` verifies declared direct dependency
-boundaries (including target/workspace/alias tables), that test-named modules are
-`#[cfg(test)]` (so excluding them from build identity is sound), and the Git index for known
-generated paths and recognizable ELF/Wasm/SQLite output. Core imports compiler
-only for development tests. It never alters the index; arbitrary renamed JSON or
+boundaries (including target/workspace/alias tables and dev-dependencies: core
+has no compiler edge at all), that test-named modules are `#[cfg(test)]` and
+`testkit` modules `#[cfg(feature = "testkit")]` with only test crates enabling
+that feature or depending on mtg-witness (so excluding them from build identity
+is sound), and the Git index for known
+generated paths and recognizable ELF/Wasm/SQLite output. It never alters the index; arbitrary renamed JSON or
 transitive feature behavior still requires review. Focused guards are
 `python3 scripts/test-engine-structure.py` and `python3 scripts/test-engine-cache.py`.
 
@@ -141,7 +144,7 @@ Adding a primitive touches the row that owns it, not every family:
 | Primitive | Files |
 | --- | --- |
 | Cost term, self event, keyword or step shape that lowers to existing IR | One `compose/*.rs` table row and its test; a frozen fixture when it opens a new runtime path |
-| Existing instruction, target route or cost in another kind of stack object | One `contracts/src/composition.rs` row, a core witness in `core/src/engine/composition_tests.rs`, and the core fix if recovery assumed a shape |
+| Existing instruction, target route or cost in another kind of stack object | One `contracts/src/composition.rs` row, a witness in `witness/tests/permanents_mana/composition_tests.rs`, and the core fix if recovery assumed a shape |
 | New instruction | The `Instruction` variant and its binding arm in `contracts/src/lib.rs`, its `composition.rs` row (the match is exhaustive), a `compose/steps.rs` row, the core executor and a witness |
 
 Capabilities, schema, labels and source blocks come from the shared assembly;

@@ -1077,54 +1077,60 @@ fn sacrifice_day_simultaneous_deaths_artist_zulaport_bastion_butcher_ordering() 
         },
     );
 }
-#[test]
-fn sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone() {
-    for stifle in [false, true] {
-        natural(
+fn sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone(case: usize) {
+    let stifle = [false, true].into_iter().nth(case).unwrap();
+    natural(
+        if stifle {
+            "elder-stifle"
+        } else {
+            "elder-search"
+        },
+        &[("Sakura-Tribe Elder", 1), ("Murder", 3), ("Stifle", 2)],
+        [0, 1, 2, 1],
+        |g| {
+            cast(g, "Sakura-Tribe Elder", 1, None, None);
+            let elder = named(g, "Sakura-Tribe Elder", 1);
+            let lands = g
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(1))
+                .count();
+            announce(g, "Murder", 3, obj(elder), None);
+            activate(g, "Sakura-Tribe Elder", 1, None, None);
             if stifle {
-                "elder-stifle"
-            } else {
-                "elder-search"
-            },
-            &[("Sakura-Tribe Elder", 1), ("Murder", 3), ("Stifle", 2)],
-            [0, 1, 2, 1],
-            |g| {
-                cast(g, "Sakura-Tribe Elder", 1, None, None);
-                let elder = named(g, "Sakura-Tribe Elder", 1);
-                let lands = g
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(1))
-                    .count();
-                announce(g, "Murder", 3, obj(elder), None);
-                activate(g, "Sakura-Tribe Elder", 1, None, None);
-                if stifle {
-                    announce(g, "Stifle", 2, None, None);
-                }
-                settle(g);
-                assert!(matches!(
-                    g.zone(named(g, "Sakura-Tribe Elder", 1)),
-                    Some(Zone::Graveyard { .. })
-                ));
-                let after = g
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(1))
-                    .count();
-                assert_eq!(after, lands - 1 + usize::from(!stifle));
-                if !stifle {
-                    assert_eq!(
-                        g.state.rules.match_state.as_ref().unwrap().library_shuffles[1],
-                        1
-                    );
-                }
-            },
-        );
-    }
+                announce(g, "Stifle", 2, None, None);
+            }
+            settle(g);
+            assert!(matches!(
+                g.zone(named(g, "Sakura-Tribe Elder", 1)),
+                Some(Zone::Graveyard { .. })
+            ));
+            let after = g
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Battlefield && o.controller == PlayerId(1))
+                .count();
+            assert_eq!(after, lands - 1 + usize::from(!stifle));
+            if !stifle {
+                assert_eq!(
+                    g.state.rules.match_state.as_ref().unwrap().library_shuffles[1],
+                    1
+                );
+            }
+        },
+    );
+}
+#[test]
+fn sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone_false() {
+    sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone(0);
+}
+#[test]
+fn sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone_true() {
+    sacrifice_elder_response_to_murder_search_and_stifle_keep_paid_source_gone(1);
 }
 #[test]
 fn sacrifice_mogg_arsonist_optional_and_siege_goblin_filter() {

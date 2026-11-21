@@ -13,7 +13,7 @@ fn prepared() -> Prepared {
         ],
         &[],
     );
-    let result = mtg_compiler::compile(
+    let result = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json"),
         include_str!(
             "../../../../tests/fixtures/phase1-r3/0f1afedd-c60f-454f-b84a-c8117aec0128.json"

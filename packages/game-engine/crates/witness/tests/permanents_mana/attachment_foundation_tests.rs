@@ -457,7 +457,7 @@ fn bestowed_host_departure_restores_same_chromanticore() {
         &[("Grizzly Bears", false), ("Grizzly Bears", false)],
         false,
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ramos/695ee4fe-356d-47fb-9442-d171b618151c.json"),
     ) else {

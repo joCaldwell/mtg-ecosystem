@@ -20,7 +20,7 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
         .collect();
     let mut p = mtg_witness::equipped::prepared(&placeholders, false);
     let mut c = (*p.catalog).clone();
-    let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition: d } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/ef29f979-1a6d-47bb-83f5-4679389471da.json"),
     ) else {

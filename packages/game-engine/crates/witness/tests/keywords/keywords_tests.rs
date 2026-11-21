@@ -315,7 +315,7 @@ fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
     let catalog = Arc::make_mut(&mut p.catalog);
     let mtg_compiler::CompileResult::Lowered {
         definition: attacker,
-    } = mtg_compiler::compile(
+    } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/basic-landwalk-zendikar-farguide.json"),
     )
@@ -405,7 +405,7 @@ fn basic_landwalk_checks_each_defenders_current_land_subtypes() {
     });
 
     let catalog = Arc::make_mut(&mut p.catalog);
-    let mtg_compiler::CompileResult::Lowered { definition: grant } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition: grant } = mtg_witness::compile(
         mtg_compiler::fixtures::MANIFEST,
         include_str!("../../../../tests/fixtures/synthetic-controller-land-types.json"),
     ) else {
@@ -472,7 +472,7 @@ fn source_combat_restrictions_use_current_flying_at_declaration() {
             None,
         ),
     ] {
-        let compiled = mtg_compiler::compile(manifest, row);
+        let compiled = mtg_witness::compile(manifest, row);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
             panic!("complete combat witness at card {index}: {compiled:?}");
         };
@@ -592,7 +592,7 @@ fn mana_self_keyword_grant_captures_only_the_present_source() {
         ],
         false,
     );
-    let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/activated-source-keyword-battlefly-swarm.json"),
     ) else {
@@ -713,7 +713,7 @@ fn printed_color_protection_orders_derived_color_prevention() {
             ),
         ),
     ] {
-        let compiled = mtg_compiler::compile(manifest, raw);
+        let compiled = mtg_witness::compile(manifest, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
             panic!("exact protection source: {compiled:?}");
         };
@@ -910,7 +910,7 @@ fn signed_self_attack_pump_resolves_on_the_declared_incarnation() {
         &[("Grizzly Bears", 0, false), ("Grizzly Bears", 0, false)],
         false,
     );
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/source-attack-pump-flowstone-charger.json"),
     );

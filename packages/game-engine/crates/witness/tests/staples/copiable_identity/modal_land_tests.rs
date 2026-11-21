@@ -7,7 +7,7 @@ fn modal_land_picks_the_face_before_entry_and_keeps_it_through_replay() {
         include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r3.json");
     const ROW: &str =
         include_str!("../../../../../tests/fixtures/phase1-r3/branchloft-pathway.json");
-    let compiled = mtg_compiler::compile(HEADER, ROW);
+    let compiled = mtg_witness::compile(HEADER, ROW);
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");
     };
@@ -116,7 +116,7 @@ fn modal_land_spell_front_cancels_then_plays_the_tapped_land_back() {
         include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r3.json");
     const ROW: &str =
         include_str!("../../../../../tests/fixtures/phase1-r3/bala-ged-recovery.json");
-    let compiled = mtg_compiler::compile(HEADER, ROW);
+    let compiled = mtg_witness::compile(HEADER, ROW);
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");
     };
@@ -208,7 +208,7 @@ fn transform_paid_original_incarnation_only_transforms_once() {
     const HEADER: &str =
         include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r3.json");
     const ROW: &str = include_str!("../../../../../tests/fixtures/phase1-r3/thraben-gargoyle.json");
-    let compiled = mtg_compiler::compile(HEADER, ROW);
+    let compiled = mtg_witness::compile(HEADER, ROW);
     let mtg_compiler::CompileResult::Lowered { definition } = compiled else {
         panic!("{compiled:?}");
     };

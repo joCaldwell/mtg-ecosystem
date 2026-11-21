@@ -1969,7 +1969,7 @@ fn wurm_simultaneous_death_looks_back() {
 
 #[test]
 fn paid_self_regeneration_replaces_destruction_and_offers_anger_order() {
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
         include_str!("../../../../tests/fixtures/8661d773-3b92-4fcf-8ffc-aced1ff7be8a.json"),
     );

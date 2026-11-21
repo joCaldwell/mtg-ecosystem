@@ -12,7 +12,7 @@ const RAMOS: &str =
     include_str!("../../../../../tests/fixtures/ramos/3ed41d2d-211b-4013-8562-8c64d54cc43a.json");
 
 fn lower(raw: &str) -> Definition {
-    match mtg_compiler::compile(MANIFEST, raw) {
+    match mtg_witness::compile(MANIFEST, raw) {
         mtg_compiler::CompileResult::Lowered { definition } => *definition,
         other => panic!("{other:?}"),
     }

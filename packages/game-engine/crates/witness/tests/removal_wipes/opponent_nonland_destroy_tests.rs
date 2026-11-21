@@ -4,7 +4,7 @@
 use super::*;
 
 fn compile(manifest: &str, source: &str) -> Definition {
-    match mtg_compiler::compile(manifest, source) {
+    match mtg_witness::compile(manifest, source) {
         mtg_compiler::CompileResult::Lowered { definition } => *definition,
         other => panic!("expected complete frozen source: {other:?}"),
     }

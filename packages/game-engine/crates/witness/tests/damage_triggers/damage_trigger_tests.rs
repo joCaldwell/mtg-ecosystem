@@ -24,7 +24,7 @@ fn catalog() -> Catalog {
     {
         let raw = std::fs::read_to_string(root.join(row["file"].as_str().unwrap())).unwrap();
         let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(&manifest, &raw)
+            mtg_witness::compile(&manifest, &raw)
         else {
             panic!("complete source {} did not lower", row["file"]);
         };
@@ -295,102 +295,128 @@ fn actual(g: &Game) -> ActualDamage {
     };
     *damage
 }
-#[test]
-fn d2ce_seven_complete_sources_ir_to_runtime_all_traces() {
-    for mode in modes() {
-        for source in [FOX, THIEF, SPY, STEALER, DRIDER, CAPTAIN, SHRINEKEEPER] {
-            let mut g = Game::with_trace(prepared(&[(source, 2, 0, Zone::Battlefield)]), mode);
-            let n = library(&g, 0);
-            declare(&mut g, &[(0, 1)]);
-            pending(&mut g);
-            assert_eq!(g.state.rules.pending_triggers.len(), 1);
-            if source == CAPTAIN {
-                assert_eq!(g.state.rules.turn.step, TurnStep::FirstStrikeDamage);
-            }
-            let d = actual(&g);
-            assert_eq!(d.source.object, object(&g, 0));
-            assert_eq!(d.source.owner, PlayerId(2));
-            assert_eq!(d.controller, PlayerId(0));
-            assert_eq!(
-                d.recipient,
-                DamageRecipient::Player {
-                    player: PlayerId(1)
-                }
-            );
-            assert_eq!(
-                Some(d.amount.clone()),
-                g.characteristics(object(&g, 0)).unwrap().power
-            );
-            recover(&g);
-            placed(&mut g);
-            recover(&g);
-            resolve(&mut g);
-            recover(&g);
-            assert_eq!(g.state.rules.next_trigger_id, 1);
-            if [DRIDER, CAPTAIN].contains(&source) {
-                assert_eq!(library(&g, 0), n);
-                assert_eq!(g.state.rules.tokens.len(), 1);
-                let token = g.state.rules.tokens.keys().next().unwrap();
-                let fact = g.object_before(g.object_id(*token).unwrap()).unwrap();
-                assert_eq!(fact.controller, PlayerId(0));
-                assert_eq!(
-                    fact.characteristics.power,
-                    Some(if source == DRIDER { 2.into() } else { 1.into() })
-                );
-                assert_eq!(fact.characteristics.toughness, Some(1.into()));
-                if source == DRIDER {
-                    assert!(fact.keywords.contains(&KeywordAbility::Reach));
-                    assert!(fact.keywords.contains(&KeywordAbility::Menace));
-                }
-            } else {
-                assert_eq!(library(&g, 0), n - 1);
-            }
-            assert_eq!(
-                g.state.rules.players[0].life,
-                if source == SHRINEKEEPER {
-                    41.into()
-                } else {
-                    40.into()
-                }
-            );
+fn d2ce_seven_complete_sources_ir_to_runtime_all_traces(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    for source in [FOX, THIEF, SPY, STEALER, DRIDER, CAPTAIN, SHRINEKEEPER] {
+        let mut g = Game::with_trace(prepared(&[(source, 2, 0, Zone::Battlefield)]), mode);
+        let n = library(&g, 0);
+        declare(&mut g, &[(0, 1)]);
+        pending(&mut g);
+        assert_eq!(g.state.rules.pending_triggers.len(), 1);
+        if source == CAPTAIN {
+            assert_eq!(g.state.rules.turn.step, TurnStep::FirstStrikeDamage);
         }
+        let d = actual(&g);
+        assert_eq!(d.source.object, object(&g, 0));
+        assert_eq!(d.source.owner, PlayerId(2));
+        assert_eq!(d.controller, PlayerId(0));
+        assert_eq!(
+            d.recipient,
+            DamageRecipient::Player {
+                player: PlayerId(1)
+            }
+        );
+        assert_eq!(
+            Some(d.amount.clone()),
+            g.characteristics(object(&g, 0)).unwrap().power
+        );
+        recover(&g);
+        placed(&mut g);
+        recover(&g);
+        resolve(&mut g);
+        recover(&g);
+        assert_eq!(g.state.rules.next_trigger_id, 1);
+        if [DRIDER, CAPTAIN].contains(&source) {
+            assert_eq!(library(&g, 0), n);
+            assert_eq!(g.state.rules.tokens.len(), 1);
+            let token = g.state.rules.tokens.keys().next().unwrap();
+            let fact = g.object_before(g.object_id(*token).unwrap()).unwrap();
+            assert_eq!(fact.controller, PlayerId(0));
+            assert_eq!(
+                fact.characteristics.power,
+                Some(if source == DRIDER { 2.into() } else { 1.into() })
+            );
+            assert_eq!(fact.characteristics.toughness, Some(1.into()));
+            if source == DRIDER {
+                assert!(fact.keywords.contains(&KeywordAbility::Reach));
+                assert!(fact.keywords.contains(&KeywordAbility::Menace));
+            }
+        } else {
+            assert_eq!(library(&g, 0), n - 1);
+        }
+        assert_eq!(
+            g.state.rules.players[0].life,
+            if source == SHRINEKEEPER {
+                41.into()
+            } else {
+                40.into()
+            }
+        );
     }
 }
 #[test]
-fn d2ce_distinct_sources_same_player_and_first_double_strike_commits() {
-    for mode in modes() {
-        for double in [false, true] {
-            let mut p = prepared(&[
-                (FOX, 0, 0, Zone::Battlefield),
-                (THIEF, 0, 0, Zone::Battlefield),
-            ]);
-            if double {
-                edit(&mut p, FOX, |d| {
-                    d.keywords.push(KeywordAbility::DoubleStrike)
-                });
-            }
-            let mut g = Game::with_trace(p, mode);
-            declare(&mut g, &[(0, 1), (1, 1)]);
-            pending(&mut g);
-            if double {
-                assert_eq!(g.state.rules.pending_triggers.len(), 1);
-                let first = witness(&g);
-                placed(&mut g);
-                resolve(&mut g);
-                pending(&mut g);
-                assert_eq!(g.state.rules.pending_triggers.len(), 2);
-                assert_ne!(first, witness(&g));
-            } else {
-                assert_eq!(g.state.rules.pending_triggers.len(), 2);
-            }
-            placed(&mut g);
-            while !g.state.rules.stack.is_empty() {
-                resolve(&mut g);
-            }
-            assert_eq!(g.state.rules.next_trigger_id, if double { 3 } else { 2 });
-            recover(&g);
+fn d2ce_seven_complete_sources_ir_to_runtime_all_traces_off() {
+    d2ce_seven_complete_sources_ir_to_runtime_all_traces(0);
+}
+#[test]
+fn d2ce_seven_complete_sources_ir_to_runtime_all_traces_compact() {
+    d2ce_seven_complete_sources_ir_to_runtime_all_traces(1);
+}
+#[test]
+fn d2ce_seven_complete_sources_ir_to_runtime_all_traces_detailed() {
+    d2ce_seven_complete_sources_ir_to_runtime_all_traces(2);
+}
+fn d2ce_distinct_sources_same_player_and_first_double_strike_commits(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    for double in [false, true] {
+        let mut p = prepared(&[
+            (FOX, 0, 0, Zone::Battlefield),
+            (THIEF, 0, 0, Zone::Battlefield),
+        ]);
+        if double {
+            edit(&mut p, FOX, |d| {
+                d.keywords.push(KeywordAbility::DoubleStrike)
+            });
         }
+        let mut g = Game::with_trace(p, mode);
+        declare(&mut g, &[(0, 1), (1, 1)]);
+        pending(&mut g);
+        if double {
+            assert_eq!(g.state.rules.pending_triggers.len(), 1);
+            let first = witness(&g);
+            placed(&mut g);
+            resolve(&mut g);
+            pending(&mut g);
+            assert_eq!(g.state.rules.pending_triggers.len(), 2);
+            assert_ne!(first, witness(&g));
+        } else {
+            assert_eq!(g.state.rules.pending_triggers.len(), 2);
+        }
+        placed(&mut g);
+        while !g.state.rules.stack.is_empty() {
+            resolve(&mut g);
+        }
+        assert_eq!(g.state.rules.next_trigger_id, if double { 3 } else { 2 });
+        recover(&g);
     }
+}
+#[test]
+fn d2ce_distinct_sources_same_player_and_first_double_strike_commits_off() {
+    d2ce_distinct_sources_same_player_and_first_double_strike_commits(0);
+}
+#[test]
+fn d2ce_distinct_sources_same_player_and_first_double_strike_commits_compact() {
+    d2ce_distinct_sources_same_player_and_first_double_strike_commits(1);
+}
+#[test]
+fn d2ce_distinct_sources_same_player_and_first_double_strike_commits_detailed() {
+    d2ce_distinct_sources_same_player_and_first_double_strike_commits(2);
 }
 #[test]
 fn d2ce_partial_full_prevention_zero_and_doubling_actual_amount() {
@@ -620,116 +646,129 @@ fn d2ce_exact_source_noncombat_and_life_loss_never_trigger() {
         recover(&g);
     }
 }
-#[test]
-fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery() {
-    for mode in modes() {
-        let mut g = Game::with_trace(
-            prepared(&[
-                (FOX, 2, 0, Zone::Battlefield),
-                (FOX, 2, 0, Zone::Battlefield),
-            ]),
-            mode,
-        );
-        declare(&mut g, &[(0, 1), (1, 1)]);
-        let (mut pending_seen, mut placed_seen, mut resolving_seen) = (false, false, false);
-        for _ in 0..180 {
-            recover(&g);
-            pending_seen |= !g.state.rules.pending_triggers.is_empty();
-            placed_seen |= !g.state.rules.stack.is_empty();
-            resolving_seen |= matches!(g.state.rules.frame, Frame::Resolve { .. });
-            let mut s: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
-            let mut paths = vec![];
-            for i in 0..g.state.rules.pending_triggers.len() {
-                paths.push(format!("/state/pending_triggers/{i}/witness"));
-            }
-            for i in 0..g.state.rules.stack.len() {
-                paths.push(format!("/state/stack/{i}/kind/witness"));
-            }
-            if matches!(g.state.rules.frame, Frame::Resolve { .. }) {
-                paths.push("/state/frame/frame/spell/kind/witness".into());
-            }
-            if !paths.is_empty() {
-                for field in [
-                    "kind",
-                    "amount",
-                    "member",
-                    "source",
-                    "recipient",
-                    "transaction",
-                ] {
-                    let mut forged = s.clone();
+fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    let mut g = Game::with_trace(
+        prepared(&[
+            (FOX, 2, 0, Zone::Battlefield),
+            (FOX, 2, 0, Zone::Battlefield),
+        ]),
+        mode,
+    );
+    declare(&mut g, &[(0, 1), (1, 1)]);
+    let (mut pending_seen, mut placed_seen, mut resolving_seen) = (false, false, false);
+    for _ in 0..180 {
+        recover(&g);
+        pending_seen |= !g.state.rules.pending_triggers.is_empty();
+        placed_seen |= !g.state.rules.stack.is_empty();
+        resolving_seen |= matches!(g.state.rules.frame, Frame::Resolve { .. });
+        let mut s: serde_json::Value = serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+        let mut paths = vec![];
+        for i in 0..g.state.rules.pending_triggers.len() {
+            paths.push(format!("/state/pending_triggers/{i}/witness"));
+        }
+        for i in 0..g.state.rules.stack.len() {
+            paths.push(format!("/state/stack/{i}/kind/witness"));
+        }
+        if matches!(g.state.rules.frame, Frame::Resolve { .. }) {
+            paths.push("/state/frame/frame/spell/kind/witness".into());
+        }
+        if !paths.is_empty() {
+            for field in [
+                "kind",
+                "amount",
+                "member",
+                "source",
+                "recipient",
+                "transaction",
+            ] {
+                let mut forged = s.clone();
+                for path in &paths {
+                    let w = forged.pointer_mut(path).unwrap();
+                    match field {
+                        "kind" => w["kind"] = "noncombat".into(),
+                        "amount" => w["damage"]["amount"] = "7".into(),
+                        "member" => w["damage"]["id"] = 1.into(),
+                        "source" => w["damage"]["source"]["object"]["card"] = 1.into(),
+                        "recipient" => w["damage"]["recipient"]["player"] = 3.into(),
+                        "transaction" => w["transaction"] = serde_json::Value::Null,
+                        _ => unreachable!(),
+                    }
+                }
+                // Keep identity-bearing invocation/source copies coherent for
+                // the source lie, instead of failing only a cross-field check.
+                if field == "source" {
+                    let handles = serde_json::to_value(
+                        g.capture_trigger_source_handles(object(&g, 1)).unwrap(),
+                    )
+                    .unwrap();
                     for path in &paths {
-                        let w = forged.pointer_mut(path).unwrap();
-                        match field {
-                            "kind" => w["kind"] = "noncombat".into(),
-                            "amount" => w["damage"]["amount"] = "7".into(),
-                            "member" => w["damage"]["id"] = 1.into(),
-                            "source" => w["damage"]["source"]["object"]["card"] = 1.into(),
-                            "recipient" => w["damage"]["recipient"]["player"] = 3.into(),
-                            "transaction" => w["transaction"] = serde_json::Value::Null,
-                            _ => unreachable!(),
+                        let parent = path.trim_end_matches("/witness");
+                        let entry = parent.trim_end_matches("/kind");
+                        let node = forged.pointer_mut(entry).unwrap();
+                        node["source"]["card"] = 1.into();
+                        node["source_facts"]["object"]["card"] = 1.into();
+                        if parent.ends_with("/kind") {
+                            node["kind"]["source_handles"] = handles.clone();
+                        } else {
+                            node["source_handles"] = handles.clone();
                         }
                     }
-                    // Keep identity-bearing invocation/source copies coherent for
-                    // the source lie, instead of failing only a cross-field check.
-                    if field == "source" {
-                        let handles = serde_json::to_value(
-                            g.capture_trigger_source_handles(object(&g, 1)).unwrap(),
-                        )
-                        .unwrap();
-                        for path in &paths {
-                            let parent = path.trim_end_matches("/witness");
-                            let entry = parent.trim_end_matches("/kind");
-                            let node = forged.pointer_mut(entry).unwrap();
-                            node["source"]["card"] = 1.into();
-                            node["source_facts"]["object"]["card"] = 1.into();
-                            if parent.ends_with("/kind") {
-                                node["kind"]["source_handles"] = handles.clone();
-                            } else {
-                                node["source_handles"] = handles.clone();
-                            }
-                        }
-                    }
-                    forged["state_sha256"] = digest(&forged["state"]).unwrap().into();
-                    if ["amount", "member", "source", "recipient", "transaction"].contains(&field) {
-                        let decoded: Snapshot = serde_json::from_value(forged.clone()).unwrap();
-                        let mut structural = g.fork();
-                        structural.state = decoded.state;
-                        structural.validate_trigger_state().unwrap();
-                        if let Frame::Resolve { frame } = &structural.state.rules.frame {
-                            structural.validate_resolving(frame).unwrap();
-                        }
-                    }
-                    assert!(
-                        Game::restore(g.prepared.as_ref().clone(), &forged.to_string()).is_err(),
-                        "{field}"
-                    );
                 }
-                // Unknown and zero/negative members fail strict structural checks.
-                for (field, value) in [
-                    ("amount", serde_json::json!("0")),
-                    ("amount", serde_json::json!("-1")),
-                    ("id", serde_json::json!(u32::MAX)),
-                ] {
-                    let w = s.pointer_mut(&paths[0]).unwrap();
-                    w["damage"][field] = value;
-                    s["state_sha256"] = digest(&s["state"]).unwrap().into();
-                    assert!(Game::restore(g.prepared.as_ref().clone(), &s.to_string()).is_err());
+                forged["state_sha256"] = digest(&forged["state"]).unwrap().into();
+                if ["amount", "member", "source", "recipient", "transaction"].contains(&field) {
+                    let decoded: Snapshot = serde_json::from_value(forged.clone()).unwrap();
+                    let mut structural = g.fork();
+                    structural.state = decoded.state;
+                    structural.validate_trigger_state().unwrap();
+                    if let Frame::Resolve { frame } = &structural.state.rules.frame {
+                        structural.validate_resolving(frame).unwrap();
+                    }
                 }
+                assert!(
+                    Game::restore(g.prepared.as_ref().clone(), &forged.to_string()).is_err(),
+                    "{field}"
+                );
             }
-            if library(&g, 0) == 6 {
-                break;
-            }
-            match g.advance(Budget::new(1)) {
-                Advance::Suspended { .. } => (),
-                Advance::AwaitingDecision(_) => passive(&mut g),
-                x => panic!("{x:?}"),
+            // Unknown and zero/negative members fail strict structural checks.
+            for (field, value) in [
+                ("amount", serde_json::json!("0")),
+                ("amount", serde_json::json!("-1")),
+                ("id", serde_json::json!(u32::MAX)),
+            ] {
+                let w = s.pointer_mut(&paths[0]).unwrap();
+                w["damage"][field] = value;
+                s["state_sha256"] = digest(&s["state"]).unwrap().into();
+                assert!(Game::restore(g.prepared.as_ref().clone(), &s.to_string()).is_err());
             }
         }
-        assert!(pending_seen && placed_seen && resolving_seen);
-        assert_eq!(g.state.rules.next_trigger_id, 2);
-        recover(&g);
+        if library(&g, 0) == 6 {
+            break;
+        }
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => (),
+            Advance::AwaitingDecision(_) => passive(&mut g),
+            x => panic!("{x:?}"),
+        }
     }
+    assert!(pending_seen && placed_seen && resolving_seen);
+    assert_eq!(g.state.rules.next_trigger_id, 2);
+    recover(&g);
+}
+#[test]
+fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery_off() {
+    d2ce_pending_placed_resolving_recovery_and_coherent_forgery(0);
+}
+#[test]
+fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery_compact() {
+    d2ce_pending_placed_resolving_recovery_and_coherent_forgery(1);
+}
+#[test]
+fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery_detailed() {
+    d2ce_pending_placed_resolving_recovery_and_coherent_forgery(2);
 }
 #[test]
 fn d2ce_source_reentry_does_not_rebind_historical_witness() {
@@ -775,34 +814,47 @@ fn d2ce_source_reentry_does_not_rebind_historical_witness() {
         // Fixture events are intentionally not accepted-input replay claims.
     }
 }
-#[test]
-fn d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces() {
-    for mode in modes() {
-        for in_pending in [false, true] {
-            for departing in 0..4 {
-                let mut g = Game::with_trace(prepared(&[(FOX, 2, 0, Zone::Battlefield)]), mode);
-                declare(&mut g, &[(0, 1)]);
-                pending(&mut g);
-                let frozen = witness(&g);
-                if !in_pending {
-                    placed(&mut g);
-                }
-                g.concede(PlayerId(departing)).unwrap();
+fn d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces(case: usize) {
+    let mode = [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed]
+        .into_iter()
+        .nth(case)
+        .unwrap();
+    for in_pending in [false, true] {
+        for departing in 0..4 {
+            let mut g = Game::with_trace(prepared(&[(FOX, 2, 0, Zone::Battlefield)]), mode);
+            declare(&mut g, &[(0, 1)]);
+            pending(&mut g);
+            let frozen = witness(&g);
+            if !in_pending {
                 placed(&mut g);
+            }
+            g.concede(PlayerId(departing)).unwrap();
+            placed(&mut g);
+            recover(&g);
+            assert_eq!(g.state.rules.stack.len(), usize::from(departing != 0));
+            if departing != 0 {
+                assert!(
+                    matches!(&g.top().unwrap().kind,StackKind::Triggered {witness,..} if witness==&frozen)
+                );
+                let n = library(&g, 0);
+                resolve(&mut g);
+                assert_eq!(library(&g, 0), n - 1);
                 recover(&g);
-                assert_eq!(g.state.rules.stack.len(), usize::from(departing != 0));
-                if departing != 0 {
-                    assert!(
-                        matches!(&g.top().unwrap().kind,StackKind::Triggered {witness,..} if witness==&frozen)
-                    );
-                    let n = library(&g, 0);
-                    resolve(&mut g);
-                    assert_eq!(library(&g, 0), n - 1);
-                    recover(&g);
-                }
             }
         }
     }
+}
+#[test]
+fn d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces_off() {
+    d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces(0);
+}
+#[test]
+fn d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces_compact() {
+    d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces(1);
+}
+#[test]
+fn d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces_detailed() {
+    d2ce_owner_controller_recipient_departures_pending_and_placed_all_traces(2);
 }
 #[test]
 fn d2ce_stifle_counters_invocation_without_refunding_combat_damage() {

@@ -170,7 +170,7 @@ fn paid_controller_window_compiles_phases_prevents_and_exiles_its_stack_source()
     let raw = include_str!(
         "../../../../../tests/fixtures/ramos/0d4ecdb1-ec90-497f-a7a4-1c68092b8757.json"
     );
-    let compiled = mtg_compiler::compile(
+    let compiled = mtg_witness::compile(
         include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
         raw,
     );

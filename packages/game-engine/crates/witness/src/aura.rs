@@ -24,7 +24,7 @@ pub fn prepared_with_sources(rows: &[Row], extras: &[&str]) -> Prepared {
     .into_iter()
     .chain(extras.iter().copied())
     {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+        let mtg_compiler::CompileResult::Lowered { definition } = crate::compile(
             include_str!("../../../tests/fixtures/archive-manifest-current.json"),
             raw,
         ) else {
