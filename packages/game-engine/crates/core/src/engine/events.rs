@@ -1987,7 +1987,7 @@ impl Game {
     ) -> Result<(), String> {
         match group {
             EventGroup::Occurrence { proposed } => {
-                let trigger_before = Some(self.fork());
+                let before_event = self.pre_event();
                 let offset = out.len();
                 let before = match prepared {
                     Some(before) => before.clone(),
@@ -1997,9 +1997,7 @@ impl Game {
                 if changes_control_inputs(proposed) {
                     self.reconcile_controllers()?;
                 }
-                if let Some(before) = trigger_before {
-                    self.collect_triggers(cause, &before, &out[offset..])?;
-                }
+                self.collect_triggers(cause, &before_event, &out[offset..])?;
             }
             EventGroup::Ordered { children } => {
                 for (i, child) in children.iter().enumerate() {

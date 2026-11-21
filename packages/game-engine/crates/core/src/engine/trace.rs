@@ -38,7 +38,7 @@ pub struct TraceEvidence {
     pub events: History<Event>,
 }
 impl TraceEvidence {
-    fn new(mode: TraceMode) -> Self {
+    pub(super) fn new(mode: TraceMode) -> Self {
         Self {
             mode,
             verification: (mode != TraceMode::Off).then(|| TraceVerification {

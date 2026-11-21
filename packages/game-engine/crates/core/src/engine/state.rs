@@ -14,7 +14,7 @@ pub use error::RuleError;
 pub use model::*;
 pub use objects::{OBJECT_CHUNK, ObjectTable};
 pub use shared::Shared;
-pub use txn::RulesTxn;
+pub use txn::{PreEvent, RulesTxn};
 
 // Declare each field once. The flat decoder keeps deny_unknown_fields without
 // serde's flatten/unknown-field ambiguity, while the encoder borrows groups.
