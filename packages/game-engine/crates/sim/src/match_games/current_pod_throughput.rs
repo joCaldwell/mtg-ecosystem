@@ -51,7 +51,7 @@ impl TimedJournal {
                 .open(path)
                 .map_err(|e| e.to_string())?,
         };
-        out.append(&serde_json::json!({"kind":"header","build_id":BUILD_ID,"config":config,"policy":policy,"mulligans":mulligans}),clocks)?;
+        out.append(&serde_json::json!({"kind":"header","build_id":BUILD.id,"config":config,"policy":policy,"mulligans":mulligans}),clocks)?;
         Ok(out)
     }
     fn append(&mut self, value: &impl Serialize, clocks: &mut PodClocks) -> Result<(), String> {
@@ -362,7 +362,7 @@ fn current_fixed18_pod_throughput_diagnostic() {
     for index in 0..18 {
         println!(
             "CURRENT_POD_START={}",
-            canonical(&serde_json::json!({"index":index,"expected_pods":18,"build_id":BUILD_ID}))
+            canonical(&serde_json::json!({"index":index,"expected_pods":18,"build_id":BUILD.id}))
                 .unwrap()
         );
         let (config, mulls) = fixed_case(index).unwrap();
@@ -423,7 +423,7 @@ fn current_fixed18_pod_throughput_diagnostic() {
     let loss_coverage = reasons.contains(&mtg_core::PlayerLossReason::CommanderDamage)
         && reasons.contains(&mtg_core::PlayerLossReason::Life);
     let passed = completed == 18 && rows.len() == 18 && failures.is_empty() && loss_coverage;
-    let report = serde_json::json!({"schema":"current-fixed18-pod-throughput-v1","build_id":BUILD_ID,"passed":passed,"planned_pods":18,"completed_pods":completed,"outcome_histogram":outcomes,"winner_counts":wins,"failures":failures,"loss_reason_coverage":loss_coverage,"catalog_decode_ns":catalog_decode_ns,"compiler_verify_ns":compiler_verify_ns,"generation_sum_ns":generation_ns,"independent_proof_sum_ns":proof_ns,"whole_batch_ns":whole_ns,"rows":rows,"generation_pods_per_second":if passed{Some(18e9/generation_ns as f64)}else{None},"whole_batch_pods_per_second":if passed{Some(18e9/whole_ns as f64)}else{None},"timing_scope":"generation includes admitted setup, all policy/observe/validation/core transitions, live journal serialization/IO, required seed0 snapshots, finalStateSHA and Game disposal; proof/persist clocks separate. Whole batch includes all18 generation+independent replay+Evidence serialization/persistence, excludes separate catalog decode/source validation and final report persistence.","repetitions":"one predeclared heterogeneous18pod batch; no stable tail/confidence or parallel fullpod scaling claim","no_search_acceptance_or_strategy_quality_claim":true});
+    let report = serde_json::json!({"schema":"current-fixed18-pod-throughput-v1","build_id":BUILD.id,"passed":passed,"planned_pods":18,"completed_pods":completed,"outcome_histogram":outcomes,"winner_counts":wins,"failures":failures,"loss_reason_coverage":loss_coverage,"catalog_decode_ns":catalog_decode_ns,"compiler_verify_ns":compiler_verify_ns,"generation_sum_ns":generation_ns,"independent_proof_sum_ns":proof_ns,"whole_batch_ns":whole_ns,"rows":rows,"generation_pods_per_second":if passed{Some(18e9/generation_ns as f64)}else{None},"whole_batch_pods_per_second":if passed{Some(18e9/whole_ns as f64)}else{None},"timing_scope":"generation includes admitted setup, all policy/observe/validation/core transitions, live journal serialization/IO, required seed0 snapshots, finalStateSHA and Game disposal; proof/persist clocks separate. Whole batch includes all18 generation+independent replay+Evidence serialization/persistence, excludes separate catalog decode/source validation and final report persistence.","repetitions":"one predeclared heterogeneous18pod batch; no stable tail/confidence or parallel fullpod scaling claim","no_search_acceptance_or_strategy_quality_claim":true});
     let mut f = fs::OpenOptions::new()
         .create_new(true)
         .write(true)

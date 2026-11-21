@@ -2119,7 +2119,7 @@ fn shrinking_pod_choice_diagnostic() {
         .mode(0o600)
         .open(output)
         .unwrap();
-    let mut report = json!({"schema":"legal-shrinking-choice-costs-v1","status":"preparing","build_id":BUILD_ID,"seed_domain":String::from_utf8_lossy(CHOICE_SEED),"config":profile_config(),"acceptance_claim":false,"planned_attack_cells":[64,27,8],"planned_edict_cells":[3,2,1],"planned_total_cells":105,"warmups_per_cell":1,"measured_repeats_per_cell":5,"planned_actual_repetitions":630,"oracle_work_scope":"extra reference64+budget1/MAX+Detailed replay percell; normal root restore and all generic State byte comparisons outside component clocks but inside host; no fit promise","cells":[],"in_progress_cell":null,"roots":[],"preparation_progress":null,"no_search_latency_or_quality_or_definition_diversity_claim":true});
+    let mut report = json!({"schema":"legal-shrinking-choice-costs-v1","status":"preparing","build_id":BUILD.id,"seed_domain":String::from_utf8_lossy(CHOICE_SEED),"config":profile_config(),"acceptance_claim":false,"planned_attack_cells":[64,27,8],"planned_edict_cells":[3,2,1],"planned_total_cells":105,"warmups_per_cell":1,"measured_repeats_per_cell":5,"planned_actual_repetitions":630,"oracle_work_scope":"extra reference64+budget1/MAX+Detailed replay percell; normal root restore and all generic State byte comparisons outside component clocks but inside host; no fit promise","cells":[],"in_progress_cell":null,"roots":[],"preparation_progress":null,"no_search_latency_or_quality_or_definition_diversity_claim":true});
     publish(&mut file, &report).unwrap();
     let result = (|| -> Result<(), String> {
         let (catalog, load) = load_catalog()?;

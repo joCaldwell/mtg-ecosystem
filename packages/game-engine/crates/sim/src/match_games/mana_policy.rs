@@ -646,7 +646,7 @@ mod tests {
             keywords: vec![],
         });
         let mut observation = Observation {
-            observation_version: 25,
+            observation_version: mtg_core::formats::OBSERVATION_VERSION,
             decision_context: None,
             decision: None,
             view: mtg_core::PermittedView {

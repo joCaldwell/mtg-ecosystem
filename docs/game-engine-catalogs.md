@@ -67,21 +67,43 @@ historical versions and the schema-1 reset proof.
 
 <a id="engine-code-identity"></a>
 
-`BUILD_ID` hashes engine Rust sources/Cargo manifests, root Cargo manifest/lock,
-toolchain and compiler/target/settings. Catalog/profile fixtures, generated output
-and server source are excluded; catalog/pod identity and `SERVER_BUILD_ID` bind
-those separately. Retained manifests still pin all source/data/server bytes.
-Data-only catalog additions do not invalidate unchanged-catalog snapshots.
+The engine build identity hashes production engine Rust sources/Cargo
+manifests (`mtg_contracts::engine_build_input`), root Cargo manifest/lock,
+toolchain and compiler/target/settings. Test-only sources (`tests/`,
+`examples/`, `benches/`, `tests.rs`, `*_tests.rs`, `*_tests/`), catalog/profile
+fixtures, generated output and server source are excluded; catalog/pod identity
+and `SERVER_BUILD_ID` bind those separately. Retained manifests still pin all
+source/data/server bytes. Data-only catalog additions do not invalidate
+unchanged-catalog snapshots.
+
+The identity lives at the executable edge. `mtg-sim` and `mtg-server` compute it
+in `build.rs` through `crates/build_identity.rs`, watching each identity file
+individually, and `main` calls `mtg_core::install_build_identity` before any
+engine use. mtg-core never reads build-time environment: snapshots, saved work
+and search artifacts stamp and admit `mtg_core::build_id()`. A process that
+installs nothing (tests, examples) is fixed to `BuildIdentity::TEST`, which is
+not a SHA-256 and never matches a native artifact. Compiler, simulator, host or
+test-only edits therefore never rebuild mtg-core. Core `build.rs` only embeds
+catalog/profile data, so mtg-contracts is not a build dependency; typed profile
+validation runs in `match_profile_validation_tests`.
 
 Compiler watches each catalog/provenance/archive/record input, including absent
 repairable inputs, plus the catalog directory. Core watches catalog/profile
 directories and each selected data file, including discovered ban policy paths.
-Broad fixture-root watches would rebuild catalogs for README edits; broad engine
-source/build identity remains intact. Simulator source changes still invalidate
-core. See [Cargo build-script watches](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed).
+Broad fixture-root or source-directory watches would rebuild for README or test
+edits. A new production module edits a watched `mod` declaration; a new
+`build.rs` without a manifest edit is not detected. See
+[Cargo build-script watches](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed).
+
+Core wire/persistence versions (`SNAPSHOT_VERSION`, `OBSERVATION_VERSION`,
+`WORK_VERSION` and the search envelopes) have one owner,
+`crates/core/src/formats.rs`. `formats_tests` pins the Observation schema and
+Snapshot/SavedWork shape fingerprints and names the constant to bump. Tests import
+the constants; only deliberate historical forgeries keep literal versions.
 
 `python3 scripts/engine-structure-check.py` verifies declared direct dependency
-boundaries (including target/workspace/alias tables) and the Git index for known
+boundaries (including target/workspace/alias tables), that test-named modules are
+`#[cfg(test)]` (so excluding them from build identity is sound), and the Git index for known
 generated paths and recognizable ELF/Wasm/SQLite output. Core imports compiler
 only for development tests. It never alters the index; arbitrary renamed JSON or
 transitive feature behavior still requires review. Focused guards are

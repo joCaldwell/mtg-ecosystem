@@ -90,7 +90,7 @@ fn private_bound_capacity_lock_and_restart() {
     assert!(MatchRegistry::open(&a.root()).is_err());
     let record = add(&mut r, &a, "a1");
     assert!(record.config == config());
-    assert_eq!(record.metadata.engine_build_id, mtg_core::BUILD_ID);
+    assert_eq!(record.metadata.engine_build_id, crate::ENGINE_BUILD.id);
     assert_eq!(record.metadata.catalog_sha256, digest(&catalog()).unwrap());
     assert_eq!(record.metadata.config_sha256, digest(&config()).unwrap());
     assert_eq!(

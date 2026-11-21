@@ -304,7 +304,7 @@ fn validate_metadata(
         .map_err(|e| format!("registry match admission: {e:?}"))?;
     if metadata.registry_version != VERSION
         || metadata.match_id != id
-        || metadata.engine_build_id != mtg_core::BUILD_ID
+        || metadata.engine_build_id != crate::ENGINE_BUILD.id
         || metadata.server_build_id != *crate::SERVER_BUILD_ID
         || metadata.catalog_sha256 != digest(catalog)?
         || metadata.config_sha256 != digest(config)?
@@ -649,7 +649,7 @@ impl MatchRegistry {
         let metadata = RegistryMetadata {
             registry_version: VERSION,
             match_id: id.into(),
-            engine_build_id: mtg_core::BUILD_ID.into(),
+            engine_build_id: crate::ENGINE_BUILD.id.into(),
             server_build_id: crate::SERVER_BUILD_ID.to_string(),
             catalog_sha256: digest(catalog)?,
             config_sha256: digest(config)?,

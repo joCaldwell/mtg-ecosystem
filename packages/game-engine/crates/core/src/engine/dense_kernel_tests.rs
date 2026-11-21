@@ -228,7 +228,7 @@ fn direct_projection(game: &Game, viewer: PlayerId) -> Observation {
     view.objects
         .sort_by(|left, right| left.handle.0.cmp(&right.handle.0));
     Observation {
-        observation_version: 54,
+        observation_version: crate::formats::OBSERVATION_VERSION,
         decision_context: game
             .permitted_decision_context(viewer, game.request_header(viewer).unwrap().as_ref()),
         view,
@@ -1049,7 +1049,7 @@ mod diagnostic {
             other => kernel_case(&named_case(other)),
         };
         println!("DENSE_DIAGNOSTIC={}", canonical(&serde_json::json!({
-            "schema":"synthetic-dense-diagnostic-result-v1","build_id":BUILD_ID,
+            "schema":"synthetic-dense-diagnostic-result-v1","build_id":build_id(),
             "contract":serde_json::from_str::<serde_json::Value>(HOST_CONTRACT).unwrap(),
             "contract_sha256":sha256(HOST_CONTRACT.as_bytes()),"result":result,
             "outer_guard_declared_not_verified_here":true,

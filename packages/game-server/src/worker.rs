@@ -235,7 +235,7 @@ impl WorkerIdentity {
     fn from_prepared(prepared: &Prepared, match_id: &str) -> Self {
         Self {
             match_id: match_id.into(),
-            engine_build_id: mtg_core::BUILD_ID.into(),
+            engine_build_id: crate::ENGINE_BUILD.id.into(),
             server_build_id: crate::SERVER_BUILD_ID.to_string(),
             catalog_sha256: prepared.catalog_digest().into(),
             profile_sha256: prepared.profile_digest().into(),
@@ -479,7 +479,7 @@ impl Worker {
         let bootstrap = Bootstrap {
             worker_version: VERSION,
             match_id: match_id.into(),
-            engine_build_id: mtg_core::BUILD_ID.into(),
+            engine_build_id: crate::ENGINE_BUILD.id.into(),
             server_build_id: crate::SERVER_BUILD_ID.to_string(),
             catalog_sha256: digest(&catalog)?,
             rules_sha256: catalog.rules_sha256.clone(),
@@ -532,7 +532,7 @@ impl Worker {
         )?)?;
         if bootstrap.worker_version != VERSION
             || bootstrap.match_id != match_id
-            || bootstrap.engine_build_id != mtg_core::BUILD_ID
+            || bootstrap.engine_build_id != crate::ENGINE_BUILD.id
             || bootstrap.server_build_id != *crate::SERVER_BUILD_ID
             || bootstrap.catalog_sha256 != digest(&catalog)?
             || bootstrap.rules_sha256 != catalog.rules_sha256

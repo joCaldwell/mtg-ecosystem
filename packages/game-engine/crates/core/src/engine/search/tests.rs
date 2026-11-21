@@ -119,7 +119,7 @@ fn proposal(capture: &SearchCapture) -> WorldProposal {
         }
     });
     WorldProposal {
-        proposal_version: 1,
+        proposal_version: crate::formats::PROPOSAL_VERSION,
         context_id: capture.context_id().into(),
         sampler_version: SEARCH_SAMPLER.into(),
         world_index: 0,

@@ -147,7 +147,7 @@ fn check(binding: &Binding) -> Result<MatchConfig, String> {
             .id
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        || binding.engine_build_id != mtg_core::BUILD_ID
+        || binding.engine_build_id != crate::ENGINE_BUILD.id
         || binding.server_build_id != *crate::SERVER_BUILD_ID
         || !crate::delivery::is_hash(&binding.deck_sha256)
     {
@@ -598,7 +598,7 @@ pub fn profile_info(name: &str) -> Result<(), String> {
         .map_err(err)?;
     println!(
         "{}",
-        serde_json::json!({"profile": profile.name, "catalog_sha256": profile.catalog_sha256, "engine_build_id":mtg_core::BUILD_ID, "server_build_id":*crate::SERVER_BUILD_ID, "decks":profile.decks})
+        serde_json::json!({"profile": profile.name, "catalog_sha256": profile.catalog_sha256, "engine_build_id":crate::ENGINE_BUILD.id, "server_build_id":*crate::SERVER_BUILD_ID, "decks":profile.decks})
     );
     Ok(())
 }
@@ -694,7 +694,7 @@ mod tests {
             generation: 0,
             id: "a".repeat(32),
             profile: p.name.clone(),
-            engine_build_id: mtg_core::BUILD_ID.into(),
+            engine_build_id: crate::ENGINE_BUILD.id.into(),
             server_build_id: crate::SERVER_BUILD_ID.clone(),
             catalog_sha256: p.catalog_sha256.clone(),
             deck_sha256: "b".repeat(64),

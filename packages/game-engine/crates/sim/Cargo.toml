@@ -13,6 +13,9 @@ mtg-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[build-dependencies]
+sha2.workspace = true
+
 [lints]
 workspace = true
 

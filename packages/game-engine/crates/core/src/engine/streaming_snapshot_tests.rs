@@ -13,8 +13,8 @@ fn old_json(game: &Game) -> String {
     let state_sha256 = sha256(canonical(&game.state).unwrap().as_bytes());
     // Full original generic SnapshotRef; independent of codec/write_state.
     canonical(&SnapshotRef {
-        snapshot_version: 78,
-        build_id: BUILD_ID,
+        snapshot_version: crate::formats::SNAPSHOT_VERSION,
+        build_id: build_id(),
         catalog_digest: &game.prepared.catalog_digest,
         profile_digest: &game.prepared.profile_digest,
         state_sha256: &state_sha256,
@@ -239,7 +239,10 @@ fn streamed_snapshot_failed_io_changed_input_and_late_forgery_cannot_poison_veri
     let mut changed = Source::new(initial.as_bytes());
     changed.replace_on_rewind = Some(
         initial
-            .replace("\"snapshot_version\":78", "\"snapshot_version\":17")
+            .replace(
+                &format!("\"snapshot_version\":{}", crate::formats::SNAPSHOT_VERSION),
+                "\"snapshot_version\":17",
+            )
             .into_bytes(),
     );
     assert_ne!(

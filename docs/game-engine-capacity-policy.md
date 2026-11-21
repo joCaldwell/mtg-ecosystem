@@ -27,9 +27,9 @@ A four-seat pod has 400 physical cards and at most 256 live tokens, so at most
 656 creatures can die in one simultaneous group. The simultaneous trigger wave
 is bounded by 656 times four seats times the catalog's triggered abilities on
 nonbasic definitions (singleton admission allows one physical source per seat;
-basic lands and generated creature tokens have no triggers). `core/build.rs`
-recomputes this for every profile catalog and rejects a build unless the wave
-fits below half the shared stack ceiling. A regression checks the same rule
+basic lands and generated creature tokens have no triggers). A core unit test
+(`match_profile_validation_tests`) recomputes this for every profile catalog and
+fails unless the wave fits below half the shared stack ceiling. A regression checks the same rule
 without names, lineage or default deck allocation. Profile flags never bypass
 runtime capacity checks; a catalog with more trigger sources must revisit the
 shared ceiling.

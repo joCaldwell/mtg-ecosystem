@@ -2,6 +2,7 @@
 """Cheap dependency-direction and Git-index artifact guards; never invokes Cargo."""
 import argparse
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tomllib
@@ -40,6 +41,43 @@ def dependency_errors(root):
                         name = tomllib.loads(dep_manifest.read_text())['package']['name']
                     if name not in permit:
                         errors.append(f'{path.relative_to(root)}: {target} {kind} {alias} ({name}) crosses the reviewed dependency boundary; keep host/parser/compiler I/O outside deterministic layers or explicitly review this allowlist')
+    return errors
+
+
+MOD_DECL = re.compile(r'^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;', re.M)
+PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"]+)"\]')
+
+
+def test_only(name):
+    """Mirror of `test_only_source` in contracts `build_input.rs`, per path component."""
+    stem = name.removesuffix('.rs')
+    return stem == 'tests' or stem.endswith('_tests')
+
+
+def test_module_errors(root):
+    """Engine build identity omits test-named sources (`build_input.rs`); every
+    such module must therefore be `#[cfg(test)]` or declared inside one."""
+    errors = []
+    for path in sorted((root / CRATES).rglob('*.rs')):
+        rel = path.relative_to(root)
+        parts = rel.parts
+        if any(p in {'target', 'generated', 'tests', 'examples', 'benches'} for p in parts) or any(test_only(p) for p in parts):
+            continue
+        text = path.read_text()
+        for match in MOD_DECL.finditer(text):
+            # Attributes directly above the declaration (contiguous lines).
+            lines = text[:match.start()].rstrip('\n').split('\n')
+            attributes = []
+            while lines and lines[-1].strip().startswith('#['):
+                attributes.append(lines.pop().strip())
+            target = match.group(1) + '.rs'
+            for attribute in attributes:
+                found = PATH_ATTR.search(attribute)
+                if found:
+                    target = found.group(1).split('/')[-1]
+            if test_only(target) and not any(re.search(r'cfg\((all\()?test\b', a) for a in attributes):
+                line = text[:match.start()].count('\n') + 1
+                errors.append(f'{rel}:{line}: test-named module {target} must be #[cfg(test)]: engine build identity excludes test-only sources')
     return errors
 
 
@@ -90,11 +128,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
-    errors = dependency_errors(args.root) + artifact_errors(args.root)
+    errors = dependency_errors(args.root) + test_module_errors(args.root) + artifact_errors(args.root)
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:
-        print('Engine structure: dependency boundaries and staged artifacts passed')
+        print('Engine structure: dependency boundaries, test-only modules and staged artifacts passed')
     return bool(errors)
 
 

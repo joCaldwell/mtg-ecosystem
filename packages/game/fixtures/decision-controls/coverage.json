@@ -1,5 +1,5 @@
 {
-  "inventory_version": 1,
+  "inventory_version": 2,
   "implementation_base": "144fe059ab2707877109d7e9dbe8751f204681dd",
   "qualification": {
     "native_source": "052af6a20931461943d174c961db6c38eb635dd9",
@@ -19,92 +19,17 @@
     "sdk_generation_sha256": "0051592eaabcdbfe1e74b2cf33aaeb37e16cb4b4086d2631f54bbfdc78c46eab"
   },
   "capture_qualification": {
+    "provenance": "fixtures/foundations-opening/provenance.json",
+    "provenance_sha256": "892a082d33fadff9475ffd8133df749f968e73f6b7781190adfae72a8e795728",
     "native_source": "5ff4fd94b6dace1cdee0f0223305e054c42af8f3",
     "protocol_schema_sha256": "519ce989ecc98c87e4aba0a14c1c7aa04fffa1aa552c7f2905cdb42f290b93ae",
     "catalog_sha256": "fc4bd3390e63ea352e129ac370fa848dbee11cf0700e7e6781d449fd49244a7f",
     "note": "Historical bytes/provenance preserved; validated against current SDK schema separately."
   },
-  "evidence": [
-    {
-      "path": "docs/game-client.md",
-      "sha256": "61753a3a9008e72108441d0e7e7d949f9a17e5868d0244e55b627b135517bf73"
-    },
-    {
-      "path": "docs/game-engine-current.md",
-      "sha256": "d33f9fdca95d1a6ce89a031847d4269de6b02db5ae3b5a75884ab5d342ddb4e7"
-    },
-    {
-      "path": "docs/game-engine-server.md",
-      "sha256": "a6030e2fcbaccd27a59e6e5d9bcfa9f7c82de38837f9428bffe045211fc626a6"
-    },
-    {
-      "path": "packages/game-engine/crates/core/src/engine/visibility.rs",
-      "sha256": "0d04a53b476cecd8a725dfdd323fc42a82a62ac1b03ff3311cb790b32d4498b5"
-    },
-    {
-      "path": "packages/game/web/src/decisions/controls.ts",
-      "sha256": "2daaa3735833d5aaacd4734400434dee3fccafaac49d5fb1406f9db54476687c"
-    },
-    {
-      "path": "packages/game/web/src/decisions/structured-controls.ts",
-      "sha256": "88079c3d893e1412ac611295516a395cb790abe94b28b930aa9d0f4c824acb65"
-    },
-    {
-      "path": "packages/game/web/src/features/decisions/LocalControls.tsx",
-      "sha256": "a7f9c27b8f8991d2e6cd45fc7768f0acfad865a900df6a5c174477f830eb98c1"
-    },
-    {
-      "path": "packages/game/web/src/features/decisions/DecisionPanel.tsx",
-      "sha256": "a32c020951c2873ea3009e331ab3c7267a101d14511d18f188247faa00a27d4a"
-    },
-    {
-      "path": "packages/game/web/src/features/decisions/DecisionGallery.tsx",
-      "sha256": "4f81eb02f3cb12c0b1e8db4dc56b814d31528f772f89e979b4617ce4fb359302"
-    },
-    {
-      "path": "packages/game/web/src/features/decisions/decisions.module.css",
-      "sha256": "69c036ab494f43c1cc62891cf330fb691c8ad7d33d98d18f60fe1ced482db722"
-    },
-    {
-      "path": "packages/game/web/src/preview/fixture.ts",
-      "sha256": "c66e643f22b78c6f162810acc6fb233876ed72a9fd07465c75f099cebd82c2e9"
-    },
-    {
-      "path": "packages/game/scripts/decision-inventory.mjs",
-      "sha256": "623ca91dfe26e5c50ab5a4090e6450b47df71b60393a5edee07008cd9d916ee7"
-    },
-    {
-      "path": "packages/game/tests/decision-controls.test.ts",
-      "sha256": "4d0b118ebf86678d28644330b5c59631d29514a55e5d1f483b88e11d1543e2b4"
-    },
-    {
-      "path": "packages/game/tests/structured-controls.test.ts",
-      "sha256": "a42dab507c780277602700dfd3cb11243ca5faa94d1ce8d3ed0f8fb7ab7c68d9"
-    },
-    {
-      "path": "packages/game/tests/decision-inventory.test.ts",
-      "sha256": "037b93077bcac9b558ae6e5f54d6a572d4f16894388c978c5fb9c159eb31a818"
-    },
-    {
-      "path": "packages/game/tests/browser/decision-controls.spec.ts",
-      "sha256": "7921a0d4ac46fad6cb48ac6e1f7fba1a519a1ba6cecf773b241df055cd277cd4"
-    },
-    {
-      "path": "packages/game/fixtures/foundations-opening/provenance.json",
-      "sha256": "892a082d33fadff9475ffd8133df749f968e73f6b7781190adfae72a8e795728"
-    },
-    {
-      "path": "packages/game/scripts/decision-prefixes.mjs",
-      "sha256": "180ee889f4912199769b16b6b71692e0b3f67e89642568a844eb9af01449ff3a"
-    },
-    {
-      "path": "packages/game/fixtures/decision-controls/prefix-provenance.json",
-      "sha256": "bd4b542c92689c5f91108bc7ef1a63af508ff36743702f9b01bd432ba0a94511"
-    }
-  ],
   "scope": "Local drafts only. No send, legality, whole-profile reachability, full M2 or playability claim.",
   "fresh_producer_evidence": {
     "provenance": "fixtures/decision-controls/prefix-provenance.json",
+    "provenance_sha256": "bd4b542c92689c5f91108bc7ef1a63af508ff36743702f9b01bd432ba0a94511",
     "producer_protocol_schema_sha256": "a7416856c2879f2d0a69531d1ccf12b4ea5f2cbd5da6811a0cc8f175650870b3",
     "public_prefixes_sha256": "5dc2b69175a9b4a5f42fda822cd52f57a6acf4a7311289a9a90b47c554aca9f4",
     "native_source_manifest_sha256": "ba6379af2980ffc855635c9662c3989af1a11b93ff8e635fda1d778362fd7692",
@@ -121,15 +46,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
         "candidates",
-        "previous_choices"
+        "player",
+        "previous_choices",
+        "request",
+        "token"
       ],
+      "schema_sha256": "54861fdbcbf243d62329d6f656a01c7ebd5d8b8f3ad6c5277dfefb0d14dec06a",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-single-handle",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied candidates and previous_choices; permitted object labels; no legend eligibility calculation.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -143,13 +70,15 @@
         "token"
       ],
       "required": [
+        "player",
         "request",
-        "token",
-        "player"
+        "token"
       ],
+      "schema_sha256": "8ae9917f3be1b30c953096c6c53db693a03cdb043155c82d92eccb9016553eea",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-quantity",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer spell source text; explicit canonical X input, never a derived maximum.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -164,14 +93,16 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "candidates",
         "player",
-        "candidates"
+        "request",
+        "token"
       ],
+      "schema_sha256": "6837fdd0b234796e8c534c2891cadcccd932b087bcf9e6bdaf9261c57c09aadc",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-single-handle",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -187,15 +118,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
         "candidates",
-        "previous_choices"
+        "player",
+        "previous_choices",
+        "request",
+        "token"
       ],
+      "schema_sha256": "e68a0d89c6fddc620b5d04f12e360085e21b8e5f37cf7a1fe2bedb53e9bd72d9",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-single-handle",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -211,14 +144,16 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "colors",
         "player",
-        "colors"
+        "request",
+        "token"
       ],
+      "schema_sha256": "8c2491f16456521353ec36999810502a0a13de2936c82e82486675246c70179c",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-color",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer mana-ability source text and supplied colors. No automatic first color.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -234,15 +169,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "maximum",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "4dc1502ea88a7818326d0932a80ae515852109faf8ed8ac2f98c750c78dbe1d3",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-bounded-handles",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied maximum and VisibleSearchLand handle/oracle_id; caller must map permitted search-result metadata, never inspect library/IR.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -256,13 +193,15 @@
         "token"
       ],
       "required": [
+        "player",
         "request",
-        "token",
-        "player"
+        "token"
       ],
+      "schema_sha256": "e76459e07002dde2d252f76b4d2fe941fed725b670bf5a70f83eac1ed40ba262",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-confirmation",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source and current instruction text before explicit perform/decline.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -276,13 +215,15 @@
         "token"
       ],
       "required": [
+        "player",
         "request",
-        "token",
-        "player"
+        "token"
       ],
+      "schema_sha256": "d31f73ae960fae02b5f449d15b28f4c8df9a96f4d6c5ea02c9ab844696fa44fb",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-confirmation",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source and current instruction text before explicit perform/decline.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -299,13 +240,14 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
-        "mulligans_taken",
         "bottom_if_mulligan",
-        "can_mulligan"
+        "can_mulligan",
+        "mulligans_taken",
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "3cf75c39f3cb661538fd32bb809db75c479d411fbb25e18ebe6599ab0b3bbfcf",
       "known_admitted_reachability": "Historical authenticated foundations opening plus fresh separately validated openings in both admitted profiles. Bounded captures only.",
       "reachability_evidence": [
         "docs/game-client.md",
@@ -313,6 +255,7 @@
         "packages/game/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "implemented-confirmation",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Captured request can_mulligan, mulligans_taken, bottom_if_mulligan; no source semantics inferred.",
       "permitted_fixture": "fixtures/foundations-opening/opening-seat0-http.json (exact historical capture); fresh opening prefixes in prefix-provenance.json (evidence only)",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -328,15 +271,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "count",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "7bd6d400de032fc4f93dc1114a4966c66014a65debbbe0960df518757687c14e",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-ordered-handles",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object-to-presentation mapping or explicit missing-metadata handle fallback.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -355,18 +300,20 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "candidates",
+        "effect",
         "player",
         "recipient",
-        "effect",
         "remaining",
+        "request",
         "required",
-        "candidates"
+        "token"
       ],
+      "schema_sha256": "a1341130962303f76421b5ae073efaf70c5e7bf5d94bb18955f92077050e1ee0",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-allocation",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires selected effect source/instruction context, supplied occurrence maxima and required exact allocation total.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -381,14 +328,16 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "candidates",
         "player",
-        "candidates"
+        "request",
+        "token"
       ],
+      "schema_sha256": "c87697b3ef7a5911871259f8be7544a026b728dfd5593fceb86b36e01980409c",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-mode",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source and one unambiguous compiler label per supplied mode candidate.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -404,15 +353,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "candidates",
         "player",
         "recipient",
-        "candidates"
+        "request",
+        "token"
       ],
+      "schema_sha256": "abefac61806a1fe53198817194b890b5e13a23298fff7dac7b62fda964f95bca",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-damage-effect",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires compiler-bound per-occurrence effect labels; preserve exact effect/damage pair and supplied amounts.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -427,14 +378,16 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "candidates",
         "player",
-        "candidates"
+        "request",
+        "token"
       ],
+      "schema_sha256": "520150ea5b5f1805947207c6345d8b28563b8a58bbcb2c886506f6cd381c7fcf",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-ordered-triggers",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires compiler-bound labels for every supplied trigger handle; preserve explicit complete order.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -450,15 +403,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "occurrences",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "2655b40dd2f227dec8d4909f0c387bb061c0976685c213d921b35fb70a9d7b8e",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-target-occurrences",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -474,15 +429,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "occurrences",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "806e06d1166dcf92ac7144171773da4d22b64864b0a4da52b5619113f1ba7068",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-target-occurrences",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -498,15 +455,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "occurrences",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "3b79b7c0cb305a8116c1350ac94d29684afba822023da6e8d095136687022b84",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-target-occurrences",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -521,14 +480,16 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "candidates",
         "player",
-        "candidates"
+        "request",
+        "token"
       ],
+      "schema_sha256": "193958c4f3f67a674e2b80be2274a39487c68bb23ea509d2792d65e1e639c38e",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-single-handle",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied candidates; permitted object labels. Rich initiating source/cost/effect and previous choice presentation remain integration requirements.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -544,15 +505,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "count",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "055484754218402bf9a868ad50990876b02abb5f92a5a598f68eaaa0bf9460ea",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-unordered-handles",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object labels. Initiating effect/source explanation is still absent.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -569,15 +532,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "available",
         "cost",
-        "available"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "02e82981854211e1685778237b9cf354d3e87e3b2d3eaec31fed0f62ef60a8c7",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-payment",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source and supplied cost/available mana; explicit exact amount for every available color. Core validates joint payment legality.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -595,16 +560,18 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
-        "object",
         "designation",
-        "destination"
+        "destination",
+        "object",
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "c52eeb642235febaf927b21736b611b97a002a922f0bbb7f0bbb720c5e34aea3",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-commander-destination",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Supplied object/designation/destination and previous choices only; explicit command-zone or destination choice.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -620,15 +587,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
         "candidates",
-        "defenders"
+        "defenders",
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "4c214345f70ab895e4ced3d537a8fcc0761fb31f7a938ae2e9388b3c704108b7",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-supplied-combat-mapping",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Explicit per-candidate attacker/defender or blocker/attacker choices, including unused. Missing/ambiguous blocker eligibility fails closed. Core validates joint restrictions.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -646,15 +615,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "attackers",
         "candidates",
-        "attackers"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "95a7e3e9e17dba92814628a78bc7fb1b5c0edf5860f1edc712a967599332860c",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-supplied-combat-mapping",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Explicit per-candidate attacker/defender or blocker/attacker choices, including unused. Missing/ambiguous blocker eligibility fails closed. Core validates joint restrictions.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -673,16 +644,18 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
         "player",
-        "source",
         "power",
-        "recipients"
+        "recipients",
+        "request",
+        "source",
+        "token"
       ],
+      "schema_sha256": "824703cf5da69a32362ea03f47f73d2249f0c5b723f8958a315ad9a5cf577541",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-supplied-damage-allocation",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Supplied source, recipients, power, player recipient and lethal hints; exact total bookkeeping only, no derived lethal calculation.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -698,15 +671,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "count",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "5df2ac9f3996d1ace41d2546b987f4447d194d6608262f8905c78b14011e5daa",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-unordered-handles",
+      "local_control_handler": "decisionSurface",
       "required_core_context_and_source_mapping": "Supplied candidates/count; permitted object labels. Initiating effect/source explanation is still absent.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -720,16 +695,18 @@
         "token"
       ],
       "required": [
+        "player",
         "request",
-        "token",
-        "player"
+        "token"
       ],
+      "schema_sha256": "6179733d7397f9c59d33b212a35e17ddbc1bf4a7e38fdd6a42f70449fc885aa2",
       "known_admitted_reachability": "Fresh separately validated foundations and attachments main-priority-before-land/main-priority-before-cast captures, plus core query report. Bounded prefixes only.",
       "reachability_evidence": [
         "docs/game-client.md",
         "packages/game/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "session-action-query",
+      "local_control_handler": null,
       "required_core_context_and_source_mapping": "Bound authenticated query, complete original generation/scope and producer available labels/source. Pass needs priority/window; unexplained actions remain blocked. FinishMana preserves conditional payment-failure reversal.",
       "permitted_fixture": "Fresh isolated admitted prefix observations/queries in prefix-provenance.json (evidence only; no runtime query integration)",
       "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
@@ -745,15 +722,17 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
-        "player",
+        "candidates",
         "occurrences",
-        "candidates"
+        "player",
+        "request",
+        "token"
       ],
+      "schema_sha256": "0be35cfb726ce2229ef77b629c9fb5abc30b149a3918e9a323771c2a6984287f",
       "known_admitted_reachability": "Not established by retained permitted captures or bounded admitted-prefix evidence. Schema presence is not admission.",
       "reachability_evidence": [],
       "implemented_control_draft": "implemented-source-target-occurrences",
+      "local_control_handler": "structuredDecisionSurface",
       "required_core_context_and_source_mapping": "Requires producer source/instruction; explicit candidate for each supplied ordered occurrence. Never interpret TargetSpec or derive joint eligibility.",
       "permitted_fixture": "No captured request in this slice. Structural tests, where present, do not establish reachability.",
       "test_locator": "tests/decision-controls.test.ts; tests/structured-controls.test.ts; tests/browser/decision-controls.spec.ts (captured opening and synthetic controls only)",
@@ -769,17 +748,19 @@
         "token"
       ],
       "required": [
-        "request",
-        "token",
+        "cost",
         "player",
-        "cost"
+        "request",
+        "token"
       ],
+      "schema_sha256": "ea942ade844f0a9fac4f689bfa923ab4791aecc8399d3a664d106a1e75a2877a",
       "known_admitted_reachability": "Fresh separately validated foundations and attachments cast-mana captures, plus core query report. Bounded prefixes only.",
       "reachability_evidence": [
         "docs/game-client.md",
         "packages/game/fixtures/decision-controls/prefix-provenance.json"
       ],
       "implemented_control_draft": "session-action-query",
+      "local_control_handler": null,
       "required_core_context_and_source_mapping": "Bound authenticated query, complete original generation/scope and producer available labels/source. Pass needs priority/window; unexplained actions remain blocked. FinishMana preserves conditional payment-failure reversal.",
       "permitted_fixture": "Fresh isolated admitted prefix observations/queries in prefix-provenance.json (evidence only; no runtime query integration)",
       "test_locator": "src/decisions/controls.ts exhaustive generated-type switch; missing-context unit/browser cases cover representative gaps only",
@@ -794,9 +775,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "keep"
+        "keep",
+        "response"
       ],
+      "schema_sha256": "ca7179c803de90698a2bfa2c54c4d012f23dcbdf472f60fde0ba96d791bddf1f",
       "request_variant": "legend_rule",
       "implemented_control_draft": "implemented-single-handle",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -814,6 +796,7 @@
         "response",
         "value"
       ],
+      "schema_sha256": "4de2ddeca7213265a99e42b83f0e9f3de82bd92d06538cfef68c2f3470aa10f9",
       "request_variant": "announce_x",
       "implemented_control_draft": "implemented-source-quantity",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -828,9 +811,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "object"
+        "object",
+        "response"
       ],
+      "schema_sha256": "afe4365a192ae8fdec3620a0d4a4925e50444a57bfb3ced45b6f14c64fba40a4",
       "request_variant": "sacrifice_cost",
       "implemented_control_draft": "implemented-single-handle",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -845,9 +829,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "object"
+        "object",
+        "response"
       ],
+      "schema_sha256": "a867d15f689d07b42acbb5784b6b8288447f0d332d3e1708541474e927259258",
       "request_variant": "forced_sacrifice",
       "implemented_control_draft": "implemented-single-handle",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -862,9 +847,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "color"
+        "color",
+        "response"
       ],
+      "schema_sha256": "e6ddb625edc243d8003674a080620cd967d6c11b3652c164579c72323416b3a9",
       "request_variant": "mana_color",
       "implemented_control_draft": "implemented-source-color",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -879,9 +865,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "objects"
+        "objects",
+        "response"
       ],
+      "schema_sha256": "61e8b6b825bb85ede08893bf317d501feb61d2dafd2c6fec8ad10c92a1c282b7",
       "request_variant": "search_lands",
       "implemented_control_draft": "implemented-bounded-handles",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -896,9 +883,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "perform"
+        "perform",
+        "response"
       ],
+      "schema_sha256": "6f8e75095d12c035b5d54bbcf5d50623044a7abe37f68f217d9f3b52c8a46d9f",
       "request_variant": "optional_effect",
       "implemented_control_draft": "implemented-source-confirmation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -913,9 +901,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "perform"
+        "perform",
+        "response"
       ],
+      "schema_sha256": "8a81f8a10158b0b89e2675e2a8a5d248e24069678cd4881a9275d21a65590b83",
       "request_variant": "optional_recursion",
       "implemented_control_draft": "implemented-source-confirmation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -933,6 +922,7 @@
         "response",
         "take"
       ],
+      "schema_sha256": "21addc6a591bdfe293bf73ba756f5655f90b0ea67fb8d4f18c887c6dc65b1eef",
       "request_variant": "mulligan",
       "implemented_control_draft": "implemented-confirmation",
       "known_admitted_reachability": "Historical authenticated foundations opening plus fresh separately validated openings in both admitted profiles. Bounded captures only.",
@@ -947,9 +937,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "objects"
+        "objects",
+        "response"
       ],
+      "schema_sha256": "122d742aed548b36c1330c5610fd0d7c5660f54ef315207e7f2b87d6f28b912a",
       "request_variant": "bottom_opening",
       "implemented_control_draft": "implemented-ordered-handles",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -964,9 +955,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "allocations"
+        "allocations",
+        "response"
       ],
+      "schema_sha256": "eba4725f1a1e8810c10a57555d613aa508403374248931b7e6522d10c4b4158f",
       "request_variant": "damage_allocation",
       "implemented_control_draft": "implemented-source-allocation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -981,9 +973,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "mode"
+        "mode",
+        "response"
       ],
+      "schema_sha256": "0f9f0660d75c56d2a4c8e325ed2e85cab34d1986ba34896213b80030233480fd",
       "request_variant": "modes",
       "implemented_control_draft": "implemented-source-mode",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -999,10 +992,11 @@
         "response"
       ],
       "required": [
-        "response",
+        "damage",
         "effect",
-        "damage"
+        "response"
       ],
+      "schema_sha256": "360d01f12d613b045c32a5d4d22215bcf14fd64d983ad204db4e2e6e37a03a0c",
       "request_variant": "damage_effect",
       "implemented_control_draft": "implemented-source-damage-effect",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1017,9 +1011,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "order"
+        "order",
+        "response"
       ],
+      "schema_sha256": "de246b9ca55d18c159d1b37b7cb2dad56165c4473095ae6a1723245c92bdbad7",
       "request_variant": "order_triggers",
       "implemented_control_draft": "implemented-source-ordered-triggers",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1034,9 +1029,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "entities"
+        "entities",
+        "response"
       ],
+      "schema_sha256": "ac33e66f498c43192a72969a5f604aa1d59f40e9c35b82869c8482d4e3e57598",
       "request_variant": "entity_targets",
       "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1051,9 +1047,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "entries"
+        "entries",
+        "response"
       ],
+      "schema_sha256": "4d700207a09caa2a0913fc7bacf84e671a43686cdfe6a71d0197d504dd791200",
       "request_variant": "stack_targets",
       "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1069,10 +1066,11 @@
         "response"
       ],
       "required": [
-        "response",
+        "ability",
         "object",
-        "ability"
+        "response"
       ],
+      "schema_sha256": "20d76bcd58f70ea7605d173140e4a53668b1337c78cfaf2af1644ea85435fe98",
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1087,9 +1085,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "players"
+        "players",
+        "response"
       ],
+      "schema_sha256": "5165ea0dbd9ace0421ffa25c3da22c5e06eae3740459388a38532d748ac9e411",
       "request_variant": "player_targets",
       "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1104,9 +1103,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "object"
+        "object",
+        "response"
       ],
+      "schema_sha256": "d04aaeb2440ac49b4d77d3da2059f9991bce7b7a9a12dce816b9294ebea7873e",
       "request_variant": "sacrifice",
       "implemented_control_draft": "implemented-single-handle",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1121,9 +1121,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "objects"
+        "objects",
+        "response"
       ],
+      "schema_sha256": "5603089bf3ce53ddf56ed1ea4064ed4a9346c966b26a74da565e06edbc4b577d",
       "request_variant": "resolve_discard",
       "implemented_control_draft": "implemented-unordered-handles",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1141,6 +1142,7 @@
         "response",
         "spending"
       ],
+      "schema_sha256": "9c2eccae7e1cbb4f350e3df70355ca145e5b4783fba81f3d02631e95a5017203",
       "request_variant": "spend_mana",
       "implemented_control_draft": "implemented-source-payment",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1158,6 +1160,7 @@
         "response",
         "to_command"
       ],
+      "schema_sha256": "7b05207c03b5f8ddd857e59084d7400ee0327c62e1e98f0a509a3baa11b57052",
       "request_variant": "commander_return",
       "implemented_control_draft": "implemented-commander-destination",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1172,9 +1175,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "attacks"
+        "attacks",
+        "response"
       ],
+      "schema_sha256": "2765fd7a8ae201583777f9d70da9604cf18164680facf10c9f4bfb7f05de6c3d",
       "request_variant": "attackers",
       "implemented_control_draft": "implemented-supplied-combat-mapping",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1189,9 +1193,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "blocks"
+        "blocks",
+        "response"
       ],
+      "schema_sha256": "cedc87500fdc1fe6648dcd128e6c7f035f5eb8a9578727a97bcd35b4c4fa1b3f",
       "request_variant": "blockers",
       "implemented_control_draft": "implemented-supplied-combat-mapping",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1206,9 +1211,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "assignments"
+        "assignments",
+        "response"
       ],
+      "schema_sha256": "43e1acfc695941d56ba95bace1fa93f9b67d98006f4e69cd732cb1dee0711972",
       "request_variant": "damage",
       "implemented_control_draft": "implemented-supplied-damage-allocation",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1225,11 +1231,12 @@
         "response"
       ],
       "required": [
-        "response",
+        "amount",
         "assignments",
         "player",
-        "amount"
+        "response"
       ],
+      "schema_sha256": "01162f5423a635a9cb5c2833101e6a1037dd5066823aea54cd7394753fb98b75",
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1244,9 +1251,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "objects"
+        "objects",
+        "response"
       ],
+      "schema_sha256": "8ca940e6c1a0ae69563a2eb63c3517e2f1c878bf6e1f4090e4619ad225057be5",
       "request_variant": "discard",
       "implemented_control_draft": "implemented-unordered-handles",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1261,9 +1269,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "object"
+        "object",
+        "response"
       ],
+      "schema_sha256": "5f986076c4b3eefc53dcfa4ce430df75e352611f0439a8b72258b9c34dbf32b2",
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
       "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
@@ -1278,9 +1287,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "object"
+        "object",
+        "response"
       ],
+      "schema_sha256": "47c9101b0e417a2681164aa78936c0a2ba809d5108d759782f0dc4eed658db17",
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
       "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
@@ -1295,9 +1305,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "card"
+        "card",
+        "response"
       ],
+      "schema_sha256": "625cae768be33aaec590e04d4ef859c56dd8fcc3a8467919aa772f85df5af03e",
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
       "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
@@ -1313,6 +1324,7 @@
       "required": [
         "response"
       ],
+      "schema_sha256": "a132f04876eb2918241d62f303cd4c020cf35a45b4a3389368c16f04de4ab19f",
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
       "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",
@@ -1327,9 +1339,10 @@
         "response"
       ],
       "required": [
-        "response",
-        "objects"
+        "objects",
+        "response"
       ],
+      "schema_sha256": "e7481a9a4370502a0e58957f8982d3a595a0043e84820ca4741b7515f2a3a72b",
       "request_variant": "targets",
       "implemented_control_draft": "implemented-source-target-occurrences",
       "known_admitted_reachability": "Not established by this slice; response schema does not prove admission.",
@@ -1347,6 +1360,7 @@
         "response",
         "undo_mana"
       ],
+      "schema_sha256": "05555e02195dfd3e24164f5e4c18e466b366bc3eabc2d068d37be35fe6e825f1",
       "request_variant": null,
       "implemented_control_draft": "unsupported-action-or-combat-response",
       "known_admitted_reachability": "Fresh isolated admitted prefix queries expose this initiation family (prefix-provenance.json); no accepted-response or client-control proof follows.",

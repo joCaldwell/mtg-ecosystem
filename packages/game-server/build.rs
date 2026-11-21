@@ -1,3 +1,7 @@
+// Engine build identity at the executable edge; see that file.
+#[path = "../game-engine/crates/build_identity.rs"]
+mod build_identity;
+
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
@@ -43,4 +47,5 @@ fn main() {
         hash.update([0]);
     }
     println!("cargo:rustc-env=MTG_SERVER_CODE_ID={:x}", hash.finalize());
+    build_identity::emit(&root.join("../.."));
 }

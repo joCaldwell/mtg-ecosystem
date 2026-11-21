@@ -440,7 +440,7 @@ fn tap_loot_is_used_before_combat_can_tap_the_source() {
     let mut s = Strategy::new(&c, Policy::Develop, [0; 4]);
     assert_eq!(
         s.priority(&Observation {
-            observation_version: 25,
+            observation_version: mtg_core::formats::OBSERVATION_VERSION,
             decision_context: None,
             decision: None,
             view: v
@@ -455,7 +455,7 @@ fn strategy(c: &Catalog) -> Strategy<'_> {
 }
 fn observation(view: PermittedView) -> Observation {
     Observation {
-        observation_version: 25,
+        observation_version: mtg_core::formats::OBSERVATION_VERSION,
         decision_context: None,
         decision: None,
         view,

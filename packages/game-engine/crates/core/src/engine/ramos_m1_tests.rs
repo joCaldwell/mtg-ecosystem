@@ -282,8 +282,11 @@ fn ramos_m1_paid_command_cast_five_counters_payment_snapshot_replay_privacy() {
     traces(setup(false, false), |g| {
         let r = paid_counters(g);
         eprintln!(
-            "M1a build={BUILD_ID} catalog={} profile={} trace={:?}",
-            g.prepared.catalog_digest, g.prepared.profile_digest, g.trace.mode
+            "M1a build={} catalog={} profile={} trace={:?}",
+            build_id(),
+            g.prepared.catalog_digest,
+            g.prepared.profile_digest,
+            g.trace.mode
         );
         let spell = named(g, NAMES[5]).card;
         answer(g, Response::Cast { card: spell });

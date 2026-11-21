@@ -950,7 +950,7 @@ impl LiveJournal {
             {
                 Ok(file) => {
                     let mut out = Self { file };
-                    out.append(&serde_json::json!({"kind":"header","build_id":BUILD_ID,"config":config,"policy":policy,"mulligans":mulligans}))?;
+                    out.append(&serde_json::json!({"kind":"header","build_id":BUILD.id,"config":config,"policy":policy,"mulligans":mulligans}))?;
                     eprintln!("streaming accepted inputs to {}", path.display());
                     return Ok(out);
                 }
@@ -1278,7 +1278,7 @@ fn batch_impl(
     }
     let profile = profile_spec.name.as_str();
     fs::create_dir(directory).map_err(|e| e.to_string())?;
-    let manifest = serde_json::json!({"profile":profile,"policy":"ir-develop-v2","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":{"homogeneous_seats":profile_spec.completion.homogeneous_seats},"decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD_ID,"catalog_sha256":mtg_contracts::digest(catalog)?});
+    let manifest = serde_json::json!({"profile":profile,"policy":"ir-develop-v2","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":{"homogeneous_seats":profile_spec.completion.homogeneous_seats},"decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD.id,"catalog_sha256":mtg_contracts::digest(catalog)?});
     let mut manifest = manifest;
     // The optional rotation layout and extra homogeneous decks come from data.
     if profile_spec.completion.rotate {
@@ -1647,7 +1647,7 @@ fn decode_live(mut reader: impl std::io::BufRead) -> Result<DecodedLive, String>
                 if header.is_some() || !inputs.is_empty() {
                     return Err("live journal header is not first and unique".into());
                 }
-                if build_id != BUILD_ID {
+                if build_id != BUILD.id {
                     return Err("live journal belongs to another build".into());
                 }
                 header = Some(LiveHeader {
@@ -2043,7 +2043,7 @@ mod admission_and_host_tests {
         assert!(verify_terminal_result(&game, &retained).is_err());
     }
     fn live_header(config: &MatchConfig) -> serde_json::Value {
-        serde_json::json!({"kind":"header","build_id":BUILD_ID,"config":config,"policy":"develop","mulligans":[0,0,0,0]})
+        serde_json::json!({"kind":"header","build_id":BUILD.id,"config":config,"policy":"develop","mulligans":[0,0,0,0]})
     }
     fn live_bytes(records: &[serde_json::Value]) -> Vec<u8> {
         records

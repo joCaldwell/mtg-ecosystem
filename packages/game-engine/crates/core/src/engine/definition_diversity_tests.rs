@@ -509,7 +509,7 @@ fn definition_diversity_host_diagnostic() {
             }
         }
     }
-    let report = serde_json::json!({"schema":"definition-diversity-diagnostic-v1","status":"all_declared_rows_verified","expected_rows":48,"build_id":BUILD_ID,
+    let report = serde_json::json!({"schema":"definition-diversity-diagnostic-v1","status":"all_declared_rows_verified","expected_rows":48,"build_id":build_id(),
         "contract":contract,"contract_sha256":sha256(CONTRACT.as_bytes()),"warmups":1,"measured_repetitions":5,
         "rows":rows,"outer_guard_declaration_is_not_OS_proof":true,"authentic256_Oracle_ability_claim":false,
         "legal_pool_expansion":false,"product_latency_or_quality_claim":false});

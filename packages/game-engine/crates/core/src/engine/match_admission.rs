@@ -6,6 +6,9 @@ include!(concat!(env!("OUT_DIR"), "/catalog_sizes.rs"));
 
 pub use crate::profile_data::*;
 include!(concat!(env!("OUT_DIR"), "/match_profiles.rs"));
+#[cfg(test)]
+#[path = "match_profile_validation_tests.rs"]
+mod match_profile_validation_tests;
 pub fn match_profile(name: &str) -> Option<&'static MatchProfile> {
     if name == super::dynamic_admission::DYNAMIC_PROFILE {
         return None;

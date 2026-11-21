@@ -84,20 +84,8 @@ pub use basic_land_fetch::conditional_basic_land_fetch_program;
 pub use fetched_land_untap::{fetched_land_reference, fetched_land_untap_clause};
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
-/// Engine build identity excludes card/profile data and hosting code. Retained
-/// evidence still carries those files with their own hashes; matches/snapshots
-/// separately bind the exact catalog digest. Used by both the core build and
-/// the independent native source-closure verifier.
-pub fn engine_build_input(path: &str) -> bool {
-    matches!(path, "Cargo.toml" | "Cargo.lock" | "rust-toolchain.toml")
-        || (path.starts_with("packages/game-engine/crates/")
-            && !path
-                .split('/')
-                .any(|p| matches!(p, "generated" | "target" | "node_modules" | ".git"))
-            && (path.ends_with(".rs") || path.ends_with("/Cargo.toml")))
-}
-use num_bigint::BigInt;
-use num_traits::Zero;
+mod build_input;
+pub use build_input::engine_build_input;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
 pub mod activated_creature_tap;
@@ -196,7 +184,7 @@ pub use library_order::controller_library_order_program;
 pub use library_selection::controller_library_selection_program;
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, fmt, str::FromStr};
+use std::{collections::BTreeSet, fmt};
 
 mod archives;
 mod optional_costs;
@@ -233,63 +221,8 @@ pub const RULES_EDITION: &str = "2026-09-25";
 pub const RULES_SHA256: &str = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
 pub const SCENARIO_PROFILE: &str = "land-return-departure-scenario-v2";
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub struct Quantity(BigInt);
-impl Quantity {
-    pub fn zero() -> Self {
-        Self(BigInt::zero())
-    }
-    pub fn is_negative(&self) -> bool {
-        self.0 < BigInt::zero()
-    }
-    pub fn add(&mut self, other: &Self) {
-        self.0 += &other.0;
-    }
-    pub fn multiply(&mut self, other: &Self) {
-        self.0 *= &other.0;
-    }
-    pub fn subtract(&mut self, other: &Self) {
-        self.0 -= &other.0;
-    }
-}
-impl From<i64> for Quantity {
-    fn from(value: i64) -> Self {
-        Self(BigInt::from(value))
-    }
-}
-impl FromStr for Quantity {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, String> {
-        let value = BigInt::from_str(s).map_err(|_| "invalid exact quantity".to_string())?;
-        if value.to_string() != s {
-            return Err("quantity must use canonical decimal spelling".into());
-        }
-        Ok(Self(value))
-    }
-}
-impl fmt::Display for Quantity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl Serialize for Quantity {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-impl<'de> Deserialize<'de> for Quantity {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(de::Error::custom)
-    }
-}
-impl JsonSchema for Quantity {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "ExactQuantity".into()
-    }
-    fn json_schema(_: &mut SchemaGenerator) -> Schema {
-        json_schema!({"type":"string","pattern":"^(0|[1-9][0-9]*|-[1-9][0-9]*)$"})
-    }
-}
+mod quantity;
+pub use quantity::Quantity;
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -8377,28 +8310,6 @@ mod permanent_owner_hand_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn build_identity_covers_all_engine_source_but_not_fixture_or_host_data() {
-        for path in [
-            "Cargo.lock",
-            "Cargo.toml",
-            "rust-toolchain.toml",
-            "packages/game-engine/crates/sim/src/new_module.rs",
-            "packages/game-engine/crates/core/build.rs",
-            "packages/game-engine/crates/compiler/Cargo.toml",
-        ] {
-            assert!(engine_build_input(path), "{path}");
-        }
-        for path in [
-            "packages/game-engine/tests/fixtures/catalogs/base.json",
-            "packages/game-server/src/main.rs",
-            "packages/game-engine/crates/core/generated/export.rs",
-            "packages/game-engine/crates/core/README.md",
-        ] {
-            assert!(!engine_build_input(path), "{path}");
-        }
-    }
-
     #[test]
     fn current_ir_authority_matches_schema_and_validation() {
         for schema in [

@@ -86,7 +86,7 @@ fn commit(store: &mut MatchStore, t: Transition) -> Head {
 }
 fn publication(seat: u8) -> Publication {
     let observation: Observation = serde_json::from_value(json!({
-        "observation_version":15,
+        "observation_version":mtg_core::formats::OBSERVATION_VERSION,
         "view":{"combat":[],"viewer":seat,"active":0,"turn_owner":0,
             "turn":{"number":1,"step":"precombat_main","lands_played":0},
             "live_turn_order":[0,1,2,3],"commanders":[],"priority":0,

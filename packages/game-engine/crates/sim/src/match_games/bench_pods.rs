@@ -660,9 +660,9 @@ fn run(source: PodSource<'_>, options: &Options) -> Result<(serde_json::Value, b
     let (schema, profile, catalog_sha256) = source.report_profile();
     let mut report = serde_json::json!({
         "schema": schema,
-        "build": {"id": BUILD_ID, "profile": BUILD_PROFILE, "opt_level": BUILD_OPT_LEVEL,
-                  "debug": BUILD_DEBUG, "debug_assertions": BUILD_DEBUG_ASSERTIONS,
-                  "rustc": BUILD_RUSTC, "target": BUILD_TARGET, "rustflags": BUILD_RUSTFLAGS},
+        "build": {"id": BUILD.id, "profile": BUILD.profile, "opt_level": BUILD.opt_level,
+                  "debug": BUILD.debug, "debug_assertions": BUILD.debug_assertions,
+                  "rustc": BUILD.rustc, "target": BUILD.target, "rustflags": BUILD.rustflags},
         "profile": profile,
         "catalog_sha256": catalog_sha256,
         "policy": Policy::Develop,

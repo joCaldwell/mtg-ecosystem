@@ -99,9 +99,9 @@ impl SampledGame {
     }
     pub fn snapshot(&self) -> Result<String, String> {
         canonical(&SampleSnapshot {
-            sample_snapshot_version: 1,
+            sample_snapshot_version: crate::formats::SAMPLE_SNAPSHOT_VERSION,
             origin_kind: SEARCH_RECONSTRUCTION.into(),
-            build_id: BUILD_ID.into(),
+            build_id: build_id().into(),
             capture_id: self.capture.context_id().into(),
             proposal: (*self.proposal).clone(),
             origin_id: self.origin_id.clone(),
@@ -125,9 +125,9 @@ impl SampledGame {
         if let Err(e) = snapshot.proposal.validate_shape() {
             return SampleRestoreOutcome::Rejected(invalid(e));
         }
-        if snapshot.sample_snapshot_version != 1
+        if snapshot.sample_snapshot_version != crate::formats::SAMPLE_SNAPSHOT_VERSION
             || snapshot.origin_kind != SEARCH_RECONSTRUCTION
-            || snapshot.build_id != BUILD_ID
+            || snapshot.build_id != build_id()
             || snapshot.capture_id != capture.context_id()
             || snapshot.origin_id
                 != digest(&(capture.context_id(), &snapshot.proposal)).unwrap_or_default()

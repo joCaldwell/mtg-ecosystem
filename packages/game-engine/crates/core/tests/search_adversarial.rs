@@ -258,7 +258,7 @@ fn proposal(capture: &SearchCapture, reverse: bool) -> WorldProposal {
         }
     });
     WorldProposal {
-        proposal_version: 1,
+        proposal_version: mtg_core::formats::PROPOSAL_VERSION,
         context_id: capture.context_id().into(),
         sampler_version: mtg_core::SEARCH_SAMPLER.into(),
         world_index: 0,
@@ -438,7 +438,7 @@ fn complete_proposals_reject_counts_duplicates_foreign_context_and_own_hand_over
     let base = proposal(&c, false);
     let _ = build(&c, base.clone(), 1);
     let mut p = base.clone();
-    p.proposal_version = 2;
+    p.proposal_version = mtg_core::formats::PROPOSAL_VERSION + 1;
     rejects(&c, p);
     let mut p = base.clone();
     p.context_id = "another-root".into();
@@ -852,7 +852,7 @@ fn sample_origin_restores_by_its_own_future_journal_and_cannot_be_a_real_snapsho
     assert!(sample_restore(&c, &canonical(&value).unwrap(), 1).is_err());
 
     let mut value: Value = serde_json::from_str(&raw).unwrap();
-    value["sample_snapshot_version"] = 2.into();
+    value["sample_snapshot_version"] = (mtg_core::formats::SAMPLE_SNAPSHOT_VERSION + 1).into();
     assert!(sample_restore(&c, &canonical(&value).unwrap(), 1).is_err());
     let mut value: Value = serde_json::from_str(&raw).unwrap();
     value["unreviewed_origin"] = json!({"take_real_hidden_state":true});

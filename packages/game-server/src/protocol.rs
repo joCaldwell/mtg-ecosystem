@@ -279,7 +279,7 @@ impl PublicManifest {
         Ok(Self {
             protocol_version: PROTOCOL_VERSION,
             match_id,
-            engine_build_id: mtg_core::BUILD_ID.into(),
+            engine_build_id: crate::ENGINE_BUILD.id.into(),
             server_build_id: crate::SERVER_BUILD_ID.to_string(),
             catalog_sha256: mtg_contracts::digest(&catalog)?,
             profile: config.profile.clone(),

@@ -13,8 +13,9 @@ The standalone App imports an operator-issued single-seat file. Product
 `@multiverse/game/session` uses the same router-free table with an Actor-authorized
 File. Non-query decisions use local drafts, with producer context required for
 source-dependent choices. The [decision inventory](../packages/game/fixtures/decision-controls/coverage.json)
-records request coverage; priority and mana windows use bounded
-[action discovery](#core-action-discovery).
+pins request and response schema shapes, reviewed control mappings and capture
+provenance. Its read-only check verifies the request cases in the web decision
+switches. Priority and mana windows use bounded [action discovery](#core-action-discovery).
 
 One exact foundations release passed [hosted completion](game-client-evidence.md#hosted-completion).
 Launch requires deck admission, private provisioning and three owned automated

@@ -188,7 +188,13 @@ pub use choices::*;
 mod effects;
 #[cfg(test)]
 mod effects_tests;
-use crate::BUILD_ID;
+use crate::build_id;
+// Cargo profile of this test build, recorded by build.rs for diagnostic receipts.
+// Profile settings never depend on source, so this adds no rebuild trigger.
+#[cfg(test)]
+pub(crate) const TEST_OPT_LEVEL: &str = env!("MTG_CORE_OPT_LEVEL");
+#[cfg(test)]
+pub(crate) const TEST_PROFILE: &str = env!("MTG_CORE_PROFILE");
 pub use effects::*;
 use mtg_contracts::*;
 use serde::{Deserialize, Serialize};
@@ -4229,8 +4235,8 @@ impl Game {
     }
     fn snapshot_ref<'a>(&'a self, state_sha256: &'a str) -> SnapshotRef<'a> {
         SnapshotRef {
-            snapshot_version: 78,
-            build_id: BUILD_ID,
+            snapshot_version: crate::formats::SNAPSHOT_VERSION,
+            build_id: build_id(),
             catalog_digest: &self.prepared.catalog_digest,
             profile_digest: &self.prepared.profile_digest,
             state_sha256,
@@ -4271,8 +4277,8 @@ impl Game {
     // Exactly one typed verification body for string and seekable input. No
     // Game is returned before unchanged identity/hash/invariant checks pass.
     fn admit_decoded_snapshot(prepared: Prepared, s: Snapshot) -> Result<(Self, String), String> {
-        if s.snapshot_version != 78
-            || s.build_id != BUILD_ID
+        if s.snapshot_version != crate::formats::SNAPSHOT_VERSION
+            || s.build_id != build_id()
             || s.catalog_digest != prepared.catalog_digest
             || s.profile_digest != prepared.profile_digest
             || state_digest::state_digest(&s.state)? != s.state_sha256
@@ -5010,7 +5016,7 @@ mod tests {
         assert!(
             Game::restore(
                 p.clone(),
-                &game.snapshot().unwrap().replace(BUILD_ID, "wrong-build")
+                &game.snapshot().unwrap().replace(build_id(), "wrong-build")
             )
             .is_err()
         );

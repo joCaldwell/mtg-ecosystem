@@ -121,7 +121,7 @@ pub(super) fn public_proof(g: &Game) {
                     let saved = g.save_work(&work).unwrap();
                     assert_eq!(
                         strict_read::<serde_json::Value>(&saved).unwrap()["work_version"],
-                        50
+                        crate::formats::WORK_VERSION
                     );
                     g.resume_work(g.restore_work(&saved).unwrap(), Budget::new(1))
                 }

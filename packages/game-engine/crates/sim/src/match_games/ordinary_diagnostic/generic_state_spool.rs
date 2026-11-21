@@ -304,7 +304,7 @@ impl GenericProofProfile {
             owned_files: Vec::new(),
         };
         profile.emit(serde_json::json!({"schema":PROFILE_SCHEMA,"kind":"header","seq":0,
-            "build_id":super::BUILD_ID,"collection_scope":"root_proofs_only","instrumentation":true}))?;
+            "build_id":crate::BUILD.id,"collection_scope":"root_proofs_only","instrumentation":true}))?;
         Ok(profile)
     }
     pub(super) fn now(&self) -> Instant {

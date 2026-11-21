@@ -104,7 +104,7 @@ fn evaluate(
     Ok(SearchEvidence {
         evidence_version: 1,
         kind: "trusted-search-fixture-evidence".into(),
-        build_id: BUILD_ID.into(),
+        build_id: BUILD.id.into(),
         measurement_classification: classification.into(),
         source_manifest: source_manifest.clone(),
         case: fixture.case,
@@ -115,7 +115,7 @@ fn evaluate(
 }
 
 pub(super) fn benchmark(catalog: &Catalog, directory: &Path) -> Result<serde_json::Value, String> {
-    if BUILD_PROFILE != "release" || BUILD_DEBUG_ASSERTIONS != "false" {
+    if BUILD.profile != "release" || BUILD.debug_assertions != "false" {
         return Err("search acceptance requires the pinned release build".into());
     }
     let source_manifest = current_source_manifest()?;
@@ -132,8 +132,8 @@ pub(super) fn benchmark(catalog: &Catalog, directory: &Path) -> Result<serde_jso
         .lines()
         .any(|l| l.starts_with("model name") && l.contains("AMD Ryzen 9 9950X"));
     let manifest = serde_json::json!({
-        "manifest_version": 1, "build_id": BUILD_ID, "rustc": BUILD_RUSTC,
-        "target": BUILD_TARGET, "profile": BUILD_PROFILE,
+        "manifest_version": 1, "build_id": BUILD.id, "rustc": BUILD.rustc,
+        "target": BUILD.target, "profile": BUILD.profile,
         "workload_sha256": sha256(workload_bytes.as_bytes()),
         "quiescence_declared": true, "cpu_info": cpu_info, "memory_info": memory,
         "reference_cpu_verified": reference_cpu,
@@ -217,7 +217,7 @@ pub(super) fn benchmark(catalog: &Catalog, directory: &Path) -> Result<serde_jso
     let p95_met = p95.is_some_and(|n| n <= 3_000_000);
     let report = serde_json::json!({
         "status": "measurement-complete; independent replay pending",
-        "build_id": BUILD_ID, "workload": search_roots::WORKLOAD,
+        "build_id": BUILD.id, "workload": search_roots::WORKLOAD,
         "attempted_jobs": 60, "reported_job_latencies":latencies.len(),
         "p95_elapsed_micros": p95, "p95_nearest_rank":57,
         "all_candidates_minimum_met": all_minimum,
@@ -237,7 +237,7 @@ pub(super) fn replay(catalog: &Catalog, json: &str) -> Result<serde_json::Value,
     let evidence: SearchEvidence = strict_read(json)?;
     if evidence.evidence_version != 1
         || evidence.kind != "trusted-search-fixture-evidence"
-        || evidence.build_id != BUILD_ID
+        || evidence.build_id != BUILD.id
         || evidence.source_manifest != current_source_manifest()?
         || evidence.case != search_roots::RootCase::named(evidence.case.index)?
         || usize::try_from(evidence.report.request.root_index).ok() != Some(evidence.case.index)

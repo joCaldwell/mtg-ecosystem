@@ -1,10 +1,10 @@
 //! A deliberately fixed, tiny developer probe. This is trusted diagnostic data,
 //! not a player API, full game, universal replay debugger, or acceptance gate.
+use crate::BUILD;
 use mtg_compiler::{CompileResult, compile, fixtures};
 use mtg_contracts::{Catalog, Color, Quantity, canonical, digest, sha256, strict_read};
 use mtg_core::{
-    Advance, BUILD_DEBUG_ASSERTIONS, BUILD_ID, BUILD_OPT_LEVEL, BUILD_PROFILE, BUILD_RUSTC,
-    BUILD_TARGET, Budget, Game, Observation, PlayerId, PlayerRequest, PlayerResponse, Prepared,
+    Advance, Budget, Game, Observation, PlayerId, PlayerRequest, PlayerResponse, Prepared,
     QueryRejection, QueryResult, QueryValue, ReplayJournal, ScenarioConfig, TraceMode,
 };
 use serde::{Deserialize, Serialize};
@@ -52,9 +52,9 @@ fn short(text: &str) -> String {
 }
 fn identity() -> Value {
     json!({
-        "core_build_id": BUILD_ID, "rustc": BUILD_RUSTC, "profile": BUILD_PROFILE,
-        "opt_level": BUILD_OPT_LEVEL, "debug_assertions": BUILD_DEBUG_ASSERTIONS,
-        "target": BUILD_TARGET,
+        "core_build_id": BUILD.id, "rustc": BUILD.rustc, "profile": BUILD.profile,
+        "opt_level": BUILD.opt_level, "debug_assertions": BUILD.debug_assertions,
+        "target": BUILD.target,
         "smoke_source_sha256": sha256(include_str!("smoke.rs").as_bytes()),
         "cli_source_sha256": sha256(include_str!("main.rs").as_bytes()),
         "manifest_sha256": sha256(fixtures::MANIFEST.as_bytes()),
@@ -343,7 +343,7 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
     let start = Instant::now();
     let mut report = json!({"scenario":SCENARIO,"seed":null,"classification":CLASSIFICATION,
         "locator_scope":"first recorded input/checkpoint field; digest-only differences do not locate internal state",
-        "core_build_id":BUILD_ID});
+        "core_build_id":BUILD.id});
     let result = (|| -> Result<(), String> {
         report["reproduce"] = reproduce(args)?.into();
         let (replay, path) = match args {

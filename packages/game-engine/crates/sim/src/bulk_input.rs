@@ -1,11 +1,12 @@
 //! Offline artifact loading, batch inspection and bounded replay evidence.
+use crate::BUILD;
 use mtg_contracts::{
     JsonByteProof,
     bulk_catalog::{BulkArtifact, BulkManifest, MANIFEST_MAX_BYTES, is_sha256},
     canonical, digest, strict_read_seekable_verified,
 };
 use mtg_core::{
-    Advance, BUILD_ID, Budget, CaptureOutcome, DeckInspection, DeckRole, DynamicAdmissionIdentity,
+    Advance, Budget, CaptureOutcome, DeckInspection, DeckRole, DynamicAdmissionIdentity,
     DynamicDeckEntry, DynamicMatchConfig, Game, MatchAdmissionError, MatchConfig, PlayerId,
     Prepared, ReplayJournal, Request, Response, SearchRejection, TraceMode, TurnStep,
     admit_dynamic_pod, inspect_dynamic_deck, match_profile,
@@ -52,10 +53,10 @@ pub(super) fn load(directory: &Path, pin: &str) -> Result<BulkArtifact, String> 
     if manifest.1.sha256 != pin {
         return Err("bulk manifest pin mismatch".into());
     }
-    manifest.0.validate(BUILD_ID)?;
+    manifest.0.validate(BUILD.id)?;
     let catalog = read_file(&directory.join("catalog.json"), manifest.0.catalog.bytes)?;
     let index = read_file(&directory.join("index.json"), manifest.0.index.bytes)?;
-    BulkArtifact::verify(manifest, pin, BUILD_ID, catalog, index)
+    BulkArtifact::verify(manifest, pin, BUILD.id, catalog, index)
 }
 
 #[derive(Deserialize)]
@@ -181,7 +182,7 @@ struct ReplayEvidence {
 
 fn replay(artifact: &BulkArtifact, evidence: &ReplayEvidence) -> Result<String, String> {
     if evidence.format_version != 1
-        || evidence.runtime_build_id != BUILD_ID
+        || evidence.runtime_build_id != BUILD.id
         || evidence.identity.bulk_manifest_sha256 != artifact.manifest_sha256()
         || !(1..=OPENING_MAX_DECISIONS).contains(&evidence.journal.decisions.len())
         || !evidence.journal.concessions.is_empty()
@@ -295,7 +296,7 @@ fn foundations_witness(artifact: &BulkArtifact) -> Result<ReplayEvidence, String
     }
     let evidence = ReplayEvidence {
         format_version: 1,
-        runtime_build_id: BUILD_ID.into(),
+        runtime_build_id: BUILD.id.into(),
         identity: first.identity,
         config,
         journal_sha256: digest(&journal)?,

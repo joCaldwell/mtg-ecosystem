@@ -5,7 +5,7 @@
 //! body. No actual hidden assignment, RNG or snapshot enters candidate generation,
 //! the sampler, client responses or the production search entry point.
 use super::{public_job_seed, search_jobs, search_roots};
-use crate::{BUILD_ID, current_source_manifest};
+use crate::{BUILD, current_source_manifest};
 use mtg_contracts::{Catalog, Quantity, canonical, sha256};
 use search_jobs::{TrialCounts, TrialOutcome, TrialResult, fixed_work};
 use serde::Serialize;
@@ -283,7 +283,7 @@ fn same_strategy_omniscient_reference_diagnostic() {
     let source = current_source_manifest().expect("exact diagnostic source identity");
     let catalog =
         mtg_compiler::catalog::embedded_catalog("match").expect("frozen admitted catalog");
-    let mut report = serde_json::json!({"schema":CONTRACT,"status":"running","engine_build_id":BUILD_ID,
+    let mut report = serde_json::json!({"schema":CONTRACT,"status":"running","engine_build_id":BUILD.id,
         "source_manifest":source,"root_indices":(0..search_roots::ROOT_COUNT).collect::<Vec<_>>(),
         "horizon_accepted_inputs":search_jobs::HORIZON,"repeat_slots":REPEATS,"roots":[],
         "rollout_policy":crate::search_policy::ROLLOUT_POLICY,

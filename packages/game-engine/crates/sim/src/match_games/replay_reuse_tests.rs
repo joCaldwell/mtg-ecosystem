@@ -152,7 +152,7 @@ fn paired_sealed_replay_reporting_probe() {
             canonical(&serde_json::json!({
                 "profile": profile,
                 "index": 1,
-                "build_id": BUILD_ID,
+                "build_id": BUILD.id,
                 "input": path,
                 "input_sha256": sha256(input.as_bytes()),
                 "journal_sha256": mtg_contracts::digest(&e.journal).unwrap(),
