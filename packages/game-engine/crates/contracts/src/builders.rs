@@ -168,14 +168,14 @@ mod tests {
                 .with_types([CardKind::Creature])
                 .with_types([CardKind::Artifact])
                 .with_non_types([CardKind::Land])
-                .with_non_colors([Color::Black])
+                .with_non_colors([Color::B])
                 .opponent()
                 .tapped()
                 .with_power(power.clone()),
             PermanentFilter {
                 types: vec![CardKind::Creature, CardKind::Artifact],
                 non_types: vec![CardKind::Land],
-                non_colors: vec![Color::Black],
+                non_colors: vec![Color::B],
                 opponent: true,
                 tapped: true,
                 power: Some(power),
