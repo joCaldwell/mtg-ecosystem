@@ -85,8 +85,6 @@ mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
 mod build_input;
 pub use build_input::{engine_build_input, test_only_source};
-use num_bigint::BigInt;
-use num_traits::Zero;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
 pub mod activated_creature_tap;
@@ -185,7 +183,7 @@ pub use library_order::controller_library_order_program;
 pub use library_selection::controller_library_selection_program;
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, fmt, str::FromStr};
+use std::{collections::BTreeSet, fmt};
 
 mod archives;
 mod optional_costs;
@@ -222,63 +220,8 @@ pub const RULES_EDITION: &str = "2026-09-25";
 pub const RULES_SHA256: &str = "8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca";
 pub const SCENARIO_PROFILE: &str = "land-return-departure-scenario-v2";
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub struct Quantity(BigInt);
-impl Quantity {
-    pub fn zero() -> Self {
-        Self(BigInt::zero())
-    }
-    pub fn is_negative(&self) -> bool {
-        self.0 < BigInt::zero()
-    }
-    pub fn add(&mut self, other: &Self) {
-        self.0 += &other.0;
-    }
-    pub fn multiply(&mut self, other: &Self) {
-        self.0 *= &other.0;
-    }
-    pub fn subtract(&mut self, other: &Self) {
-        self.0 -= &other.0;
-    }
-}
-impl From<i64> for Quantity {
-    fn from(value: i64) -> Self {
-        Self(BigInt::from(value))
-    }
-}
-impl FromStr for Quantity {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, String> {
-        let value = BigInt::from_str(s).map_err(|_| "invalid exact quantity".to_string())?;
-        if value.to_string() != s {
-            return Err("quantity must use canonical decimal spelling".into());
-        }
-        Ok(Self(value))
-    }
-}
-impl fmt::Display for Quantity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl Serialize for Quantity {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-impl<'de> Deserialize<'de> for Quantity {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(de::Error::custom)
-    }
-}
-impl JsonSchema for Quantity {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "ExactQuantity".into()
-    }
-    fn json_schema(_: &mut SchemaGenerator) -> Schema {
-        json_schema!({"type":"string","pattern":"^(0|[1-9][0-9]*|-[1-9][0-9]*)$"})
-    }
-}
+mod quantity;
+pub use quantity::Quantity;
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
