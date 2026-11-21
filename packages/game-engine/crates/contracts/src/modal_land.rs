@@ -430,7 +430,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     from_archive(witness_provenance(include_str!(
-        "../../../tests/fixtures/phase1-r3/branchloft-pathway.json"
+        "../../../tests/fixtures/phase1-r4/branchloft-pathway.json"
     )))
     .unwrap()
 }
@@ -459,7 +459,7 @@ pub(super) fn witness_provenance(raw: &str) -> SourceProvenance {
     let row: Record = strict_read(raw).unwrap();
     let source: Value = strict_read(row.source.get()).unwrap();
     let pin = accepted_manifest(include_str!(
-        "../../../tests/fixtures/archive-manifest-phase1-r3.json"
+        "../../../tests/fixtures/archive-manifest-phase1-r4.json"
     ))
     .unwrap();
     SourceProvenance {

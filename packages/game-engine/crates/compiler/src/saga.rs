@@ -374,8 +374,8 @@ fn bind_fixed_chapter(
 
 #[test]
 fn fixed_saga_chapters_keep_tokens_counters_and_grant_in_their_blocks() {
-    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
-    const ROW: &str = include_str!("../../../tests/fixtures/phase1-r3/origin-of-the-hulk.json");
+    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    const ROW: &str = include_str!("../../../tests/fixtures/phase1-r4/origin-of-the-hulk.json");
     let result = compile(HEADER, ROW);
     let CompileResult::Lowered { definition } = result else {
         panic!("{result:?}");
@@ -429,9 +429,9 @@ fn fixed_saga_chapters_keep_tokens_counters_and_grant_in_their_blocks() {
 
 #[test]
 fn shared_chapter_mana_damage_and_destroy_use_exact_operands() {
-    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
     const ROW: &str =
-        include_str!("../../../tests/fixtures/phase1-r3/burn-burn-tree-and-fern.json");
+        include_str!("../../../tests/fixtures/phase1-r4/burn-burn-tree-and-fern.json");
     let result = compile(HEADER, ROW);
     let CompileResult::Lowered { definition } = result else {
         panic!("{result:?}");
@@ -472,8 +472,8 @@ fn shared_chapter_mana_damage_and_destroy_use_exact_operands() {
 
 #[test]
 fn shared_chapter_mana_and_exile_programs_bind_the_delayed_cast_separately() {
-    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
-    const ROW: &str = include_str!("../../../tests/fixtures/phase1-r3/showdown-of-the-skalds.json");
+    const HEADER: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    const ROW: &str = include_str!("../../../tests/fixtures/phase1-r4/showdown-of-the-skalds.json");
     let result = compile(HEADER, ROW);
     let CompileResult::Lowered { definition } = result else {
         panic!("{result:?}");

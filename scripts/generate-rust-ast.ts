@@ -19,7 +19,7 @@ import ts from "typescript";
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SOURCES = ["packages/oracle-parser/src/ast.ts", "packages/oracle-parser/src/semantic/resolution.ts",
   "packages/oracle-parser/src/semantic/spans.ts", "packages/oracle-parser/src/semantic/step-vocabulary.ts"];
-const OUTPUT = "packages/game-engine/crates/compiler/src/ast_generated.rs";
+const OUTPUT = "packages/game-engine/crates/oracle-ast/src/generated.rs";
 const ROOTS: [string, string][] = [["packages/oracle-parser/src/ast.ts", "ParseCardResult"], ["packages/oracle-parser/src/semantic/resolution.ts", "CardResolution"]];
 
 const KEYWORDS = new Set(["as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
@@ -97,7 +97,10 @@ export function generate(): string {
     const name = unique(values.length === 1 ? `Lit${pascal(values[0])}` : hint);
     literalEnums.set(key, name);
     const variants = values.map(v => `    #[serde(rename = ${JSON.stringify(v)})]\n    ${pascal(v)},`);
-    defs.push(`#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]\npub enum ${name} {\n${variants.join("\n")}\n}`);
+    const arms = values.map(v => `            ${name}::${pascal(v)} => ${JSON.stringify(v)},`);
+    // A single literal is a marker; only a choice needs its spelling back.
+    const spelling = values.length > 1 ? `\nimpl ${name} {\n    /// The archived spelling.\n    pub fn as_str(self) -> &'static str {\n        match self {\n${arms.join("\n")}\n        }\n    }\n}` : "";
+    defs.push(`#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]\npub enum ${name} {\n${variants.join("\n")}\n}${spelling}`);
     return name;
   };
 
@@ -152,8 +155,10 @@ export function generate(): string {
     const fields = props(t).filter(p => !omit.has(p.name)).map(p => {
       const type = rust(p.type, `${name}${pascal(p.name)}`);
       const isOptional = p.optional || optional.has(p.name);
-      const attrs = [`rename = ${JSON.stringify(p.name)}`, ...(isOptional ? ["default"] : [])];
-      return `    #[serde(${attrs.join(", ")})]\n    pub ${snake(p.name)}: ${isOptional ? `Option<${type}>` : type},`;
+      // serde reads a raw identifier unraw and a missing Option as None.
+      const field = snake(p.name);
+      const rename = field.replace(/^r#/, "") === p.name ? "" : `    #[serde(rename = ${JSON.stringify(p.name)})]\n`;
+      return `${rename}    pub ${field}: ${isOptional ? `Option<${type}>` : type},`;
     });
     return `#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]\n#[serde(deny_unknown_fields)]\npub struct ${name} {\n${fields.join("\n")}\n}`;
   };
@@ -194,6 +199,8 @@ export function generate(): string {
     const memberInfo = members.map(m => kindOf(m) === "object" && !m.isUnion() ? props(m) : []);
     // Tags removed from a member struct because the dispatch already proved them.
     const omitted = members.map(() => new Set<string>());
+    const declares = (m: ts.Type, key: string): boolean => m.isUnion()
+      ? m.types.some(x => !isUndefined(x) && declares(x, key)) : isObject(m) && props(m).some(p => p.name === key);
     // Dispatch works on units: each object member, or each object constituent
     // of a member that is itself a named union (whose own decoder re-dispatches).
     const flatten = (t: ts.Type): ts.Type[] => t.isUnion() ? t.types.filter(x => !isUndefined(x)).flatMap(flatten) : [t];
@@ -242,7 +249,10 @@ export function generate(): string {
       const base = typeof literal === "string" ? pascal(literal) : typeof literal === "number" ? (literal < 0 ? `Minus${-literal}` : `N${literal}`) : kindOf(m) === "object" ? (() => {
         const tag = memberInfo[i].find(p => omitted[i].has(p.name));
         const value = tag ? literalSet(tag.type)![0] : undefined;
-        return value !== undefined ? pascal(String(value)) : declaredName(m) ?? `Variant${i}`;
+        if (value !== undefined) return pascal(String(value));
+        // Otherwise the key only this member declares ({ ref } | { derived }).
+        const own = memberInfo[i].find(p => !p.optional && members.every((other, j) => j === i || !declares(other, p.name)));
+        return declaredName(m) ?? (own ? pascal(own.name) : `Variant${i}`);
       })() : pascal(kindOf(m));
       let variant = base, n = 2;
       while (variants.some(v => v.name === variant)) variant = `${base}${n++}`;

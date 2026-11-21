@@ -17,7 +17,7 @@ mod announced_x_draw;
 mod announced_x_effects;
 #[cfg(test)]
 mod announced_x_effects_tests;
-pub mod ast;
+pub use mtg_oracle_ast as ast;
 mod attachment_modifiers;
 mod basic_land_fetch;
 mod basic_landwalk;
@@ -108,6 +108,7 @@ mod mana_tap_observer;
 mod modal_land;
 mod nonland_exile_life;
 mod normalization;
+mod resolution;
 mod opponent_count_entry;
 mod opponent_life_drain;
 mod opponent_mana;
@@ -215,6 +216,12 @@ struct Record {
     ast_sha256: Option<String>,
     binding: Box<RawValue>,
     binding_sha256: String,
+    /// Archive R4 (schema 4): the authoritative resolution. Absent from the
+    /// schema-3 fixture archives the whole-card families still read.
+    #[serde(default)]
+    resolution: Option<Box<RawValue>>,
+    #[serde(default)]
+    resolution_sha256: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -8073,6 +8080,10 @@ mod tests {
         change(&mut r);
         r["sourceSha256"] = sha256(canonical(&r["source"]).unwrap().as_bytes()).into();
         r["bindingSha256"] = sha256(canonical(&r["binding"]).unwrap().as_bytes()).into();
+        if r.get("resolution").is_some() {
+            r["resolutionSha256"] =
+                sha256(canonical(&r["resolution"]).unwrap().as_bytes()).into();
+        }
         let abilities = serde_json::json!([r["faces"][0]["result"]["abilities"]]);
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
         canonical(&r).unwrap()
@@ -8081,6 +8092,11 @@ mod tests {
     /// self-consistent ordinary card: the block-by-block pipeline must lower
     /// it, mark it composed, and admit it only through the composition matrix.
     /// Callers assert the changed semantics on the returned definition.
+    /// Compile a hand-built row whose placeholder text no parser resolution
+    /// certifies; see `compose::synthetic`.
+    pub(crate) fn synthetic_compile(manifest: &str, record: &str) -> CompileResult {
+        compose::synthetic(|| compile(manifest, record))
+    }
     pub(crate) fn composed_near_miss(result: CompileResult) -> Definition {
         let CompileResult::Lowered { definition } = result else {
             panic!("near miss must lower: {result:?}")
@@ -11818,7 +11834,7 @@ mod temporary_deathtouch_tests;
 mod collar_source_tests;
 
 #[cfg(test)]
-mod r3_binding_tests;
+mod r4_binding_tests;
 #[cfg(test)]
 mod ramos_m1_tests;
 

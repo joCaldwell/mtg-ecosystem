@@ -2,7 +2,7 @@
 """Phase 1 inner loop: targeted tests, selected deck coverage, one final gate.
 
   test ARGS...     npm run engine:dev -- test ARGS (e.g. -p mtg-compiler --lib FILTER)
-  coverage         selected deck coverage on R3 (~1-3 s after the build) with a delta
+  coverage         selected deck coverage on R4 (~1-3 s after the build) with a delta
                    against the saved baseline; --save-baseline records the new report
   final            check:engine:fast, one whole-archive scan, selected/full parity and,
                    with --base-records, whole-archive regressions against base receipts
@@ -137,7 +137,7 @@ def main(argv=None):
     test.add_argument("cargo_args", nargs=argparse.REMAINDER)
     for name in ("coverage", "final"):
         command = commands.add_parser(name)
-        command.add_argument("--archive", type=Path, default=shared_generated("oracle-ast-phase1-r3.jsonl"))
+        command.add_argument("--archive", type=Path, default=shared_generated("oracle-ast-phase1-r4.jsonl"))
         command.add_argument("--decks", type=Path, default=shared_generated("phase1-target-decks.json"))
         command.add_argument("--baseline", type=Path, default=STATE / "baseline-deck-gap-report.json")
         command.add_argument("--mtg-sim", type=Path, help="existing release mtg-sim; skips the build")

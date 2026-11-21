@@ -140,7 +140,7 @@ fn untap_source_rejects_all_unrepresented_target_and_step_fields() {
     let raw = changed("Synthetic qualified untap target.", |a| {
         a["effects"][0]["steps"][0]["what"]["filter"] = json!({"types":["creature"]})
     });
-    let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+    let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
     let spell = d.spell.as_ref().unwrap();
     assert_eq!(
         tests::sole_target(spell),
@@ -254,7 +254,7 @@ fn untap_behind_a_tap_cost_or_entry_trigger_is_an_ordinary_composed_ability() {
                 }
             }
         });
-        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
         let program = if activated {
             let [ability] = d.activated.as_slice() else {
                 panic!("one activation")

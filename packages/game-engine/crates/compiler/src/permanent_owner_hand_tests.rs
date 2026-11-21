@@ -213,7 +213,7 @@ fn permanent_bounce_rejects_unrepresented_selector_filter_and_destination_terms(
             r["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"] =
                 filter
         });
-        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
         let spell = d.spell.as_ref().unwrap();
         assert_eq!(spell.timing, SpellTiming::Instant);
         assert_eq!(tests::sole_target(spell), expected);
@@ -300,7 +300,7 @@ fn permanent_bounce_rejects_extra_effects_and_nonordinary_program_contexts() {
                 }
             }
         });
-        let result = compile(MANIFEST, &raw);
+        let result = if near_miss { crate::tests::synthetic_compile(MANIFEST, &raw) } else { compile(MANIFEST, &raw) };
         if near_miss {
             // The same instruction behind a tap cost is an ordinary activation.
             let d = tests::composed_near_miss(result);
