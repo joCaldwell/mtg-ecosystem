@@ -889,13 +889,13 @@ pub struct ObjectHandles {
 }
 mod shared_entries {
     use super::*;
-    pub(super) fn serialize<S: serde::Serializer>(
+    pub(in crate::engine) fn serialize<S: serde::Serializer>(
         value: &Arc<BTreeMap<String, ObjectId>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         value.as_ref().serialize(serializer)
     }
-    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+    pub(in crate::engine) fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Arc<BTreeMap<String, ObjectId>>, D::Error> {
         BTreeMap::deserialize(deserializer).map(Arc::new)
@@ -957,13 +957,13 @@ pub struct Knowledge {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) effect_handles: Vec<(EffectKey, EffectHandle)>,
+    pub(in crate::engine) effect_handles: Vec<(EffectKey, EffectHandle)>,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub(super) next_effect_handle: u64,
+    pub(in crate::engine) next_effect_handle: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) damage_handles: Vec<((DamageTransactionId, DamageId), DamageHandle)>,
+    pub(in crate::engine) damage_handles: Vec<((DamageTransactionId, DamageId), DamageHandle)>,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub(super) next_damage_handle: u64,
+    pub(in crate::engine) next_damage_handle: u64,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     trigger_handles: BTreeMap<TriggerId, TriggerHandle>,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -987,12 +987,12 @@ fn scoped(namespace: &Option<String>, handle: String) -> String {
 }
 impl Knowledge {
     /// The key of this viewer's current decision token, if they owe one.
-    pub(super) fn decision_key(&self) -> Option<(u64, u8)> {
+    pub(in crate::engine) fn decision_key(&self) -> Option<(u64, u8)> {
         self.decision_key
     }
     /// Mints a fresh token when the viewer's decision changes, and retires it
     /// when they owe none. An unchanged key keeps its token.
-    pub(super) fn set_decision_key(
+    pub(in crate::engine) fn set_decision_key(
         &mut self,
         viewer: usize,
         key: Option<(u64, u8)>,
@@ -1013,7 +1013,7 @@ impl Knowledge {
         }
         Ok(())
     }
-    pub(super) fn scoped(&self, handle: String) -> String {
+    pub(in crate::engine) fn scoped(&self, handle: String) -> String {
         self.namespace.as_ref().map_or_else(
             || handle.clone(),
             |namespace| format!("{namespace}:{handle}"),
@@ -1054,7 +1054,7 @@ impl Game {
     }
     /// Object-table-ordered sources for `*_with_sources`, valid only while
     /// the rules state it was read from is unchanged.
-    pub(super) fn static_source_index(&self) -> Vec<CardId> {
+    pub(in crate::engine) fn static_source_index(&self) -> Vec<CardId> {
         self.state
             .rules
             .objects
@@ -1063,7 +1063,7 @@ impl Game {
             .map(|(card, _)| card)
             .collect()
     }
-    pub(super) fn projection_index(&self) -> ProjectionIndex {
+    pub(in crate::engine) fn projection_index(&self) -> ProjectionIndex {
         let mut index = ProjectionIndex::default();
         for (card, object) in &self.state.rules.objects {
             match object.zone {
@@ -1092,7 +1092,10 @@ impl Game {
         index
     }
 
-    pub(super) fn search_decision_token(&self, player: PlayerId) -> Result<&DecisionToken, String> {
+    pub(in crate::engine) fn search_decision_token(
+        &self,
+        player: PlayerId,
+    ) -> Result<&DecisionToken, String> {
         self.state
             .knowledge
             .visibility
@@ -1348,7 +1351,7 @@ impl Game {
         self.project_player(player, None)
     }
     /// `visible_player` for seats 0..4, with an index of this unchanged state.
-    pub(super) fn visible_player_indexed(
+    pub(in crate::engine) fn visible_player_indexed(
         &self,
         player: PlayerId,
         index: &ProjectionIndex,
@@ -1420,7 +1423,10 @@ impl Game {
             .cloned()
             .ok_or_else(|| "object is not visible to this viewer".into())
     }
-    pub(super) fn visible_ability_oracle_id(&self, object: ObjectId) -> Result<&str, String> {
+    pub(in crate::engine) fn visible_ability_oracle_id(
+        &self,
+        object: ObjectId,
+    ) -> Result<&str, String> {
         let effective = self.copiable_definition(object)?;
         if !effective.oracle_id.starts_with("token:") {
             return Ok(&effective.oracle_id);
@@ -1446,7 +1452,7 @@ impl Game {
             .map(Some)
     }
     /// `visible_object`, with an index of this unchanged state.
-    pub(super) fn visible_object_indexed(
+    pub(in crate::engine) fn visible_object_indexed(
         &self,
         viewer: PlayerId,
         object: &Object,
@@ -2663,7 +2669,7 @@ impl Game {
             _ => return Err("payment request invariant".into()),
         })
     }
-    pub(super) fn order_view_objects(view: &mut PermittedView) {
+    pub(in crate::engine) fn order_view_objects(view: &mut PermittedView) {
         // A face-down card's position among older exile handles must not
         // disclose the ordering of its physical card ID.
         for player in &mut view.players {
@@ -2797,7 +2803,7 @@ impl Game {
     /// derived again from the current rules. This is the definition that the
     /// incremental path in `publish.rs` must equal. `reference` selects the
     /// plain row-by-row view construction that debug builds compare with.
-    pub(super) fn publish_full(
+    pub(in crate::engine) fn publish_full(
         &mut self,
         decider: Option<Decider>,
         reference: bool,
@@ -2920,7 +2926,7 @@ impl Game {
     }
     /// Existing permitted handle order only; no raw-object scan or handle minting.
     /// Publication prunes this map when an incarnation ceases to be visible.
-    pub(super) fn next_action_handle(
+    pub(in crate::engine) fn next_action_handle(
         &self,
         viewer: PlayerId,
         after: Option<&ObjectHandle>,

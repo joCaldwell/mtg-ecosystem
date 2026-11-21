@@ -28,7 +28,7 @@ impl<T: Clone> Clone for Row<T> {
 #[derive(Clone)]
 pub struct StoredRow<T>(pub Arc<Row<T>>);
 pub type StoredObject = StoredRow<VisibleObject>;
-pub(super) type StoredPlayer = StoredRow<VisiblePlayer>;
+pub(in crate::engine) type StoredPlayer = StoredRow<VisiblePlayer>;
 impl<T: Serialize> StoredRow<T> {
     pub fn new(value: T) -> Self {
         Self(Arc::new(Row {
@@ -228,18 +228,18 @@ pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) setup: Option<VisibleSetup>,
+    pub(in crate::engine) setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) effects: Vec<VisibleEffect>,
-    pub(super) combat: Vec<VisibleAttacker>,
-    pub(super) viewer: PlayerId,
-    pub(super) active: Option<PlayerId>,
-    pub(super) turn_owner: PlayerId,
+    pub(in crate::engine) effects: Vec<VisibleEffect>,
+    pub(in crate::engine) combat: Vec<VisibleAttacker>,
+    pub(in crate::engine) viewer: PlayerId,
+    pub(in crate::engine) active: Option<PlayerId>,
+    pub(in crate::engine) turn_owner: PlayerId,
     pub turn: TurnState,
-    pub(super) live_turn_order: Vec<PlayerId>,
+    pub(in crate::engine) live_turn_order: Vec<PlayerId>,
     #[serde(with = "shared_vec")]
     pub commanders: Arc<Vec<VisibleCommander>>,
-    pub(super) priority: Option<PlayerId>,
+    pub(in crate::engine) priority: Option<PlayerId>,
     #[serde(with = "shared_vec")]
     pub players: Arc<Vec<StoredPlayer>>,
     #[serde(with = "shared_vec")]
@@ -250,13 +250,13 @@ pub struct StoredViewData {
 // Keep serde's workspace feature set unchanged (no generic rc feature needed).
 mod shared_vec {
     use super::*;
-    pub(super) fn serialize<T: Serialize, S: Serializer>(
+    pub(in crate::engine) fn serialize<T: Serialize, S: Serializer>(
         value: &Arc<Vec<T>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         value.as_ref().serialize(serializer)
     }
-    pub(super) fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+    pub(in crate::engine) fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Arc<Vec<T>>, D::Error> {
         Vec::<T>::deserialize(deserializer).map(Arc::new)
@@ -383,7 +383,7 @@ impl StoredPermittedView {
     /// `header` carries every field that is not a row collection. Each
     /// collection, and each row, that equals `previous`'s is that allocation:
     /// exactly the sharing `reuse_previous` gives a converted public view.
-    pub(super) fn from_rows(
+    pub(in crate::engine) fn from_rows(
         header: PermittedView,
         players: Vec<VisiblePlayer>,
         objects: Vec<VisibleObject>,
@@ -506,7 +506,7 @@ impl StoredPermittedView {
     }
     /// This view with its priority holder and turn replaced. Every shared
     /// row collection, and the canonical bytes that follow one, stays shared.
-    pub(super) fn with_priority_and_turn(
+    pub(in crate::engine) fn with_priority_and_turn(
         &self,
         priority: Option<PlayerId>,
         turn: TurnState,
