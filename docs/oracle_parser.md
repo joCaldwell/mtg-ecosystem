@@ -117,7 +117,11 @@ conservative reference analysis over all parsed faces and source metadata,
 recording sources, ability scopes, target selections, event results, reference
 edges and unresolved obligations. [keyword-scopes.ts](../packages/oracle-parser/src/semantic/keyword-scopes.ts)
 maps each produced keyword to its CR 702 rule, ability kinds and the player its
-printed parameters refer to. Nested, optional, modal, chosen and repeated
+printed parameters refer to. [step-vocabulary.ts](../packages/oracle-parser/src/semantic/step-vocabulary.ts)
+is the one list of structural AST steps (groups, nested abilities, iteration,
+replacements, continuous effects); every other printed step is evented at its own
+path under its AST `effect` discriminant. Frozen archives keep the event names
+they were bound with (`library-scan:*`, `choose-one`). Nested, optional, modal, chosen and repeated
 instructions bind under explicit CR-cited scope rules in that source; capture
 scopes, ambiguous antecedents and unsupported repetition remain diagnostics.
 
