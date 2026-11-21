@@ -3490,3 +3490,71 @@ fn failed_public_payment_skips_same_cast_until_next_turn() {
         PlayerResponse::Cast { card: spell }
     );
 }
+
+#[cfg(test)]
+mod shared_query_tests {
+    use super::wipe_tests::{card, view};
+    use super::*;
+    use mtg_contracts::{Chooser, CreaturePowerFilter, EvaluationStage, PermanentFilter};
+
+    // The policy ranks candidates through `mtg_core::query`. Its retired
+    // copies ignored a power bound, counted a creature land as a nonland
+    // permanent and counted phased-out permanents.
+    #[test]
+    fn policy_filters_and_sets_follow_the_shared_core_predicates() {
+        let c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+        let mut v = view(&c);
+        let me = v.viewer;
+        let opponent = (0..4).find(|p| PlayerId(*p) != me).unwrap();
+        let named = |name: &str, handle: &str| {
+            let mut o = card(&c, name, opponent, Zone::Battlefield);
+            o.handle = ObjectHandle(handle.into());
+            o
+        };
+        let small = named("Storm Crow", "small");
+        let large = named("Colossal Dreadmaw", "large");
+        let mut creature_land = named("Storm Crow", "creature land");
+        creature_land
+            .characteristics
+            .as_mut()
+            .unwrap()
+            .additional_types = vec![CardKind::Land];
+        let mut phased = named("Colossal Dreadmaw", "phased");
+        phased.phased_out = true;
+        v.objects = vec![
+            small.clone(),
+            large.clone(),
+            creature_land.clone(),
+            phased.clone(),
+        ];
+        let s = Strategy::new(&c, Policy::Develop, [0; 4]);
+        let strong = TargetSpec {
+            slot: 0,
+            selection_id: "line:0:0".into(),
+            chooser: Chooser::Controller,
+            stage: EvaluationStage::Announcement,
+            domain: TargetDomain::BattlefieldPermanent,
+            filter: Some(PermanentFilter {
+                types: vec![CardKind::Creature],
+                non_types: vec![],
+                non_colors: vec![],
+                opponent: true,
+                tapped: false,
+                power: Some(CreaturePowerFilter::AtLeast { value: 4.into() }),
+            }),
+        };
+        assert!(s.object_matches(&v, &large, &strong, false));
+        assert!(!s.object_matches(&v, &small, &strong, false));
+        assert!(!s.object_matches(&v, &phased, &strong, true));
+        for set in [
+            ObjectSet::NonlandPermanents,
+            ObjectSet::OpponentNonlandPermanents,
+        ] {
+            assert!(s.in_set(&v, &small, &set));
+            assert!(!s.in_set(&v, &creature_land, &set));
+            assert!(!s.in_set(&v, &phased, &set));
+        }
+        assert!(s.in_set(&v, &creature_land, &ObjectSet::Creatures));
+        assert!(!s.in_set(&v, &phased, &ObjectSet::Creatures));
+    }
+}

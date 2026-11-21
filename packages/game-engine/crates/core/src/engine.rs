@@ -357,9 +357,13 @@ mod filtered_damage_trigger_tests;
 #[cfg(test)]
 mod grouped_damage_trigger_tests;
 #[cfg(test)]
+mod hand_cast_lki_tests;
+#[cfg(test)]
 mod opponent_damage_trigger_tests;
 #[cfg(test)]
 mod optional_draw_tests;
+#[cfg(test)]
+mod query_tests;
 mod spell_cascade_grants;
 #[cfg(test)]
 mod step_trigger_tests;
@@ -384,7 +388,9 @@ mod linked_play;
 use linked_play::LinkedPlayProgress;
 mod reveal_and_cast;
 use reveal_and_cast::RevealAndCastProgress;
+mod frame;
 mod hand_cast;
+mod object_facts;
 use hand_cast::HandCastPermission;
 #[cfg(test)]
 mod cascade_tests;
@@ -3760,11 +3766,22 @@ impl Game {
     fn step(&mut self) -> Result<(), String> {
         self.check_history_capacity()?;
         self.refresh_removal_target_facts()?;
+        // Every exit that keeps its staged state reconciles the frame it
+        // installed with the live stack (CR 608.2h/113.7a).
         if let Some(player) = self.state.rules.pending_concessions.first().copied() {
             self.state.rules.pending_concessions.remove(0);
-            return self.apply_departure(player);
+            self.apply_departure(player)?;
+            self.reconcile_frame();
+            return Ok(());
         }
-        match self.state.rules.frame.clone() {
+        // The step works on a private copy of the suspended frame.
+        let (frame, lease) = self.lease_frame();
+        self.step_frame(frame)?;
+        self.commit_frame(lease);
+        Ok(())
+    }
+    fn step_frame(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::GraveyardGroup { tx } => self.graveyard_group_step(tx)?,
             Frame::GraveyardReplacement { transaction } => {
                 self.graveyard_replacement_step(transaction)?
@@ -4033,7 +4050,6 @@ impl Game {
                         .cursor
                         .checked_add(1)
                         .ok_or("instruction cursor resource limit")?;
-                    self.refresh_resolving_lki(&mut frame.spell);
                     self.state.rules.frame = Frame::Resolve { frame };
                 } else {
                     if stack.kind.is_spell()

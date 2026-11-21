@@ -9,6 +9,7 @@ pub const BUILD_RUSTFLAGS: &str = env!("MTG_CARGO_ENCODED_RUSTFLAGS");
 pub const BUILD_RUSTC: &str = env!("MTG_RUSTC");
 mod engine;
 mod profile_data;
+pub mod query;
 pub use engine::*;
 
 #[cfg(test)]

@@ -12,12 +12,9 @@ impl Game {
             .rules
             .objects
             .values()
-            .filter(|o| o.present_on_battlefield() && o.controller == player)
             .filter(|o| {
-                self.characteristics(o.id).is_ok_and(|c| {
-                    (filter.types.is_empty() || filter.types.iter().any(|k| c.has_type(*k)))
-                        && filter.subtypes.iter().all(|s| c.subtypes.contains(s))
-                })
+                crate::query::matches_sacrifice_filter(&self.object_facts(o), player, filter)
+                    .is_yes()
             })
             .map(|o| o.id)
             .collect()

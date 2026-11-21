@@ -3,9 +3,7 @@
 //! 903.9a and 903.10a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::{
-    CreaturePowerFilter, EffectRecipient, PermanentFilter, TargetAmount, TargetAttribute,
-};
+use mtg_contracts::{EffectRecipient, PermanentFilter, TargetAmount, TargetAttribute};
 
 // See docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
 // Historical derivations remain linked from docs/game-engine-evidence.md.
@@ -117,22 +115,7 @@ impl Game {
         f: &PermanentFilter,
     ) -> bool {
         self.current(object).is_ok_and(|o| {
-            o.present_on_battlefield()
-                && (!f.opponent || o.controller != controller)
-                && (!f.tapped || o.tapped)
-        }) && self.color_layer(object).is_ok_and(|c| {
-            !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
-                && (f.types.is_empty() || f.types.iter().any(|k| c.has_type(*k)))
-                && !f.non_types.iter().any(|k| c.has_type(*k))
-                && !c.colors.iter().any(|c| f.non_colors.contains(c))
-        }) && f.power.as_ref().is_none_or(|bound| {
-            self.characteristics(object).is_ok_and(|c| {
-                c.has_type(CardKind::Creature)
-                    && c.power.as_ref().is_some_and(|power| match bound {
-                        CreaturePowerFilter::AtLeast { value } => power >= value,
-                        CreaturePowerFilter::AtMost { value } => power <= value,
-                    })
-            })
+            crate::query::matches_permanent_filter(&self.object_facts(o), controller, f).is_yes()
         })
     }
     pub(super) fn permanent_target_legal(
@@ -182,7 +165,7 @@ impl Game {
                                 && spec
                                     .filter
                                     .as_ref()
-                                    .is_none_or(|f| f.types.iter().any(|k| c.has_type(*k)))
+                                    .is_none_or(|f| crate::query::spell_matches_filter(&c, f))
                         })
                     })
             })

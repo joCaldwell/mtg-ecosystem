@@ -32,7 +32,7 @@ enum MatchedCascadeGrant {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TriggerPlacement {
-    resume: Box<Frame>,
+    pub(super) resume: Box<Frame>,
     cleanup: bool,
     changed: bool,
     remaining: Vec<PlayerId>,

@@ -173,7 +173,14 @@ impl Game {
                 .hand_cast_permission
                 .as_ref()
                 .ok_or("hand cast child permission missing")?;
-            if permission.issuer.as_ref() != &frame.spell
+            // The permission freezes its issuer. Only a trigger whose source
+            // has since left or phased out can hold newer source facts
+            // (CR 608.2h/113.7a).
+            let departed = !self
+                .current(frame.spell.source)
+                .is_ok_and(|source| source.present_on_battlefield());
+            if !(permission.issuer.as_ref() == &frame.spell
+                || (departed && frame::issued_by(&permission.issuer, &frame.spell)))
                 || top.id != child
                 || top.paid.is_some() == announcing
             {
