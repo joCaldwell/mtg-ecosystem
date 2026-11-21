@@ -16,6 +16,7 @@ fn reversal(source: Option<ObjectId>, amount: i64, remove_zero: bool) -> Propose
         color: Color::U,
         amount: Quantity::from(amount),
         source,
+        tap_triggers: vec![],
         remove_zero,
     }
 }

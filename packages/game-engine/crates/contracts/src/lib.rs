@@ -143,7 +143,13 @@ mod draw_discard;
 pub mod equipped_trigger;
 pub mod impulse_play;
 pub mod intrinsic_keyword_blocks;
+pub mod mana_tap_observer;
+pub use mana_tap_observer::ManaTapFilter;
+pub mod optional_block;
+pub mod optional_entry_search;
+pub mod optional_trigger;
 pub mod permanent_entry;
+pub mod source_damage_counters;
 pub use impulse_play::PlayWindow;
 pub mod resolution_mana;
 pub use resolution_mana::ManaResolutionQuantity;
@@ -435,6 +441,8 @@ pub enum Capability {
     CastColorPredicateV1,
     CastSubtypePredicateV1,
     TemporaryCombatRestrictionV1,
+    OptionalEffectBlockV1,
+    ManaTapTriggerV1,
     LibraryPlayWindowV1,
     CastSpellColorCountersV1,
     CounterRemovalManaV1,
@@ -1194,6 +1202,16 @@ pub enum Instruction {
         search: TypedLandSearch,
         source_block: u32,
     },
+    ChooseOptional {
+        chooser: EffectRecipient,
+        #[schemars(range(min = 1))]
+        following: u32,
+        source_block: u32,
+    },
+    SearchRecipientBasicLand {
+        recipient: EffectRecipient,
+        source_block: u32,
+    },
     SearchBasicLands {
         maximum: u32,
         source_block: u32,
@@ -1472,6 +1490,11 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
+    DealDamageToManaActivator {
+        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
+        amount: Quantity,
+        source_block: u32,
+    },
     GainLife {
         recipient: LifeRecipient,
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
@@ -1552,7 +1575,9 @@ impl Instruction {
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
-            Self::SearchBasicLands { source_block, .. }
+            Self::ChooseOptional { source_block, .. }
+            | Self::SearchRecipientBasicLand { source_block, .. }
+            | Self::SearchBasicLands { source_block, .. }
             | Self::FetchBasicLand { source_block, .. } => *source_block,
             Self::CreateCreatureTokens { source_block, .. }
             | Self::CreatePredefinedTokens { source_block, .. }
@@ -1596,7 +1621,8 @@ impl Instruction {
             | Self::CounterStackObject { source_block, .. }
             | Self::CopyControlledCreatureSpell { source_block, .. } => *source_block,
             Self::DealDamage { source_block, .. }
-            | Self::DealDamageToController { source_block, .. } => *source_block,
+            | Self::DealDamageToController { source_block, .. }
+            | Self::DealDamageToManaActivator { source_block, .. } => *source_block,
             Self::GainLife { source_block, .. } => *source_block,
             Self::DrainOpponents { source_block, .. } | Self::LoseLife { source_block, .. } => {
                 *source_block
@@ -2195,6 +2221,9 @@ pub enum TriggerCondition {
     EquippedDies,
     /// The exact source incarnation actually changes from untapped to tapped.
     SelfBecomesTapped,
+    ManaTapped {
+        filter: ManaTapFilter,
+    },
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
     /// CR 603.6a/603.10: read the entering creature's derived battlefield power
@@ -2432,6 +2461,7 @@ impl TriggerCondition {
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
             Self::SelfBecomesTapped => "self_becomes_tapped",
+            Self::ManaTapped { .. } => "mana_tapped",
             Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
             Self::SelfMoved { .. } => "self_moved",
             Self::ControlledLandEntersBattlefield => "controlled_land_enters_battlefield",
@@ -3123,6 +3153,7 @@ impl Definition {
                     Capability::ControlledLandEntryV1
                 }
                 TriggerCondition::SelfBecomesTapped => Capability::SourceTapTriggerV1,
+                TriggerCondition::ManaTapped { .. } => Capability::ManaTapTriggerV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
@@ -3315,6 +3346,10 @@ impl Definition {
         permanent_entry::validate(self)?;
         cast_subtype::validate(self)?;
         combat_window::validate(self)?;
+        optional_block::validate(self)?;
+        mana_tap_observer::validate(self)?;
+        optional_trigger::validate(self)?;
+        source_damage_counters::validate(self)?;
         resolution_mana::validate(self)?;
         impulse_play::validate(self)?;
         predefined_tokens::validate(self)?;
@@ -4297,7 +4332,9 @@ impl Definition {
                 validate_instruction_program(p)?;
                 continue;
             }
-            if ability.condition == TriggerCondition::SelfBecomesTapped {
+            if ability.condition == TriggerCondition::SelfBecomesTapped
+                || matches!(ability.condition, TriggerCondition::ManaTapped { .. })
+            {
                 // The complete source and trigger shape was checked above.
                 validate_instruction_program(p)?;
                 continue;
@@ -4460,6 +4497,8 @@ impl Definition {
                             | Instruction::UntapControllerLands { .. }
                             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
+                            | Instruction::ChooseOptional { .. }
+                            | Instruction::SearchRecipientBasicLand { .. }
                             | Instruction::OptionalDrawUnlessCasterPays { .. }
                             | Instruction::DrawDamageAmount { .. }
                             | Instruction::GrantHandCastCascade { .. }
@@ -5706,6 +5745,15 @@ fn validate_instruction_program_with_chapter(
                 }
                 None
             }
+            Instruction::ChooseOptional {
+                chooser: recipient, ..
+            }
+            | Instruction::SearchRecipientBasicLand { recipient, .. } => match recipient {
+                EffectRecipient::Controller => None,
+                EffectRecipient::TargetController { target_slot } => {
+                    Some(reference(p, *target_slot)?)
+                }
+            },
             Instruction::SearchBasicLands { maximum, .. } => {
                 if *maximum == 0 || *maximum > 2 {
                     return Err("unsupported basic land search maximum".into());
@@ -5896,7 +5944,8 @@ fn validate_instruction_program_with_chapter(
                     _ => return Err("unbound fixed damage target".into()),
                 }
             }
-            Instruction::DealDamageToController { amount, .. } => {
+            Instruction::DealDamageToController { amount, .. }
+            | Instruction::DealDamageToManaActivator { amount, .. } => {
                 if *amount <= Quantity::zero() {
                     return Err("damage quantity must be positive".into());
                 }
@@ -6478,7 +6527,10 @@ fn add_program_requirements_for_source_pump(
             Instruction::SearchColoredLibrary { .. } => Capability::ColoredLibrarySearchV1,
             Instruction::SearchTypedLands { .. } => Capability::TypedLandSearchV1,
             Instruction::SearchBasicLandsSplit { .. } => Capability::BasicLandSplitSearchV1,
-            Instruction::SearchBasicLands { .. } => Capability::BasicLandSearchV1,
+            Instruction::ChooseOptional { .. } => Capability::OptionalEffectBlockV1,
+            Instruction::SearchBasicLands { .. } | Instruction::SearchRecipientBasicLand { .. } => {
+                Capability::BasicLandSearchV1
+            }
             Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
             Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
                 Capability::AnnouncedXEffectsV1
@@ -6580,9 +6632,9 @@ fn add_program_requirements_for_source_pump(
             Instruction::CopyControlledCreatureSpell { .. } => {
                 Capability::ControlledCreatureSpellCopyV1
             }
-            Instruction::DealDamage { .. } | Instruction::DealDamageToController { .. } => {
-                Capability::NoncombatDamageV1
-            }
+            Instruction::DealDamage { .. }
+            | Instruction::DealDamageToController { .. }
+            | Instruction::DealDamageToManaActivator { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
@@ -8084,6 +8136,9 @@ pub fn catalog_schema() -> serde_json::Value {
     resolution_mana::extend_schema(&mut schema);
     cast_subtype::extend_schema(&mut schema);
     combat_window::extend_schema(&mut schema);
+    optional_block::extend_schema(&mut schema);
+    mana_tap_observer::extend_schema(&mut schema);
+    source_damage_counters::extend_schema(&mut schema);
     impulse_play::extend_schema(&mut schema);
     cast_entry::extend_schema(&mut schema);
     let color_trigger = serde_json::json!({"required":["condition"],"properties":{"condition":{
@@ -8500,6 +8555,8 @@ mod tests {
             CastColorPredicateV1,
             CastSubtypePredicateV1,
             TemporaryCombatRestrictionV1,
+            OptionalEffectBlockV1,
+            ManaTapTriggerV1,
             LibraryPlayWindowV1,
             CastSpellColorCountersV1,
             CounterRemovalManaV1,
@@ -8913,6 +8970,8 @@ mod tests {
         definitions.push(resolution_mana::witness());
         definitions.push(cast_subtype::witness());
         definitions.push(combat_window::witness());
+        definitions.push(optional_block::witness());
+        definitions.push(mana_tap_observer::witness());
         definitions.push(impulse_play::witness());
         definitions.push(graveyard_battlefield_return::witness(None));
         definitions.push(announced_x_draw::witness());

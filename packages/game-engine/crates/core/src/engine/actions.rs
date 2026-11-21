@@ -117,6 +117,10 @@ pub(super) enum ResolutionChoice {
         target: ObjectId,
         source_block: u32,
     },
+    ChooseOptional {
+        player: PlayerId,
+        source_block: u32,
+    },
     OptionalDraw {
         player: PlayerId,
         source_block: u32,
@@ -610,6 +614,7 @@ impl Game {
             }
             ResolutionChoice::OptionalShuffle { player, .. }
             | ResolutionChoice::OptionalEffect { player, .. }
+            | ResolutionChoice::ChooseOptional { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. }
                 if self.is_live(*player) =>
             {
@@ -673,6 +678,9 @@ impl Game {
                         player: chooser, ..
                     }
                     | ResolutionChoice::OptionalEffect {
+                        player: chooser, ..
+                    }
+                    | ResolutionChoice::ChooseOptional {
                         player: chooser, ..
                     }
                     | ResolutionChoice::OptionalDraw {
@@ -1044,6 +1052,13 @@ impl Game {
                 {
                     return self.scry_choice_step(frame, player, looked, source_block);
                 }
+                if let ResolutionChoice::ChooseOptional {
+                    player,
+                    source_block,
+                } = choice
+                {
+                    return self.choose_optional_block(frame, player, source_block);
+                }
                 if let ResolutionChoice::OptionalEffect {
                     player,
                     target,
@@ -1091,7 +1106,8 @@ impl Game {
                         | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
-                        | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
+                        | ResolutionChoice::OptionalDraw { .. }
+                        | ResolutionChoice::ChooseOptional { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
@@ -1132,7 +1148,8 @@ impl Game {
                     | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. }
-                    | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
+                    | ResolutionChoice::OptionalDraw { .. }
+                    | ResolutionChoice::ChooseOptional { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
@@ -1432,6 +1449,7 @@ impl Game {
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
             | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
             | Instruction::ReturnOwnGraveyardCardToHand { .. }
+            | Instruction::SearchRecipientBasicLand { .. }
             | Instruction::SearchBasicLands { .. }
             | Instruction::FetchBasicLand { .. }
             | Instruction::SearchBasicLandsSplit { .. }
@@ -1526,6 +1544,7 @@ impl Game {
             }
             op @ (Instruction::DealDamage { .. }
             | Instruction::DealDamageToController { .. }
+            | Instruction::DealDamageToManaActivator { .. }
             | Instruction::DealDamageAnnouncedX { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
@@ -1672,6 +1691,11 @@ impl Game {
                 frame.entrant_draw = Some(Box::new(entrant));
                 self.offer_player_draw(frame, player, source_block)
             }
+            Instruction::ChooseOptional {
+                chooser,
+                following,
+                source_block,
+            } => self.begin_optional_block(frame, chooser, following, source_block),
             Instruction::OptionalDrawCards { source_block } => {
                 self.offer_controller_draw(frame, source_block)
             }
@@ -2373,6 +2397,20 @@ impl Game {
                     source_block == expected
                         && choices.len() <= self.state.rules.cards.len()
                         && choices.windows(2).all(|p| p[0].0 < p[1].0)
+                }
+                (
+                    ResolutionChoice::ChooseOptional {
+                        player,
+                        source_block,
+                    },
+                    Instruction::ChooseOptional {
+                        chooser,
+                        source_block: expected,
+                        ..
+                    },
+                ) => {
+                    source_block == expected
+                        && self.optional_recipient(frame, chooser)? == Some(*player)
                 }
                 (
                     ResolutionChoice::Demonstrate { source_block, .. },
