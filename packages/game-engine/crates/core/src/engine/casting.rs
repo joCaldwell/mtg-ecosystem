@@ -454,8 +454,9 @@ impl Game {
         object: ObjectId,
         color: Color,
     ) -> Result<ManaActivationUndo, String> {
-        let receipt = ManaActivationUndo {
+        let mut receipt = ManaActivationUndo {
             permanent: None,
+            tap_triggers: vec![],
             object,
             player: input.player,
             color,
@@ -464,7 +465,8 @@ impl Game {
                 .mana
                 .contains_key(&color),
         };
-        self.commit_batch(
+        let first_trigger = self.state.rules.next_trigger_id;
+        let batch = self.commit_batch(
             BatchCause::ManaActivation {
                 decision_id: input.decision_id,
                 player: input.player,
@@ -487,6 +489,17 @@ impl Game {
                 ],
             },
         )?;
+        if self.catalog_has_mana_tap_observer {
+            self.collect_mana_tap(&batch, object, None, input.player)?;
+            receipt.tap_triggers = self
+                .state
+                .rules
+                .pending_triggers
+                .iter()
+                .filter(|trigger| trigger.id.0 >= first_trigger)
+                .map(|trigger| trigger.id)
+                .collect();
+        }
         Ok(receipt)
     }
 
@@ -529,6 +542,7 @@ impl Game {
                         amount: receipt.amount.clone(),
                         source,
                         remove_zero: receipt.mana_was_absent,
+                        tap_triggers: receipt.tap_triggers.clone(),
                     },
                 });
             }

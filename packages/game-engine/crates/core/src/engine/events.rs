@@ -3551,6 +3551,7 @@ impl Game {
                 amount,
                 source,
                 remove_zero,
+                tap_triggers,
             } => {
                 // CR 733.1/733.2: undo only recorded casting-stage mana. A
                 // departed source stays absent; a surviving source may have a
@@ -3592,6 +3593,7 @@ impl Game {
                         .ok_or("missing mana reversal source")?
                         .tapped = false;
                 }
+                self.cancel_reversed_tap_triggers(*source, *player, tap_triggers)?;
                 EventOutcome::ManaReversed {
                     player: *player,
                     color: *color,

@@ -25,7 +25,7 @@ types; no handwritten response/observation replacements. Core rules remain deter
 - Preserve original executables/data/evidence for exact recovery. No deployment,
   lobby/account service or new profile admission follows from protocol scaffolding.
 
-Use pinned tools and shared Cargo lock from [development](../../docs/game-engine-development.md).
+Use pinned tools and the worktree Cargo lock from [development](../../docs/game-engine-development.md).
 The default engine check covers the server library. For executable changes run
 `cargo check --locked -p mtg-server --bin mtg-server`.
 Choose affected `cargo test --locked -p mtg-server FILTER` / production Clippy,

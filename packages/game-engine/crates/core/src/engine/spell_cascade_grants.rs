@@ -47,6 +47,7 @@ fn trigger_grant_charge(
         TriggerEventWitness::DelayedCreatureEntered { .. } => {
             stored_history::payload_charge(witness)
         }
+        TriggerEventWitness::ManaTapped { .. } => stored_history::payload_charge(witness),
         TriggerEventWitness::SpellCast { cast } => stored_history::payload_charge(&cast.history),
         _ => 0,
     };

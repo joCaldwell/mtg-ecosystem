@@ -315,7 +315,7 @@ impl Game {
                 | Frame::SacrificeCost { cast }
                 | Frame::Payment { cast } => {
                     charge =
-                        charge.saturating_add(Self::mana_receipt_charge(&cast.mana_activations));
+                        charge.saturating_add(self.mana_receipt_charge(&cast.mana_activations));
                     break;
                 }
                 _ => break,
@@ -329,9 +329,10 @@ impl Game {
             if let ManaStage::Combination { total } = &activation.stage {
                 charge = charge.saturating_add(stored_history::payload_charge(total));
             }
-            charge = charge.saturating_add(Self::mana_receipt_charge(&activation.receipts));
+            charge = charge.saturating_add(self.mana_receipt_charge(&activation.receipts));
             if let Some(paid) = &activation.paid
-                && (paid.branch.is_some()
+                && ((self.catalog_has_mana_tap_observer && !paid.cost_triggers.is_empty())
+                    || paid.branch.is_some()
                     || paid.combination_total.is_some()
                     || paid.life_gain.is_some()
                     || !paid.spent_restricted.is_empty()
@@ -344,15 +345,18 @@ impl Game {
         charge
     }
 
-    fn mana_receipt_charge(receipts: &[ManaActivationUndo]) -> usize {
+    fn mana_receipt_charge(&self, receipts: &[ManaActivationUndo]) -> usize {
         receipts.iter().fold(0usize, |charge, receipt| {
-            if receipt.permanent.as_ref().is_some_and(|r| {
-                r.branch.is_some()
-                    || r.combination_total.is_some()
-                    || r.life_gain.is_some()
-                    || !r.spent_restricted.is_empty()
-                    || !r.produced_restricted.is_empty()
-            }) {
+            if !receipt.tap_triggers.is_empty()
+                || receipt.permanent.as_ref().is_some_and(|r| {
+                    (self.catalog_has_mana_tap_observer && !r.cost_triggers.is_empty())
+                        || r.branch.is_some()
+                        || r.combination_total.is_some()
+                        || r.life_gain.is_some()
+                        || !r.spent_restricted.is_empty()
+                        || !r.produced_restricted.is_empty()
+                })
+            {
                 charge.saturating_add(stored_history::payload_charge(receipt))
             } else {
                 charge
@@ -1198,6 +1202,11 @@ impl Game {
         };
         if !children.is_empty() {
             let batch = self.commit_batch(cause, EventGroup::Ordered { children })?;
+            if a.ability.costs.tap {
+                let triggers =
+                    self.collect_mana_tap(&batch, a.source, Some(&receipt.source), a.player)?;
+                receipt.cost_triggers.extend(triggers);
+            }
             if let Some(index) = life_index {
                 receipt.life_gain = mana_life_gain::actual(&batch, index, a.player)?;
             }
@@ -1216,6 +1225,7 @@ impl Game {
             color: Color::C,
             amount: Quantity::zero(),
             mana_was_absent: false,
+            tap_triggers: vec![],
             permanent: Some(receipt),
         });
         self.resume_mana(*a.resume, a.receipts)
@@ -1262,6 +1272,7 @@ impl Game {
                     amount: r.amount.clone(),
                     source: self.current(r.object).ok().map(|o| o.id),
                     remove_zero: r.mana_was_absent,
+                    tap_triggers: r.tap_triggers.clone(),
                 }
             };
             self.commit(
@@ -1472,6 +1483,7 @@ impl Game {
                         color: Color::C,
                         amount: Quantity::zero(),
                         mana_was_absent: false,
+                        tap_triggers: vec![],
                         permanent: Some(receipt),
                     });
                 }

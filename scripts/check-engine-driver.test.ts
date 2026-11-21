@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, sourceIdentity, withAdvisoryLock, smokePhases } from "./check-engine-driver.ts";
+import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, nativeEnvironment, nativeLock, sourceIdentity, withAdvisoryLock, smokePhases } from "./check-engine-driver.ts";
 
 test("default coverage is bounded and deeper runtime work is explicit", () => {
   const { mode } = parseCheckArguments([]);
@@ -282,6 +282,40 @@ test("advisory lock remains owned across commands and releases on failure", asyn
     assert.equal(records[0].kind, "lock");
     assert.ok(records[0].wait_wall_seconds >= 0);
     assert.equal(spawnSync("flock", ["--nonblock", filename, "true"]).status, 0);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("worktrees select isolated targets and locks; a shared target still serializes", async () => {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mtg-engine-native-test-")));
+  const [first, second] = [path.join(directory, "first"), path.join(directory, "second")];
+  const git = (...args: string[]) => assert.equal(spawnSync("git", args, { encoding: "utf8" }).status, 0);
+  try {
+    fs.mkdirSync(path.join(first, "scripts"), { recursive: true });
+    for (const name of ["engine-cache.py", "engine-storage.py"]) fs.copyFileSync(fileURLToPath(new URL(name, import.meta.url)), path.join(first, "scripts", name));
+    git("init", "--quiet", first);
+    git("-C", first, "add", ".");
+    git("-C", first, "-c", "commit.gpgsign=false", "-c", "user.name=Focused test", "-c", "user.email=focused@example.invalid", "commit", "--quiet", "-m", "fixture");
+    git("-C", first, "worktree", "add", "--quiet", "--detach", second);
+    const base: NodeJS.ProcessEnv = { ...process.env, MTG_ENGINE_LOCK_DIR: path.join(directory, "locks") };
+    delete base.CARGO_TARGET_DIR;
+    delete base.CARGO_INCREMENTAL;
+    const [envA, envB] = [first, second].map(root => nativeEnvironment(root, base));
+    assert.equal(envA.CARGO_TARGET_DIR, path.join(first, "target/engine"));
+    assert.equal(envB.CARGO_TARGET_DIR, path.join(second, "target/engine"));
+    assert.equal("CARGO_INCREMENTAL" in envA, false, "profiles choose incrementality; release stays non-incremental");
+    const [lockA, lockB] = [nativeLock(first, envA), nativeLock(second, envB)];
+    assert.notEqual(lockA, lockB);
+    assert.equal(path.dirname(lockA), path.join(directory, "locks"));
+    const shared = { ...base, CARGO_TARGET_DIR: path.join(directory, "shared") };
+    assert.equal(nativeLock(first, nativeEnvironment(first, shared)), nativeLock(second, nativeEnvironment(second, shared)));
+    // Holding one worktree's lock never delays another; the same target still waits.
+    const records: any[] = [];
+    await withAdvisoryLock(lockA, { cwd: directory, record: value => records.push(value) }, async () => {
+      assert.equal(spawnSync("flock", ["--nonblock", lockA, "true"]).status, 1);
+      await withAdvisoryLock(lockB, { cwd: directory, record: value => records.push(value) }, async () => {});
+    });
+    assert.equal(records.length, 2);
+    assert.ok(records[1].wait_wall_seconds < 1);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 

@@ -102,13 +102,17 @@ mod library_selection_tests;
 mod linked_hideaway;
 mod listed_mana;
 mod mana_life_gain;
+mod mana_tap_observer;
 mod nonland_exile_life;
 mod normalization;
 mod opponent_count_entry;
 mod opponent_life_drain;
 mod opponent_mana;
 mod opponent_nonland_destroy;
+mod optional_block;
 mod optional_costs;
+mod optional_entry_search;
+mod optional_trigger;
 mod ordinary_sequence;
 mod other_land_entry;
 mod own_graveyard_card_return;
@@ -135,6 +139,7 @@ mod self_spell_protection;
 mod set_exile;
 mod source_attack_pump;
 mod source_combat_restrictions;
+mod source_damage_counters;
 mod source_dies_nonland_destroy;
 mod source_regeneration;
 mod source_tap_damage;
@@ -1700,6 +1705,10 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         Some(program) => Some(program),
         None => impulse_play::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
     };
+    let composition = match composition {
+        Some(program) => Some(program),
+        None => optional_block::lower(&shape, &result, &binding, &r.oracle_identity, types.kind)?,
+    };
     let mut basic_fetch = basic_land_fetch::activation(&result, &shape, &binding, &source)?;
     let has_conditional_fetch = basic_fetch.as_ref().is_some_and(|activation| {
         matches!(
@@ -1752,6 +1761,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
         vec![ability]
     } else if let Some(ability) = cast_payer_draw::lower(&shape, &result, &binding)? {
         vec![ability]
+    } else if let Some(ability) = mana_tap_observer::lower(&source, &shape, &result, &binding)? {
+        vec![ability]
     } else if controlled_creature_spell_copy::candidate(&source) {
         vec![Ability::ControlledCreatureSpellCopy]
     } else {
@@ -1762,6 +1773,8 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                     || (types.kind == CardKind::Creature
                         && mtg_contracts::permanent_entry::each_creature_sacrifice(&l.text))
                     || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)
+                    || mtg_contracts::source_damage_counters::candidate(&l.text)
+                    || mtg_contracts::optional_trigger::candidate(&l.text, types.kind)
                     || mtg_contracts::cast_subtype::candidate(&l.text)
                     || (types.kind == CardKind::Land
                         && mtg_contracts::combat_window::split_activation(&l.text).is_some())
@@ -1797,6 +1810,35 @@ fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure>
                             noun,
                         )?
                     {
+                        return Ok(a);
+                    }
+                    if let Some(a) = source_damage_counters::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                    )? {
+                        return Ok(a);
+                    }
+                    if let Some(a) = optional_entry_search::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                        types.kind,
+                    )? {
+                        return Ok(a);
+                    }
+                    if let Some(a) = optional_trigger::lower(
+                        block,
+                        &result,
+                        &binding,
+                        &shape,
+                        &r.oracle_identity,
+                        types.kind,
+                    )? {
                         return Ok(a);
                     }
                     if let Some(a) =
