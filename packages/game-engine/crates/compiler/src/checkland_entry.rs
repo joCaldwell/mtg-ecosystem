@@ -66,10 +66,19 @@ pub(super) fn validate_binding(
     else {
         return Ok(());
     };
+    let mut graph = bindings::Bindings::new(&d.oracle_id, source);
+    bind_entry(&mut graph, query(subtypes.map(BasicLandType::subtype)));
+    listed_mana::bind_tap_mana(&mut graph, "/faces/0/abilities/1");
+    graph.validate(
+        binding,
+        "requires the complete checkland entry binding graph",
+    )
+}
+
+pub(super) fn bind_entry(graph: &mut bindings::Bindings, expression: Value) {
     let root = "/faces/0/abilities/0";
     let effect = format!("{root}/effect");
     let what = format!("{effect}/condition/what");
-    let mut graph = bindings::Bindings::new(&d.oracle_id, source);
     graph.ability(root, "static", "static-source-controller");
     let scope = graph.id(root, "ability");
     let entering = graph.node(
@@ -80,7 +89,6 @@ pub(super) fn validate_binding(
             "scope":scope,"role":"entering-controller","rules":["110.2a","614.12"]
         }),
     );
-    let expression = query(subtypes.map(BasicLandType::subtype));
     let selection = graph.node(
         &what,
         "query",
@@ -103,11 +111,6 @@ pub(super) fn validate_binding(
         &entering,
         "109.5",
     );
-    listed_mana::bind_tap_mana(&mut graph, "/faces/0/abilities/1");
-    graph.validate(
-        binding,
-        "requires the complete checkland entry binding graph",
-    )
 }
 
 #[cfg(test)]

@@ -117,9 +117,20 @@ pub(super) enum ResolutionChoice {
         target: ObjectId,
         source_block: u32,
     },
+    ChooseOptional {
+        player: PlayerId,
+        source_block: u32,
+    },
     OptionalDraw {
         player: PlayerId,
         source_block: u32,
+    },
+    SetColor {
+        source_block: u32,
+    },
+    Proliferate {
+        source_block: u32,
+        choices: proliferate::ProliferateChoices,
     },
     OptionalRecursion {
         player: PlayerId,
@@ -505,6 +516,10 @@ impl Game {
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
+            ResolutionChoice::SetColor { .. } => self.target_color_request(frame),
+            ResolutionChoice::Proliferate { choices, .. } => {
+                self.proliferate_request(frame, choices)
+            }
             ResolutionChoice::ColoredSearch {
                 player,
                 revealed: None,
@@ -599,6 +614,7 @@ impl Game {
             }
             ResolutionChoice::OptionalShuffle { player, .. }
             | ResolutionChoice::OptionalEffect { player, .. }
+            | ResolutionChoice::ChooseOptional { player, .. }
             | ResolutionChoice::OptionalDraw { player, .. }
                 if self.is_live(*player) =>
             {
@@ -638,6 +654,20 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
+        if let Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::SetColor { .. },
+        } = &self.state.rules.frame
+        {
+            return Some(self.validate_target_color_response(frame, player, response));
+        }
+        if let Frame::ResolutionChoice {
+            frame,
+            choice: ResolutionChoice::Proliferate { choices, .. },
+        } = &self.state.rules.frame
+        {
+            return Some(self.validate_proliferate_choice(frame, choices, player, response));
+        }
         if let Some(result) = self.validate_look_top_mana_response(player, response) {
             return Some(result);
         }
@@ -648,6 +678,9 @@ impl Game {
                         player: chooser, ..
                     }
                     | ResolutionChoice::OptionalEffect {
+                        player: chooser, ..
+                    }
+                    | ResolutionChoice::ChooseOptional {
                         player: chooser, ..
                     }
                     | ResolutionChoice::OptionalDraw {
@@ -938,6 +971,16 @@ impl Game {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
+                if let ResolutionChoice::SetColor { source_block } = choice {
+                    return self.target_color_step(frame, source_block);
+                }
+                if let ResolutionChoice::Proliferate {
+                    source_block,
+                    choices,
+                } = choice
+                {
+                    return self.proliferate_step(frame, source_block, choices);
+                }
                 if let ResolutionChoice::Demonstrate {
                     first,
                     source_block,
@@ -1009,6 +1052,13 @@ impl Game {
                 {
                     return self.scry_choice_step(frame, player, looked, source_block);
                 }
+                if let ResolutionChoice::ChooseOptional {
+                    player,
+                    source_block,
+                } = choice
+                {
+                    return self.choose_optional_block(frame, player, source_block);
+                }
                 if let ResolutionChoice::OptionalEffect {
                     player,
                     target,
@@ -1039,7 +1089,9 @@ impl Game {
                 }
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::Demonstrate { .. }
+                        ResolutionChoice::SetColor { .. }
+                        | ResolutionChoice::Proliferate { .. }
+                        | ResolutionChoice::Demonstrate { .. }
                         | ResolutionChoice::HandReturn { .. }
                         | ResolutionChoice::LibraryOrder { .. }
                         | ResolutionChoice::OptionalShuffle { .. }
@@ -1054,7 +1106,8 @@ impl Game {
                         | ResolutionChoice::SearchSplit { .. }
                         | ResolutionChoice::Shuffle { .. }
                         | ResolutionChoice::OptionalRecursion { .. }
-                        | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
+                        | ResolutionChoice::OptionalDraw { .. }
+                        | ResolutionChoice::ChooseOptional { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
@@ -1078,7 +1131,9 @@ impl Game {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::Demonstrate { .. }
+                    ResolutionChoice::SetColor { .. }
+                    | ResolutionChoice::Proliferate { .. }
+                    | ResolutionChoice::Demonstrate { .. }
                     | ResolutionChoice::HandReturn { .. }
                     | ResolutionChoice::LibraryOrder { .. }
                     | ResolutionChoice::OptionalShuffle { .. }
@@ -1093,7 +1148,8 @@ impl Game {
                     | ResolutionChoice::SearchSplit { .. }
                     | ResolutionChoice::Shuffle { .. }
                     | ResolutionChoice::OptionalRecursion { .. }
-                    | ResolutionChoice::OptionalDraw { .. } => unreachable!(),
+                    | ResolutionChoice::OptionalDraw { .. }
+                    | ResolutionChoice::ChooseOptional { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
@@ -1393,11 +1449,29 @@ impl Game {
             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
             | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
             | Instruction::ReturnOwnGraveyardCardToHand { .. }
+            | Instruction::SearchRecipientBasicLand { .. }
             | Instruction::SearchBasicLands { .. }
             | Instruction::FetchBasicLand { .. }
             | Instruction::SearchBasicLandsSplit { .. }
             | Instruction::SearchColoredLibrary { .. }
             | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
+            Instruction::SetTargetColor { source_block, .. } => {
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::SetColor { source_block },
+                };
+                Ok(())
+            }
+            Instruction::Proliferate { source_block } => {
+                self.state.rules.frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::Proliferate {
+                        source_block,
+                        choices: vec![],
+                    },
+                };
+                Ok(())
+            }
             Instruction::DistributePlusOneCounters { source_block, .. } => {
                 let allocations = self.allocated_counter_targets(&frame)?;
                 let cause = Self::staple_cause(&frame, source_block);
@@ -1470,6 +1544,7 @@ impl Game {
             }
             op @ (Instruction::DealDamage { .. }
             | Instruction::DealDamageToController { .. }
+            | Instruction::DealDamageToManaActivator { .. }
             | Instruction::DealDamageAnnouncedX { .. }
             | Instruction::GainLife { .. }
             | Instruction::LoseLife { .. }) => self.execute_damage_life_instruction(frame, op),
@@ -1616,6 +1691,11 @@ impl Game {
                 frame.entrant_draw = Some(Box::new(entrant));
                 self.offer_player_draw(frame, player, source_block)
             }
+            Instruction::ChooseOptional {
+                chooser,
+                following,
+                source_block,
+            } => self.begin_optional_block(frame, chooser, following, source_block),
             Instruction::OptionalDrawCards { source_block } => {
                 self.offer_controller_draw(frame, source_block)
             }
@@ -2298,6 +2378,40 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (
+                    ResolutionChoice::SetColor { source_block },
+                    Instruction::SetTargetColor {
+                        source_block: expected,
+                        ..
+                    },
+                ) => source_block == expected && frame.spell.kind.activated_index().is_some(),
+                (
+                    ResolutionChoice::Proliferate {
+                        source_block,
+                        choices,
+                    },
+                    Instruction::Proliferate {
+                        source_block: expected,
+                    },
+                ) => {
+                    source_block == expected
+                        && choices.len() <= self.state.rules.cards.len()
+                        && choices.windows(2).all(|p| p[0].0 < p[1].0)
+                }
+                (
+                    ResolutionChoice::ChooseOptional {
+                        player,
+                        source_block,
+                    },
+                    Instruction::ChooseOptional {
+                        chooser,
+                        source_block: expected,
+                        ..
+                    },
+                ) => {
+                    source_block == expected
+                        && self.optional_recipient(frame, chooser)? == Some(*player)
+                }
                 (
                     ResolutionChoice::Demonstrate { source_block, .. },
                     Instruction::Demonstrate {

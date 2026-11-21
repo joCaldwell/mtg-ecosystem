@@ -81,6 +81,19 @@ class StorageTests(unittest.TestCase):
                 self.prune(True)
         self.assertTrue(self.cache.exists())
 
+    def test_default_lock_is_the_worktree_target_lock_and_covers_quick(self):
+        quick = self.root / 'target/engine/quick/incremental'
+        quick.mkdir(parents=True)
+        (quick / 'cache').write_bytes(b'x' * 8192)
+        self.assertIn(str(quick), [row['path'] for row in storage.incremental_plan(self.root, 0)])
+        with patch.dict(os.environ, {'MTG_ENGINE_LOCK_DIR': str(Path(self.temp.name) / 'locks')}):
+            lock = storage.worktree_lock(self.root)
+            self.assertEqual(Path(self.temp.name) / 'locks', lock.parent)
+            with storage.cargo_lock(lock):
+                with self.assertRaisesRegex(RuntimeError, 'busy'):
+                    storage.prune_incremental(self.root, 0, True, allow_uninspectable=True)
+        self.assertTrue(quick.exists())
+
     def test_active_open_file_refused(self):
         # Activity need not have a cwd/executable in target: open fds count too.
         with (self.cache / 'cache').open() as handle:

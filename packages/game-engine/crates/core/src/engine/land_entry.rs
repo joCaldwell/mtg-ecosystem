@@ -63,7 +63,8 @@ impl EntryOrigin {
     pub(super) fn player(&self) -> PlayerId {
         match self {
             Self::LandPlay { player, .. } => *player,
-            Self::Copy { frame, .. } | Self::Search { frame } => frame.spell.controller,
+            Self::Copy { frame, .. } => frame.spell.controller,
+            Self::Search { frame } => frame.entry_search_player(),
             Self::Cascade { progress } => progress.frame.spell.controller,
             Self::LinkedPlay { progress, .. } => progress.frame.spell.controller,
         }

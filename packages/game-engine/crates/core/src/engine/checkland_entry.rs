@@ -21,7 +21,7 @@ pub(super) fn record_land_types(
 pub(super) fn controls_land_type(
     land_types: &BTreeSet<(PlayerId, BasicLandType)>,
     controller: PlayerId,
-    subtypes: &[BasicLandType; 2],
+    subtypes: &[BasicLandType],
 ) -> bool {
     subtypes
         .iter()

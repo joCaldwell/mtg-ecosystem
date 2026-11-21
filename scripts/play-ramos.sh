@@ -22,7 +22,7 @@ cd "$run/source"
 cp "$binary" "$run/compiler"
 binary=$run/compiler
 [[ $(sha256sum < "$binary" | cut -d' ' -f1) == "$expected" ]] || { echo "Compiler SHA-256 mismatch" >&2; exit 1; }
-lock="$HOME/.local/share/mtg-ecosystem/engine-verification/cargo.lock"
+lock=$(sh scripts/engine-env.sh python3 -B scripts/engine-cache.py lock)
 mkdir -p "$(dirname "$lock")"
 exec 9>"$lock"
 flock -x 9

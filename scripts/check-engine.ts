@@ -1,8 +1,7 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { digest, engineCheckPlans, nativeEnvironment, parseCheckArguments, pinnedRust, runCheckPhases, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
+import { digest, engineCheckPlans, nativeEnvironment, nativeLock, parseCheckArguments, pinnedRust, runCheckPhases, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const { mode, planOnly, help } = parseCheckArguments(process.argv.slice(2));
@@ -26,16 +25,15 @@ const report = process.env.MTG_ENGINE_TIMING_FILE
 fs.mkdirSync(path.dirname(report), { recursive: true });
 const reportFd = fs.openSync(report, "wx");
 const record = (value: unknown) => fs.writeSync(reportFd, `${JSON.stringify(value)}\n`);
-// Avoid growing multi-GiB incremental caches in routine checks. A caller can
-// explicitly opt in; record the effective value instead of hiding that tradeoff.
-const env: NodeJS.ProcessEnv = needsCargo ? nativeEnvironment(root) : { ...process.env, CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL ?? "0" };
+// Per-worktree target; Cargo profiles choose incrementality unless explicitly set.
+const env: NodeJS.ProcessEnv = needsCargo ? nativeEnvironment(root) : { ...process.env };
 const options = { cwd: root, record, env };
-const locks = path.join(os.homedir(), ".local/share/mtg-ecosystem/engine-verification");
+const lock = needsCargo ? nativeLock(root, env) : null;
 console.error(`Engine timing evidence: ${report}`);
 try {
   const run = async () => {
     const source = sourceIdentity(root);
-    record({ kind: "freeze", mode, coverage: plan.coverage, omitted: plan.omitted, phases, source, driver_sha256: digest(fs.readFileSync(fileURLToPath(import.meta.url))), node: process.version, rust: version, cargo_incremental: env.CARGO_INCREMENTAL, cargo_target_dir: env.CARGO_TARGET_DIR ?? path.join(root, "target") });
+    record({ kind: "freeze", mode, coverage: plan.coverage, omitted: plan.omitted, phases, source, driver_sha256: digest(fs.readFileSync(fileURLToPath(import.meta.url))), node: process.version, rust: version, cargo_incremental: env.CARGO_INCREMENTAL ?? "profile default", cargo_build_jobs: env.CARGO_BUILD_JOBS ?? "cargo default", cargo_target_dir: env.CARGO_TARGET_DIR ?? path.join(root, "target"), cargo_lock: lock });
     try {
       const result = await runCheckPhases(phases, options);
       record({ kind: "phases-complete", mode, ...result });
@@ -47,8 +45,8 @@ try {
       if (!unchanged) throw new Error("Engine check source changed during execution; the result does not describe one unchanged source inventory.");
     }
   };
-  // Own the Cargo lock across nested Node Cargo calls; never wrap check:engine
-  // in another acquisition of this lock. Source/tooling modes need no Cargo lock.
-  if (needsCargo) await withAdvisoryLock(path.join(locks, "cargo.lock"), options, run);
+  // Own the selected target's lock across nested Node Cargo calls; never wrap
+  // check:engine in another acquisition of it. Source/tooling modes need no lock.
+  if (lock) await withAdvisoryLock(lock, options, run);
   else await run();
 } finally { fs.closeSync(reportFd); }

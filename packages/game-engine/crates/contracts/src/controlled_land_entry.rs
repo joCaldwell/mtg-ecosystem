@@ -41,7 +41,7 @@ pub fn controlled_land_entry_trigger(life: Quantity, draw: bool) -> TriggeredAbi
     }
 }
 
-fn permanent_spell() -> SpellProgram {
+pub(super) fn permanent_spell() -> SpellProgram {
     SpellProgram {
         functioning_zone: FunctioningZone::Stack,
         timing: SpellTiming::MainPhase,
@@ -191,7 +191,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "amount":{"pattern":"^[1-9][0-9]*$","maxLength":19},"source_block":{"const":0}}});
     let secondary = json!({"const":Instruction::DrawCards { recipient: None, count: 1.into(), source_block: 0 }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
-        "if":{"allOf":[{"not":land_reclamation::selector()},{"anyOf":[
+        "if":{"allOf":[{"not":{"anyOf":[land_reclamation::selector(),proliferate::selector()]}},{"anyOf":[
             {"required":["triggered"],"properties":{"triggered":{"contains":{"required":["condition"],
                 "properties":{"condition":{"const":"controlled_land_enters_battlefield"}}}}}},
             {"properties":{"provenance":{"properties":{"source_json":{"pattern":r#""oracle_text"\s*:\s*"(?:[^"\\]* — )?Whenever a land you control enters, you gain "#}}}}}
@@ -228,7 +228,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 }}
             }}}
         }},
-        "else":{"if":{"not":land_reclamation::selector()},"then":{"properties":{"capabilities":{"not":{"contains":{"const":ControlledLandEntryV1}}}}}}
+        "else":{"if":{"not":{"anyOf":[land_reclamation::selector(),proliferate::selector()]}},"then":{"properties":{"capabilities":{"not":{"contains":{"const":ControlledLandEntryV1}}}}}}
     }));
 }
 

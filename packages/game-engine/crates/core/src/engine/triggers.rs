@@ -141,6 +141,10 @@ pub enum TriggerEventWitness {
     TokenEntered {
         object: ObjectId,
     },
+    ManaTapped {
+        land: Box<ObjectBefore>,
+        player: PlayerId,
+    },
     Tapped {
         object: ObjectId,
         controller: PlayerId,
@@ -171,6 +175,7 @@ impl TriggerEventWitness {
                 m.previous
             }),
             Self::TokenEntered { object } | Self::Tapped { object, .. } => Some(*object),
+            Self::ManaTapped { land, .. } => Some(land.object),
             Self::CreatureEnteredWithPower { entrant, .. } => Some(entrant.object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
@@ -600,8 +605,14 @@ impl Game {
                     .unwrap_or_default(),
             };
             let mut lore = vec![];
-            if let EventOutcome::TurnTransitioned { lore: changes, .. } = &occurrence.actual {
-                lore.extend(changes.iter().cloned());
+            match &occurrence.actual {
+                EventOutcome::TurnTransitioned { lore: changes, .. } => {
+                    lore.extend(changes.iter().cloned())
+                }
+                EventOutcome::Proliferated {
+                    lore: Some(change), ..
+                } => lore.push(change.clone()),
+                _ => {}
             }
             for witness in &witnesses {
                 if let TriggerEventWitness::Moved { movement } = witness
@@ -720,7 +731,7 @@ impl Game {
             witness,
         )
     }
-    fn collect_trigger_witness(
+    pub(super) fn collect_trigger_witness(
         &mut self,
         before: Option<(&Game, &BatchCause)>,
         event: TriggerOccurrenceId,
@@ -925,6 +936,9 @@ impl Game {
                                 .is_ok_and(|s| s.controller != object.controller)
                     }
                     TriggerCondition::SelfDies => creature && dies && Some(object.id) == subject,
+                    TriggerCondition::ManaTapped { filter } => {
+                        matches!(&witness, TriggerEventWitness::ManaTapped { land, .. } if filter.matches(&land.characteristics))
+                    }
                     TriggerCondition::SelfBecomesTapped => {
                         matches!(&witness, TriggerEventWitness::Tapped { object: tapped, .. } if *tapped == object.id)
                     }
@@ -2017,6 +2031,24 @@ impl Game {
                     && *condition == TriggerCondition::OtherCreatureEntersBattlefield
                     && *object != source
             }
+            TriggerEventWitness::ManaTapped { land, player } => {
+                self.validate_characteristic_identity(
+                    land.object,
+                    land.zone,
+                    &land.characteristics,
+                )?;
+                player.0 < 4
+                    && land.controller.0 < 4
+                    && land.zone == Zone::Battlefield
+                    && self
+                        .state
+                        .rules
+                        .cards
+                        .get(&land.object.card)
+                        .is_some_and(|c| c.owner == land.owner)
+                    && death_controller.is_none()
+                    && matches!(condition, TriggerCondition::ManaTapped { filter } if filter.matches(&land.characteristics))
+            }
             TriggerEventWitness::Tapped {
                 object,
                 controller: at_tap,
@@ -2079,6 +2111,7 @@ impl Game {
                         | TriggerCondition::CreatureAttacked { .. }
                         | TriggerCondition::DamageDealt { .. }
                         | TriggerCondition::SelfBecomesTapped
+                        | TriggerCondition::ManaTapped { .. }
                         | TriggerCondition::GroupedDamageDealt { .. }
                         | TriggerCondition::EquippedCombatDamage
                         | TriggerCondition::EquippedDies

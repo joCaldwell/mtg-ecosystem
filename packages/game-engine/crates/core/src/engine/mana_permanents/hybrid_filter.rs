@@ -2,6 +2,11 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
+pub(super) fn uses_indexed_paid_mana(definition: &Definition) -> bool {
+    hybrid_filter_colors(definition).is_some()
+        || mtg_contracts::paid_restricted_land::present(definition)
+}
+
 impl ManaActivation {
     pub(super) fn filter_colors(&self) -> Option<[Color; 2]> {
         match self.ability.production {
@@ -43,6 +48,12 @@ impl ManaActivation {
                     ManaStage::Combination { total } => *total == Quantity::from(2),
                     ManaStage::Color => false,
                 };
+        }
+        if mtg_contracts::paid_restricted_land::present(definition) {
+            return self.filter_input.is_none()
+                && self.printed_index == Some(1)
+                && definition.mana_abilities.get(1) == Some(&self.ability)
+                && matches!(self.stage, ManaStage::Payment | ManaStage::Spend);
         }
         self.filter_input.is_none()
             && self.printed_index.is_none()

@@ -4,6 +4,7 @@ use super::*;
 use mtg_contracts::{disjoint_pain_mana_family, hybrid_filter_colors};
 
 mod hybrid_filter;
+use hybrid_filter::uses_indexed_paid_mana;
 
 mod mana_damage;
 mod mana_life_gain;
@@ -314,7 +315,7 @@ impl Game {
                 | Frame::SacrificeCost { cast }
                 | Frame::Payment { cast } => {
                     charge =
-                        charge.saturating_add(Self::mana_receipt_charge(&cast.mana_activations));
+                        charge.saturating_add(self.mana_receipt_charge(&cast.mana_activations));
                     break;
                 }
                 _ => break,
@@ -328,9 +329,10 @@ impl Game {
             if let ManaStage::Combination { total } = &activation.stage {
                 charge = charge.saturating_add(stored_history::payload_charge(total));
             }
-            charge = charge.saturating_add(Self::mana_receipt_charge(&activation.receipts));
+            charge = charge.saturating_add(self.mana_receipt_charge(&activation.receipts));
             if let Some(paid) = &activation.paid
-                && (paid.branch.is_some()
+                && ((self.catalog_has_mana_tap_observer && !paid.cost_triggers.is_empty())
+                    || paid.branch.is_some()
                     || paid.combination_total.is_some()
                     || paid.life_gain.is_some()
                     || !paid.spent_restricted.is_empty()
@@ -343,15 +345,18 @@ impl Game {
         charge
     }
 
-    fn mana_receipt_charge(receipts: &[ManaActivationUndo]) -> usize {
+    fn mana_receipt_charge(&self, receipts: &[ManaActivationUndo]) -> usize {
         receipts.iter().fold(0usize, |charge, receipt| {
-            if receipt.permanent.as_ref().is_some_and(|r| {
-                r.branch.is_some()
-                    || r.combination_total.is_some()
-                    || r.life_gain.is_some()
-                    || !r.spent_restricted.is_empty()
-                    || !r.produced_restricted.is_empty()
-            }) {
+            if !receipt.tap_triggers.is_empty()
+                || receipt.permanent.as_ref().is_some_and(|r| {
+                    (self.catalog_has_mana_tap_observer && !r.cost_triggers.is_empty())
+                        || r.branch.is_some()
+                        || r.combination_total.is_some()
+                        || r.life_gain.is_some()
+                        || !r.spent_restricted.is_empty()
+                        || !r.produced_restricted.is_empty()
+                })
+            {
                 charge.saturating_add(stored_history::payload_charge(receipt))
             } else {
                 charge
@@ -432,7 +437,7 @@ impl Game {
         let definition = self.copiable_definition(source)?;
         if definition.mana_abilities.len() != 1
             && !disjoint_pain_mana_family(definition)
-            && hybrid_filter_colors(definition).is_none()
+            && !uses_indexed_paid_mana(definition)
         {
             return Err("unsupported permanent mana source".into());
         }
@@ -482,7 +487,7 @@ impl Game {
         let grant = self.has_granted_land_mana(source)?;
         let printed = definition.mana_abilities.len() == 1
             || disjoint_pain_mana_family(definition)
-            || hybrid_filter_colors(definition).is_some();
+            || uses_indexed_paid_mana(definition);
         let mut choices: Vec<_> = self
             .intrinsic_choice_colors(player, source)
             .unwrap_or_default()
@@ -603,9 +608,7 @@ impl Game {
                     self.resume_mana(resume, vec![receipt])
                 }
                 ManaAbilityIdentity::Printed { index } => {
-                    if hybrid_filter_colors(self.copiable_definition(source)?).is_some()
-                        && index == 1
-                    {
+                    if uses_indexed_paid_mana(self.copiable_definition(source)?) && index == 1 {
                         return self.start_indexed_mana_ability(
                             &input,
                             source,
@@ -687,7 +690,7 @@ impl Game {
             return Err("invalid permanent mana continuation".into());
         }
         if !self.intrinsic_mana_colors(source)?.is_empty()
-            || hybrid_filter_colors(self.copiable_definition(source)?).is_some()
+            || uses_indexed_paid_mana(self.copiable_definition(source)?)
         {
             self.state.rules.frame = Frame::ManaSourceChoice {
                 player: input.player,
@@ -736,6 +739,11 @@ impl Game {
             .get(index as usize)
             .ok_or("missing selected mana ability")?
             .clone();
+        let stage = if matches!(ability.production, ManaProduction::HybridFilter { .. }) {
+            ManaStage::FilterInput
+        } else {
+            ManaStage::Payment
+        };
         let activation = ManaActivation {
             player: input.player,
             source,
@@ -744,11 +752,7 @@ impl Game {
             branch,
             printed_index,
             filter_input: None,
-            stage: if printed_index.is_some() {
-                ManaStage::FilterInput
-            } else {
-                ManaStage::Payment
-            },
+            stage,
             resume: Box::new(resume),
             receipts: vec![],
             paid: None,
@@ -779,7 +783,8 @@ impl Game {
                 player: a.player,
                 cost: a.payment_cost().ok_or("missing mana ability cost")?,
                 available: self.state.rules.players[a.player.0 as usize].mana.clone(),
-                restricted_available: self.eligible_restricted(a.player, ManaConsumer::Activation),
+                restricted_available: self
+                    .eligible_restricted(a.player, self.activation_mana_consumer(a.source)),
             },
             ManaStage::Combination { ref total } => Request::ManaCombination {
                 decision_id: self.state.rules.revision,
@@ -836,7 +841,7 @@ impl Game {
                     &a.payment_cost().ok_or("missing nested cost")?,
                     spending,
                     restricted,
-                    ManaConsumer::Activation,
+                    self.activation_mana_consumer(a.source),
                 )
                 .map(|_| ()),
             (ManaStage::Combination { total }, Response::ManaCombination { amounts }) => {
@@ -890,7 +895,11 @@ impl Game {
             }
             Response::FinishMana { undo_mana } if a.stage == ManaStage::Payment => {
                 let cost = a.payment_cost().ok_or("missing nested mana cost")?;
-                if self.can_pay_with_restricted(a.player, &cost, ManaConsumer::Activation)? {
+                if self.can_pay_with_restricted(
+                    a.player,
+                    &cost,
+                    self.activation_mana_consumer(a.source),
+                )? {
                     a.stage = ManaStage::Spend;
                     self.state.rules.frame = Frame::ManaAbility {
                         activation: Box::new(a),
@@ -1193,6 +1202,11 @@ impl Game {
         };
         if !children.is_empty() {
             let batch = self.commit_batch(cause, EventGroup::Ordered { children })?;
+            if a.ability.costs.tap {
+                let triggers =
+                    self.collect_mana_tap(&batch, a.source, Some(&receipt.source), a.player)?;
+                receipt.cost_triggers.extend(triggers);
+            }
             if let Some(index) = life_index {
                 receipt.life_gain = mana_life_gain::actual(&batch, index, a.player)?;
             }
@@ -1211,6 +1225,7 @@ impl Game {
             color: Color::C,
             amount: Quantity::zero(),
             mana_was_absent: false,
+            tap_triggers: vec![],
             permanent: Some(receipt),
         });
         self.resume_mana(*a.resume, a.receipts)
@@ -1257,6 +1272,7 @@ impl Game {
                     amount: r.amount.clone(),
                     source: self.current(r.object).ok().map(|o| o.id),
                     remove_zero: r.mana_was_absent,
+                    tap_triggers: r.tap_triggers.clone(),
                 }
             };
             self.commit(
@@ -1420,7 +1436,7 @@ impl Game {
                             false
                         } else {
                             self.state.rules.pending = None;
-                            hybrid_filter_colors(self.copiable_definition(*source)?).is_none()
+                            !uses_indexed_paid_mana(self.copiable_definition(*source)?)
                                 && !self.has_granted_land_mana(*source)?
                                 && (self.intrinsic_mana_colors(*source)?.is_empty()
                                     || !self.is_permanent_mana(*source))
@@ -1467,6 +1483,7 @@ impl Game {
                         color: Color::C,
                         amount: Quantity::zero(),
                         mana_was_absent: false,
+                        tap_triggers: vec![],
                         permanent: Some(receipt),
                     });
                 }

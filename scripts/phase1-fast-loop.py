@@ -14,7 +14,6 @@ import argparse
 import csv
 from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
 import runpy
 import shutil
@@ -24,7 +23,6 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / "generated" / "phase1-fast-inner-loop"
-LOCK = Path.home() / ".local/share/mtg-ecosystem/engine-verification/cargo.lock"
 REPORT = runpy.run_path(str(ROOT / "scripts" / "phase1-deck-coverage.py"))
 
 
@@ -46,14 +44,15 @@ def run(command, **kwargs):
 def mtg_sim(args):
     if args.mtg_sim:
         return args.mtg_sim
-    # Like engine:dev, build in this checkout's own target: a cache shared across
-    # worktrees can treat another lane's workspace crates as fresh and link them.
-    target = Path(os.environ.get("CARGO_TARGET_DIR") or ROOT / "target" / "engine-dev")
-    binary = target / "release" / "mtg-sim"
+    # Like engine:dev: engine-env selects this worktree's target and
+    # engine-cache.py names that target's lock.
+    target = subprocess.run(["python3", "-B", "scripts/engine-cache.py", "path"], cwd=ROOT,
+                            capture_output=True, text=True, check=True).stdout.strip()
+    binary = Path(target) / "release" / "mtg-sim"
     if not args.no_build:
         # Release scans the whole archive in seconds; quick (opt-level 0) does not.
-        code = run(["sh", "scripts/engine-env.sh", "flock", LOCK, "cargo", "build", "--locked", "--release",
-                    "-p", "mtg-sim"], env={**os.environ, "CARGO_TARGET_DIR": str(target)})
+        code = run(["sh", "scripts/engine-env.sh", "sh", "-ec", 'lock=$(python3 -B scripts/engine-cache.py lock); '
+                    'mkdir -p "$(dirname -- "$lock")"; exec flock "$lock" cargo build --locked --release -p mtg-sim'])
         if code:
             sys.exit(code)
     if not binary.exists():
