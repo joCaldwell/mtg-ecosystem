@@ -192,7 +192,7 @@ impl Game {
                 return Ok(());
             }
             self.state.rules.frame = Frame::Priority;
-            return self.stabilize();
+            return Ok(self.stabilize()?);
         }
         self.finish_mana_ability(a)?;
         if departed {

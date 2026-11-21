@@ -586,7 +586,7 @@ impl Game {
             EntryOrigin::LandPlay { .. } => {
                 self.state.rules.frame = Frame::Priority;
                 self.state.rules.passes.clear();
-                self.stabilize()
+                Ok(self.stabilize()?)
             }
             EntryOrigin::LinkedPlay { progress, .. } => {
                 self.state.rules.frame = Frame::PlayHideawayLinked { progress };

@@ -334,7 +334,7 @@ impl Game {
         })?;
         self.state.rules.priority = entry.controller;
         self.state.rules.frame = Frame::Priority;
-        self.stabilize()
+        Ok(self.stabilize()?)
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {

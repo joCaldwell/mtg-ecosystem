@@ -5,15 +5,19 @@
 //! an invariant of the state or of a snapshot does not hold; a declared
 //! capacity or counter is exhausted; or a proposed input is not a legal
 //! choice in this state. Callers that still report text convert with `From`.
+use crate::engine::RuleFault;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuleError {
     /// A state or snapshot invariant does not hold. The step faults.
     Invariant(String),
-    /// A declared capacity or counter is exhausted. The step faults, and the
-    /// staged state carries the typed `RuleFault` when one applies.
-    Resource(String),
+    /// A declared capacity or counter is exhausted. The step faults, with
+    /// the typed capacity fault when one names the exhausted resource.
+    Resource {
+        reason: String,
+        fault: Option<RuleFault>,
+    },
     /// A proposed input is not a legal choice in this state. Nothing changes.
     Illegal(String),
 }
@@ -23,14 +27,37 @@ impl RuleError {
         Self::Invariant(reason.into())
     }
     pub fn resource(reason: impl Into<String>) -> Self {
-        Self::Resource(reason.into())
+        Self::Resource {
+            reason: reason.into(),
+            fault: None,
+        }
+    }
+    /// This failure with the typed capacity fault its change recorded. A
+    /// recorded fault makes the failure a resource failure.
+    pub fn with_fault(self, fault: Option<RuleFault>) -> Self {
+        match fault {
+            Some(fault) => Self::Resource {
+                reason: self.into(),
+                fault: Some(fault),
+            },
+            None => self,
+        }
+    }
+    /// The typed capacity fault, when this is one.
+    pub fn fault(&self) -> Option<&RuleFault> {
+        match self {
+            Self::Resource { fault, .. } => fault.as_ref(),
+            Self::Invariant(_) | Self::Illegal(_) => None,
+        }
     }
     pub fn illegal(reason: impl Into<String>) -> Self {
         Self::Illegal(reason.into())
     }
     pub fn reason(&self) -> &str {
         match self {
-            Self::Invariant(reason) | Self::Resource(reason) | Self::Illegal(reason) => reason,
+            Self::Invariant(reason) | Self::Resource { reason, .. } | Self::Illegal(reason) => {
+                reason
+            }
         }
     }
 }
@@ -58,7 +85,7 @@ impl From<RuleError> for String {
     fn from(error: RuleError) -> Self {
         match error {
             RuleError::Invariant(reason)
-            | RuleError::Resource(reason)
+            | RuleError::Resource { reason, .. }
             | RuleError::Illegal(reason) => reason,
         }
     }

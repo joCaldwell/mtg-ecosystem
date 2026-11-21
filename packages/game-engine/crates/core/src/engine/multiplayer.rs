@@ -630,7 +630,7 @@ impl Game {
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }
-        self.stabilize()
+        Ok(self.stabilize()?)
     }
     /// CR 104.5/800.4a: derive departures from actual loss occurrences. Only
     /// the players marked by the completed batch may leave for these losses.

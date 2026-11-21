@@ -2214,7 +2214,7 @@ impl Game {
             .active
             .or_else(|| self.next_live(self.state.rules.turn_owner))
             .ok_or("no live player after ability")?;
-        self.stabilize()
+        Ok(self.stabilize()?)
     }
     pub(super) fn remove_resolved_entry(&mut self, id: StackId) -> Result<(), String> {
         if let Some(index) = self.resolving_entry_index(id)? {

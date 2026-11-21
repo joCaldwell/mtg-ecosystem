@@ -18,7 +18,9 @@
 use super::*;
 
 mod decider;
+mod model;
 pub use decider::Decider;
+pub use model::*;
 
 /// How a frame holds an invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -486,7 +488,7 @@ impl Frame {
 impl Game {
     /// The single owner of an invocation: its live stack entry, or the
     /// detached entry a frame is still resolving after it left the stack.
-    pub(crate) fn entry(&self, id: StackId) -> Result<&StackInstance, String> {
+    pub(crate) fn entry(&self, id: StackId) -> Result<&StackInstance, RuleError> {
         let rules = &self.state.rules;
         rules
             .stack
@@ -502,7 +504,7 @@ impl Game {
         &self,
         frame: &Resolving,
         source_block: u32,
-    ) -> Result<BatchCause, String> {
+    ) -> Result<BatchCause, RuleError> {
         let entry = self.entry(frame.stack_id)?;
         Ok(BatchCause::Instruction {
             stack_id: frame.stack_id,
@@ -516,7 +518,7 @@ impl Game {
     /// Removes the stack entry at `index`. The entry stays owned by the
     /// detached table until the rule step commits; `release_detached` then
     /// keeps it only while the installed frame still resumes it (CR 608.2m).
-    pub(crate) fn unstack(&mut self, index: usize) -> Result<StackId, String> {
+    pub(crate) fn unstack(&mut self, index: usize) -> Result<StackId, RuleError> {
         let rules = &mut self.state.rules;
         if index >= rules.stack.len() {
             return Err("missing stack entry".into());

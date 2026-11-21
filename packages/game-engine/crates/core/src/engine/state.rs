@@ -3,12 +3,18 @@
 //! recovery hashes. No history is discarded or treated as nonsemantic here.
 use super::*;
 
+mod access;
 mod error;
+mod model;
 mod objects;
 mod shared;
+mod txn;
+mod validate;
 pub use error::RuleError;
+pub use model::*;
 pub use objects::{OBJECT_CHUNK, ObjectTable};
 pub use shared::Shared;
+pub use txn::RulesTxn;
 
 // Declare each field once. The flat decoder keeps deny_unknown_fields without
 // serde's flatten/unknown-field ambiguity, while the encoder borrows groups.

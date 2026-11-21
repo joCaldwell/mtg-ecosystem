@@ -685,7 +685,7 @@ impl GameTestkit for Game {
         Game::casting_cost(self, card, caster, from)
     }
     fn check_history_capacity(&mut self) -> Result<(), String> {
-        Game::check_history_capacity(self)
+        Ok(Game::check_history_capacity(self)?)
     }
     fn check_resolution_condition(
         &mut self,
@@ -769,7 +769,7 @@ impl GameTestkit for Game {
         Game::creatures(self, player, attacking)
     }
     fn current(&self, id: ObjectId) -> Result<&Object, String> {
-        Game::current(self, id)
+        Ok(Game::current(self, id)?)
     }
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
         Game::current_keywords(self, object)
@@ -802,7 +802,7 @@ impl GameTestkit for Game {
         Game::damage_transaction(self)
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
-        Game::definition(self, card)
+        Ok(Game::definition(self, card)?)
     }
     fn derived_characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
         Game::derived_characteristics(self, object)
@@ -1105,10 +1105,10 @@ impl GameTestkit for Game {
         Game::prepare_noncombat_damage(self, frame, damage, block)
     }
     fn program(&self) -> Result<&SpellProgram, String> {
-        Game::program(self)
+        Ok(Game::program(self)?)
     }
     fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
-        Game::program_for(self, stack)
+        Ok(Game::program_for(self, stack)?)
     }
     fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
         Game::protected_from(self, target, source)
@@ -1249,7 +1249,7 @@ impl GameTestkit for Game {
         Game::stabilization_wave_with_legends(self, resume, cleanup, changed, kept)
     }
     fn stabilize(&mut self) -> Result<(), String> {
-        Game::stabilize(self)
+        Ok(Game::stabilize(self)?)
     }
     fn stack_handle_for(&self, viewer: PlayerId, id: StackId) -> Result<StackHandle, String> {
         Game::stack_handle_for(self, viewer, id)
@@ -1270,7 +1270,7 @@ impl GameTestkit for Game {
         Game::static_modifications(self, target)
     }
     fn step(&mut self) -> Result<(), String> {
-        Game::step(self)
+        Ok(Game::step(self)?)
     }
     fn target_is_creature(&self, object: ObjectId) -> bool {
         Game::target_is_creature(self, object)
@@ -1294,7 +1294,7 @@ impl GameTestkit for Game {
         Game::token_capacity(self)
     }
     fn top(&self) -> Result<&StackInstance, String> {
-        Game::top(self)
+        Ok(Game::top(self)?)
     }
     fn transition_turn_step(&mut self) -> Result<(), String> {
         Game::transition_turn_step(self)
@@ -1425,7 +1425,7 @@ impl GameTestkit for Game {
         Game::validate_response(self, player, response)
     }
     fn validate_state(&self) -> Result<(), String> {
-        Game::validate_state(self)
+        Ok(Game::validate_state(self)?)
     }
     fn validate_tap_life_sacrifice_source(
         &self,
@@ -1489,13 +1489,13 @@ impl GameTestkit for Game {
         frame: &Resolving,
         source_block: u32,
     ) -> Result<BatchCause, String> {
-        Game::instruction_cause(self, frame, source_block)
+        Ok(Game::instruction_cause(self, frame, source_block)?)
     }
     fn entry(&self, id: StackId) -> Result<&StackInstance, String> {
-        Game::entry(self, id)
+        Ok(Game::entry(self, id)?)
     }
     fn unstack(&mut self, index: usize) -> Result<StackId, String> {
-        Game::unstack(self, index)
+        Ok(Game::unstack(self, index)?)
     }
     fn release_detached(&mut self) {
         Game::release_detached(self)

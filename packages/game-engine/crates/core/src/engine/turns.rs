@@ -183,7 +183,7 @@ impl Game {
             },
         )?;
         self.state.rules.passes.clear();
-        self.stabilize()
+        Ok(self.stabilize()?)
     }
     // CR 500.5, 106.4: pools empty at each step/phase ending. CR 500-514:
     // transition and entry work are separate serializable, budgeted frames.

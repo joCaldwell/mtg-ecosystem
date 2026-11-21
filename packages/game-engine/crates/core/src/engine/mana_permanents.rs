@@ -1255,7 +1255,7 @@ impl Game {
         }
         self.state.rules.frame = resume;
         if matches!(self.state.rules.frame, Frame::Priority) {
-            return self.stabilize();
+            return Ok(self.stabilize()?);
         }
         self.revalidate_resolution_payment_departure()
     }

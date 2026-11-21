@@ -299,7 +299,7 @@ impl Game {
         match batch.cause {
             BatchCause::SpellCompletion { .. } => {
                 self.remove_resolved_entry(frame.stack_id)?;
-                self.complete_spell_resolution(frame.stack_id, true)
+                Ok(self.complete_spell_resolution(frame.stack_id, true)?)
             }
             BatchCause::Instruction { .. } => {
                 let movement = match batch.occurrences.last().map(|r| &r.actual) {
@@ -324,7 +324,7 @@ impl Game {
         if self.current(source).is_err() || !self.is_live(self.entry(frame.stack_id)?.controller) {
             self.state.rules.pending = None;
             if self.entry(frame.stack_id)?.source == source {
-                return self.finish_spell(frame.stack_id, true);
+                return Ok(self.finish_spell(frame.stack_id, true)?);
             }
             return self.finish_instruction(
                 frame.clone(),

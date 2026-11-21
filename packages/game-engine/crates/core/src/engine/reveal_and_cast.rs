@@ -145,7 +145,7 @@ impl Game {
         let player = self.entry(progress.frame.stack_id)?.controller;
         let cause = self.instruction_cause(&progress.frame, progress.source_block)?;
         if !self.is_live(player) {
-            return self.finish_spell(progress.frame.stack_id, false);
+            return Ok(self.finish_spell(progress.frame.stack_id, false)?);
         }
         match &mut progress.stage {
             RevealStage::Scan => {
@@ -195,7 +195,7 @@ impl Game {
                     }
                     progress.lands.clear();
                     let Some(hit) = *hit else {
-                        return self.finish_spell(progress.frame.stack_id, true);
+                        return Ok(self.finish_spell(progress.frame.stack_id, true)?);
                     };
                     progress.stage = RevealStage::Offer { hit };
                 }
@@ -215,9 +215,11 @@ impl Game {
                 } else if legal {
                     return Err("missing revealed cast decision".into());
                 }
-                return self.finish_spell(progress.frame.stack_id, true);
+                return Ok(self.finish_spell(progress.frame.stack_id, true)?);
             }
-            RevealStage::Cast { .. } => return self.finish_spell(progress.frame.stack_id, true),
+            RevealStage::Cast { .. } => {
+                return Ok(self.finish_spell(progress.frame.stack_id, true)?);
+            }
         }
         self.state.rules.frame = Frame::RevealAndCast { progress };
         Ok(())

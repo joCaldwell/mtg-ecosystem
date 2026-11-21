@@ -282,7 +282,7 @@ impl Game {
         if during_resolution {
             Ok(())
         } else {
-            self.stabilize()
+            Ok(self.stabilize()?)
         }
     }
 

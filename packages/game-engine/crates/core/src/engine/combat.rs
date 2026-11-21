@@ -318,7 +318,7 @@ impl Game {
             .or_else(|| self.next_live(self.state.rules.turn_owner))
             .ok_or("no priority recipient")?;
         self.state.rules.frame = Frame::Priority;
-        self.stabilize()
+        Ok(self.stabilize()?)
     }
     pub(super) fn schedule_stabilization(&mut self, resume: Frame, cleanup: bool) {
         self.state.rules.frame = Frame::Stabilize {

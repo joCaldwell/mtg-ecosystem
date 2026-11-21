@@ -990,7 +990,7 @@ impl Game {
                             Frame::EntityTargets { .. },
                             PlayerResponse::EntityTargets { entities },
                         ) => {
-                            let p = self.program().map_err(invalid)?;
+                            let p = self.program().map_err(|e| invalid(e.into()))?;
                             mtg_contracts::graveyard_shuffle::offered_by(p)
                                 .map_or(entities.len() == p.targets.len(), |m| {
                                     (1..=usize::from(m) + 1).contains(&entities.len())
@@ -1083,14 +1083,15 @@ impl Game {
                             Frame::TriggerTargets { .. },
                             PlayerResponse::EntityTargets { entities },
                         ) => {
-                            let p = self.program().map_err(invalid)?;
+                            let p = self.program().map_err(|e| invalid(e.into()))?;
                             mtg_contracts::graveyard_shuffle::offered_by(p)
                                 .map_or(entities.len() == p.targets.len(), |m| {
                                     (1..=usize::from(m) + 1).contains(&entities.len())
                                 })
                         }
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
-                            objects.len() == self.program().map_err(invalid)?.targets.len()
+                            objects.len()
+                                == self.program().map_err(|e| invalid(e.into()))?.targets.len()
                         }
                         (Frame::TriggerOrder { .. }, PlayerResponse::OrderTriggers { order }) => {
                             order.len() == self.trigger_order_ids().len()
@@ -1098,7 +1099,10 @@ impl Game {
                         (
                             Frame::TriggerTargets { .. },
                             PlayerResponse::PlayerTargets { players },
-                        ) => players.len() == self.program().map_err(invalid)?.targets.len(),
+                        ) => {
+                            players.len()
+                                == self.program().map_err(|e| invalid(e.into()))?.targets.len()
+                        }
                         (
                             Frame::ResolutionChoice {
                                 choice: ResolutionChoice::Demonstrate { first: Some(_), .. },
@@ -1142,7 +1146,7 @@ impl Game {
                         | (Frame::Discard { .. }, PlayerResponse::Discard { .. }) => true,
                         (Frame::Targets { .. }, PlayerResponse::Targets { objects }) => {
                             Self::object_target_number_valid(
-                                self.program().map_err(invalid)?,
+                                self.program().map_err(|e| invalid(e.into()))?,
                                 objects.len(),
                             )
                         }
@@ -1174,7 +1178,7 @@ impl Game {
                     let object = self
                         .resolve_handle(*viewer, &objects[converted.len()])
                         .map_err(invalid)?;
-                    if self.current(object).map_err(invalid)?.zone
+                    if self.current(object).map_err(|e| invalid(e.into()))?.zone
                         != (Zone::Hand { owner: *viewer })
                     {
                         return Err(QueryRejection::InvalidResponse);
