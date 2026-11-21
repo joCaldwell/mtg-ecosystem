@@ -40,7 +40,10 @@ impl Resolution {
                     .is_some_and(|b| b.iter().all(|b| b.residuals.is_empty()))
             });
         if card.complete != residual_free {
-            return Err(invalid("resolution", "completeness disagrees with residuals"));
+            return Err(invalid(
+                "resolution",
+                "completeness disagrees with residuals",
+            ));
         }
         Ok(Self { card })
     }
@@ -95,10 +98,7 @@ impl Resolution {
                     RefEntry::Derived(d) => (&d.path, d.scope.as_deref(), None),
                     RefEntry::Evaluated(e) => (&e.path, e.scope.as_deref(), None),
                     RefEntry::Unresolved(u) => {
-                        return Err(unsupported(
-                            "resolution",
-                            format!("ref:{}", u.unresolved),
-                        ));
+                        return Err(unsupported("resolution", format!("ref:{}", u.unresolved)));
                     }
                 };
                 let leaves = || {
@@ -175,11 +175,17 @@ impl Resolution {
             .as_array()
             .ok_or_else(|| invalid("abilities", "expected blocks"))?;
         if printed.len() != blocks.len() {
-            return Err(unsupported("resolution", "resolution does not cover the AST blocks"));
+            return Err(unsupported(
+                "resolution",
+                "resolution does not cover the AST blocks",
+            ));
         }
         for (ability, block) in printed.iter().zip(blocks) {
             let mismatch = |what: &str, path: &str| {
-                unsupported("resolution", format!("{what} {path} does not cover the AST"))
+                unsupported(
+                    "resolution",
+                    format!("{what} {path} does not cover the AST"),
+                )
             };
             let mut seen = BTreeSet::new();
             for entry in &block.refs {
@@ -199,9 +205,11 @@ impl Resolution {
             }
             for entry in &block.steps {
                 let (path, effect, accounted) = match entry {
-                    StepEntry::Event(e) => {
-                        (&e.path, e.ast_effect.as_str(), e.event.as_str() == e.ast_effect.as_str())
-                    }
+                    StepEntry::Event(e) => (
+                        &e.path,
+                        e.ast_effect.as_str(),
+                        e.event.as_str() == e.ast_effect.as_str(),
+                    ),
                     StepEntry::Scope(s) => (&s.path, s.ast_effect.as_str(), true),
                     StepEntry::Unaccounted(u) => (&u.path, u.ast_effect.as_str(), false),
                 };
@@ -224,9 +232,9 @@ impl Resolution {
         let list: Vec<Box<RawValue>> = decode(raw, "abilities")?;
         let mut out = Vec::with_capacity(list.len());
         for (index, ability) in list.iter().enumerate() {
-            let block = blocks
-                .get(index)
-                .ok_or_else(|| unsupported("resolution", "resolution does not cover the AST blocks"))?;
+            let block = blocks.get(index).ok_or_else(|| {
+                unsupported("resolution", "resolution does not cover the AST blocks")
+            })?;
             out.push(canonical(ability.get(), "", block, noun)?);
         }
         Ok(format!("[{}]", out.join(",")))
@@ -245,7 +253,10 @@ impl Resolution {
         let certificate = match &*block.spans {
             BlockResolutionSpans::Certificate(c) => &c.certificate,
             BlockResolutionSpans::Unsupported(u) => {
-                return Err(unsupported("resolution", format!("spans:{}", u.unsupported)));
+                return Err(unsupported(
+                    "resolution",
+                    format!("spans:{}", u.unsupported),
+                ));
             }
         };
         let wrong = |why: &str| unsupported("resolution.spans", why.to_owned());
@@ -265,7 +276,9 @@ impl Resolution {
                 return Err(wrong("negative span offset"));
             };
             if start < cursor || end <= start || end > text.len() {
-                return Err(wrong("spans are unsorted, empty, overlapping or out of range"));
+                return Err(wrong(
+                    "spans are unsorted, empty, overlapping or out of range",
+                ));
             }
             let (Some(gap), Some(printed)) = (text.get(cursor..start), text.get(start..end)) else {
                 return Err(wrong("span offset splits a character"));
@@ -324,7 +337,9 @@ impl Resolution {
         }
         let effects = ability["effects"].as_array().map_or(0, Vec::len);
         if sentences != (0..effects).collect() {
-            return Err(wrong("a printed sentence and an AST sentence do not correspond"));
+            return Err(wrong(
+                "a printed sentence and an AST sentence do not correspond",
+            ));
         }
         Ok(())
     }
@@ -390,7 +405,12 @@ fn collect_steps(value: &Value, path: String, out: &mut BTreeMap<String, String>
 }
 
 /// Rewrite one block's JSON in its original field order.
-fn canonical(raw: &str, path: &str, block: &BlockResolution, noun: &str) -> Result<String, Failure> {
+fn canonical(
+    raw: &str,
+    path: &str,
+    block: &BlockResolution,
+    noun: &str,
+) -> Result<String, Failure> {
     #[derive(Default)]
     struct OrderedObject(Vec<(String, Box<RawValue>)>);
     impl<'de> Deserialize<'de> for OrderedObject {

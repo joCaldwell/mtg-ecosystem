@@ -300,7 +300,11 @@ fn permanent_bounce_rejects_extra_effects_and_nonordinary_program_contexts() {
                 }
             }
         });
-        let result = if near_miss { crate::tests::synthetic_compile(MANIFEST, &raw) } else { compile(MANIFEST, &raw) };
+        let result = if near_miss {
+            crate::tests::synthetic_compile(MANIFEST, &raw)
+        } else {
+            compile(MANIFEST, &raw)
+        };
         if near_miss {
             // The same instruction behind a tap cost is an ordinary activation.
             let d = tests::composed_near_miss(result);

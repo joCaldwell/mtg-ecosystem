@@ -9,6 +9,8 @@ pub use generated::*;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
+// Generated layout is the generator's; rustfmt leaves it alone.
+#[rustfmt::skip]
 mod generated;
 
 /// Decode one already-dispatched union member.

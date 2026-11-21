@@ -108,7 +108,6 @@ mod mana_tap_observer;
 mod modal_land;
 mod nonland_exile_life;
 mod normalization;
-mod resolution;
 mod opponent_count_entry;
 mod opponent_life_drain;
 mod opponent_mana;
@@ -130,6 +129,7 @@ mod power_entry_draw;
 mod power_filtered_removal;
 mod proliferate;
 mod repeated_target_modes;
+mod resolution;
 mod resolution_mana;
 mod restricted_mana;
 mod reveal_land_entry;
@@ -8081,8 +8081,7 @@ mod tests {
         r["sourceSha256"] = sha256(canonical(&r["source"]).unwrap().as_bytes()).into();
         r["bindingSha256"] = sha256(canonical(&r["binding"]).unwrap().as_bytes()).into();
         if r.get("resolution").is_some() {
-            r["resolutionSha256"] =
-                sha256(canonical(&r["resolution"]).unwrap().as_bytes()).into();
+            r["resolutionSha256"] = sha256(canonical(&r["resolution"]).unwrap().as_bytes()).into();
         }
         let abilities = serde_json::json!([r["faces"][0]["result"]["abilities"]]);
         r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();

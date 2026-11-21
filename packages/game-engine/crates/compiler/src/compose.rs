@@ -135,9 +135,11 @@ fn mirror_gap(sentence: &serde_json::Value, error: &serde_json::Error) -> Failur
     if !opaque(error) {
         return unsupported("compose.step", error.to_string());
     }
-    let step = sentence["steps"].as_array().into_iter().flatten().find(|step| {
-        serde_json::from_value::<Step>((*step).clone()).is_err()
-    });
+    let step = sentence["steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|step| serde_json::from_value::<Step>((*step).clone()).is_err());
     match step.and_then(|s| s["effect"].as_str()) {
         Some(effect) => unsupported(
             "compose.step",

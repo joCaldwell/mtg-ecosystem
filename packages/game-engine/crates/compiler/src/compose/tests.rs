@@ -221,7 +221,10 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     // Only the card-wide binding check fails: lowering still rejects it, and
     // the report names no block.
     let only_binding = changed(STRIP, unbound);
-    assert_eq!(lower(archive, &only_binding).unwrap_err().path, "resolution");
+    assert_eq!(
+        lower(archive, &only_binding).unwrap_err().path,
+        "resolution"
+    );
     assert_eq!(
         summary(&blockers(archive, &only_binding)),
         (Some("resolution".into()), None, None)
@@ -461,14 +464,17 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
     // A reference at a path the AST does not have, a "you" resolved to
     // another player's role, and a repeated reference path.
     assert!(composition_rejects(&changed(DRAGON, |row| {
-        row["resolution"]["faces"][0]["blocks"][1]["refs"][0]["path"] = json!("/effects/0/steps/0/absent/what");
+        row["resolution"]["faces"][0]["blocks"][1]["refs"][0]["path"] =
+            json!("/effects/0/steps/0/absent/what");
     })));
     assert!(composition_rejects(&changed(MARSH, |row| {
         let refs = &mut row["resolution"]["faces"][0]["blocks"][1]["refs"];
         refs[0]["ref"] = json!({"ref":"event-player","role":"enters"});
     })));
     assert!(composition_rejects(&changed(DRAGON, |row| {
-        let refs = row["resolution"]["faces"][0]["blocks"][1]["refs"].as_array_mut().unwrap();
+        let refs = row["resolution"]["faces"][0]["blocks"][1]["refs"]
+            .as_array_mut()
+            .unwrap();
         refs.push(refs[0].clone());
     })));
     // A printed clause the AST does not carry.
@@ -600,7 +606,11 @@ fn r4_resolution_mutations_reject() {
     // A dropped mid-sentence word: the certificate no longer tiles the text.
     let dropped = changed(STRIP, |row| {
         let drop = |text: &serde_json::Value| {
-            json!(text.as_str().unwrap().replace("Destroy target land", "Destroy land"))
+            json!(
+                text.as_str()
+                    .unwrap()
+                    .replace("Destroy target land", "Destroy land")
+            )
         };
         row["source"]["oracle_text"] = drop(&row["source"]["oracle_text"]);
         let line = &mut row["faces"][0]["result"]["lines"][1]["text"];
@@ -609,30 +619,41 @@ fn r4_resolution_mutations_reject() {
     assert!(lower(archive, &dropped).is_err());
     let dropped_block = changed(STRIP, |row| {
         let text = &mut row["faces"][0]["result"]["lines"][1]["text"];
-        *text = json!(text.as_str().unwrap().replace("Destroy target land", "Destroy land"));
+        *text = json!(
+            text.as_str()
+                .unwrap()
+                .replace("Destroy target land", "Destroy land")
+        );
     });
     assert!(lower(archive, &dropped_block).is_err());
     // A retargeted step entry or a dangling reference path.
     let retargeted = changed(STRIP, |row| {
-        row["resolution"]["faces"][0]["blocks"][1]["steps"][0]["path"] = json!("/effects/0/steps/1");
+        row["resolution"]["faces"][0]["blocks"][1]["steps"][0]["path"] =
+            json!("/effects/0/steps/1");
     });
     assert_eq!(path(&retargeted), "resolution");
     // A span shifted into a multi-byte character ("—" is three bytes).
     let read = |resolution: String| {
         let sha = crate::sha256(resolution.as_bytes());
-        resolution::Resolution::read(Some(&*RawValue::from_string(resolution).unwrap()), Some(&sha))
-            .unwrap()
+        resolution::Resolution::read(
+            Some(&*RawValue::from_string(resolution).unwrap()),
+            Some(&sha),
+        )
+        .unwrap()
     };
     let row: serde_json::Value = serde_json::from_str(SAGA).unwrap();
     let resolution = read(row["resolution"].to_string());
     let (text, ability) = (
-        row["faces"][0]["result"]["lines"][1]["text"].as_str().unwrap(),
+        row["faces"][0]["result"]["lines"][1]["text"]
+            .as_str()
+            .unwrap(),
         &row["faces"][0]["result"]["abilities"][1],
     );
     assert!(resolution.spans(1, text, ability).is_ok());
     let mut shifted = row["resolution"].clone();
     let dash = text.find('—').unwrap();
-    shifted["faces"][0]["blocks"][1]["spans"]["certificate"]["segments"][0]["end"] = json!(dash + 1);
+    shifted["faces"][0]["blocks"][1]["spans"]["certificate"]["segments"][0]["end"] =
+        json!(dash + 1);
     let shifted = read(shifted.to_string());
     assert!(shifted.spans(1, text, ability).is_err());
 }

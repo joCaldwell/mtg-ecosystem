@@ -14,7 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for face in record["faces"].as_array().into_iter().flatten() {
             if let Some(result) = face.get("result") {
                 faces += 1;
-                if let Err(e) = serde_json::from_value::<mtg_compiler::ast::ParseCardResult>(result.clone()) {
+                if let Err(e) =
+                    serde_json::from_value::<mtg_compiler::ast::ParseCardResult>(result.clone())
+                {
                     let entry = failures.entry(e.to_string()).or_insert((0, name.clone()));
                     entry.0 += 1;
                 }
@@ -22,13 +24,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if let Some(resolution) = record.get("resolution") {
             resolutions += 1;
-            if let Err(e) = serde_json::from_value::<mtg_compiler::ast::CardResolution>(resolution.clone()) {
-                let entry = failures.entry(format!("resolution: {e}")).or_insert((0, name.clone()));
+            if let Err(e) =
+                serde_json::from_value::<mtg_compiler::ast::CardResolution>(resolution.clone())
+            {
+                let entry = failures
+                    .entry(format!("resolution: {e}"))
+                    .or_insert((0, name.clone()));
                 entry.0 += 1;
             }
         }
     }
-    println!("faces {faces} resolutions {resolutions} distinct failures {}", failures.len());
+    println!(
+        "faces {faces} resolutions {resolutions} distinct failures {}",
+        failures.len()
+    );
     for (error, (count, example)) in &failures {
         println!("{count}\t{example}\t{error}");
     }
